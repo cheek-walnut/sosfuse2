@@ -1,0 +1,36 @@
+{
+ "schema": 1,
+ "note": "SPEC_V2 section 2 (results/gate_redesign_20261021/SPEC_V2.md). state = verbatim copy of results/quad2_deep_twilight_20261020/states.json (product state, eda G-F table). Grid = run_gpu_state_v3.settings_for(reduced) + settings below; L = run_gpu_state_v3.SH_L (a different code default is a config error, exit 2).",
+ "state": {
+  "id": "L19s3_tau0p01_aod0p4_g0p65",
+  "parameters": {"aod550": 0.4, "angstrom": 1.0, "ssa": 0.92, "scale_height_km": 1.2, "g": 0.65, "ozone_du": 300.0, "albedo": 0.0, "stratosphere_tau550": 0.01},
+  "group": "config_B_stratosphere",
+  "description": "bake_20261007 group A: layer gaussian 19 km sigma 3 km (default optics) tau550=0.01 x tropospheric aod550=0.4, HG g=0.65",
+  "stratosphere": {"status": "enabled", "profile": "gaussian", "center_km": 19.0, "sigma_km": 3.0, "g": 0.63, "ssa": 1.0},
+  "runnable": true,
+  "role": "dual",
+  "holdout": false,
+  "out_of_axis_range": ["stratosphere_tau550"],
+  "density": {"density_profile": "usstd76", "ozone_profile": "usstd76", "rayleigh_column": "usstd"},
+  "parameters_requested": {"aod550": 0.4, "angstrom": 1.0, "ssa": 0.92, "scale_height_km": 1.2, "g": 0.65, "ozone_du": 300.0, "albedo": 0.0, "stratosphere_tau550": 0.01},
+  "parameters_computed": {"aod550": 0.4, "angstrom": 1.0, "ssa": 0.92, "scale_height_km": 1.2, "g": 0.65, "ozone_du": 300.0, "albedo": 0.0, "stratosphere_tau550": 0.01},
+  "note_enable": "bake_20261007: base L19s3_tau0p01_aod0p15_g0p65 (results/purple_aod_axis_20261007/states/states_night.json); changed: id, description, note_enable, parameters*.aod550",
+  "q2d_override": "2026-10-20 user decision: albedo 0 for aerosol phase truncation experiment; other optics unchanged"
+ },
+ "settings": {"spectral_mode": "band", "wavelengths": 45, "wavelengths_nm": [365.875, 377.625, 389.375, 401.125, 412.875, 424.625, 436.375, 448.125, 459.875, 471.625, 483.375, 492.1875, 498.0625, 506.875, 515.6875, 521.5625, 527.4375, 533.3125, 542.125, 553.875, 562.6875, 568.5625, 577.375, 589.125, 600.875, 612.625, 624.375, 636.125, 644.9375, 650.8125, 659.625, 671.375, 683.125, 694.875, 706.625, 718.375, 730.125, 741.875, 753.625, 765.375, 777.125, 788.875, 800.625, 812.375, 824.125], "bin_edges_nm": [360.0, 371.75, 383.5, 395.25, 407.0, 418.75, 430.5, 442.25, 454.0, 465.75, 477.5, 489.25, 495.125, 501.0, 512.75, 518.625, 524.5, 530.375, 536.25, 548.0, 559.75, 565.625, 571.5, 583.25, 595.0, 606.75, 618.5, 630.25, 642.0, 647.875, 653.75, 665.5, 677.25, 689.0, 700.75, 712.5, 724.25, 736.0, 747.75, 759.5, 771.25, 783.0, 794.75, 806.5, 818.25, 830.0], "solar_elevation_deg": [-3.0, -6.0, -9.0, -12.0]},
+ "settings_note": "2026-10-28 user decision: the fixtures run the product spectral default band BM45 (45 wavelengths = 3 FW=15 chunks, sosfuse2/spectral.PRODUCT, results/spectra_1nm/REPORT.md 1-11); legacy bytes stay covered by test_spectral.py --runs",
+ "solve_parameters": {"aod550": 0.02},
+ "solve_parameters_note": "reduced solve (path 1) only. eda 2026-10-21 probe: the product AOD .4 does not converge on the reduced grid (8/15 within 0.005 after 64 evaluations, all 3 fixtures); AOD .15: C3 22 / S2 23 evaluations; AOD .02: C3 8 / S2 8 (production full grid: 6-7). Path 2 (fixed applies) and G-F use the product state unchanged.",
+ "L": 16,
+ "applies": 4,
+ "observer_solar_deg": [-3.0, -6.0, -9.0, -12.0],
+ "directions": {"elevation_deg": [0.5, 0.5, 0.5, 2, 2, 2, 10, 10, 10, 30, 30, 30, 89, 89, 89], "azimuth_deg": [0, 90, 180, 0, 90, 180, 0, 90, 180, 0, 90, 180, 0, 90, 180], "note": "L16 max differences sit at the horizon and anti-sun (results/l16check_20261021/REPORT.md)"},
+ "fixtures": {
+  "FX-C3": {"config": "C3", "stratosphere": true, "stage1": {"FMAD": 0, "FASTMATH": 0, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 0, "golden": "FX-C3"},
+  "FX-N": {"config": "C3_nostrato", "stratosphere": false, "stage1": {"FMAD": 0, "FASTMATH": 0, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 0, "golden": "FX-N"},
+  "FX-S2": {"config": "C3", "stratosphere": true, "stage1": {"FMAD": 1, "FASTMATH": 1, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 1, "golden": "FX-C3", "approximates": "FX-C3", "physics_blocking": false},
+  "FX-A": {"config": "C3", "stratosphere": true, "stage1": {"FMAD": 0, "FASTMATH": 0, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 0, "golden": null, "parameters": {"albedo": 0.3}, "note": "2026-10-25 user decision: product state with albedo 0.3. Main-ray endpoint columns enter only the boundary term (kernel.cu end_col x boundary x hits), so the albedo-0 fixtures are blind to column changes (results/r2_column_20261025/gate_b/REPORT.md). Byte regression (G-R) only, no NumPy golden."},
+  "FX-AP": {"config": "C3", "stratosphere": true, "stage1": {"FMAD": 0, "FASTMATH": 0, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 0, "golden": "FX-AP", "settings": {"ozone_temperature": "profile_mean"}, "note": "P2 (user 2026-10-31, docs/SPEC_sigma_Tz_Aprime_adoption.md §2.4): the A′ reference added next to the fixed-233 K fixtures, which stay as they are (their settings name spectral_mode, so the product default does not reach them). FX-C3 with the ozone treatment of the product default (settings {} = BM45 + profile_mean); NumPy golden + G-T pair FX-AP|golden + its own CUDA canonical (added, the four existing ones do not move)."}
+ },
+ "ratchet_pairs": [["FX-C3", "golden"], ["FX-N", "golden"], ["FX-S2", "golden"], ["FX-S2", "FX-C3"], ["FX-AP", "golden"]]
+}

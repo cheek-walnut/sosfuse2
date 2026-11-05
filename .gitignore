@@ -1,0 +1,26 @@
+# virtual environments and caches
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+# build output
+dist/
+build/
+*.egg-info/
+# machine-specific values and secrets (commit *.example only)
+*.local.*
+.env
+.env.*
+!.env.example
+# local work trees and scratch (never part of the package)
+.worktrees/
+scratchpad/
+# session tooling output
+.owner
+codex_output*
+codex_session*.log
+ESCALATION*.md

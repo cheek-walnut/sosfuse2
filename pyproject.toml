@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sosfuse2"
+version = "1.0.0"
+description = "Successive-orders-of-scattering twilight sky radiance tables (NumPy reference, optional CUDA via CuPy)"
+readme = "README.md"
+# PEP 639 expression for the whole distribution: code MIT; project data CC0; CIE colour tables via Mitsuba/colour-science
+# (BSD-3-Clause copies of CIE data that CIE publishes under CC BY-SA 4.0); details per file in THIRD_PARTY.md (2026-11-03 release review).
+license = "MIT AND CC0-1.0 AND BSD-3-Clause AND CC-BY-SA-4.0"
+# Both files land in the wheel's licence directory; the sdist always carries them (hatchling).
+license-files = ["LICENSE", "THIRD_PARTY.md"]
+# Measured floor: the production bakes run on Python 3.12.3 (eda) and the tests on 3.14 (Mac). 3.11 is a follow-up
+# (the accepted-source loader parses whole files, so older grammars need a check; sky-sos research records).
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0",
+  "pillow>=10",
+]
+
+[project.optional-dependencies]
+# CUDA path (gate --all/--gf, pipeline --backend cupy). cupy-cuda12x alone does not bring the CUDA libraries: NVRTC (kernel
+# compilation), the runtime and cuBLAS come from the nvidia-* wheels, as in the rig image and the eda venv (2026-11-03 clean room
+# on eda: cupy imported but `Failure finding "libnvrtc.so.13 or libnvrtc.so.12"` → E_GATE_WORKER without them).
+# The Anderson step solves a small Gram system with cupy.linalg.solve → cuSOLVER, which needs cuSPARSE and nvJitLink
+# (S4 eda run 2026-11-03 without them: `Failure finding "libnvJitLink.so.13 or libnvJitLink.so.12"` → E_GATE_SOLVE).
+gpu = [
+  "cupy-cuda12x>=13",
+  "nvidia-cuda-nvrtc-cu12>=12.8,<13",
+  "nvidia-cuda-runtime-cu12>=12.8,<13",
+  "nvidia-cublas-cu12>=12.8,<13",
+  "nvidia-cusolver-cu12>=11.7,<12",
+  "nvidia-cusparse-cu12>=12.5,<13",
+  "nvidia-nvjitlink-cu12>=12.8,<13",
+]
+test = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sosfuse2"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src/sosfuse2", "pyproject.toml", "docs", "CITATION.cff"]
+
+[tool.hatch.build]
+# VCS ignore files are not consulted, so a developer's local or global ignore rules (for instance *.npz for research outputs)
+# cannot drop tracked package data such as the gate baselines. Exclusions are explicit below.
+ignore-vcs = true
+# Everything under src/sosfuse2 ships as package data (assets, fixtures, accepted sources, native/sh_cpu.cpp, configs,
+# gate baselines, kernel.cu, docs) except bytecode caches and test scratch. The tests (test_*.py, testing.py) ship too:
+# the clean-room check installs the sdist outside the source tree and runs them from the installed package.
+exclude = [
+  "**/__pycache__",
+  "**/*.pyc",
+  "**/.DS_Store",
+  "**/.owner",      # session-ownership stamp written by the editing hooks (untracked)
+]
+
+[tool.pytest.ini_options]
+testpaths = ["src/sosfuse2"]
+addopts = "-p no:cacheprovider"
+
+[tool.ruff]
+# pre-commit passes file names; force-exclude keeps the excluded paths out anyway.
+force-exclude = true
+# accepted/ holds the byte-frozen approved solver sources plus engine.py, their loader (README "Layout"); docs/ holds records.
+# Neither is linted.
+extend-exclude = ["src/sosfuse2/accepted", "docs"]

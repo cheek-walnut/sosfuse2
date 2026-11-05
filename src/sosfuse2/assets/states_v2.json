@@ -1,0 +1,1601 @@
+{
+  "version": 2,
+  "parent": "states_v1.json",
+  "seed": 20261001,
+  "sampling": "scrambled Sobol continuation after index 32",
+  "axes": {
+    "aod550": [
+      0.02,
+      0.6,
+      "log"
+    ],
+    "angstrom": [
+      0.8,
+      2.0,
+      "linear"
+    ],
+    "ssa": [
+      0.85,
+      0.98,
+      "linear"
+    ],
+    "scale_height_km": [
+      1.0,
+      3.0,
+      "linear"
+    ],
+    "g": [
+      0.65,
+      0.8,
+      "linear"
+    ],
+    "ozone_du": [
+      220.0,
+      420.0,
+      "linear"
+    ],
+    "albedo": [
+      0.05,
+      0.8,
+      "linear"
+    ],
+    "stratosphere_tau550": [
+      0.002,
+      0.006,
+      "linear"
+    ]
+  },
+  "supported_physics": "polarized Rayleigh + depolarizing HG + ozone + Lambert; independent stratosphere unsupported",
+  "REPORT": {
+    "parent_sampling": "maximin Latin hypercube (256 candidates)",
+    "implementation": "bundled 30-bit LMS+digital-shift Sobol (PCG64); no SciPy bit-equivalence claim",
+    "first_32_match_v1": false,
+    "fast_forward_32": true,
+    "suffix_equals_base2": true,
+    "total_sobol_points": 96,
+    "base2_generated_points": 128,
+    "new_clear_states": 64,
+    "boundary_states": 0,
+    "scheduled_states": 64,
+    "quantize_height": "off",
+    "note": "v1 is maximin LHS; historical points cannot be a Sobol prefix. Skip Sobol points 1..32 as requested; do not replace v1."
+  },
+  "states": [
+    {
+      "id": "clear_33",
+      "parameters": {
+        "aod550": 0.04519520979895015,
+        "angstrom": 1.5548908069729805,
+        "ssa": 0.9780855043884367,
+        "scale_height_km": 1.0054753888398409,
+        "g": 0.7382643709890545,
+        "ozone_du": 234.69715852290392,
+        "albedo": 0.23989020236767827,
+        "stratosphere_tau550": 0.005227419529110194
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 33; new campaign sample 1",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_34",
+      "parameters": {
+        "aod550": 0.18337254589159704,
+        "angstrom": 1.3683032900094987,
+        "ssa": 0.8691209029965102,
+        "scale_height_km": 2.7862038277089596,
+        "g": 0.7055958860553802,
+        "ozone_du": 416.5821407735348,
+        "albedo": 0.6682608602102846,
+        "stratosphere_tau550": 0.003971404064446688
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 34; new campaign sample 2",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_35",
+      "parameters": {
+        "aod550": 0.38374254947570074,
+        "angstrom": 1.950768182054162,
+        "ssa": 0.9341341864038258,
+        "scale_height_km": 1.560469189658761,
+        "g": 0.6535764213185757,
+        "ozone_du": 321.7781674861908,
+        "albedo": 0.13629314880818127,
+        "stratosphere_tau550": 0.002158956043422222
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 35; new campaign sample 3",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_36",
+      "parameters": {
+        "aod550": 0.050527970211417826,
+        "angstrom": 1.0122693676501513,
+        "ssa": 0.9130648186430335,
+        "scale_height_km": 2.2786957062780857,
+        "g": 0.770913585787639,
+        "ozone_du": 303.71989373117685,
+        "albedo": 0.4679929341189563,
+        "stratosphere_tau550": 0.004914620555937291
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 36; new campaign sample 4",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_37",
+      "parameters": {
+        "aod550": 0.103067054932126,
+        "angstrom": 1.819333615899086,
+        "ssa": 0.8544800520408898,
+        "scale_height_km": 2.1158059649169445,
+        "g": 0.7968550181481988,
+        "ozone_du": 246.6308693215251,
+        "albedo": 0.18461970654316245,
+        "stratosphere_tau550": 0.002605184115469456
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 37; new campaign sample 5",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_38",
+      "parameters": {
+        "aod550": 0.3971953449690064,
+        "angstrom": 0.8059098318219186,
+        "ssa": 0.9562913600727916,
+        "scale_height_km": 1.834091605618596,
+        "g": 0.6798108928371221,
+        "ozone_du": 378.96483696997166,
+        "albedo": 0.6071392204146833,
+        "stratosphere_tau550": 0.004345590464770795
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 38; new campaign sample 6",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_39",
+      "parameters": {
+        "aod550": 0.15155260546570398,
+        "angstrom": 1.4609632391482592,
+        "ssa": 0.8912703699525446,
+        "scale_height_km": 2.57704596593976,
+        "g": 0.7121646866202355,
+        "ozone_du": 359.54844139516354,
+        "albedo": 0.37912694476544856,
+        "stratosphere_tau550": 0.0055327781327068806
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 39; new campaign sample 7",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_40",
+      "parameters": {
+        "aod550": 0.021079237652314974,
+        "angstrom": 1.1994367334991693,
+        "ssa": 0.9194925366155803,
+        "scale_height_km": 1.3578373435884714,
+        "g": 0.7451263559982181,
+        "ozone_du": 291.8285268172622,
+        "albedo": 0.7166771587915719,
+        "stratosphere_tau550": 0.003292753253132105
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 40; new campaign sample 8",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_41",
+      "parameters": {
+        "aod550": 0.02851009784081376,
+        "angstrom": 1.8808017563074828,
+        "ssa": 0.8847933719493448,
+        "scale_height_km": 1.9782266803085804,
+        "g": 0.6952231836505235,
+        "ozone_du": 309.52518105506897,
+        "albedo": 0.20600440301932393,
+        "stratosphere_tau550": 0.0029352455250918866
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 41; new campaign sample 9",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_42",
+      "parameters": {
+        "aod550": 0.11131560176392626,
+        "angstrom": 1.0936618562787772,
+        "ssa": 0.929777566595003,
+        "scale_height_km": 2.196523839607835,
+        "g": 0.728184203710407,
+        "ozone_du": 341.85176257044077,
+        "albedo": 0.5389767987187952,
+        "stratosphere_tau550": 0.00417958864197135
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 42; new campaign sample 10",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_43",
+      "parameters": {
+        "aod550": 0.5515073712082779,
+        "angstrom": 1.6385953642427922,
+        "ssa": 0.8647642797976732,
+        "scale_height_km": 1.4548519365489483,
+        "g": 0.7798390352632851,
+        "ozone_du": 396.6563417389989,
+        "albedo": 0.3564662320539355,
+        "stratosphere_tau550": 0.005991779163479805
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 43; new campaign sample 11",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_44",
+      "parameters": {
+        "aod550": 0.07372571145583683,
+        "angstrom": 1.3007117323577404,
+        "ssa": 0.9498140562418849,
+        "scale_height_km": 2.7356471735984087,
+        "g": 0.6627966947387904,
+        "ozone_du": 228.9393399655819,
+        "albedo": 0.7861270408146084,
+        "stratosphere_tau550": 0.003247817516326904
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 44; new campaign sample 12",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_45",
+      "parameters": {
+        "aod550": 0.06844648060467041,
+        "angstrom": 1.5449463840574027,
+        "ssa": 0.9395902319997549,
+        "scale_height_km": 2.901103029027581,
+        "g": 0.6694387380499393,
+        "ozone_du": 271.80068872869015,
+        "albedo": 0.3081355881411582,
+        "stratosphere_tau550": 0.005311419606208801
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 45; new campaign sample 13",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_46",
+      "parameters": {
+        "aod550": 0.2813638945055197,
+        "angstrom": 1.1321525167673827,
+        "ssa": 0.9037985172215849,
+        "scale_height_km": 1.1818353272974491,
+        "g": 0.7867742630187422,
+        "ozone_du": 353.69734939187765,
+        "albedo": 0.6469763051252813,
+        "stratosphere_tau550": 0.0035514673739671706
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 46; new campaign sample 14",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_47",
+      "parameters": {
+        "aod550": 0.2550644505731868,
+        "angstrom": 1.7496640972793103,
+        "ssa": 0.9688195010460913,
+        "scale_height_km": 2.4089744854718447,
+        "g": 0.7540523933246732,
+        "ozone_du": 384.67075627297163,
+        "albedo": 0.06676030270755291,
+        "stratosphere_tau550": 0.0023640184067189695
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 47; new campaign sample 15",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_48",
+      "parameters": {
+        "aod550": 0.03227859636020204,
+        "angstrom": 0.8875913597643376,
+        "ssa": 0.8745777430664747,
+        "scale_height_km": 1.6272125206887722,
+        "g": 0.7213844124227763,
+        "ozone_du": 266.6085199266672,
+        "albedo": 0.49055350543931125,
+        "stratosphere_tau550": 0.0046236196868121625
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 48; new campaign sample 16",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_49",
+      "parameters": {
+        "aod550": 0.03506930487710833,
+        "angstrom": 1.700292521715164,
+        "ssa": 0.925329325357452,
+        "scale_height_km": 2.550219202414155,
+        "g": 0.766195707814768,
+        "ozone_du": 349.71020229160786,
+        "albedo": 0.6966765436343849,
+        "stratosphere_tau550": 0.0024482193402945995
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 49; new campaign sample 17",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_50",
+      "parameters": {
+        "aod550": 0.21249602103626816,
+        "angstrom": 0.9135262712836266,
+        "ssa": 0.8895038874447345,
+        "scale_height_km": 1.2694297321140766,
+        "g": 0.6582393324468285,
+        "ozone_du": 282.03782986849546,
+        "albedo": 0.2825881039723754,
+        "stratosphere_tau550": 0.004688160296529532
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 50; new campaign sample 18",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_51",
+      "parameters": {
+        "aod550": 0.28992763386091847,
+        "angstrom": 1.4960144270211457,
+        "ssa": 0.9544832256715745,
+        "scale_height_km": 2.0108503717929125,
+        "g": 0.7009569002315402,
+        "ozone_du": 262.6213851198554,
+        "albedo": 0.4282933761831373,
+        "stratosphere_tau550": 0.00537585435807705
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 51; new campaign sample 19",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_52",
+      "parameters": {
+        "aod550": 0.06012336279554025,
+        "angstrom": 1.1576484266668559,
+        "ssa": 0.860342632252723,
+        "scale_height_km": 1.792562823742628,
+        "g": 0.742994873225689,
+        "ozone_du": 394.9079089611769,
+        "albedo": 0.10501645081676543,
+        "stratosphere_tau550": 0.0036352877914905546
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 52; new campaign sample 20",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_53",
+      "parameters": {
+        "aod550": 0.08447375688377069,
+        "angstrom": 1.664584492146969,
+        "ssa": 0.8991306500416248,
+        "scale_height_km": 1.5628744401037693,
+        "g": 0.749783402029425,
+        "ozone_du": 337.86766424775124,
+        "albedo": 0.5703006868250668,
+        "stratosphere_tau550": 0.0058219596445560455
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 53; new campaign sample 21",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_54",
+      "parameters": {
+        "aod550": 0.5388971613355791,
+        "angstrom": 1.251284223794937,
+        "ssa": 0.9440136777050793,
+        "scale_height_km": 2.3446498308330774,
+        "g": 0.7074526737444103,
+        "ozone_du": 319.759273417294,
+        "albedo": 0.15034465231001376,
+        "stratosphere_tau550": 0.0030663790553808216
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 54; new campaign sample 22",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_55",
+      "parameters": {
+        "aod550": 0.13453350600363528,
+        "angstrom": 1.9063510242849588,
+        "ssa": 0.8790261697862297,
+        "scale_height_km": 1.117259468883276,
+        "g": 0.6845469740685076,
+        "ozone_du": 224.95525393635035,
+        "albedo": 0.7420944887679071,
+        "stratosphere_tau550": 0.0027534570656716825
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 55; new campaign sample 23",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_56",
+      "parameters": {
+        "aod550": 0.02641080858464169,
+        "angstrom": 1.0446736801415681,
+        "ssa": 0.96410966694355,
+        "scale_height_km": 2.8365291226655245,
+        "g": 0.7922104533296079,
+        "ozone_du": 406.89044564962387,
+        "albedo": 0.424685873510316,
+        "stratosphere_tau550": 0.004009632747620344
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 56; new campaign sample 24",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_57",
+      "parameters": {
+        "aod550": 0.023997358612032643,
+        "angstrom": 1.4355737056583167,
+        "ssa": 0.8728074249997735,
+        "scale_height_km": 2.468031879514456,
+        "g": 0.6674400123301893,
+        "ozone_du": 374.97774984687567,
+        "albedo": 0.5460835832171143,
+        "stratosphere_tau550": 0.005655928257852792
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 57; new campaign sample 25",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_58",
+      "parameters": {
+        "aod550": 0.14707541126814652,
+        "angstrom": 1.2482646387070417,
+        "ssa": 0.9746445196587592,
+        "scale_height_km": 1.749795751646161,
+        "g": 0.7751041297335178,
+        "ozone_du": 256.8679743260145,
+        "albedo": 0.2215340306982398,
+        "stratosphere_tau550": 0.0033964719362556935
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 58; new campaign sample 26",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_59",
+      "parameters": {
+        "aod550": 0.4767614653977452,
+        "angstrom": 1.7932120762765407,
+        "ssa": 0.9096651809476316,
+        "scale_height_km": 2.9757815934717655,
+        "g": 0.7328974012285472,
+        "ozone_du": 287.8414274007082,
+        "albedo": 0.7675990527030081,
+        "stratosphere_tau550": 0.0027085508927702905
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 59; new campaign sample 27",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_60",
+      "parameters": {
+        "aod550": 0.09486545114087006,
+        "angstrom": 0.8554702885448933,
+        "ssa": 0.9377941156830638,
+        "scale_height_km": 1.1950473878532648,
+        "g": 0.6905648814514279,
+        "ozone_du": 369.78553485125303,
+        "albedo": 0.3522204788867384,
+        "stratosphere_tau550": 0.004468602307140827
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 60; new campaign sample 28",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_61",
+      "parameters": {
+        "aod550": 0.05454414470044193,
+        "angstrom": 1.9995767753571272,
+        "ssa": 0.9596896964870393,
+        "scale_height_km": 1.4182634074240923,
+        "g": 0.7166527970694005,
+        "ozone_du": 412.59810242801905,
+        "albedo": 0.6255872954614461,
+        "stratosphere_tau550": 0.002028314121067524
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 61; new campaign sample 29",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_62",
+      "parameters": {
+        "aod550": 0.31751750241949495,
+        "angstrom": 0.9868974294513464,
+        "ssa": 0.8508183255698532,
+        "scale_height_km": 2.6374700777232647,
+        "g": 0.7586924207396806,
+        "ozone_du": 244.93121474981308,
+        "albedo": 0.30688818283379077,
+        "stratosphere_tau550": 0.00477213080972433
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 62; new campaign sample 30",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_63",
+      "parameters": {
+        "aod550": 0.18766437256968627,
+        "angstrom": 1.6044316656887532,
+        "ssa": 0.9158058281615377,
+        "scale_height_km": 1.8947669807821512,
+        "g": 0.7821123845409602,
+        "ozone_du": 299.73584309220314,
+        "albedo": 0.5006586405914277,
+        "stratosphere_tau550": 0.00508482201769948
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 63; new campaign sample 31",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_64",
+      "parameters": {
+        "aod550": 0.039444720877179346,
+        "angstrom": 1.3421984873712063,
+        "ssa": 0.894710672320798,
+        "scale_height_km": 2.176467914134264,
+        "g": 0.6741555118467659,
+        "ozone_du": 332.01221216470003,
+        "albedo": 0.0794289116282016,
+        "stratosphere_tau550": 0.0038403797186911106
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 64; new campaign sample 32",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_65",
+      "parameters": {
+        "aod550": 0.03821015259049647,
+        "angstrom": 1.4730787426233292,
+        "ssa": 0.9230061301216483,
+        "scale_height_km": 1.7307389359921217,
+        "g": 0.7049243440385908,
+        "ozone_du": 401.57230019569397,
+        "albedo": 0.17098627560772,
+        "stratosphere_tau550": 0.0036766669228672985
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 65; new campaign sample 33",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_66",
+      "parameters": {
+        "aod550": 0.19431686183065616,
+        "angstrom": 1.2107587411999703,
+        "ssa": 0.8938494198489934,
+        "scale_height_km": 2.450008764863014,
+        "g": 0.7378853652160615,
+        "ozone_du": 220.80073717981577,
+        "albedo": 0.5966084291692824,
+        "stratosphere_tau550": 0.005436276338994503
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 66; new campaign sample 34",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_67",
+      "parameters": {
+        "aod550": 0.3332740971787863,
+        "angstrom": 1.8307237047702074,
+        "ssa": 0.9588369267992675,
+        "scale_height_km": 1.2072378154844046,
+        "g": 0.7701287285424769,
+        "ozone_du": 314.4358827546239,
+        "albedo": 0.3925819193944335,
+        "stratosphere_tau550": 0.004748832125216722
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 67; new campaign sample 35",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_68",
+      "parameters": {
+        "aod550": 0.05215587609696693,
+        "angstrom": 0.8179572317749262,
+        "ssa": 0.8580271103139967,
+        "scale_height_km": 2.9890133813023567,
+        "g": 0.6530863869003952,
+        "ozone_du": 333.7183926999569,
+        "albedo": 0.7273978504352272,
+        "stratosphere_tau550": 0.0024888717569410803
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 68; new campaign sample 36",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_69",
+      "parameters": {
+        "aod550": 0.09661799711226278,
+        "angstrom": 1.9620831802487373,
+        "ssa": 0.9125496403686701,
+        "scale_height_km": 2.655549317598343,
+        "g": 0.6791467657312751,
+        "ozone_du": 389.28726099431515,
+        "albedo": 0.2504098792094737,
+        "stratosphere_tau550": 0.0040544353164732455
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 69; new campaign sample 37",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_70",
+      "parameters": {
+        "aod550": 0.4666944650673088,
+        "angstrom": 1.024391880631447,
+        "ssa": 0.9326170206721872,
+        "scale_height_km": 1.4372619520872831,
+        "g": 0.796482289582491,
+        "ozone_du": 258.96468337625265,
+        "albedo": 0.681905360845849,
+        "stratosphere_tau550": 0.002810466546565294
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 70; new campaign sample 38",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_71",
+      "parameters": {
+        "aod550": 0.1458499725312505,
+        "angstrom": 1.566945216432214,
+        "ssa": 0.8676376853510738,
+        "scale_height_km": 2.163302056491375,
+        "g": 0.7443535298574716,
+        "ozone_du": 276.42490666359663,
+        "albedo": 0.12558428682386874,
+        "stratosphere_tau550": 0.003122650407254696
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 71; new campaign sample 39",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_72",
+      "parameters": {
+        "aod550": 0.02411060797038411,
+        "angstrom": 1.3796863693743946,
+        "ssa": 0.9775363344419747,
+        "scale_height_km": 1.8825127687305212,
+        "g": 0.7116855500731618,
+        "ozone_du": 346.0457757860422,
+        "albedo": 0.4545261745341122,
+        "stratosphere_tau550": 0.0058670006468892096
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 72; new campaign sample 40",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_73",
+      "parameters": {
+        "aod550": 0.027252911684380425,
+        "angstrom": 1.7377591606229543,
+        "ssa": 0.87817352601327,
+        "scale_height_km": 1.2504034861922264,
+        "g": 0.7286295860540122,
+        "ozone_du": 326.4024807885289,
+        "albedo": 0.321419063443318,
+        "stratosphere_tau550": 0.004470434278249741
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 73; new campaign sample 41",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_74",
+      "parameters": {
+        "aod550": 0.1298733616389083,
+        "angstrom": 0.8760587763041259,
+        "ssa": 0.9713185776025056,
+        "scale_height_km": 2.5321047212928534,
+        "g": 0.6959611000027508,
+        "ozone_du": 296.0682247579098,
+        "albedo": 0.6578684513922781,
+        "stratosphere_tau550": 0.0027304022759199143
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 74; new campaign sample 42",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_75",
+      "parameters": {
+        "aod550": 0.5136306233432988,
+        "angstrom": 1.533492212742567,
+        "ssa": 0.9063310740422458,
+        "scale_height_km": 1.804783582687378,
+        "g": 0.6632020420394839,
+        "ozone_du": 239.3135678768158,
+        "albedo": 0.05293287541717291,
+        "stratosphere_tau550": 0.003417589005082846
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 75; new campaign sample 43",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_76",
+      "parameters": {
+        "aod550": 0.0883788654053861,
+        "angstrom": 1.1201692081987857,
+        "ssa": 0.9431525472737848,
+        "scale_height_km": 2.0239905547350645,
+        "g": 0.7805392076261342,
+        "ozone_du": 408.93839959055185,
+        "albedo": 0.4802167552523315,
+        "stratosphere_tau550": 0.005658002477139235
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 76; new campaign sample 44",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_77",
+      "parameters": {
+        "aod550": 0.05905711309128669,
+        "angstrom": 1.6270514797419309,
+        "ssa": 0.9493136080633848,
+        "scale_height_km": 2.362698620185256,
+        "g": 0.7872270982712508,
+        "ozone_du": 364.4592384621501,
+        "albedo": 0.1951004270929843,
+        "stratosphere_tau550": 0.0038466045670211314
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 77; new campaign sample 45",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_78",
+      "parameters": {
+        "aod550": 0.2963055787352177,
+        "angstrom": 1.288818096742034,
+        "ssa": 0.8632345690764487,
+        "scale_height_km": 1.5819647088646889,
+        "g": 0.6701829740777612,
+        "ozone_du": 283.69506157934666,
+        "albedo": 0.5257051083724946,
+        "stratosphere_tau550": 0.0051022772155702115
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 78; new campaign sample 46",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_79",
+      "parameters": {
+        "aod550": 0.2141931699417603,
+        "angstrom": 1.8688297487795353,
+        "ssa": 0.9282139106933027,
+        "scale_height_km": 2.8233325760811567,
+        "g": 0.7218017528299243,
+        "ozone_du": 251.54673241078854,
+        "albedo": 0.36681409664452075,
+        "stratosphere_tau550": 0.004789832040667534
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 79; new campaign sample 47",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_80",
+      "parameters": {
+        "aod550": 0.03488997965716504,
+        "angstrom": 1.0821963839232922,
+        "ssa": 0.8843269183486699,
+        "scale_height_km": 1.1050967425107956,
+        "g": 0.7547634210903198,
+        "ozone_du": 370.8263295516372,
+        "albedo": 0.7999433984048665,
+        "stratosphere_tau550": 0.0020338084399700164
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 80; new campaign sample 48",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_81",
+      "parameters": {
+        "aod550": 0.03385853804877687,
+        "angstrom": 1.9183339104056358,
+        "ssa": 0.967640981990844,
+        "scale_height_km": 2.213566502556205,
+        "g": 0.6578029461205006,
+        "ozone_du": 292.36666586250067,
+        "albedo": 0.5806439246051014,
+        "stratosphere_tau550": 0.004897409498691559
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 81; new campaign sample 49",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_82",
+      "parameters": {
+        "aod550": 0.24383846049084681,
+        "angstrom": 1.0561282694339753,
+        "ssa": 0.8815877315681427,
+        "scale_height_km": 1.9943576976656914,
+        "g": 0.7654670646414161,
+        "ozone_du": 362.0376520603895,
+        "albedo": 0.16417703609913586,
+        "stratosphere_tau550": 0.002152975335717201
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 82; new campaign sample 50",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_83",
+      "parameters": {
+        "aod550": 0.27271940594544797,
+        "angstrom": 1.676116353645921,
+        "ssa": 0.9466087187826633,
+        "scale_height_km": 2.7214425932615995,
+        "g": 0.7425253211054952,
+        "ozone_du": 379.4979215413332,
+        "albedo": 0.7312087295111269,
+        "stratosphere_tau550": 0.003965665604919195
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 83; new campaign sample 51",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_84",
+      "parameters": {
+        "aod550": 0.07088593543604248,
+        "angstrom": 1.2631898868829012,
+        "ssa": 0.902628496447578,
+        "scale_height_km": 1.4397280514240265,
+        "g": 0.7001928002107889,
+        "ozone_du": 249.12513446062803,
+        "albedo": 0.4114074552897364,
+        "stratosphere_tau550": 0.00520947415754199
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 84; new campaign sample 52",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_85",
+      "parameters": {
+        "aod550": 0.07312826497282066,
+        "angstrom": 1.5074806034564974,
+        "ssa": 0.8597777152061462,
+        "scale_height_km": 1.1657702401280403,
+        "g": 0.7070271763484925,
+        "ozone_du": 304.74287781864405,
+        "albedo": 0.6828552183695138,
+        "stratosphere_tau550": 0.003271146010607481
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 85; new campaign sample 53",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_86",
+      "parameters": {
+        "aod550": 0.5544714495579904,
+        "angstrom": 1.1696197256445884,
+        "ssa": 0.9530159992072731,
+        "scale_height_km": 2.883996581658721,
+        "g": 0.7490667989011854,
+        "ozone_du": 323.9778456091881,
+        "albedo": 0.2722337629646063,
+        "stratosphere_tau550": 0.005531190302222967
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 86; new campaign sample 54",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_87",
+      "parameters": {
+        "aod550": 0.11335182434176554,
+        "angstrom": 1.712186597660184,
+        "ssa": 0.8880027167685329,
+        "scale_height_km": 1.6423925310373306,
+        "g": 0.7917471694760025,
+        "ozone_du": 417.61304035782814,
+        "albedo": 0.4415600206237286,
+        "stratosphere_tau550": 0.0043432721048593526
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 87; new campaign sample 55",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_88",
+      "parameters": {
+        "aod550": 0.027891354387487525,
+        "angstrom": 0.9250697199255229,
+        "ssa": 0.9247984038572759,
+        "scale_height_km": 2.4231207948178053,
+        "g": 0.6837902978993953,
+        "ozone_du": 236.88892114907503,
+        "albedo": 0.11591402855701745,
+        "stratosphere_tau550": 0.0025838229060173037
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 88; new campaign sample 56",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_89",
+      "parameters": {
+        "aod550": 0.020087340217236703,
+        "angstrom": 1.5923846881836652,
+        "ssa": 0.8982887346949429,
+        "scale_height_km": 2.803337976336479,
+        "g": 0.7758945712819696,
+        "ozone_du": 267.63622768223286,
+        "albedo": 0.6148730020038784,
+        "stratosphere_tau550": 0.0031910521760582927
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 89; new campaign sample 57",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_90",
+      "parameters": {
+        "aod550": 0.15846356107531215,
+        "angstrom": 1.3308079805225135,
+        "ssa": 0.9183223938010633,
+        "scale_height_km": 1.0215757172554731,
+        "g": 0.667938194796443,
+        "ozone_du": 386.86571072787046,
+        "albedo": 0.2934382541105151,
+        "stratosphere_tau550": 0.005947220735251904
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 90; new campaign sample 58",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_91",
+      "parameters": {
+        "aod550": 0.40995423614013793,
+        "angstrom": 1.9882554896175861,
+        "ssa": 0.8533014070708305,
+        "scale_height_km": 2.2645828500390053,
+        "g": 0.6912488725502044,
+        "ozone_du": 354.7173323854804,
+        "albedo": 0.5111959082540125,
+        "stratosphere_tau550": 0.004134303499013186
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 91; new campaign sample 59",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_92",
+      "parameters": {
+        "aod550": 0.09956177610313231,
+        "angstrom": 0.9747811995446682,
+        "ssa": 0.9633012226596475,
+        "scale_height_km": 1.5453148540109396,
+        "g": 0.7332868466619402,
+        "ozone_du": 274.0033679455519,
+        "albedo": 0.09306731023825705,
+        "stratosphere_tau550": 0.002878730032593012
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 92; new campaign sample 60",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_93",
+      "parameters": {
+        "aod550": 0.050961764769463194,
+        "angstrom": 1.7818282928317786,
+        "ssa": 0.9373434053082019,
+        "scale_height_km": 1.817934913560748,
+        "g": 0.7594937087502331,
+        "ozone_du": 229.47533026337624,
+        "albedo": 0.5595452857203782,
+        "stratosphere_tau550": 0.004563441846519708
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 93; new campaign sample 61",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_94",
+      "parameters": {
+        "aod550": 0.3818508930342451,
+        "angstrom": 0.8434165876358748,
+        "ssa": 0.9080855299904942,
+        "scale_height_km": 2.0987298488616943,
+        "g": 0.7171629815828056,
+        "ozone_du": 399.147701151669,
+        "albedo": 0.2322365056723356,
+        "stratosphere_tau550": 0.002322883415967226
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 94; new campaign sample 62",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_95",
+      "parameters": {
+        "aod550": 0.18000432281078652,
+        "angstrom": 1.4234507523477078,
+        "ssa": 0.9730988177563995,
+        "scale_height_km": 1.3729259874671698,
+        "g": 0.6748458136804402,
+        "ozone_du": 342.39299807697535,
+        "albedo": 0.7539495955687017,
+        "stratosphere_tau550": 0.0035105708166956904
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 95; new campaign sample 63",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_96",
+      "parameters": {
+        "aod550": 0.04617849654405263,
+        "angstrom": 1.2369500763714314,
+        "ssa": 0.8723227239213883,
+        "scale_height_km": 2.59122284501791,
+        "g": 0.7825092918239535,
+        "ozone_du": 312.01129525899887,
+        "albedo": 0.3416943144518882,
+        "stratosphere_tau550": 0.00525050363689661
+      },
+      "group": "clear_background",
+      "description": "scrambled Sobol stream point 96; new campaign sample 64",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    }
+  ]
+}

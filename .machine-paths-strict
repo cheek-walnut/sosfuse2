@@ -1,0 +1,1 @@
+# check-machine-paths blocks the commit on any machine-specific path, address or account identifier in this repository

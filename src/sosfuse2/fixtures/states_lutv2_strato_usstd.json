@@ -1,0 +1,1077 @@
+{
+ "version": "usstd76-lutv2-strato-1",
+ "derived_from": "configB + dual strato + v1 normal templates (orchestrator 2026-10-03)",
+ "decision": "user 2026-10-02 06:20: production profile = US Standard 1976 (density_profile=usstd76, ozone_profile=usstd76, rayleigh_column=usstd); stratosphere off; all other numerics unchanged. docs/REPRODUCTION_USSTD.md | exception: these 6 dual test states enable the stratospheric layer (opt-in). | config B (22 km, sigma 5) overnight states, orchestrator 2026-10-02 23:2x KST",
+ "physics": "polarized Rayleigh (US Standard 1976 density shape, column tau550 0.0993) + depolarizing HG + ozone (usstd76 shape, state ozone_du preserved) + Lambert; stratospheric gaussian layer ENABLED for these dual test states (center 22 km, sigma 5 km, g 0.63, ssa 1.0)",
+ "density": {
+  "density_profile": "usstd76",
+  "ozone_profile": "usstd76",
+  "rayleigh_column": "usstd"
+ },
+ "states": [
+  {
+   "id": "dual_st0p01_aod0p15",
+   "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "group": "dual_stratosphere",
+   "description": "stratosphere tau550=0.01 x tropospheric aod550=0.15, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "parameters_computed": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+  },
+  {
+   "id": "B22s5_tau0p01_aod0p15",
+   "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "group": "config_B_stratosphere",
+   "description": "config B stratosphere (gaussian 22 km sigma 5 km, g 0.63, ssa 1.0) tau550=0.01 x tropospheric aod550=0.15, other axes normal (dual template dual_st0p01_aod0p15)",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 22.0,
+    "sigma_km": 5.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "parameters_computed": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "note_enable": "config B overnight queue (orchestrator 2026-10-02 23:2x KST, user approved lut16384 precision track); isolated rig copy only"
+  },
+  {
+   "id": "B22s5_tau0p005_aod0p15",
+   "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.005
+   },
+   "group": "config_B_stratosphere",
+   "description": "config B stratosphere (gaussian 22 km sigma 5 km, g 0.63, ssa 1.0) tau550=0.005 x tropospheric aod550=0.15, other axes normal (dual template dual_st0p01_aod0p15)",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 22.0,
+    "sigma_km": 5.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.005
+   },
+   "parameters_computed": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.005
+   },
+   "note_enable": "config B overnight queue (orchestrator 2026-10-02 23:2x KST, user approved lut16384 precision track); isolated rig copy only"
+  },
+  {
+   "id": "B22s5_tau0p02_aod0p15",
+   "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.02
+   },
+   "group": "config_B_stratosphere",
+   "description": "config B stratosphere (gaussian 22 km sigma 5 km, g 0.63, ssa 1.0) tau550=0.02 x tropospheric aod550=0.15, other axes normal (dual template dual_st0p01_aod0p15)",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 22.0,
+    "sigma_km": 5.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.02
+   },
+   "parameters_computed": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.02
+   },
+   "note_enable": "config B overnight queue (orchestrator 2026-10-02 23:2x KST, user approved lut16384 precision track); isolated rig copy only"
+  },
+  {
+   "id": "B22s5_tau0p03_aod0p15",
+   "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.03
+   },
+   "group": "config_B_stratosphere",
+   "description": "config B stratosphere (gaussian 22 km sigma 5 km, g 0.63, ssa 1.0) tau550=0.03 x tropospheric aod550=0.15, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 22.0,
+    "sigma_km": 5.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.03
+   },
+   "parameters_computed": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.03
+   },
+   "note_enable": "config B overnight queue (orchestrator 2026-10-02 23:2x KST, user approved lut16384 precision track); isolated rig copy only"
+  },
+  {
+   "id": "B22s5_tau0p05_aod0p15",
+   "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.05
+   },
+   "group": "config_B_stratosphere",
+   "description": "config B stratosphere (gaussian 22 km sigma 5 km, g 0.63, ssa 1.0) tau550=0.05 x tropospheric aod550=0.15, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 22.0,
+    "sigma_km": 5.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.05
+   },
+   "parameters_computed": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.05
+   },
+   "note_enable": "config B overnight queue (orchestrator 2026-10-02 23:2x KST, user approved lut16384 precision track); isolated rig copy only"
+  },
+  {
+   "id": "B22s5_tau0p01_aod0p05",
+   "parameters": {
+    "aod550": 0.05,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "group": "config_B_stratosphere",
+   "description": "config B stratosphere (gaussian 22 km sigma 5 km, g 0.63, ssa 1.0) tau550=0.01 x tropospheric aod550=0.05, other axes normal (dual template dual_st0p01_aod0p15)",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 22.0,
+    "sigma_km": 5.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.05,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "parameters_computed": {
+    "aod550": 0.05,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "note_enable": "config B overnight queue (orchestrator 2026-10-02 23:2x KST, user approved lut16384 precision track); isolated rig copy only"
+  },
+  {
+   "id": "B22s5_tau0p01_aod0p1",
+   "parameters": {
+    "aod550": 0.1,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "group": "config_B_stratosphere",
+   "description": "config B stratosphere (gaussian 22 km sigma 5 km, g 0.63, ssa 1.0) tau550=0.01 x tropospheric aod550=0.1, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 22.0,
+    "sigma_km": 5.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.1,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "parameters_computed": {
+    "aod550": 0.1,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "note_enable": "config B overnight queue (orchestrator 2026-10-02 23:2x KST, user approved lut16384 precision track); isolated rig copy only"
+  },
+  {
+   "id": "B22s5_tau0p01_aod0p2",
+   "parameters": {
+    "aod550": 0.2,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "group": "config_B_stratosphere",
+   "description": "config B stratosphere (gaussian 22 km sigma 5 km, g 0.63, ssa 1.0) tau550=0.01 x tropospheric aod550=0.2, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 22.0,
+    "sigma_km": 5.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.2,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "parameters_computed": {
+    "aod550": 0.2,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "note_enable": "config B overnight queue (orchestrator 2026-10-02 23:2x KST, user approved lut16384 precision track); isolated rig copy only"
+  },
+  {
+   "id": "B22s5_tau0p01_aod0p4",
+   "parameters": {
+    "aod550": 0.4,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "group": "config_B_stratosphere",
+   "description": "config B stratosphere (gaussian 22 km sigma 5 km, g 0.63, ssa 1.0) tau550=0.01 x tropospheric aod550=0.4, other axes normal (dual template dual_st0p01_aod0p15)",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 22.0,
+    "sigma_km": 5.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.4,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "parameters_computed": {
+    "aod550": 0.4,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "note_enable": "config B overnight queue (orchestrator 2026-10-02 23:2x KST, user approved lut16384 precision track); isolated rig copy only"
+  },
+  {
+   "id": "dual_st0p003_aod0p02",
+   "parameters": {
+    "aod550": 0.02,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.003
+   },
+   "group": "dual_stratosphere",
+   "description": "stratosphere tau550=0.003 x tropospheric aod550=0.02, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.02,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.003
+   },
+   "parameters_computed": {
+    "aod550": 0.02,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.003
+   },
+   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+  },
+  {
+   "id": "dual_st0p003_aod0p15",
+   "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.003
+   },
+   "group": "dual_stratosphere",
+   "description": "stratosphere tau550=0.003 x tropospheric aod550=0.15, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.003
+   },
+   "parameters_computed": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.003
+   },
+   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+  },
+  {
+   "id": "dual_st0p01_aod0p02",
+   "parameters": {
+    "aod550": 0.02,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "group": "dual_stratosphere",
+   "description": "stratosphere tau550=0.01 x tropospheric aod550=0.02, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.02,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "parameters_computed": {
+    "aod550": 0.02,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.01
+   },
+   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+  },
+  {
+   "id": "dual_st0p03_aod0p02",
+   "parameters": {
+    "aod550": 0.02,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.03
+   },
+   "group": "dual_stratosphere",
+   "description": "stratosphere tau550=0.03 x tropospheric aod550=0.02, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.02,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.03
+   },
+   "parameters_computed": {
+    "aod550": 0.02,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.03
+   },
+   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+  },
+  {
+   "id": "dual_st0p03_aod0p15",
+   "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.03
+   },
+   "group": "dual_stratosphere",
+   "description": "stratosphere tau550=0.03 x tropospheric aod550=0.15, other axes normal",
+   "stratosphere": {
+    "status": "enabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "role": "dual",
+   "holdout": false,
+   "out_of_axis_range": [
+    "stratosphere_tau550"
+   ],
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.03
+   },
+   "parameters_computed": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.03
+   },
+   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+  },
+  {
+   "id": "off_aod0p05",
+   "parameters": {
+    "aod550": 0.05,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "group": "strato_off_reference",
+   "description": "stratosphere-off reference for the config B increment, tropospheric aod550=0.05, other axes normal",
+   "stratosphere": {
+    "status": "disabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.05,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "parameters_computed": {
+    "aod550": 0.05,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.0
+   }
+  },
+  {
+   "id": "off_aod0p1",
+   "parameters": {
+    "aod550": 0.1,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "group": "strato_off_reference",
+   "description": "stratosphere-off reference for the config B increment, tropospheric aod550=0.1, other axes normal",
+   "stratosphere": {
+    "status": "disabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.1,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "parameters_computed": {
+    "aod550": 0.1,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.0
+   }
+  },
+  {
+   "id": "off_aod0p15",
+   "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "group": "strato_off_reference",
+   "description": "stratosphere-off reference for the config B increment, tropospheric aod550=0.15, other axes normal",
+   "stratosphere": {
+    "status": "disabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "parameters_computed": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.0
+   }
+  },
+  {
+   "id": "off_aod0p2",
+   "parameters": {
+    "aod550": 0.2,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "group": "strato_off_reference",
+   "description": "stratosphere-off reference for the config B increment, tropospheric aod550=0.2, other axes normal",
+   "stratosphere": {
+    "status": "disabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.2,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "parameters_computed": {
+    "aod550": 0.2,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.0
+   }
+  },
+  {
+   "id": "off_aod0p4",
+   "parameters": {
+    "aod550": 0.4,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "group": "strato_off_reference",
+   "description": "stratosphere-off reference for the config B increment, tropospheric aod550=0.4, other axes normal",
+   "stratosphere": {
+    "status": "disabled",
+    "profile": "gaussian",
+    "center_km": 21.0,
+    "sigma_km": 3.0,
+    "g": 0.63,
+    "ssa": 1.0
+   },
+   "runnable": true,
+   "density": {
+    "density_profile": "usstd76",
+    "ozone_profile": "usstd76",
+    "rayleigh_column": "usstd"
+   },
+   "parameters_requested": {
+    "aod550": 0.4,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+   },
+   "parameters_computed": {
+    "aod550": 0.4,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.0
+   }
+  }
+ ]
+}

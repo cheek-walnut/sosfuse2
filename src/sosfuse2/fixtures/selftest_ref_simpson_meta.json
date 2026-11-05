@@ -1,0 +1,230 @@
+{
+ "backend": "numpy",
+ "block_size": 128,
+ "code_identity_at_generation": "213bc69eca074ac8f278cfedc33fbd09d1c11210e5131158efd6a103ad80ccff",
+ "command": {
+  "argv": [
+   ".venv/bin/python",
+   "results/e6gh_20261022/make_record.py",
+   "<scratch>/e6gh_record/record_work",
+   "cq-id-see-meta-note"
+  ],
+  "cq": "mac-cpu 620",
+  "cwd": "<saddle-twilight checkout>",
+  "note": "cq job id filled in after submission (the job cannot read its own id); argv shows the placeholder that was passed"
+ },
+ "crosscheck": {
+  "file": "results/e6gh_20261022/record_job/crosscheck.json",
+  "result": "record arrays byte-equal to an unchanged HEAD 5833493 validate-mac run (selftest, full_35); spectral and all historical numbers equal"
+ },
+ "decision": "taskB1-simpson-tol001-20261022",
+ "description": "E6/G-H pass record: HEAD fused NumPy (Simpson prefix + FTZ option B) values of the reduced selftest, full_35 and spectral_15 (scripts/sosfuse2/validate.py); old references stay as historical_delta",
+ "env": {
+  "MKL_NUM_THREADS": null,
+  "OMP_NUM_THREADS": "4",
+  "OPENBLAS_NUM_THREADS": "1",
+  "VECLIB_MAXIMUM_THREADS": "1"
+ },
+ "ftz_active": true,
+ "generated_commit": "5833493df4ab214ea99f4d60e90e2840920af0e7",
+ "generated_utc": "2026-10-22T12:53:13.383702+00:00",
+ "historical_delta_at_generation": {
+  "full_35": {
+   "multiple": 0.004982786912470969,
+   "single": 0.0009839854718439477
+  },
+  "selftest": 0.0539247021537897,
+  "spectral_15": {
+   "first": 0.00486094919707458,
+   "multiple": 0.2235204661540617
+  }
+ },
+ "legacy": {
+  "file": "rig/selftest_ref.npz",
+  "note": "old CPU-engine fixture (rig/run_state.py, bootstrap_v3.sh:85); unchanged",
+  "sha256": "a48688cdc86bf6cb88950944840b88bc846a813864a54ad4672c9ee034ef03be"
+ },
+ "numerical_files_equal_commit": true,
+ "numerical_sha256": {
+  "rig/engine.py": "01b9b4dc5d09d31944665c3cc39538e8fc2497d8df96f1ab8a59b8ef9cdfbc12",
+  "rig/sh_cpu.cpp": "adc69c93a56174fdaaed0430db048d16bb87fd4ca826d9529b72b6a0f5b6924c",
+  "scripts/sosfuse2/arithmetic.py": "1678e4a814a1350e0386075df1e508b3986265b71e56a94c02ee3be2653a8b5f",
+  "scripts/sosfuse2/fused.py": "c5636fd6c9ebe46bcb3043fdee5409d239cbd45945aba2b7e2516460ecee9b4c",
+  "scripts/sosfuse2/geometry.py": "dc8b1d82c926a51c97f577471f0e132a7d2dbe031a9099e00fb2a975298f6625",
+  "scripts/sosfuse2/kernel.cu": "e064847f8c7418ee1be1b404a9edb6b1bded984d70ddb88a41459cf7c2f2568a",
+  "scripts/sosfuse2/reference.py": "0d40a294959a0b2aeaa1ac74fcb60436ced21b888a01a7850cc514e26328fde9"
+ },
+ "numpy": "2.5.4",
+ "parameters": {
+  "albedo": 0.3,
+  "angstrom": 1.0,
+  "aod550": 0.15,
+  "g": 0.8,
+  "ozone_du": 300.0,
+  "scale_height_km": 1.2,
+  "ssa": 0.92,
+  "stratosphere_tau550": 0.004
+ },
+ "platform": "Darwin arm64",
+ "python": "3.14.8",
+ "record": {
+  "arrays": {
+   "full_35_azimuth_deg": {
+    "dtype": "float64",
+    "sha256": "b7a5ce2b1300e835c382a8bc52ae8063167fc05ae7f85bf4bcdf1c903aaa9fc2",
+    "shape": [
+     7
+    ]
+   },
+   "full_35_multiple": {
+    "dtype": "float64",
+    "sha256": "764b28a5eab28bc20397268f4573ee2f6b03b9e89cfc78a67f7352c30007ba91",
+    "shape": [
+     5,
+     7,
+     1
+    ]
+   },
+   "full_35_single": {
+    "dtype": "float64",
+    "sha256": "b67baf6f4dbfea52e6a1709fc975de89d116f9bfc1677518e349932275a675f4",
+    "shape": [
+     5,
+     7,
+     1
+    ]
+   },
+   "full_35_solar_elevation_deg": {
+    "dtype": "float64",
+    "sha256": "c622b018ece0f725fa6e642b91218cce8ae17f4071496d785d312661b902f3a9",
+    "shape": [
+     5
+    ]
+   },
+   "full_35_source_sha256": {
+    "dtype": "<U64",
+    "sha256": "fdaa26a0b5103a1d55d8d885143995bc39edc69298c3a15180c9050e5b8417fa",
+    "shape": []
+   },
+   "full_35_view_elevation_deg": {
+    "dtype": "float64",
+    "sha256": "ee12085269f780cf697f727e98bb392e3d94ce5e6a155dc9330a7fb0f135ce0e",
+    "shape": [
+     7
+    ]
+   },
+   "selftest_azimuth_deg": {
+    "dtype": "float64",
+    "sha256": "439eddc549f41fac4bf76b0b38be18ce4a3e81e189222465e9e099198f176897",
+    "shape": [
+     4
+    ]
+   },
+   "selftest_radiance": {
+    "dtype": "float64",
+    "sha256": "588537b46f5651199be086001a071f2b50394c2ae25f624b443b12762bfa187d",
+    "shape": [
+     4,
+     1
+    ]
+   },
+   "selftest_solar_elevation_deg": {
+    "dtype": "float64",
+    "sha256": "712be18b4a3cee7647a0a91f5e1855b6b4714fdbeb4ab745c00552c2593c2896",
+    "shape": []
+   },
+   "selftest_view_elevation_deg": {
+    "dtype": "float64",
+    "sha256": "dc30343bed07b76ab0c565ec3a614d99aa4489e9f7ddd626bce54d1c093025f6",
+    "shape": [
+     4
+    ]
+   },
+   "spectral_15_azimuth_deg": {
+    "dtype": "float64",
+    "sha256": "f77276f9ea68d5dc25545d46cbf6113a25e343f6a7243965a83e5593c8262b19",
+    "shape": [
+     3
+    ]
+   },
+   "spectral_15_first": {
+    "dtype": "float64",
+    "sha256": "b4d236a760c1f28a67bb9c766d7cf36afdcc447416dedc9bb57b726c9925539c",
+    "shape": [
+     3,
+     15
+    ]
+   },
+   "spectral_15_multiple": {
+    "dtype": "float64",
+    "sha256": "47c777a30be6274b754441acd6857229f9dab9971b51c10c76c940bedaaf650a",
+    "shape": [
+     3,
+     15
+    ]
+   },
+   "spectral_15_solar_elevation_deg": {
+    "dtype": "float64",
+    "sha256": "e1038be4b6997cecdd4ab21b443bfc6da99caabc939555b8e4a30ee96e4a92ae",
+    "shape": []
+   },
+   "spectral_15_view_elevation_deg": {
+    "dtype": "float64",
+    "sha256": "feb3209cc61f804759c05d8e7b6fa6aad1f8db30ee1b6fba42cb8ac0947a2318",
+    "shape": [
+     3
+    ]
+   },
+   "spectral_15_wavelength_nm": {
+    "dtype": "float64",
+    "sha256": "8af27e84afa083b4882890e1e8aa056e7a1ce76a9bbf4ce40ba9179841619703",
+    "shape": [
+     15
+    ]
+   }
+  },
+  "file": "rig/selftest_ref_simpson.npz",
+  "sha256": "2543ab1d296780e408cd93f8091bffc118cacbace6d11b3d47306df5471c58b4"
+ },
+ "settings": {
+  "full_35": {
+   "L": 32,
+   "chi_step_deg": 0.5,
+   "interpolation": "log",
+   "nchi": 75,
+   "nmu": 12,
+   "nphi": 64,
+   "nr": 20,
+   "observer_km": 0.1,
+   "path_n": 12
+  },
+  "selftest": {
+   "L": 32,
+   "chi_step_deg": null,
+   "interpolation": "log",
+   "nchi": 10,
+   "nmu": 1,
+   "nphi": 2,
+   "nr": 4,
+   "observer_km": 0.1,
+   "path_n": 4
+  },
+  "spectral_15": {
+   "L": 32,
+   "chi_step_deg": null,
+   "interpolation": "log",
+   "nchi": 10,
+   "nmu": 1,
+   "nphi": 2,
+   "nr": 4,
+   "observer_km": 0.1,
+   "path_n": 4
+  }
+ },
+ "tolerance": 1e-05,
+ "worktree_changes_vs_commit": [
+  "scripts/sosfuse2/gate.py",
+  "scripts/sosfuse2/provenance.py",
+  "scripts/sosfuse2/validate.py"
+ ]
+}

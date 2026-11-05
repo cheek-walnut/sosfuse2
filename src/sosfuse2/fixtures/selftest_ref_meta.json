@@ -1,0 +1,48 @@
+{
+  "measured_utc": "2026-10-01T03:36:56Z",
+  "settings": {
+    "nr": 4,
+    "chi_step_deg": null,
+    "nchi": 10,
+    "nmu": 1,
+    "nphi": 2,
+    "path_n": 4,
+    "L": 32,
+    "interpolation": "log",
+    "observer_km": 0.1
+  },
+  "parameters": {
+    "aod550": 0.15,
+    "angstrom": 1.0,
+    "ssa": 0.92,
+    "scale_height_km": 1.2,
+    "g": 0.8,
+    "ozone_du": 300.0,
+    "albedo": 0.3,
+    "stratosphere_tau550": 0.004
+  },
+  "hashes": {
+    "scripts/sos_probe.py": "cc298fe717dbcf12922f79a0322f5c6d5c986ddc062cd39e578a32546d31b4d1",
+    "scripts/sos_sky.py": "37c40254fe822e4d008eaf3e4117eda6c10f4678806c129b9fcefef327de3624",
+    "scripts/sos_sky2.py": "22c70c38730db371251ca50ff205bcd68023bb80a7bf1bd3cd79f40b19283a38",
+    "scripts/sos_full.py": "a61c87f0c60cba220692e3449ba7ca6c92023eb8e3f5ab63f924ceaa0b2ed9f1",
+    "scripts/sos_pol.py": "485c3b7d4e748b2a9e037d7c6089caa8f8465fe97e8bc805dedf650e67798502",
+    "scripts/sos_render.py": "8ed515061eff529db042293e62f812a8e8bb592f3b7a2c8e59aab7e086b561d8",
+    "results/sos_full/b2_driver.py": "6257585231e5e65800ecc939db5505340e823f25db2031a72afebac24e359f67",
+    "results/sos_full/a2_driver.py": "532a8a4b6f22bb610db3f0c614d58cb6244c0d73a1febcb380d2b5051c486a0a",
+    "assets/spectra.json": "9498058b4a2a0e090eff53eb31e814200adb2e5a2503f0d0400c2270f4460a06",
+    "rig/engine.py": "01b9b4dc5d09d31944665c3cc39538e8fc2497d8df96f1ab8a59b8ef9cdfbc12",
+    "rig/run_state.py": "112b093541ebda2dfb16117ab68908ab9695659c7e64020e0c0777f3403105c1",
+    "rig/pack_state.py": "5511a4c70ecd71a112946585e4b00c9174a702c99e1685e6f110f41e743fe375",
+    "rig/scheduler.py": "b84b7fabff9d185d9842e065e85c2a4d7f345add84960f08974a1d6c7d0956b1",
+    "rig/make_states.py": "32534391c18b40bc92b6ff6a71a37a7da1bcdd68af28d7118597f1f31afa46cc",
+    "rig/sh_cpu.cpp": "c7d4f39c247d2a91275d205303e09036f42a88b0109a1eb077a79b8ba296926e",
+    "rig/rgb_weights.npy": "e8d34211a06004394c4074686c3231aace6945b7ef5491e39d456a1d443f0878",
+    "rig/bootstrap.sh": "bbbbb0c06eef91664599f90467cf3a1f988f69e07c6da02b735e0148e23af097",
+    "rig/run_all.sh": "ebe68000b76ff17ebc02c4f815ba731532246eb5a126db77ab9d687331008daa"
+  },
+  "peak_rss_bytes": 64356352,
+  "relative_tolerance": 1e-06,
+  "elapsed_seconds": 1.5053913750161882,
+  "platform": "darwin"
+}

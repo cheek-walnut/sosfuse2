@@ -1,0 +1,1010 @@
+{
+  "version": 1,
+  "seed": 20261001,
+  "sampling": "maximin Latin hypercube (256 candidates)",
+  "axes": {
+    "aod550": [
+      0.02,
+      0.6,
+      "log"
+    ],
+    "angstrom": [
+      0.8,
+      2.0,
+      "linear"
+    ],
+    "ssa": [
+      0.85,
+      0.98,
+      "linear"
+    ],
+    "scale_height_km": [
+      1.0,
+      3.0,
+      "linear"
+    ],
+    "g": [
+      0.65,
+      0.8,
+      "linear"
+    ],
+    "ozone_du": [
+      220.0,
+      420.0,
+      "linear"
+    ],
+    "albedo": [
+      0.05,
+      0.8,
+      "linear"
+    ],
+    "stratosphere_tau550": [
+      0.002,
+      0.006,
+      "linear"
+    ]
+  },
+  "supported_physics": "polarized Rayleigh + depolarizing HG + ozone + Lambert; independent stratosphere unsupported",
+  "states": [
+    {
+      "id": "clear_01",
+      "parameters": {
+        "aod550": 0.17749110397178391,
+        "angstrom": 1.2727597706697034,
+        "ssa": 0.9097889335034495,
+        "scale_height_km": 1.8915677315100676,
+        "g": 0.6981694926450643,
+        "ozone_du": 386.07143069240874,
+        "albedo": 0.22532202505204918,
+        "stratosphere_tau550": 0.0026989766289028045
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 1/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_02",
+      "parameters": {
+        "aod550": 0.5671609316869561,
+        "angstrom": 0.8839732059238994,
+        "ssa": 0.8965264677346766,
+        "scale_height_km": 2.9908441791390694,
+        "g": 0.7648991284631234,
+        "ozone_du": 330.60575095414765,
+        "albedo": 0.05210855145863846,
+        "stratosphere_tau550": 0.004884216053647816
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 2/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_03",
+      "parameters": {
+        "aod550": 0.02550836475240256,
+        "angstrom": 1.0474225732541236,
+        "ssa": 0.8552417468142722,
+        "scale_height_km": 1.99583341167422,
+        "g": 0.7184683392688638,
+        "ozone_du": 413.4562916044539,
+        "albedo": 0.7220744744119892,
+        "stratosphere_tau550": 0.00479152727686315
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 3/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_04",
+      "parameters": {
+        "aod550": 0.20737829968982516,
+        "angstrom": 1.988883276567046,
+        "ssa": 0.9242145345777314,
+        "scale_height_km": 1.3025698318628844,
+        "g": 0.6634122309399231,
+        "ozone_du": 301.31257928385014,
+        "albedo": 0.7336398546380383,
+        "stratosphere_tau550": 0.003311837826055276
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 4/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_05",
+      "parameters": {
+        "aod550": 0.12401728768650729,
+        "angstrom": 1.1088247093711934,
+        "ssa": 0.894654293187762,
+        "scale_height_km": 2.7981530307690363,
+        "g": 0.7302880689071092,
+        "ozone_du": 226.1704493061519,
+        "albedo": 0.357085189724303,
+        "stratosphere_tau550": 0.0058018201883644795
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 5/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_06",
+      "parameters": {
+        "aod550": 0.030894594495239455,
+        "angstrom": 1.3549985986955986,
+        "ssa": 0.914102163459934,
+        "scale_height_km": 2.210872326218685,
+        "g": 0.6947568886556621,
+        "ozone_du": 400.8631989666485,
+        "albedo": 0.6473938164396563,
+        "stratosphere_tau550": 0.005146162055514336
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 6/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_07",
+      "parameters": {
+        "aod550": 0.24188407178098031,
+        "angstrom": 1.7285340227658217,
+        "ssa": 0.9422873627073342,
+        "scale_height_km": 1.206588776706938,
+        "g": 0.6770145341598537,
+        "ozone_du": 339.5593442630041,
+        "albedo": 0.32441996945586454,
+        "stratosphere_tau550": 0.0029085209897638355
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 7/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_08",
+      "parameters": {
+        "aod550": 0.38939090449281405,
+        "angstrom": 1.2071442096167946,
+        "ssa": 0.9596317372529589,
+        "scale_height_km": 2.165411135935768,
+        "g": 0.7458331665181674,
+        "ozone_du": 371.79597285637067,
+        "albedo": 0.682286431228397,
+        "stratosphere_tau550": 0.003085323628434009
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 8/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_09",
+      "parameters": {
+        "aod550": 0.07228045598478844,
+        "angstrom": 1.6146885762563095,
+        "ssa": 0.9152119267115537,
+        "scale_height_km": 2.2500977365393315,
+        "g": 0.6836570147611305,
+        "ozone_du": 273.2650140091421,
+        "albedo": 0.7864080365206566,
+        "stratosphere_tau550": 0.005692727641860908
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 9/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_10",
+      "parameters": {
+        "aod550": 0.05147785943493644,
+        "angstrom": 1.6695964221845827,
+        "ssa": 0.9434648664100901,
+        "scale_height_km": 1.5463402846717385,
+        "g": 0.7221240853211609,
+        "ozone_du": 313.149040442671,
+        "albedo": 0.6929547177558963,
+        "stratosphere_tau550": 0.003710877667125065
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 10/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_11",
+      "parameters": {
+        "aod550": 0.09006604056834486,
+        "angstrom": 1.8107585698788204,
+        "ssa": 0.9063236822964283,
+        "scale_height_km": 1.1547410857556646,
+        "g": 0.6675630844716645,
+        "ozone_du": 293.2879301950966,
+        "albedo": 0.4169505131267749,
+        "stratosphere_tau550": 0.004509856479534823
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 11/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_12",
+      "parameters": {
+        "aod550": 0.14439284502252792,
+        "angstrom": 1.3128517616883557,
+        "ssa": 0.8839711477850616,
+        "scale_height_km": 2.8673216449668404,
+        "g": 0.7265623804955602,
+        "ozone_du": 404.79260963273157,
+        "albedo": 0.28849115259930924,
+        "stratosphere_tau550": 0.005511528151255598
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 12/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_13",
+      "parameters": {
+        "aod550": 0.08498518136506665,
+        "angstrom": 1.4536929228148545,
+        "ssa": 0.8899264535320469,
+        "scale_height_km": 1.7869193130216288,
+        "g": 0.6701484315801276,
+        "ozone_du": 287.5759560569276,
+        "albedo": 0.11597618381162249,
+        "stratosphere_tau550": 0.0023552645161799557
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 13/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_14",
+      "parameters": {
+        "aod550": 0.03739979486997324,
+        "angstrom": 1.0102920269130575,
+        "ssa": 0.9627882137328937,
+        "scale_height_km": 1.7435624081493644,
+        "g": 0.707661501533802,
+        "ozone_du": 358.79858031883776,
+        "albedo": 0.1837145226038296,
+        "stratosphere_tau550": 0.004340986766732799
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 14/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_15",
+      "parameters": {
+        "aod550": 0.02323988315953395,
+        "angstrom": 0.9240997900192506,
+        "ssa": 0.9021589218636428,
+        "scale_height_km": 2.8885705083120996,
+        "g": 0.7543050823077624,
+        "ozone_du": 315.1328661223266,
+        "albedo": 0.4011619120776037,
+        "stratosphere_tau550": 0.0037681567995863155
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 15/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_16",
+      "parameters": {
+        "aod550": 0.5350020926378348,
+        "angstrom": 1.2190041291446319,
+        "ssa": 0.8713663774383691,
+        "scale_height_km": 2.0479624476148204,
+        "g": 0.7787667958471215,
+        "ozone_du": 393.07823083834404,
+        "albedo": 0.2795589906885517,
+        "stratosphere_tau550": 0.005066874988310872
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 16/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_17",
+      "parameters": {
+        "aod550": 0.029560395074205964,
+        "angstrom": 0.8627074992962256,
+        "ssa": 0.8754273925564147,
+        "scale_height_km": 2.6812094682886918,
+        "g": 0.688052687266052,
+        "ozone_du": 353.1940549988933,
+        "albedo": 0.25976493573051007,
+        "stratosphere_tau550": 0.004388320964474846
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 17/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_18",
+      "parameters": {
+        "aod550": 0.39834012690597914,
+        "angstrom": 0.9613924275149212,
+        "ssa": 0.8805384732117251,
+        "scale_height_km": 2.4757304789112577,
+        "g": 0.6503083684849211,
+        "ozone_du": 324.4335845320768,
+        "albedo": 0.6320832683600888,
+        "stratosphere_tau550": 0.003416128403124602
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 18/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_19",
+      "parameters": {
+        "aod550": 0.04079684239385759,
+        "angstrom": 1.628130749794233,
+        "ssa": 0.8588154425912942,
+        "scale_height_km": 1.5990087768971004,
+        "g": 0.7509196080854738,
+        "ozone_du": 381.69812399260434,
+        "albedo": 0.4398005832959464,
+        "stratosphere_tau550": 0.0027895651037210673
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 19/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_20",
+      "parameters": {
+        "aod550": 0.10479560725068732,
+        "angstrom": 1.8844059384501772,
+        "ssa": 0.9380689788900418,
+        "scale_height_km": 2.604769979113124,
+        "g": 0.7885922550868234,
+        "ozone_du": 226.72667146906227,
+        "albedo": 0.15370145733177953,
+        "stratosphere_tau550": 0.002622329952293711
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 20/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_21",
+      "parameters": {
+        "aod550": 0.3012128654539302,
+        "angstrom": 1.5263812742840508,
+        "ssa": 0.9760736620391022,
+        "scale_height_km": 1.4634463437514826,
+        "g": 0.791671427212852,
+        "ozone_du": 346.0440281540417,
+        "albedo": 0.5695177896858552,
+        "stratosphere_tau550": 0.002448400091339693
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 21/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_22",
+      "parameters": {
+        "aod550": 0.47827575115932386,
+        "angstrom": 1.065712118552784,
+        "ssa": 0.934161833296924,
+        "scale_height_km": 2.3614152184936867,
+        "g": 0.769468030841174,
+        "ozone_du": 237.96617014744137,
+        "albedo": 0.5094283131051666,
+        "stratosphere_tau550": 0.004045926660695965
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 22/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_23",
+      "parameters": {
+        "aod550": 0.021350966926425873,
+        "angstrom": 1.9475751015437492,
+        "ssa": 0.9704663547885264,
+        "scale_height_km": 2.698384544381133,
+        "g": 0.742377405794925,
+        "ozone_du": 279.51545950876266,
+        "albedo": 0.35429287324823255,
+        "stratosphere_tau550": 0.004145293178343164
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 23/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_24",
+      "parameters": {
+        "aod550": 0.1969330044660991,
+        "angstrom": 1.4316809560205337,
+        "ssa": 0.9650227701446094,
+        "scale_height_km": 2.516538665900625,
+        "g": 0.6580173594415133,
+        "ozone_du": 296.9037315695376,
+        "albedo": 0.14104452090147065,
+        "stratosphere_tau550": 0.002073187147568552
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 24/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_25",
+      "parameters": {
+        "aod550": 0.26561929021405906,
+        "angstrom": 1.574693664990008,
+        "ssa": 0.8690361806288818,
+        "scale_height_km": 1.0156407452829856,
+        "g": 0.7149468955735375,
+        "ozone_du": 337.5713108989511,
+        "albedo": 0.45084466670029905,
+        "stratosphere_tau550": 0.0054669870584314224
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 25/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_26",
+      "parameters": {
+        "aod550": 0.06027329925809865,
+        "angstrom": 0.8195163737658344,
+        "ssa": 0.9482019201898798,
+        "scale_height_km": 1.0664791012516321,
+        "g": 0.7835403161400104,
+        "ozone_du": 259.3655073143186,
+        "albedo": 0.2122228593665278,
+        "stratosphere_tau550": 0.003956164553513889
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 26/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_27",
+      "parameters": {
+        "aod550": 0.3361127219835076,
+        "angstrom": 1.8476998085522807,
+        "ssa": 0.9215701507329711,
+        "scale_height_km": 2.094115214663745,
+        "g": 0.6793138455278566,
+        "ozone_du": 253.8503577900711,
+        "albedo": 0.5485888665041249,
+        "stratosphere_tau550": 0.004732345278113618
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 27/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_28",
+      "parameters": {
+        "aod550": 0.0444271862685214,
+        "angstrom": 1.90036508077376,
+        "ssa": 0.8521959071787486,
+        "scale_height_km": 1.82453754032487,
+        "g": 0.7978328073939467,
+        "ozone_du": 247.46838997030935,
+        "albedo": 0.7610845230922588,
+        "stratosphere_tau550": 0.0035724990596081602
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 28/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_29",
+      "parameters": {
+        "aod550": 0.15961037385059973,
+        "angstrom": 1.38923870320049,
+        "ssa": 0.9296644795097946,
+        "scale_height_km": 1.6776631280822993,
+        "g": 0.7757338912013041,
+        "ozone_du": 364.56731906499033,
+        "albedo": 0.6057413300485107,
+        "stratosphere_tau550": 0.005316821125616574
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 29/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_30",
+      "parameters": {
+        "aod550": 0.06820291456776452,
+        "angstrom": 1.1531257704592965,
+        "ssa": 0.955407291396141,
+        "scale_height_km": 1.3659016521261944,
+        "g": 0.7384402006862445,
+        "ozone_du": 419.66958967588107,
+        "albedo": 0.08600243379387071,
+        "stratosphere_tau550": 0.0022082284301405217
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 30/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_31",
+      "parameters": {
+        "aod550": 0.052723419424564016,
+        "angstrom": 1.7472626486404814,
+        "ssa": 0.9735881076067363,
+        "scale_height_km": 1.4078459209055882,
+        "g": 0.7045464918492578,
+        "ozone_du": 243.9983017617576,
+        "albedo": 0.47628524130763444,
+        "stratosphere_tau550": 0.0059790315667113195
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 31/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "clear_32",
+      "parameters": {
+        "aod550": 0.11452430037475173,
+        "angstrom": 1.484531676896378,
+        "ssa": 0.8635378897348857,
+        "scale_height_km": 2.4120843998724544,
+        "g": 0.7608263178033904,
+        "ozone_du": 264.6988512405499,
+        "albedo": 0.5378097077895917,
+        "stratosphere_tau550": 0.0031332749537080064
+      },
+      "group": "clear_background",
+      "description": "maximin Latin hypercube (256 candidates) sample 32/32; background layer recorded only",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "normal",
+      "parameters": {
+        "aod550": 0.15,
+        "angstrom": 1.0,
+        "ssa": 0.92,
+        "scale_height_km": 1.2,
+        "g": 0.8,
+        "ozone_du": 300.0,
+        "albedo": 0.3,
+        "stratosphere_tau550": 0.004
+      },
+      "group": "boundary",
+      "description": "normal / Lambert 0.30 reference",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "aod_min",
+      "parameters": {
+        "aod550": 0.02,
+        "angstrom": 1.0,
+        "ssa": 0.92,
+        "scale_height_km": 1.2,
+        "g": 0.8,
+        "ozone_du": 300.0,
+        "albedo": 0.3,
+        "stratosphere_tau550": 0.004
+      },
+      "group": "boundary",
+      "description": "minimum tropospheric AOD",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "aod_max",
+      "parameters": {
+        "aod550": 0.6,
+        "angstrom": 1.0,
+        "ssa": 0.92,
+        "scale_height_km": 1.2,
+        "g": 0.8,
+        "ozone_du": 300.0,
+        "albedo": 0.3,
+        "stratosphere_tau550": 0.004
+      },
+      "group": "boundary",
+      "description": "maximum tropospheric AOD",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "albedo_max",
+      "parameters": {
+        "aod550": 0.15,
+        "angstrom": 1.0,
+        "ssa": 0.92,
+        "scale_height_km": 1.2,
+        "g": 0.8,
+        "ozone_du": 300.0,
+        "albedo": 0.8,
+        "stratosphere_tau550": 0.004
+      },
+      "group": "boundary",
+      "description": "bright Lambert surface",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "ozone_min",
+      "parameters": {
+        "aod550": 0.15,
+        "angstrom": 1.0,
+        "ssa": 0.92,
+        "scale_height_km": 1.2,
+        "g": 0.8,
+        "ozone_du": 220.0,
+        "albedo": 0.3,
+        "stratosphere_tau550": 0.004
+      },
+      "group": "boundary",
+      "description": "minimum ozone",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "ozone_max",
+      "parameters": {
+        "aod550": 0.15,
+        "angstrom": 1.0,
+        "ssa": 0.92,
+        "scale_height_km": 1.2,
+        "g": 0.8,
+        "ozone_du": 420.0,
+        "albedo": 0.3,
+        "stratosphere_tau550": 0.004
+      },
+      "group": "boundary",
+      "description": "maximum ozone",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "ssa_min",
+      "parameters": {
+        "aod550": 0.15,
+        "angstrom": 1.0,
+        "ssa": 0.85,
+        "scale_height_km": 1.2,
+        "g": 0.8,
+        "ozone_du": 300.0,
+        "albedo": 0.3,
+        "stratosphere_tau550": 0.004
+      },
+      "group": "boundary",
+      "description": "absorbing tropospheric aerosol",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    },
+    {
+      "id": "height_max",
+      "parameters": {
+        "aod550": 0.15,
+        "angstrom": 1.0,
+        "ssa": 0.92,
+        "scale_height_km": 3.0,
+        "g": 0.8,
+        "ozone_du": 300.0,
+        "albedo": 0.3,
+        "stratosphere_tau550": 0.004
+      },
+      "group": "boundary",
+      "description": "extended tropospheric aerosol",
+      "stratosphere": {
+        "status": "unsupported",
+        "profile": "gaussian",
+        "center_km": 21.0,
+        "sigma_km": 3.0,
+        "g": 0.63,
+        "ssa": 1.0
+      },
+      "runnable": true
+    }
+  ]
+}

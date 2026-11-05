@@ -1,0 +1,74 @@
+# Public CI = tier 1 of docs/CHECKS.md: build the sdist, install it outside the source tree, run the packaged tests
+# from the installed package (no SOSFUSE2_SKY_SOS_ROOT, no GPU). The CUDA gates (tier 2/3) are manual, see docs/CHECKS.md.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "ruff==0.17.1"
+      # fatal rules only (same as the pre-commit blocking hook); the frozen accepted sources are excluded in pyproject
+      - run: ruff check --select E9,F63,F7,F82 .
+
+  tests:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.12", "3.14"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    env:
+      # the persistent-queue cases start a 4-state NumPy queue; CI hosts need more than the 60 s default (docs/CHECKS.md)
+      PERSISTENT_TEST_DEADLINE: "2400"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Install the sdist outside the source tree
+        run: |
+          SDIST="$(ls "$PWD"/dist/*.tar.gz)"
+          python -m pip install "sosfuse2[test] @ file://$SDIST"
+      - name: Compiler for the kernel syntax tests
+        run: clang++ --version
+      - run: zstd --version
+      - name: IPRT inputs (network, pinned sha256)
+        working-directory: ${{ runner.temp }}
+        run: python -B -c "from sosfuse2 import iprt; iprt.inputs()"
+      - name: Installed package smoke (resources readable)
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -B -c "import sosfuse2, importlib.resources as r; p=r.files('sosfuse2'); \
+            [ (p/f).read_bytes() for f in ('kernel.cu','native/sh_cpu.cpp','assets/rgb_weights.npy','gate/baselines/numpy/FX-C3.npz') ]; \
+            print(sosfuse2.__name__, p)"
+      - name: Runner CPU and NumPy SIMD dispatch
+        # NumPy picks its float32 kernels by CPU (X86_V3 = AVX2, X86_V4 = AVX-512); a failure seen on only some runners
+        # can be matched to the dispatch it ran with.
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -B -c "import platform, numpy as np; print(platform.platform(), platform.machine()); np.show_runtime()"
+          if command -v lscpu >/dev/null; then LC_ALL=C lscpu | grep -E '^(Model name|CPU\(s\)|Flags)' | cut -c1-200
+          else sysctl -n machdep.cpu.brand_string hw.ncpu; fi
+      - name: Packaged tests from the installed package
+        working-directory: ${{ runner.temp }}
+        run: python -B -m pytest -q -p no:cacheprovider -rsxX --pyargs sosfuse2

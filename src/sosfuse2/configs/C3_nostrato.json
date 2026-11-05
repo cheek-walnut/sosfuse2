@@ -1,0 +1,38 @@
+{
+ "flagset": "C3_nostrato",
+ "status": "PRODUCTION flag set for stratosphere-off states (rig/bake flagset, 2026-10-21). The 2026-10-03 CANDIDATE status is history: eda full state 25/25 rows bit-identical to 5a9d1cf (results/flags_20261020/REPORT.md:47); gate v2 fixture FX-N (scripts/sosfuse2/gate.py).",
+ "block_size": 256,
+ "kernel_flags": [],
+ "single_launch": false,
+ "use": "states with the stratospheric layer off (STRATO not automatic); C3.json stays the flag set for STRATO states",
+ "definition": "Default transport; physical state, FW and role select the existing production paths.",
+ "included": {
+  "C2 twelve": "GROUND_PHASE_BATCH LANE_ATTEN LANE_GROUND LM_LUT PHASE1_TRACE3 PHASE2_NOBARRIER POINT_NOINLINE RAY_CONST_SHARED SH_AUX SH_AUX_PAIR SPECIALIZE TRANSPORT_WAVE_LANES: rig off queue cfg=C2 rc=0 (results/strato_rig_20261003_lut2/progress.txt)",
+  "ACC_GLOBAL": "needs SPECIALIZE, untiled only (kernel.cu:82-87, fused.py:136-138); active in first-light phase 0 (kernel.cu:88-91)",
+  "FL_RAYSPLIT": "needs ACC_GLOBAL+SPECIALIZE, no ROUND_CHUNKS/section clocks/tiles (kernel.cu:290-292, fused.py:147-149); one launch per cell grid (fused.py:548-549)",
+  "FL_LB2": "needs SPECIALIZE, excludes LB3 (kernel.cu:150-157, fused.py:156-157)",
+  "ACC_F32SUM": "precision track, warm/ground/query rounds summed in FP32 (kernel.cu:1767-1787); no STRATO condition",
+  "LPT_ORDER": "SPECIALIZE, non-first-light (kernel.cu:176-178); host passes cell_order only, S=1 without CELL_SPLIT (fused.py:525-535)",
+  "TROPO_PREFETCH": "needs GROUND_PHASE_BATCH+LANE_GROUND, no GROUND_BATCH_SHFL (kernel.cu:140-141, fused.py:145-146)",
+  "WARM_LANE_DATA": "needs SPECIALIZE+TRANSPORT_WAVE_LANES+LANE_ATTEN (kernel.cu:62-66, fused.py:111-112)"
+ },
+ "excluded": {
+  "REG_LEAN": "#error without STRATO (kernel.cu:95-96) - the rig compile error E_REG_LEAN_REQUIRES_SPECIALIZE_STRATO_FW15_UNTILED",
+  "TRANSPORT_RS2": "#error without STRATO (kernel.cu:130-131)",
+  "GROUND_PREFETCH": "#error without STRATO (kernel.cu:135-136)",
+  "GROUND_FUSED": "#error without STRATO (kernel.cu:249-252)",
+  "CELL_SPLIT2": "warm phase 0 needs ACC_IN_GLOBAL (kernel.cu:189-190), which without STRATO only REG_LEAN provides (kernel.cu:98-99; ACC_GLOBAL covers first light only, kernel.cu:88-91)",
+  "PT_BATCH": "no #error, but without REG_LEAN the warm phase-0 accumulator stays in shared (fused.py:256-257) and PT_BATCH adds 16 slots/warp (fused.py:269): shared_bytes(15,0,first=False)=136,240 B > 101,376 B (fused.py:341; E_SHARED_MEMORY fused.py:364-368)",
+  "RAY_SORT": "active only with PT_BATCH (kernel.cu:169-173, fused.py:270); dropped with it",
+  "SKIP_THIN": "no-op without STRATO (SKIP_ACTIVE kernel.cu:163-168)",
+  "STRATO_LANE_FIRSTVAL STRATO_LANE_GROUND STRATO_MIE_LUT STRATO_MIE_LUT_FINE STRATO_SH_AUX": "no-op without STRATO: preprocessed kernel identical with/without each (clang -E, FW15, all K_FIRST/K_PHASE); host uses them only when strato_ext exists (fused.py:398,403,504)"
+ },
+ "automatic_flags": [
+  "STRATO from enabled nonzero tau",
+  "TROPO_MIE and AEROSOL_2L from state"
+ ],
+ "static_checks": "fused.Kernel(backend='numpy',block_size=256,flags=...) passes; clang++ -fsyntax-only (host C++ with CUDA builtin stubs) 0 errors in 48 specializations (FW 1/15 x PROFILE on/off x K_FIRST 0/1 x K_PHASE 0/1/2 x K_BOUNDARY 0/1), control C2 0 errors, control C3 without STRATO reproduces E_REG_LEAN; shared_bytes first-light 31,576 B, warm 99,376 B (= C2)",
+ "gpu_gate_pending": "superseded 2026-10-21 by gate v2 FX-N (G-R/G-P/G-T); was: reduced FW15 off state, C2 vs C3_nostrato table.npz: l2_rel <= 1e-5 and max_rel over |x| >= 1e-3 max <= 1e-4; then full-state timing",
+ "launch_rule": "same as C3.json launch_rule (cell-subset launches allowed since 2026-10-07)",
+ "sh_combine": "Not carried: SH_COMBINE needs an enabled stratosphere (fused.py E_SH_COMBINE_STRATO). Production L16 still applies (run_gpu_state_v3.SH_L), 2026-10-21."
+}

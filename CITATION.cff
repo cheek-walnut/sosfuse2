@@ -1,0 +1,81 @@
+cff-version: 1.2.0
+message: >-
+  If you use sosfuse2 or the data it ships, please cite it as below. The project's own tables are CC0 1.0;
+  tables derived from third-party data (CIE, TSIS-1 HSRS, IUP Bremen, LOWTRAN7) keep their publishers' terms and
+  citations, listed in THIRD_PARTY.md and src/sosfuse2/assets/README.md.
+title: "sosfuse2: successive-orders-of-scattering twilight sky radiance tables"
+type: software
+version: 1.0.0
+date-released: 2026-11-03
+license: MIT
+authors:
+  - name: sosfuse2 developers
+abstract: >-
+  Polarized successive-orders-of-scattering solver for the twilight sky in a spherical-shell atmosphere with a
+  tropospheric aerosol layer, a stratospheric sulfate layer and ozone absorption. NumPy reference implementation,
+  optional CUDA kernel through CuPy/NVRTC, tolerance-based numeric gates and signed provenance records for the baked tables.
+keywords:
+  - twilight
+  - sky radiance
+  - radiative transfer
+  - successive orders of scattering
+  - polarization
+  - stratospheric aerosol
+references:
+  - type: article
+    title: "Revised and extended benchmark results for Rayleigh scattering of sunlight in spherical atmospheres"
+    authors:
+      - family-names: Korkin
+        given-names: S.
+      - name: "et al."
+    journal: "Journal of Quantitative Spectroscopy and Radiative Transfer"
+    volume: 254
+    start: "107181"
+    year: 2020
+    doi: 10.1016/j.jqsrt.2020.107181
+  - type: article
+    title: "The libRadtran software package for radiative transfer calculations (version 2.0.1)"
+    authors:
+      - family-names: Emde
+        given-names: C.
+      - name: "et al."
+    journal: "Geoscientific Model Development"
+    volume: 9
+    start: "1647"
+    end: "1672"
+    year: 2016
+    doi: 10.5194/gmd-9-1647-2016
+  - type: article
+    title: "Radiative transfer in the cloudy atmosphere"
+    authors:
+      - family-names: Mayer
+        given-names: B.
+    journal: "The European Physical Journal Conferences"
+    volume: 1
+    start: "75"
+    end: "99"
+    year: 2009
+    doi: 10.1140/epjconf/e2009-00912-1
+  - type: article
+    title: "Version 2 of the TSIS-1 Hybrid Solar Reference Spectrum and extension to the full spectrum"
+    authors:
+      - family-names: Coddington
+        given-names: O. M.
+      - name: "et al."
+    journal: "Earth and Space Science"
+    volume: 10
+    start: "e2022EA002637"
+    year: 2023
+    doi: 10.1029/2022EA002637
+  - type: article
+    title: "High spectral resolution ozone absorption cross-sections – Part 2: Temperature dependence"
+    authors:
+      - family-names: Serdyuchenko
+        given-names: A.
+      - name: "et al."
+    journal: "Atmospheric Measurement Techniques"
+    volume: 7
+    start: "625"
+    end: "636"
+    year: 2014
+    doi: 10.5194/amt-7-625-2014
