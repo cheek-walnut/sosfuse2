@@ -158,7 +158,7 @@ class Nphi(unittest.TestCase):
         from sosfuse2 import geometry as gm
         from sosfuse2.strato_states import build
         # accepted/engine.py (frozen rig/engine.py) keeps 64 (it is in the geometry signature, geometry_contract.UPSTREAM);
-        # the v3 adapter replaces its grid counts with settings_for (run_gpu_state_v3.py create_configured, V3CFG).
+        # the v3 adapter replaces its grid counts with settings_for (run_gpu_state_v3.py create_configured, the create() grid hook).
         engine = (paths.ACCEPTED/'engine.py').read_text()
         self.assertRegex(engine, r"if mode=='full':h,ch=old\.grids\(1\);nmu,nphi,path_n=12,64,12")
         tmp = Path(tempfile.mkdtemp(prefix='r17-nphi-')); self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)

@@ -208,8 +208,9 @@ docs/                                     MODEL.md, VALIDATION.md (+ validation/
 
 The solver definitions live in editable `src/sosfuse2/solver_*.py` files. `accepted/engine.py` selects definitions and executes
 them in a fresh scope for each state; it remains at that location for the engine loader. Optical coefficients are separate
-from column and geometry producers so coefficient edits do not invalidate geometry caches. Grid and profile adapters still
-patch the factory text with exact match checks; the aerosol profile itself is injected as `AER_PROFILE`.
+from column and geometry producers so coefficient edits do not invalidate geometry caches. The production grid, spectrum,
+sun geometry, deferred ground preparation and two-layer aerosol profile reach `create()` through keyword-only hooks
+(`run_gpu_state_v3.create_configured`, `tropo_profile.engine_hooks`); nothing rewrites source text.
 
 ## Related codes
 

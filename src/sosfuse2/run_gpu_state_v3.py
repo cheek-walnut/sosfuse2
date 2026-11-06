@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """v2 numerical path with v3 identities, cooperative cache leases and phase events."""
-import argparse, contextlib, copy, fcntl, functools, hashlib, inspect, json, os, re, shutil
+import argparse, contextlib, copy, fcntl, hashlib, json, os, re, shutil
 import subprocess, sys, tarfile, threading, time
 from pathlib import Path
 sys.dont_write_bytecode=True
@@ -228,7 +228,9 @@ def grid_metadata(cfg,h=None):
 
 
 def create_configured(output,cfg,wavelengths,backend,state,block_size=128,geometry_cache=None):
-    """Read-only adapter: inject grid controls before accepted Solver construction."""
+    """Configure the accepted engine's create() for the production settings through its keyword hooks (observer, kernel,
+    grid, spectrum, sun geometry, deferred ground, aerosol profile). Returns the solver and its scope; the solver is
+    built over `wavelengths` (a second Solver in the same scope when more than one)."""
     from sosfuse2 import spectral
     spectral.check_state(cfg.get('spectral'),state)   # A′: a block resolved for another (or no) state never reaches SPEC
     if cfg.get('spectral') is not None:
@@ -237,53 +239,41 @@ def create_configured(output,cfg,wavelengths,backend,state,block_size=128,geomet
     import numpy as np
     from sosfuse2 import geometry as gm
     from sosfuse2.fused import load_engine
-    engine=load_engine();engine.OBS=cfg['observer_km']
+    engine=load_engine()
     threads_budget=int(os.environ.get('OMP_NUM_THREADS',str(os.cpu_count() or 1)))
     from sosfuse2.density import profile_step_km,kernel_kwargs
     kw=kernel_kwargs(profile_step_km(state))   # ②b: compiled PROFILE node count follows the state (0.5 km = no option)
-    engine.Kernel=lambda threads,H,g:gm.Kernel(threads_budget,H,g,backend,block_size,L=cfg['L'],**kw)
-    source=inspect.getsource(engine.create)
-    needle='    class Geometry:\n'
-    injected='''    if mode=='full':
-        h,ch=old.grids(1)
-        if V3CFG['h_refine']=='mid':h=np.sort(np.r_[h,(h[:-1]+h[1:])/2])
-        elif V3CFG['h_refine']=='below13mid_above13thirds':
-            h=np.sort(np.r_[h,[(u+v)/2 for u,v in zip(h[:-1],h[1:]) if v<=13+1e-9],[u+(v-u)*f for u,v in zip(h[:-1],h[1:]) if (u>=13-1e-9) for f in (1/3,2/3)]])
-        if V3CFG['chi_step_deg']==.25:
-            degrees=np.round(np.rad2deg(ch),12)
-            ch=np.deg2rad(np.unique(np.r_[degrees[(degrees<85)|(degrees>110)],np.arange(85,110+.125,.25)]))
-    if len(h)!=V3CFG['nr'] or len(ch)!=V3CFG['nchi']:raise ValueError('E_SETTINGS_GRID_COUNT: actual grid disagrees with nr/nchi')
-    nmu,nphi,path_n=(V3CFG[k] for k in ('nmu','nphi','path_n'))
-'''
-    if source.count(needle)!=1:raise RuntimeError('E_ADAPTER_DRIFT: accepted/engine.py Geometry')
+    def kernel_factory(threads,H,g):return gm.Kernel(threads_budget,H,g,backend,block_size,L=cfg['L'],**kw)
+    def grid(mode,h,ch,nmu,nphi,path_n):
+        # The settings own the grid: full mode refines the accepted h/chi, every mode takes the quadrature counts from cfg.
+        if mode=='full':
+            if cfg['h_refine']=='mid':h=np.sort(np.r_[h,(h[:-1]+h[1:])/2])
+            elif cfg['h_refine']=='below13mid_above13thirds':
+                h=np.sort(np.r_[h,[(u+v)/2 for u,v in zip(h[:-1],h[1:]) if v<=13+1e-9],[u+(v-u)*f for u,v in zip(h[:-1],h[1:]) if (u>=13-1e-9) for f in (1/3,2/3)]])
+            if cfg['chi_step_deg']==.25:
+                degrees=np.round(np.rad2deg(ch),12)
+                ch=np.deg2rad(np.unique(np.r_[degrees[(degrees<85)|(degrees>110)],np.arange(85,110+.125,.25)]))
+        if len(h)!=cfg['nr'] or len(ch)!=cfg['nchi']:raise ValueError('E_SETTINGS_GRID_COUNT: actual grid disagrees with nr/nchi')
+        return h,ch,cfg['nmu'],cfg['nphi'],cfg['path_n']
     from sosfuse2 import host_cache
     fast_host=host_cache.enabled()
-    if fast_host:
-        marker="    AcceptedSolver=scope['Solver']\n"
-        if source.count(marker)!=1:raise RuntimeError('E_ADAPTER_DRIFT: accepted ground constructor')
-        source=source.replace(marker,marker+"    scope['HOST_ORIGINAL_GROUND']=AcceptedSolver.prepare_ground\n    AcceptedSolver.prepare_ground=lambda self:None\n")
+    sun_geometry=None
     if fast_host or SUN_SCALE!=1:
         # host_cache.sun_geometry keys its folder by height and scale; the accepted constructor keys neither.
-        marker='self.sun=old.SunGeometry(1,cache)'
-        if source.count(marker)!=1:raise RuntimeError('E_ADAPTER_DRIFT: accepted sun constructor')
-        source=source.replace(marker,'self.sun=HOST_CACHE_SUN(old,%d,cache,H)'%SUN_SCALE)
-        engine.HOST_CACHE_SUN=functools.partial(host_cache.sun_geometry,shared=geometry_cache)
-    scope=engine.__dict__;scope['V3CFG']=cfg
+        def sun_geometry(old,cache,H):return host_cache.sun_geometry(old,SUN_SCALE,cache,H,shared=geometry_cache)
+    spec=None
     if cfg.get('spectral') is not None:
-        # The engine's only spectral input is this SPEC dict; legacy keeps the text unchanged.
-        from sosfuse2 import spectral
-        marker="SPEC=json.loads(SPECTRA.read_text())"      # accepted/engine.py create(): the engine's only spectral input
-        if source.count(marker)!=1:raise RuntimeError('E_ADAPTER_DRIFT: accepted/engine.py SPEC')
-        source=source.replace(marker,'SPEC=V3SPEC')
+        # The engine's only spectral input is this SPEC dict (a fresh table per call; create() completes it in place).
         # Representative values belong to the settings bins; a solver over a subset (geometry-only passes the first
         # wavelength) reads its own rows of the full table.
         if any(float(w) not in cfg['wavelengths_nm'] for w in wavelengths):raise ValueError('E_SPECTRAL_CONTRACT: solver wavelengths outside the settings')
-        scope['V3SPEC']=spectral.spec_table(cfg['spectral'],cfg['wavelengths_nm'],state)
+        spec=spectral.spec_table(cfg['spectral'],cfg['wavelengths_nm'],state)
     from sosfuse2 import tropo_profile
-    source=tropo_profile.patch_source(source,state,scope)   # unchanged text without an enabled troposphere_profile
-    exec(compile(source.replace(needle,injected+needle),'v3_engine_adapter','exec'),scope)
     output.mkdir(parents=True,exist_ok=True)
-    initial,scope,_=scope['create'](state,output,'selftest' if cfg['nr']==4 else 'full',threads_budget,float(wavelengths[0]))
+    # prepare_ground=False: the ground is prepared once below (host cache or density.attach), after the wavelength Solver.
+    initial,scope,_=engine.create(state,output,'selftest' if cfg['nr']==4 else 'full',threads_budget,float(wavelengths[0]),
+        observer_km=cfg['observer_km'],kernel_factory=kernel_factory,grid=grid,spec=spec,sun_geometry=sun_geometry,
+        prepare_ground=not fast_host,aerosol=tropo_profile.engine_hooks(state))
     s=initial if len(wavelengths)==1 else scope['Solver'](initial.geo,initial.kernel,wavelengths,1,.03)
     s.levels=s.levels[:s.kernel.K];s.af=s.af[:s.kernel.K]
     s.active[1::2]=0;s.fuse_state=state;tropo_profile.attach(s)

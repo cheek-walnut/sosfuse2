@@ -62,6 +62,9 @@ def compile_kernel(threads=2, force=False):
     return target
 
 class Kernel:
+    # Two-layer aerosol (tropo_profile): the parameter vector follows the per-wavelength aerosol scattering coefficients and
+    # the native transport reads it only when it is handed aerosol_height < 0 (native/sh_cpu.cpp). None = exponential profile.
+    aerosol_vector=None
     def __init__(self, threads, height, g):
         self.lib=ctypes.CDLL(str(compile_kernel(threads)))
         self.lib.basis.argtypes=[ctypes.c_int,ctypes.c_int,ctypes.c_void_p,ctypes.c_void_p]
@@ -71,18 +74,37 @@ class Kernel:
         dirs=np.ascontiguousarray(dirs,'f8');out=np.empty((len(dirs),(L+1)*(L+2)//2))
         self.lib.basis(len(dirs),L,dirs.ctypes.data,out.ctypes.data);return out
     def transport(self,z,s,field,first=False):
+        if self.aerosol_vector is None:asca,height=s.asca,self.height
+        else:asca,height=np.r_[s.asca,self.aerosol_vector],-1.
         out=np.empty((len(z['nu']),s.W,2,4));arrays=[s.active,z['off'],z['base'],z['lit'],z['point'],z['nu'],z['target'],z['dloc'],field,
-            s.ext,s.asca,s.geo.chi,s.hr,s.ha,s.geo.poly,s.geo.left,s.goff,s.gdir,s.gval,s.gm]
+            s.ext,asca,s.geo.chi,s.hr,s.ha,s.geo.poly,s.geo.left,s.goff,s.gdir,s.gval,s.gm]
         arrays=[np.ascontiguousarray(x) for x in arrays]
         self.lib.full_transport(len(out),s.W,len(s.geo.chi),s.geo.ns,s.mode,int(first),0,
-            *[x.ctypes.data for x in arrays],s.delta,self.height,self.g,out.ctypes.data)
+            *[x.ctypes.data for x in arrays],s.delta,height,self.g,out.ctypes.data)
         return out
 
-def create(state, cache, mode, threads, wavelength=550.):
+def create(state, cache, mode, threads, wavelength=550., *, observer_km=None, kernel_factory=None, grid=None, spec=None,
+           sun_geometry=None, prepare_ground=True, aerosol=None):
+    """One solver in a private scope. The keyword-only hooks (1.2.0) are the former text patches of run_gpu_state_v3 and
+    tropo_profile made explicit; every default reproduces the call without the hook, so the module's own callers (research
+    CLIs, selftests) see no change:
+      observer_km     observer height in km (module OBS when None); read by the column, sky and settings records.
+      kernel_factory  callable(threads, H, g) -> transport kernel; the native Kernel above when None.
+      grid            callable(mode, h, chi, nmu, nphi, path_n) -> same tuple, applied after the mode's grid is chosen and
+                      before Geometry captures it (production refines h/chi and takes the counts from its settings).
+      spec            the spectral table dict (assets/spectra.json when None). create() completes it in place (NO2 defaults),
+                      so pass a fresh dict per call.
+      sun_geometry    callable(old, cache, H) -> sun geometry; old.SunGeometry(1, cache) when None.
+      prepare_ground  False defers the ground preparation: Solver.prepare_ground is replaced by a no-op on the solver class of
+                      this scope and the original is kept as scope['HOST_ORIGINAL_GROUND']; the caller restores it after
+                      every Solver it builds in this scope (run_gpu_state_v3.create_configured).
+      aerosol         None (exponential profile) or a namespace with profile(h), column (aod normalisation), folder(cache)
+                      (sun-cache folder per profile) and vector (two-layer parameters for the native kernel): tropo_profile.engine_hooks."""
     params=state['parameters'];H=params['scale_height_km'];gg=params['g']
+    obs=OBS if observer_km is None else observer_km
     common=dict(np=np,math=math,time=time,json=json,Path=Path,R=R,Z=Z,ROOT=ROOT)
     probe=definitions('solver_columns.py',['gl','frame','boundaries'],dict(common))
-    oldscope=dict(common,probe=probe,OBS=OBS,SPEC=json.loads(SPECTRA.read_text()))
+    oldscope=dict(common,probe=probe,OBS=obs,SPEC=json.loads(SPECTRA.read_text()) if spec is None else spec)
     from sosfuse2 import density, components, minor_absorbers
     optical = density.build(state)
     amounts = components.optics_state(state, optical)
@@ -92,20 +114,25 @@ def create(state, cache, mode, threads, wavelength=550.):
     old=definitions('solver_columns.py',['profiles','geometry_segments','total_columns','SunGeometry','grids'],oldscope)
     def exponential_profile(h, height=H):
         return np.exp(-np.maximum(h,0)/height)
-    oldscope['AER_PROFILE']=exponential_profile
+    oldscope['AER_PROFILE']=exponential_profile if aerosol is None else aerosol.profile
     oldscope['AER_HEIGHT']=H
     # Functions share oldscope, so state-dependent profiles are used by every optical column.
-    old.NORMAL=dict(aer=params['aod550']/(H*(-np.expm1(-Z/H))),ssa=params['ssa'],ang=params['angstrom'],g=gg,
+    column=H*(-np.expm1(-Z/H)) if aerosol is None else aerosol.column
+    old.NORMAL=dict(aer=params['aod550']/column,ssa=params['ssa'],ang=params['angstrom'],g=gg,
                     albedo=params['albedo'],ozone_DU=params['ozone_du'], **amounts, no2_H_f_km=optical['meta']['no2']['H_f_km'])
-    shscope=dict(common,old=old,ctypes=ctypes,NORMAL=old.NORMAL,OBS=OBS)
+    shscope=dict(common,old=old,ctypes=ctypes,NORMAL=old.NORMAL,OBS=obs)
     sh=definitions('solver_sky.py',['incoming','spatial_lookup'],shscope)
     legacy=definitions('solver_legacy.py',['ring_edges','incoming'],dict(common,sh=sh))
     b=types.SimpleNamespace(sh=sh,R=R,legacy=legacy,peak=peak,DIRS=[('sun',2,0),('sun',10,0),('sun',30,0),('anti',10,180),('anti',30,180),('side',10,90),('zenith',89,0)],HS=(2,-3,-6,-9,-12))
     polys=definitions('solver_poly.py',['chi_poly'],dict(common))
     scope=dict(common,b=b,C=3/(16*np.pi),AER_HEIGHT=H,AER_G=gg)
-    scope.setdefault('AER_PROFILE',lambda h, height=H: np.exp(-h/height))
+    if aerosol is not None:scope['AER_PROFILE']=aerosol.profile
+    scope.setdefault('AER_PROFILE',lambda h, height=H: np.exp(-h/height))   # the solver's own default has no clamp (kept as is)
     definitions('solver_core.py',['basis_at','pack','Solver'],scope)
     AcceptedSolver=scope['Solver']
+    if not prepare_ground:
+        scope['HOST_ORIGINAL_GROUND']=AcceptedSolver.prepare_ground
+        AcceptedSolver.prepare_ground=lambda self:None
     definitions('solver_core.py',['build'],scope)
     if mode=='full':h,ch=old.grids(1);nmu,nphi,path_n=12,64,12
     elif mode=='reduced':
@@ -114,12 +141,14 @@ def create(state, cache, mode, threads, wavelength=550.):
         nmu,nphi,path_n=2,4,6
     else:
         h=np.array([0.,.1,8.,80.]);ch=np.deg2rad([0.,60.,85.,90.,93.,96.,105.,110.,140.,180.]);nmu,nphi,path_n=1,2,4
+    if grid is not None:h,ch,nmu,nphi,path_n=grid(mode,h,ch,nmu,nphi,path_n)
+    sun_cache=cache if aerosol is None or aerosol.folder is None else aerosol.folder(cache)
     class Geometry:
         build=scope['build']
         def __init__(self):
             self.name=state['id'];self.h,self.chi=h,ch;self.ns=len(h)*len(ch);self.folder=cache;self.cache=cell_folder(cache,h,ch,dict(nmu=nmu,nphi=nphi,path_n=path_n))
             self.cfg=dict(nmu=nmu,nphi=nphi,path_n=path_n);self.compact=False
-            self.poly,self.left=polys.chi_poly(ch);self.sun=old.SunGeometry(1,cache)
+            self.poly,self.left=polys.chi_poly(ch);self.sun=old.SunGeometry(1,sun_cache) if sun_geometry is None else sun_geometry(old,sun_cache,H)
             self.query_n=24 if mode=='full' else 6
             self.ram=collections.OrderedDict();self.ram_bytes=0;self.ram_limit=64*1024**2
             self.meta=dict(cells=self.ns,nr=len(h),nchi=len(ch),incoming_rays=0,points=0,geometry_seconds=0.,first_seconds=0.,fold_seconds=0.,compression_seconds=0.,io_seconds=0.,largest_block_bytes=0,largest_basis_bytes=0,solid_angle_max_relative=0.,cache_bytes=0)
@@ -140,6 +169,9 @@ def create(state, cache, mode, threads, wavelength=550.):
                 _,v=self.ram.popitem(last=False);self.ram_bytes-=sum(q.nbytes for q in v.values())
             if size<=self.ram_limit:self.ram[i]=z;self.ram_bytes+=size
             return z
-    kernel=Kernel(threads,H,gg);geo=Geometry();solver=AcceptedSolver(geo,kernel,[wavelength],1,.03)
+    kernel=(Kernel if kernel_factory is None else kernel_factory)(threads,H,gg)
+    if aerosol is not None and aerosol.vector is not None and isinstance(kernel,Kernel):   # only the native kernel takes the vector; fused.Kernel reads the profile in setup()
+        kernel.aerosol_vector=np.ascontiguousarray(aerosol.vector,'f8')
+    geo=Geometry();solver=AcceptedSolver(geo,kernel,[wavelength],1,.03)
     solver.active[1::2]=0
-    return solver,scope,dict(nr=len(h),chi_step_deg=.5 if mode=='full' else 1 if mode=='reduced' else None,nchi=len(ch),nmu=nmu,nphi=nphi,path_n=path_n,L=32,interpolation='log',observer_km=OBS)
+    return solver,scope,dict(nr=len(h),chi_step_deg=.5 if mode=='full' else 1 if mode=='reduced' else None,nchi=len(ch),nmu=nmu,nphi=nphi,path_n=path_n,L=32,interpolation='log',observer_km=obs)

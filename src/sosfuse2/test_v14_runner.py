@@ -1,7 +1,6 @@
 """V14 grid rules, CPU only: stop at the solver boundary before any optical preparation."""
 import hashlib
 import importlib.util
-import inspect
 import json
 from pathlib import Path
 import sys
@@ -34,7 +33,7 @@ class Captured(Exception):
         self.geo = geo
 
 
-def grids(tmp_path, cfg, creator=v3.create_configured, drift=False):
+def grids(tmp_path, cfg, creator=v3.create_configured):
     engine = fused.load_engine(); original = engine.definitions
     def definitions(relative, names, scope):
         result = original(relative, names, scope)
@@ -44,13 +43,9 @@ def grids(tmp_path, cfg, creator=v3.create_configured, drift=False):
             scope['Solver'] = StopSolver
         return result
     engine.definitions = definitions
-    getsource = inspect.getsource
-    source = getsource(engine.create)
-    if drift:source = source.replace('    class Geometry:', '    class ChangedGeometry:')
     state = geometry.normal_state()
     with patch.object(fused, 'load_engine', return_value=engine), patch.object(geometry, 'Kernel', return_value=None), \
-         patch.object(host_cache, 'sun_geometry', return_value=None), patch.dict('os.environ', SOSFUSE2_HOST_CACHE='0'), \
-         patch.object(v3.inspect, 'getsource', side_effect=lambda obj: source if obj is engine.create else getsource(obj)):
+         patch.object(host_cache, 'sun_geometry', return_value=None), patch.dict('os.environ', SOSFUSE2_HOST_CACHE='0'):
         with pytest.raises(Captured) as caught:
             creator(tmp_path/'prepare', cfg, [550.], 'numpy', state)
     return caught.value.geo
@@ -126,10 +121,8 @@ def test_height_hash_in_metadata_and_signature(tmp_path):
         assert first != second
 
 
-def test_adapter_drift_and_grid_count_still_fail(tmp_path):
+def test_grid_count_mismatch_still_fails(tmp_path):
     cfg = settings(tmp_path)
-    with pytest.raises(RuntimeError, match='E_ADAPTER_DRIFT:'):
-        grids(tmp_path, cfg, drift=True)
     with pytest.raises(ValueError, match='E_SETTINGS_GRID_COUNT:'):
         grids(tmp_path, dict(cfg, nr=20))
 

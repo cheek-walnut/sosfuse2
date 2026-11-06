@@ -65,8 +65,8 @@ def _create(output, grid, wavelengths, backend, block_size, state):
 
     from .density import profile_step_km,kernel_kwargs
     kw=kernel_kwargs(profile_step_km(state))   # ②b: the Kernel compiles the state's PROFILE node count (none at 0.5)
-    engine.Kernel=lambda threads,H,g:Kernel(4,H,g,backend,block_size,**kw)
-    initial,scope,settings=tropo_profile.engine_create(engine,state)(state,output,grid,4,float(wavelengths[0]))
+    initial,scope,settings=engine.create(state,output,grid,4,float(wavelengths[0]),kernel_factory=lambda threads,H,g:Kernel(4,H,g,backend,block_size,**kw),
+                                         aerosol=tropo_profile.engine_hooks(state))
     s=initial
     if len(wavelengths)>1:
         s=scope['Solver'](initial.geo,initial.kernel,wavelengths,1,.03)

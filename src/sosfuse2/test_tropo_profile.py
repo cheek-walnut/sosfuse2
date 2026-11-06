@@ -331,7 +331,7 @@ def probe(tree, state_file, folder):
     # 3. C++ engine (rig/sh_cpu.cpp), tiny grid
     engine = load_engine(); lib = build_native(tree, folder)
     engine.compile_kernel = lambda threads, force=False, lib=lib: lib
-    create = engine.create if tp is None else tp.engine_create(engine, state)
+    create = engine.create if tp is None else (lambda *a, **k: engine.create(*a, aerosol=tp.engine_hooks(state), **k))
     s3, scope3, _ = create(state, folder/'cpp', 'selftest', 2, 550.)
     A['cpp_ha'] = s3.ha; A['cpp_sun_col'] = s3.geo.sun.col; A['cpp_gm'] = s3.gm; physical('cpp_', s3, scope3['b'].sh.NORMAL['aer'])
     src = rng.normal(0, 1e-4, (s3.geo.ns, 571, 2*s3.W)).astype('f4'); src[:, :4] = abs(src[:, :4])

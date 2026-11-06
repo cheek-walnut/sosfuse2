@@ -5,7 +5,7 @@ A state enables it with a top-level block (next to troposphere_phase):
                             "bl_top_km": 2.0, "bl_transition_km": 1.0, "bl_shape": "exponential",
                             "bl_scale_height_km": 2.14, "ft_aod550": 0.0797, "ft_scale_height_km": 1.85}
 Omitted numbers take DEFAULTS. Absent block or status "disabled" = the historical exp(-h/scale_height_km) path:
-nothing below runs, no source is patched, no kernel flag or constant is added, every cache key is unchanged.
+nothing below runs, engine_hooks() is None, no kernel flag or constant is added, every cache key is unchanged.
 
 Profile (extinction at 550 nm per unit total aod550, km^-1, integral over 0..80 km = 1):
     p(h) = a_bl*b(h)*(1-s(h)) + a_ft*f(h)*s(h)
@@ -19,9 +19,9 @@ required state key but no longer shapes the aerosol (it remains the Kernel 'heig
 One parameter vector P = [bl_top-w/2, 1/w, a_bl, k_bl, a_ft, k_ft, bl_top] (k = 1/H, 0 for uniform), evaluated as
     x = clip((h-P0)*P1, 0, 1); s = x*x*(3-2*x); p = (P2*exp(-h*P3))*(1-s) + (P4*exp(-(max(h,P0)-P6)*P5))*s
 (max(h,P0) only keeps the free-troposphere exponent finite where s = 0) by: sos_sky.profiles / b2_driver Solver.ha /
-NORMAL (engine source patched below, rig/engine.py untouched so the common endpoint layer, column and host cache keys
-keep their bytes), geometry.aerosol_column, rig/sh_cpu.cpp full_transport (aerosol_height < 0, parameters after
-asc[0..W)), kernel.cu -DAEROSOL_2L (parameters after sun_h[0..nsh)) and reference.sample (FP32 mirror of the kernel line).
+NORMAL (through accepted/engine.py create(aerosol=engine_hooks(state)), see engine_hooks below), geometry.aerosol_column,
+native/sh_cpu.cpp full_transport (aerosol_height < 0, parameters after asc[0..W)), kernel.cu -DAEROSOL_2L (parameters after
+sun_h[0..nsh)) and reference.sample (FP32 mirror of the kernel line).
 
 DEFAULTS. Source: LOWTRAN7 lowtran7.f, https://raw.githubusercontent.com/space-physics/lowtran/main/src/lowtran/fortran/lowtran7.f
 (fetched 2026-10-07; 875,546 bytes, the same length and block offsets as the local copy sha256 25e83d94e24b... whose line
@@ -44,7 +44,7 @@ numbers are quoted): BLOCK DATA PRFDTA :13587-13630, AERPRF :3900-3938, season d
                          hundred m to ~1 km thick; 1 km also resolves the blend for the GL-24 column quadrature (vertical column
                          vs a dense integral, these defaults, aod .15: +1.40 % at 0.2 km, -0.12 % at 1.0 km; measured during development).
 """
-import hashlib, inspect, json, math, re, textwrap, types
+import hashlib, json, math, types
 import numpy as np
 
 KEY = 'troposphere_profile'
@@ -267,70 +267,23 @@ def metadata(s):
     return None if p is None else dict(p['meta'])
 
 
-# ---- rig/engine.py create(): source patch applied only for an enabled block ----------------------------------------
+# ---- accepted/engine.py create(aerosol=...): the enabled block as explicit engine hooks ------------------------------
 
-PATCHES = (
-    ("oldscope['AER_HEIGHT']=H\n", "oldscope['AER_HEIGHT']=H;oldscope['AER_PROFILE']=AER_PROFILE\n"),
-    ("aer=params['aod550']/(H*(-np.expm1(-Z/H)))", "aer=params['aod550']/AER_COLUMN"),
-    ("AER_HEIGHT=H,AER_G=gg)", "AER_HEIGHT=H,AER_G=gg,AER_PROFILE=AER_PROFILE)"),
-    ("kernel=Kernel(threads,H,gg)", "kernel=AER_KERNEL(Kernel(threads,H,gg))"),
-)
-SUN = ((r"HOST_CACHE_SUN\(old,(\d+),cache,H\)", r"HOST_CACHE_SUN(old,\1,AER_FOLDER(cache),H)"),
-       (r"old\.SunGeometry\(1,cache\)", "old.SunGeometry(1,AER_FOLDER(cache))"))
-
-
-def patch_source(source, state, scope):
-    """create() source for this state. No block: returned unchanged (same text, nothing added to scope).
-    Enabled: every replacement must match exactly once (else E_ADAPTER_DRIFT) and the names it uses go into scope
-    (the dict create() is executed in)."""
+def engine_hooks(state):
+    """create()'s `aerosol` argument for this state: None without an enabled block (the historical exponential profile,
+    nothing added anywhere), else a namespace the engine reads at four points:
+      profile(h)     the two-layer profile, used by every optical column and by the solver's ha vector (AER_PROFILE),
+      column         the aod normalisation (NORMAL['aer'] = aod550/column, 1 for this model),
+      folder(cache)  cache/aerosol_profile/<tag>: the sun-column disk caches are keyed by folder (and scale height) only,
+                     so every profile gets its own,
+      vector         the parameter vector the native kernel passes after asc[0..W) (Kernel.aerosol_vector)."""
     p = build(state)
     if p is None:
-        return source
-    for old, new in PATCHES:
-        if source.count(old) != 1:
-            raise RuntimeError('E_ADAPTER_DRIFT: accepted/engine.py create: '+old)
-        source = source.replace(old, new)
-    sun = [(old, new) for old, new in SUN if len(re.findall(old, source)) == 1]
-    if len(sun) != 1:
-        raise RuntimeError('E_ADAPTER_DRIFT: accepted/engine.py create: sun geometry constructor')
-    source = re.sub(*sun[0], source)
+        return None
     vector = p['vector']
 
     def folder(cache):
-        # The sun-column disk caches are keyed by folder (and scale height) only: isolate every profile.
         out = cache/'aerosol_profile'/p['tag']; out.mkdir(parents=True, exist_ok=True)
         return out
-    scope.update(AER_PROFILE=lambda h: profile(h, vector), AER_COLUMN=parameters(p['config'])['column'],
-                 AER_FOLDER=folder, AER_KERNEL=lambda kernel: wrap_kernel(kernel, scope, vector))
-    return source
-
-
-def engine_create(engine, state):
-    """engine.create, or for an enabled block the patched create compiled into the engine module namespace."""
-    source = inspect.getsource(engine.create)
-    patched = patch_source(source, state, engine.__dict__)
-    if patched is source:
-        return engine.create
-    space = engine.__dict__
-    exec(compile(patched, 'tropo_profile_engine_create', 'exec'), space)
-    return space['create']
-
-
-TRANSPORT = (("s.ext,s.asca,", "s.ext,np.r_[s.asca,self.aerosol_vector],"), ("s.delta,self.height,self.g", "s.delta,-1.,self.g"))
-
-
-def wrap_kernel(kernel, scope, vector):
-    """rig/engine.py native Kernel (sh_cpu.cpp): transport passes aerosol_height -1 and the parameter vector after
-    asc[0..W). Any other kernel (sosfuse2 fused.Kernel) reads the profile in setup() and is returned unchanged."""
-    native = scope.get('Kernel')
-    if not (isinstance(native, type) and isinstance(kernel, native) and hasattr(kernel, 'lib')):
-        return kernel
-    source = textwrap.dedent(inspect.getsource(native.transport))
-    for old, new in TRANSPORT:
-        if source.count(old) != 1:
-            raise RuntimeError('E_ADAPTER_DRIFT: accepted/engine.py Kernel.transport: '+old)
-        source = source.replace(old, new)
-    space = dict(scope); exec(compile(source, 'tropo_profile_cpu_transport', 'exec'), space)
-    kernel.aerosol_vector = np.ascontiguousarray(vector, 'f8')
-    kernel.transport = types.MethodType(space['transport'], kernel)
-    return kernel
+    return types.SimpleNamespace(profile=lambda h: profile(h, vector), column=parameters(p['config'])['column'],
+                                 folder=folder, vector=vector, tag=p['tag'])
