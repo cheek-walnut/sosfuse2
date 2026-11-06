@@ -8,12 +8,12 @@ a NumPy reference implementation, an optional CUDA kernel compiled at run time t
 compare against fixed references within tolerances, and a provenance record that signs every table with the hashes of the
 code and data that produced it.
 
-This is research code, published in the form we use it. Versions 1.0.0, 1.1.0, 1.1.1 and 1.2.0 are published together,
-and 1.2.0 is the current release. It replaces the source-text adapters of the engine loader with keyword-only hooks, moves
-the packaged tests into `sosfuse2/tests`, reformats the Python sources to one statement per line and rewrites the
-documents. The physics is that of 1.1.0: the tables carry new `code_hashes`, and a comparison with 1.1.1 found no
-difference in the prepared arrays or the final tables. That comparison, and every configuration the release was verified
-on, is recorded under *Tested configurations*.
+This is research code, published in the form we use it. Versions 1.0.0 to 1.2.1 are published together, and 1.2.1 is
+the current release. 1.2.0 replaced the source-text adapters of the engine loader with keyword-only hooks, moved the
+packaged tests into `sosfuse2/tests`, reformatted the Python sources to one statement per line and rewrote the documents;
+1.2.1 adds `docs/PERFORMANCE.md` and changes nothing else. The physics is that of 1.1.0: the tables carry new
+`code_hashes` since 1.2.0, and a comparison with 1.1.1 found no difference in the prepared arrays or the final tables.
+That comparison, and every configuration the release was verified on, is recorded under *Tested configurations*.
 
 ![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their ratio](docs/validation/mystic_vs_engine.png)
 
@@ -29,7 +29,8 @@ model uses a spherical shell. Monte Carlo codes handle this geometry, but their 
 runs for the comparison below, one direction at three solar elevations and 30 wavelengths, took 6.6 CPU-hours to reach a
 standard error of 0.5–2.4 % per value. sosfuse2 solves for a source field instead of sampling photons, so a table of
 100 × 180 directions and 45 bands is free of sampling noise and covers all solar elevations at once. `docs/MODEL.md`
-describes the physics, the grids and the iteration.
+describes the physics, the grids and the iteration. `docs/PERFORMANCE.md` records where the GPU time goes, how far the
+kernels sit from the hardware limits, what was tried, and the question about the main kernel that is still open.
 
 ## Validation
 
@@ -176,6 +177,8 @@ passing turns the run red until its entry is removed, so the failures stay visib
 
 ## Tested configurations
 
+1.2.1 changes documentation only, so the 1.2.0 rows apply to it unchanged.
+
 Configurations verified for 1.2.0:
 
 | platform | Python | backend | what was run |
@@ -219,7 +222,7 @@ src/sosfuse2/
   assets/, configs/, fixtures/            data (see assets/README.md), kernel flag sets, test records
   tests/, testing.py                      the packaged tests (pytest --pyargs sosfuse2) and their support module
 docs/                                     MODEL.md, VALIDATION.md (+ validation/ data and figure script), REFERENCES.md,
-                                          CHECKS.md, KNOWN_FAILURES.md, PROVENANCE_V3.md
+                                          PERFORMANCE.md, CHECKS.md, KNOWN_FAILURES.md, PROVENANCE_V3.md
 ```
 
 The solver definitions live in the editable `src/sosfuse2/solver_*.py` files. `accepted/engine.py` selects definitions and

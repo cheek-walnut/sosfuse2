@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sosfuse2"
-version = "1.2.0"
+version = "1.2.1"
 description = "Successive-orders-of-scattering twilight sky radiance tables (NumPy reference, optional CUDA via CuPy)"
 readme = "README.md"
 # PEP 639 expression for the whole distribution: code MIT; project data CC0; CIE colour tables via Mitsuba/colour-science
