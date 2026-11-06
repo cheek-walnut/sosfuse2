@@ -22,8 +22,9 @@ the download and prints the URLs to fetch by hand. An unreachable server is retr
 that depend on the `usstd76` density asset, about 23 cases, fail with `E_IPRT_OFFLINE` rather than skip. Download the two
 files once with `python -B -c "from sosfuse2 import iprt; iprt.inputs()"` or leave `SOSFUSE2_OFFLINE` unset.
 
-The clean-room check also runs one reduced NumPy solve, which takes a few minutes, after the one-time O₄ preparation from
-the README (`python -m sosfuse2.prepare_minor_absorbers --download`; without it the solve stops with
+The check in a fresh virtual environment outside the source tree also runs one reduced NumPy solve, which takes a few
+minutes, after the one-time O₄ preparation from the README
+(`python -m sosfuse2.prepare_minor_absorbers --download`; without it the solve stops with
 `E_O4_ASSET_MISSING`):
 
 ```sh
@@ -33,10 +34,11 @@ python -B -m sosfuse2.run_gpu_state_v3 --id clear_34 --reduced --backend numpy -
 On macOS, the persistent queue (`pipeline --persistent`, `test_r17_port`, `test_pipeline_persistent`) listens on a Unix
 socket under the run's temporary root, and macOS limits that path to 104 bytes. Keep `TMPDIR` and `SOSFUSE2_TEST_SCRATCH`
 short; the default `/var/folders/...` is fine, whereas a 108-byte `TMPDIR` failed with `E_PERSISTENT_SERVICE_START` in a
-clean room on 2026-11-03. The five `test_pipeline_persistent` cases wait `PERSISTENT_TEST_DEADLINE` seconds, 60 by
-default, for a 4-state NumPy reduced queue to start. A busy Mac and a 12-core Linux host both exceeded 60 s in the
-2026-11-03 clean rooms with `TimeoutExpired` errors, and on the Linux host (2026-11-04) the setup queue alone took 462 s and
-the five cases 838 s in total, so 300 s is not enough either. The public CI sets `PERSISTENT_TEST_DEADLINE=2400`, and the
+fresh virtual environment outside the source tree. The five `test_pipeline_persistent` cases wait
+`PERSISTENT_TEST_DEADLINE` seconds, 60 by default, for a 4-state NumPy reduced queue to start. A busy laptop and a
+12-core host both exceeded 60 s in fresh virtual environments outside the source tree with `TimeoutExpired` errors,
+and on the latter host the setup queue alone took 462 s and the five cases 838 s in total, so 300 s is not enough either.
+The public CI sets `PERSISTENT_TEST_DEADLINE=2400`, and the
 CUDA G-A gate of tier 2 runs the same cases with 900 s.
 
 The kernel syntax and preprocess tests need a C++ compiler, `clang++` or `clang` on `PATH`: `test_ground_fused`,
@@ -73,11 +75,12 @@ unless they are already in the work root.
 SOSFUSE2_SKY_SOS_ROOT=/path/to/sky-sos python -B -m sosfuse2.gate --gf --out <dir>
 ```
 
-G-F, the full-grid fixed table, reuses the sky-sos bake template `rig/bake/bake_run.py`, a research-side dependency, and
+G-F, the full-grid fixed table, reuses the bake template from the research records, a research-side dependency, and
 fails with `E_GATE_CONFIG` without the root. The fixed table itself is not part of the package.
-`gate/baselines/manifest.json` records it under `gf.reference` as a home-relative path on the measurement host (`~/...`,
-expanded against your home directory) together with its radiance SHA-256. Historical paths in `BASELINE_LOG.md` are reduced to file or directory
-names, and a new record writes `~/…` for a file under the home directory and the bare file name otherwise. Pass the table
+`gate/baselines/manifest.json` records it under `gf.reference` as a home-relative path (`~/...`,
+expanded against your home directory) together with its radiance SHA-256. Historical paths in `BASELINE_LOG.md` are reduced
+to file or directory names, and a new record writes `~/…` for a file under the home directory and the bare file name
+otherwise. Pass the table
 with `--reference <table.npz>`; the SHA check `E_GATE_MANIFEST_SHA` still applies. The research tests (`test_cache_store`,
 `test_v14_runner`, the kernel_ab evidence packs and others) run in this tier as well. This tier lies outside the public CI;
 it is the deployment check of the consumer, sky-sos. `SADDLE_DATA_ROOT`, which is optional, names a research input root

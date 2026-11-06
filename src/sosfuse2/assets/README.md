@@ -8,7 +8,7 @@ cross-section asset is **CC BY 4.0** rather than CC0, and the locally prepared O
 The JSON assets are frozen inputs. Their SHA-256 is pinned or recorded by the code: `density.ASSET_SHA256`, the
 `frozen_source_sha256` of the ozone temperature set, the `code_hashes` of every table, and the generated O₄ table, which
 copies `wavelength_reference` from `spectra_fine.json`. Their embedded provenance strings are therefore left exactly as
-written when the files were generated, including the research-tree paths of 2026-10 (`scripts/sosfuse2/...`), which are
+written when the files were generated, including the historical path labels (`scripts/sosfuse2/...`), which are
 not paths in this package.
 
 | file | what | origin | terms |

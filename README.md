@@ -15,7 +15,8 @@ packaged tests into `sosfuse2/tests`, reformatted the Python sources to one stat
 `code_hashes` since 1.2.0, and a comparison with 1.1.1 found no difference in the prepared arrays or the final tables.
 That comparison, and every configuration the release was verified on, is recorded under *Tested configurations*.
 
-![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their ratio](docs/validation/mystic_vs_engine.png)
+![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their
+ratio](docs/validation/mystic_vs_engine.png)
 
 Sun-side sky radiance at 20° elevation for solar elevations −3°, −6° and −9°, from the engine (lines) and from the Monte
 Carlo code MYSTIC (markers) on the same optical input, with their ratio and the MYSTIC standard error. The dip near 600 nm
@@ -90,7 +91,7 @@ On a CUDA machine, NVRTC compiles the kernels on first use. `SOSFUSE2_COMPILE_CA
 ## Quick start
 
 A first check takes three commands: install, prepare the O₄ absorption data once, and solve one reduced-resolution state
-with the NumPy backend. The solve takes about a minute on a laptop, 36 s with two threads on an Apple M4.
+with the NumPy backend. The solve takes about a minute on a laptop, 36 s with two threads in the measured run.
 
 ```sh
 pip install ".[test]"
@@ -136,7 +137,7 @@ The following matters for production queues and gates rather than for a first so
   allocation. If it cannot fit alone, production runs use KSPLIT=0 for the entire state, whereas memory held by other
   service states only causes a wait. `SOSFUSE2_KSPLIT_FALLBACK=0`, the default for gates and benchmarks, turns the
   fallback into an `E_KSPLIT_MEMORY` error, and `1` permits it. A fallback is recorded once as `KSPLIT_FALLBACK` in the
-  phase log and the pipeline summary, and the table metadata records `ksplit_effective`. On a 10 GB RTX 3080 the
+  phase log and the pipeline summary, and the table metadata records `ksplit_effective`. On a 10 GB card the
   full-resolution gate state falls back, with a minimum peak of 7.06 GB against a budget of 6.74 GB.
 - Pipeline logs go to a separate `logs/<run>/` directory per invocation, referenced from `pipeline_summary.json`, so cold
   and warm runs keep both traces. Benchmark stage timers go to `timings-<run>.json`, with the file name recorded in
@@ -184,27 +185,27 @@ Configurations verified for 1.2.0:
 | platform | Python | backend | what was run |
 |---|---|---|---|
 | Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | installed sdist: `gate --all` exit 0 with all 78 gate nodes passing (G-R, G-P, G-T, G-A, H, PS); the G-F product state baked through the production queue, table byte-identical to the fixed G-F table of 1.1.0 (max relative difference 0.0), same O₄ asset |
-| macOS arm64 | 3.14 | NumPy | installed sdist (clean room): 524 passed, 65 skipped, 5 xfailed, 0 failed; comparison with 1.1.1 in separate interpreters: the prepared arrays of five states, with and without the host cache, at rtol 1e-6 and a reduced solve (radiance and source) at rtol 1e-5, max relative difference 0.0 |
+| macOS arm64 | 3.14 | NumPy | installed sdist (a fresh virtual environment outside the source tree): 524 passed, 65 skipped, 5 xfailed, 0 failed; comparison with 1.1.1 in separate interpreters: the prepared arrays of five states, with and without the host cache, at rtol 1e-6 and a reduced solve (radiance and source) at rtol 1e-5, max relative difference 0.0 |
 
 Configurations verified for 1.1.1, a documentation-only release:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
 | Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | installed sdist: the G-F product state baked through the production queue, table bit-identical to the 1.1.0 fixed G-F table (max relative difference 0.0), same O₄ asset |
-| macOS arm64 | 3.14 | NumPy | installed sdist (clean room): 524 passed, 65 skipped, 5 xfailed, 0 failed; the README quick start as written (O₄ download 3 s, reduced solve 36 s) |
+| macOS arm64 | 3.14 | NumPy | installed sdist (a fresh virtual environment outside the source tree): 524 passed, 65 skipped, 5 xfailed, 0 failed; the README quick start as written (O₄ download 3 s, reduced solve 36 s) |
 
 Configurations verified for 1.1.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
 | Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | release tree in place (`PYTHONPATH=src`): `gate --all` and `gate --gf` pass at the 1.1.0 baselines (the full-resolution product state runs at KSPLIT 0 on this 10 GB card) |
-| macOS arm64 | 3.14 | NumPy | installed package tests (clean room): 462 passed, 0 failed, 5 xfailed; the in-tree `--validate-mac` check and the NumPy gate goldens |
-| Linux x86_64, AVX-512 (GCP n2-standard-4) | 3.14 | NumPy | targeted tests only: the log-blend unit tests and the FX-N +1 ULP test, NumPy AVX-512 dispatch on and off |
+| macOS arm64 | 3.14 | NumPy | installed package tests (a fresh virtual environment outside the source tree): 462 passed, 0 failed, 5 xfailed; the in-tree `--validate-mac` check and the NumPy gate goldens |
+| Linux x86_64, AVX-512 | 3.14 | NumPy | targeted tests only: the log-blend unit tests and the FX-N +1 ULP test, NumPy AVX-512 dispatch on and off |
 
 The package runs on Unix only, because the solver uses `resource`, and Python 3.11 is untested. The NumPy reference runs
 in FP32 flush-to-zero mode, which is available on Darwin arm64, Linux arm64 and Linux x86_64; other platforms, macOS
 x86_64 for example, stop with `E_FTZ_UNSUPPORTED`. The persistent-queue tests need a larger `PERSISTENT_TEST_DEADLINE`
-than the 60 s default: their setup queue took 462 s on a 12-core Linux host, and CI uses 2400 s (`docs/CHECKS.md`).
+than the 60 s default: their setup queue took 462 s on a 12-core host, and CI uses 2400 s (`docs/CHECKS.md`).
 
 ## Package layout
 
@@ -243,7 +244,7 @@ of photon sampling, and radiance tables as the only product. Full references are
 
 ## Maintenance
 
-The package is maintained by one person as part of ongoing research. Issues and pull requests are read, but there is no
+The package is maintained as part of ongoing research. Issues and pull requests are read, but there is no
 support commitment or release schedule. Changes to the physics (for example an added absorber) change the provenance
 hashes, so tables from different versions are not interchangeable.
 

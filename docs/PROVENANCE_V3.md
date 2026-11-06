@@ -1,7 +1,7 @@
 # Provenance records: v3 → v4
 
-The `meta.json` of every table carries `contract`, `signature` and `code_hashes`. Tables baked from the sky-sos research
-checkout (`scripts/sosfuse2`, 2026-10) are v3, and tables baked from the `sosfuse2` package are v4
+The `meta.json` of every table carries `contract`, `signature` and `code_hashes`. Legacy tables in the research
+records are v3, and tables baked from the `sosfuse2` package are v4
 (`run_gpu_state_v3.CONTRACT_VERSION`). This note is for readers that hold both.
 
 ## Reader rule
@@ -13,7 +13,7 @@ checkout (`scripts/sosfuse2`, 2026-10) are v3, and tables baked from the `sosfus
 - Any other value on a signed table, that is a `meta.json` with `signature` written by `run_gpu_state_v3`, is an error
   (`spectral.check_meta_contract`, E_PROVENANCE_CONTRACT).
 - A derived table without a signature is not a signed provenance record. Merge tools, such as the table merge tool in the
-  sky-sos research records, write their own descriptive text into `contract`. Readers apply the v3/v4 key rules to the
+  research records, write their own descriptive text into `contract`. Readers apply the v3/v4 key rules to the
   signed source tables of such a table rather than to the table itself, and may pair it with a signed table; the product
   twilight/day pair is exactly that.
 
@@ -47,16 +47,17 @@ digest records the current one.
 
 | digest | generation | why superseded |
 |---|---|---|
-| `a7ccf7b1…` | 2026-10 float64/numpy generator | last-ulp values differed between arm64 and x86_64 (6 values, ≤1.9e-15), so a pinned digest could not hold across platforms; the decimal generator (`05dfeb6e…`) gives the same bytes everywhere, values within 4.7e-15 of this one |
+| `a7ccf7b1…` | float64/numpy generator | last-ulp values differed between arm64 and x86_64 (6 values, ≤1.9e-15), so a pinned digest could not hold across platforms; the decimal generator (`05dfeb6e…`) gives the same bytes everywhere, values within 4.7e-15 of this one |
 
 The current `usstd76_profile.json` asset is regenerated from the IPRT inputs with `decimal` arithmetic. Its libmpdec
-implementation is the same C algorithm in every CPython build, independent of libm and SIMD width; its `power()` is "almost always" correctly rounded,
-which does not matter for reproducibility. The digest `05dfeb6e…` was measured identical on arm64 with CPython 3.14 and on
-x86_64 with CPython 3.12 (2026-11-03); other interpreters are not covered by that measurement. The 2026-10 asset
+implementation is the same C algorithm in every CPython build, independent of libm and SIMD width; its `power()` is
+"almost always" correctly rounded, which does not matter for reproducibility.
+The digest `05dfeb6e…` was measured identical on arm64 with CPython 3.14 and on
+x86_64 with CPython 3.12; other interpreters are not covered by that measurement. The earlier asset
 `a7ccf7b1…` was produced with float64/numpy and differs per CPU architecture in the last ulp, 6 values at ≤ 1.9e-15
 relative between arm64 and x86_64. The expressions, physical constants, inputs and normalization are unchanged; what
 changed is the arithmetic implementation, the derived asset's values (≤ 4.7e-15 relative for air, ≤ 1.2e-15 for ozone) and
-its hash. These differences lie nine orders of magnitude below the 1e-6 tolerance that the research repository applies to
+its hash. These differences lie nine orders of magnitude below the 1e-6 tolerance that the research records apply to
 prepared quantities. v3 tables record `ozone_profile.asset_sha256 = a7ccf7b1…` in their resolved spectral block and v4
 tables record `05dfeb6e…`; readers compare asset hashes within the same `contract` version only.
 
@@ -86,14 +87,14 @@ Every v4 signature differs from v3 for the same job, because the keys differ and
 `geometry.identity` and the column and host caches also use package-relative keys, so the package does not reuse existing
 packed geometry and column caches; they are rebuilt once.
 
-As regression evidence, a 2026-11-02 production state, `L19s3_tau0p01_aod0p15_g0p65`, was baked by the installed package
-on the development GPU host (RTX 3080, 2026-11-03) and compared with its 2026-11-02 v3 table: 0 of 20,250,000 values lie
+As regression evidence, a production state, `L19s3_tau0p01_aod0p15_g0p65`, was baked by the installed package
+on an RTX 3080 and compared with its v3 table: 0 of 20,250,000 values lie
 outside rtol 1e-5. The two tables happened to be byte-identical, which is an observation and not a requirement.
 
 ## Tag map
 
-`sky-sos-v0.1.1` (research checkout, `scripts/sosfuse2`) corresponds to public `sosfuse2` v1.0.0. The tag points are
-recorded in the sky-sos checkout rather than in this repository, and older commit SHAs cited in records stay valid there.
+The research release v0.1.1 corresponds to public `sosfuse2` v1.0.0. The tag points and older commit SHAs
+remain in the research records.
 
 Moving the solver modules into `src/sosfuse2/` keeps the `contract` field at v4. All seven promoted `solver_*.py` files
 enter the fixed production manifest. The geometry, host and column key versions change once for the new source layout;
