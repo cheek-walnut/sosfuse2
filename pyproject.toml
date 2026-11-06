@@ -48,7 +48,7 @@ only-include = ["src/sosfuse2", "pyproject.toml", "docs", "CITATION.cff"]
 # cannot drop tracked package data such as the gate baselines. Exclusions are explicit below.
 ignore-vcs = true
 # Everything under src/sosfuse2 ships as package data (assets, fixtures, accepted sources, native/sh_cpu.cpp, configs,
-# gate baselines, kernel.cu, docs) except bytecode caches and test scratch. The tests (test_*.py, testing.py) ship too:
+# gate baselines, kernel.cu, docs) except bytecode caches and test scratch. The tests (tests/, testing.py) ship too:
 # the clean-room check installs the sdist outside the source tree and runs them from the installed package.
 exclude = [
   "**/__pycache__",

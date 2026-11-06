@@ -3,7 +3,7 @@
 Five test cases fail in the research baseline that this package was split from and still fail here. They are marked
 `xfail(strict=True)` through `sosfuse2.testing.known_failure(id, reason)`, so public CI stays green without hiding them:
 each case still runs, its failure is the expected outcome, and a pass turns the run red until the entry below and the decorator
-are removed together. The research CLI harnesses (`python -m sosfuse2.test_strato_adversarial`, `…test_strato_delta_adversarial
+are removed together. The research CLI harnesses (`python -m sosfuse2.tests.test_strato_adversarial`, `…test_strato_delta_adversarial
 --out …`, plain `unittest.main()`) ignore the marker and report the failure as before. No numeric or engine code was changed for
 these entries (sosfuse2 public split, user decision 2026-11-03); the fixes are follow-up work.
 

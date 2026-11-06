@@ -20,7 +20,7 @@ KNOWN_FAILURES_DOC = 'docs/KNOWN_FAILURES.md'
 def require_tool(name):
     """Skip the calling test when an external executable (clang++, clang) is not on PATH (docs/CHECKS.md tier 1).
 
-    Both unittest and pytest honour unittest.SkipTest. Inside a CLI harness (`python -m sosfuse2.test_strato_order --out …`)
+    Both unittest and pytest honour unittest.SkipTest. Inside a CLI harness (`python -m sosfuse2.tests.test_strato_order --out …`)
     the exception propagates: a research run without the compiler stops with a readable reason instead of FileNotFoundError.
     """
     path = shutil.which(name)

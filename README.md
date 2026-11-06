@@ -201,7 +201,7 @@ src/sosfuse2/
   solver_*.py                             editable solver and preview definitions
   host/, native/sh_cpu.cpp                host helpers, CPU spherical-harmonics kernel
   assets/, configs/, fixtures/            data (see assets/README.md), kernel flag sets, test records
-  test_*.py, testing.py                   the packaged tests
+  tests/, testing.py                      the packaged tests (pytest --pyargs sosfuse2) and their support module
 docs/                                     MODEL.md, VALIDATION.md (+ validation/ data and figure script), REFERENCES.md,
                                           CHECKS.md, KNOWN_FAILURES.md, PROVENANCE_V3.md
 ```

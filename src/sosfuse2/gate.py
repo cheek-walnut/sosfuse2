@@ -583,7 +583,7 @@ def historical(out):
 def persistent(out):
     env = {k: v for k, v in os.environ.items() if k not in CONTROLS}
     env.update(PERSISTENT_TEST_BACKEND='cupy', PERSISTENT_TEST_DEADLINE='900', PYTHONDONTWRITEBYTECODE='1')
-    cmd = [sys.executable, '-B', '-m', 'unittest', '-v'] + [f'sosfuse2.test_pipeline_persistent.PersistentTests.{t}' for t in PS_TESTS]
+    cmd = [sys.executable, '-B', '-m', 'unittest', '-v'] + [f'sosfuse2.tests.test_pipeline_persistent.PersistentTests.{t}' for t in PS_TESTS]
     rc, tail, _ = child(cmd, out/'persistent.log', env, cwd=paths.SRC, timeout=1800)
     return dict(pass_=rc == 0, rc=rc, tail=tail[-6:], code=None if rc == 0 else 'E_GATE_PERSISTENT')
 
