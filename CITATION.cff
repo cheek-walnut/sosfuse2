@@ -5,14 +5,14 @@ message: >-
   citations, listed in THIRD_PARTY.md and src/sosfuse2/assets/README.md.
 title: "sosfuse2: successive-orders-of-scattering twilight sky radiance tables"
 type: software
-version: 1.1.1
+version: 1.2.0
 date-released: 2026-11-06
 license: MIT
 authors:
   - name: sosfuse2 developers
 abstract: >-
   Polarized successive-orders-of-scattering solver for the twilight sky in a spherical-shell atmosphere with a
-  tropospheric aerosol layer, a stratospheric sulfate layer and ozone absorption. NumPy reference implementation,
+  tropospheric aerosol layer, a stratospheric sulfate layer and absorption by ozone, NO₂ and O₄. NumPy reference implementation,
   optional CUDA kernel through CuPy/NVRTC, tolerance-based numeric gates and signed provenance records for the baked tables.
 keywords:
   - twilight

@@ -8,10 +8,12 @@ a NumPy reference implementation, an optional CUDA kernel compiled at run time t
 compare against fixed references within tolerances, and a provenance record that signs every table with the hashes of the
 code and data that produced it.
 
-This is research code, published in the form we use it. Versions 1.0.0, 1.1.0 and 1.1.1 are published together, and
-1.1.1 is the current release. It changes documentation, comments and provenance notes only, so its tables carry new
-`code_hashes` but the same numbers as 1.1.0. That check, and every configuration the release was verified on, is
-recorded under *Tested configurations*.
+This is research code, published in the form we use it. Versions 1.0.0, 1.1.0, 1.1.1 and 1.2.0 are published together,
+and 1.2.0 is the current release. It replaces the source-text adapters of the engine loader with keyword-only hooks, moves
+the packaged tests into `sosfuse2/tests`, reformats the Python sources to one statement per line and rewrites the
+documents. The physics is that of 1.1.0: the tables carry new `code_hashes`, and a comparison with 1.1.1 found no
+difference in the prepared arrays or the final tables. That comparison, and every configuration the release was verified
+on, is recorded under *Tested configurations*.
 
 ![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their ratio](docs/validation/mystic_vs_engine.png)
 
@@ -173,6 +175,13 @@ causes and the rule for retiring them are in `docs/KNOWN_FAILURES.md`. Because t
 passing turns the run red until its entry is removed, so the failures stay visible.
 
 ## Tested configurations
+
+Configurations verified for 1.2.0:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | installed sdist: `gate --all` exit 0 with all 78 gate nodes passing (G-R, G-P, G-T, G-A, H, PS); the G-F product state baked through the production queue, table byte-identical to the fixed G-F table of 1.1.0 (max relative difference 0.0), same O₄ asset |
+| macOS arm64 | 3.14 | NumPy | installed sdist (clean room): 524 passed, 65 skipped, 5 xfailed, 0 failed; comparison with 1.1.1 in separate interpreters: the prepared arrays of five states, with and without the host cache, at rtol 1e-6 and a reduced solve (radiance and source) at rtol 1e-5, max relative difference 0.0 |
 
 Configurations verified for 1.1.1, a documentation-only release:
 
