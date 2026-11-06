@@ -91,7 +91,7 @@ def sky_sos_optional(*relative):
 
 
 def scratch(prefix):
-    """Fresh output folder for a harness run; under $TMPDIR, never inside the package (the old scripts/sosfuse2/scratchpad)."""
+    """Fresh output folder for a harness run; under $TMPDIR, never inside the package (the research tree's old in-package scratchpad)."""
     return Path(tempfile.mkdtemp(prefix=prefix+'-', dir=scratch_parent()))
 
 

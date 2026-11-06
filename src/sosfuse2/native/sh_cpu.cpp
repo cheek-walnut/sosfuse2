@@ -198,7 +198,7 @@ static void tensor_coeff(const double*B,const double*P,double chi,double cx,doub
  int ii[4]={0,1,2,0},jj[4]={0,1,2,2};
  for(int u=0;u<4;u++){int i=ii[u],j=jj[u];T[4*u]=K[3*i]*K[3*j];T[4*u+1]=K[3*i+1]*K[3*j+1];T[4*u+2]=K[3*i+2]*K[3*j+2];T[4*u+3]=K[3*i]*K[3*j+2]+K[3*i+2]*K[3*j];}
 }
-// Two-layer tropospheric aerosol (scripts/sosfuse2/tropo_profile.py): selected by aerosol_height<0 only; then
+// Two-layer tropospheric aerosol (sosfuse2/tropo_profile.py): selected by aerosol_height<0 only; then
 // P=[bl_top-w/2,1/w,a_bl,k_bl,a_ft,k_ft,bl_top] follows asc[0..W) (smoothstep blend over w, same expression as kernel.cu).
 // Any other aerosol_height keeps the exponential expression unchanged.
 static double aerosol_two_layer(double h,const double*P){

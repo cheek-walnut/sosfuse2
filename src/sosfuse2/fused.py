@@ -57,7 +57,7 @@ extern "C" __global__ void vp_keys(long long nrec,const int*c0cp,int nc,unsigned
 extern "C" __global__ void vp_split(long long n,const unsigned long long*key,int*slot,int*cell){
  const long long i=(long long)blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;
  const unsigned long long x=key[i];slot[i]=(int)(x&0xFFFFFFFFull);cell[i]=(int)(x>>32);}
-// Stable counting sort by source cell (same slot/cell as the key sort above, results/kclean_20261029/vprod_sort: 3.9x
+// Stable counting sort by source cell (same slot/cell as the key sort above, kernel clean-up study of 2026-10-29: 3.9x
 // faster, 8.6 vs 24 B/record pool peak). Block b owns records [b*seg, (b+1)*seg): vp_count counts its records per cell,
 // the host takes the exclusive cumsum of counts in [cell][block] order, and vp_scatter (one warp per block, 32-record
 // tiles in order, __match_any_sync ranks) writes each record's slot after all lower cells, lower blocks and lower records.

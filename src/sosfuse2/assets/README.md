@@ -5,6 +5,12 @@ project (`CITATION.cff`) if you use them. Files derived from third-party sources
 list with licence texts is `THIRD_PARTY.md` at the repository root (also shipped in the wheel's licence directory).
 The NO₂ cross-section asset is **CC BY 4.0, not CC0**; the locally prepared O₄ table is not bundled.
 
+The JSON assets are frozen inputs: their SHA-256 is pinned or recorded by the code (`density.ASSET_SHA256`, the
+`frozen_source_sha256` of the ozone temperature set, the `code_hashes` of every table, and the generated O₄ table copies
+`wavelength_reference` from `spectra_fine.json`). Their embedded provenance strings are therefore left exactly as written
+when the files were generated, including the research-tree paths of 2026-10 (`scripts/sosfuse2/...`), which are not paths
+in this package.
+
 | file | what | origin | terms |
 |---|---|---|---|
 | `tropo_rural_sf79_rh70.json` | tropospheric rural aerosol Mie table (phase matrix, cross sections) | this project (`generate_tropo_optics.py`, Bohren–Huffman spheres); input parameters from Shettle & Fenn 1979, validation rows from LOWTRAN7 | CC0 1.0 (project values); the `lowtran7.rows[*].*_lowtran` fields are LOWTRAN7 table values (U.S. Government work, THIRD_PARTY.md §6) |

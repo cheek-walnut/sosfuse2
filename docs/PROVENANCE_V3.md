@@ -12,7 +12,7 @@ checkout (`scripts/sosfuse2`, 2026-10) are v3; tables baked from the `sosfuse2` 
 - Any other value on a signed table (meta.json with `signature`, i.e. a run_gpu_state_v3 output): error
   (`spectral.check_meta_contract`, E_PROVENANCE_CONTRACT).
 - A derived table without a signature (merge tools write their own descriptive `contract` text, e.g. sky-sos
-  `results/widget_bm45_20261102/merge49.py` in the sky-sos research records) is not a signed provenance record: readers apply the v3/v4 key rules to its signed
+  the table merge tool in the sky-sos research records) is not a signed provenance record: readers apply the v3/v4 key rules to its signed
   source tables, not to it, and may pair it with a signed table (the product twilight/day pair is exactly that).
 
 ## Keys

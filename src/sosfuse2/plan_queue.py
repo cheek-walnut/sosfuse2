@@ -53,12 +53,12 @@ COST_PROFILES = {
         attach_miss_seconds=51.3, host_sun02_seconds=None, host_ground_seconds=None, aerosol_column_seconds=None,
         geometry_build_seconds=None, state_seconds=dict(strato=2006., off=1030.),
         sources=dict(
-            strato_column='docs/HANDOFF-2026-10-03-midnight.md:43 (eda CPU profile: stratosphere columns about 118 s); '
-                          'rays 9,586,008 main + 404,496 ground (results/purple_aod_axis_20261007/logs)',
-            density_column='docs/HANDOFF-2026-10-03-midnight.md:43 (density column correction about 21 s); taken as the '
+            strato_column='development GPU host CPU profile, 2026-10-03 (research record): stratosphere columns about 118 s; '
+                          'rays 9,586,008 main + 404,496 ground (bake logs of 2026-10-07)',
+            density_column='same profile: density column correction about 21 s; taken as the '
                            'main-bundle correction (guess: the profile does not name the code path)',
-            attach_miss='results/purple_aod_axis_20261007/logs/runs/L19s3_tau0p01_aod0p15_g0p65/run.raw.log attach_cache miss 51.3 s',
-            state='mean source_done of the r2 runs in results/purple_aod_axis_20261007/logs (two-slot shared GPU): '
+            attach_miss='bake log of 2026-10-07 (research record), state L19s3_tau0p01_aod0p15_g0p65: attach_cache miss 51.3 s',
+            state='mean source_done of the r2 runs in the 2026-10-07 bake logs (two-slot shared GPU): '
                   'stratosphere on 2006 s (5 states), off 1030 s (2 states); used only to balance GPUs')),
     'rig4090': dict(
         strato_column_seconds_per_ray=145.0/9586008,
@@ -66,10 +66,10 @@ COST_PROFILES = {
         attach_miss_seconds=77.9, host_sun02_seconds=None, host_ground_seconds=None, aerosol_column_seconds=None,
         geometry_build_seconds=None, state_seconds=dict(strato=52., off=82.8),
         sources=dict(
-            strato_column='results/strato_rig_20261003_lut2/runs/v1/logs/B22s5_tau0p005_aod0p15.log column_cache miss 145.0 s, 9,586,008 rays',
+            strato_column='leased 4090 run of 2026-10-03 (research record), state B22s5_tau0p005_aod0p15: column_cache miss 145.0 s, 9,586,008 rays',
             density_column='same log: density column_cache miss 9.9 s for a 450,000-ray table bundle',
             attach_miss='same log: attach_cache miss 77.9 s',
-            state='docs/HANDOFF-2026-10-03-midnight.md §2.3: 12 stratosphere states in 10 min 24 s (52 s each, overlapped), '
+            state='same run (research record): 12 stratosphere states in 10 min 24 s (52 s each, overlapped), '
                   '5 stratosphere-off states in 6 min 54 s; used only to balance GPUs')),
     'mac': dict(
         strato_column_seconds_per_ray=39.60/9586008,
@@ -77,7 +77,7 @@ COST_PROFILES = {
         attach_miss_seconds=None, host_sun02_seconds=None, host_ground_seconds=None, aerosol_column_seconds=None,
         geometry_build_seconds=None, state_seconds=dict(strato=1., off=1.),
         sources=dict(
-            strato_column='results/column_parallel_20261007/mac_full.json (serial, 9,586,008 rays, 2026-10-07)',
+            strato_column='Mac column-parallel measurement of 2026-10-07 (research record; serial, 9,586,008 rays)',
             density_column='same file: fused density_end_columns serial, 9,586,008 rays (the host-cache endpoint02 '
                            'path runs the same per-chunk correction)',
             state='no GPU on the Mac: equal weights')),
@@ -573,7 +573,7 @@ def plan_queue(a):
         notes=['attach and sun02 hits are valid only on this host (floating-point keys); run the planner on the queue host',
                'table bundles (about 0.04 % of the stratosphere rays per state) are not keyed',
                'cold_cpu_seconds are serial; cold_seconds divide column and endpoint02 items by the measured speed-up '
-               'of the column workers (SPEEDUP, results/column_parallel_20261007)'])
+               'of the column workers (SPEEDUP, Mac column-parallel measurement of 2026-10-07)'])
     commands(a, lists, columns, attach_root, a.out, res)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     tmp = a.out.with_suffix('.json.tmp'); tmp.write_text(json.dumps(plan, indent=1, allow_nan=False)+'\n'); os.replace(tmp, a.out)

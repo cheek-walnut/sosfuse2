@@ -7,9 +7,10 @@ One solve gives the sky at every solar elevation of a table, by default +6° to 
 implementation, an optional CUDA kernel (compiled at run time through CuPy/NVRTC), numeric gates with tolerances against
 fixed references, and a provenance record that signs every table with the hashes of the code and data that made it.
 
-This is research code, published in the form it is used in. Versions 1.0.0 and 1.1.0 are published together; 1.1.0
-is the current release. The configurations it was verified on are listed under *Status*, and nothing beyond them is
-claimed.
+This is research code, published in the form it is used in. Versions 1.0.0, 1.1.0 and 1.1.1 are published together;
+1.1.1 is the current release. It changes documentation, comments and provenance notes only, so its tables carry new
+`code_hashes` but the same numbers as 1.1.0 (checked, see *Status*). The configurations it was verified on are listed
+under *Status*, and nothing beyond them is claimed.
 
 ![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their ratio](docs/validation/mystic_vs_engine.png)
 
@@ -83,51 +84,52 @@ On a CUDA machine the kernels are compiled (NVRTC) on first use; `SOSFUSE2_COMPI
 
 ## Quick start
 
-Before a B2 solve, precompile/bake job or gate run, prepare the unbundled O₄ data once in the same work-root environment:
+Three commands: install, prepare the O₄ absorption data once, solve one reduced-resolution state with the NumPy backend
+(about a minute on a laptop: 36 s with two threads on an Apple M4).
 
 ```sh
-python -m sosfuse2.prepare_minor_absorbers --cia O2-O2_2024.cia
-# Or explicitly download the official source:
+pip install ".[test]"
 python -m sosfuse2.prepare_minor_absorbers --download
-```
-
-The command verifies the source SHA and prints the generated SHA. Solve performs no O₄ downloads; a missing or stale
-cache reports `E_O4_ASSET_MISSING` or `E_O4_ASSET_STALE`. `SOSFUSE2_OFFLINE=1` refuses the download option.
-For research, `parameters.no2_du=0` and `parameters.o4=false` disable the respective absorbers. `o4` must be a JSON
-boolean. An external air profile with O₄ enabled must declare `air_surface_number_density_m3` in its payload.
-
-Old tables without a physics field remain readable as legacy products. Reproduce their numbers with the original
-package revision recorded in their provenance; `spectral_mode=legacy` selects the old spectral grid, not old physics.
-Legacy, B2 and private S1 reference fixtures cannot be combined. Same-state source reuse also requires equal resolved
-`optics_state` values; omitted amounts and explicit defaults have the same signature.
-
-Before its first KSPLIT allocation, a state checks the minimum memory peak across its ground and source bundles.
-If it cannot fit alone, production runs use KSPLIT=0 for the entire state; memory occupied by other service states
-causes a wait instead. `SOSFUSE2_KSPLIT_FALLBACK=0` makes this an `E_KSPLIT_MEMORY` error (the default for gates and
-benchmarks); `1` permits fallback. A fallback is recorded once as `KSPLIT_FALLBACK` in the phase log and pipeline
-summary, and the table metadata records `ksplit_effective`. On a 10 GB RTX 3080 the full-resolution gate state falls
-back (minimum peak 7.06 GB against a budget of 6.74 GB). Pipeline logs live in a separate `logs/<run>/` directory
-per invocation, referenced by `pipeline_summary.json`, so cold and warm runs retain both traces. Benchmark stage
-timers use `timings-<run>.json`, with the filename recorded in `benchmark.json`.
-
-One reduced-resolution state, NumPy backend, a few minutes on a laptop:
-
-```sh
 python -B -m sosfuse2.run_gpu_state_v3 --id clear_34 --reduced --backend numpy --threads 2 --work-root ./work
 ```
+
+The table and its `meta.json` land under `./work/out/clear_34/`. `meta.json` carries `contract: "v4"`, the state, the
+backend, the tolerance settings and `code_hashes` of the fixed list of production modules, promoted solver definitions
+and data assets, plus a `signature` over them. `docs/PROVENANCE_V3.md` defines the record and how readers that also hold
+older `v3` tables compare by logical key.
+
+The O₄ step downloads the HITRAN O₂–O₂ collision-induced absorption file into the work-root environment
+(`SOSFUSE2_WORK_ROOT`), verifies the source SHA and prints the generated SHA; `--cia O2-O2_2024.cia` uses a local copy
+instead, and `SOSFUSE2_OFFLINE=1` refuses the download. The O₄ data are not bundled (`THIRD_PARTY.md`). A solve never
+downloads them: a missing or stale cache stops with `E_O4_ASSET_MISSING` or `E_O4_ASSET_STALE`.
 
 The state ids come from `sosfuse2/assets/states_v2.json` (the default `--states`; 64 parameter sets over `aod550`,
 `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo` and `stratosphere_tau550`; the solar depressions are the
 runner's axis (`solar_elevation_deg` in its settings), not part of a state; `states_v1.json` holds the 40 first-generation
 states). Every state in these two files marks its stratospheric layer `unsupported`, so the layer is off unless
-`--stratosphere on` is given.
-A full-resolution table needs the CUDA backend (`--backend cupy`); the
-production queue that bakes many states with overlapping preparation is `python -B -m sosfuse2.pipeline`.
+`--stratosphere on` is given. A full-resolution table needs the CUDA backend (`--backend cupy`); the production queue that
+bakes many states with overlapping preparation is `python -B -m sosfuse2.pipeline`.
 
-Every table is written with `meta.json` carrying `contract: "v4"`, the state, the backend, the tolerance settings and
-`code_hashes` of the fixed list of production modules, promoted solver definitions and data assets, plus a `signature` over
-them. `docs/PROVENANCE_V3.md` defines the record and how readers that also hold older `v3` tables compare by logical
-key.
+### Operating notes
+
+These matter for production queues and gates, not for the first solve.
+
+- Absorbers: `parameters.no2_du=0` and `parameters.o4=false` disable the respective absorbers for research runs. `o4`
+  must be a JSON boolean. An external air profile with O₄ enabled must declare `air_surface_number_density_m3` in its
+  payload.
+- Legacy tables: old tables without a physics field remain readable as legacy products. Reproduce their numbers with the
+  original package revision recorded in their provenance; `spectral_mode=legacy` selects the old spectral grid, not old
+  physics. Legacy, B2 and private S1 reference fixtures cannot be combined. Same-state source reuse also requires equal
+  resolved `optics_state` values; omitted amounts and explicit defaults have the same signature.
+- Memory (CUDA): before its first KSPLIT allocation, a state checks the minimum memory peak across its ground and source
+  bundles. If it cannot fit alone, production runs use KSPLIT=0 for the entire state; memory occupied by other service
+  states causes a wait instead. `SOSFUSE2_KSPLIT_FALLBACK=0` makes this an `E_KSPLIT_MEMORY` error (the default for gates
+  and benchmarks); `1` permits fallback. A fallback is recorded once as `KSPLIT_FALLBACK` in the phase log and pipeline
+  summary, and the table metadata records `ksplit_effective`. On a 10 GB RTX 3080 the full-resolution gate state falls
+  back (minimum peak 7.06 GB against a budget of 6.74 GB).
+- Logs: pipeline logs live in a separate `logs/<run>/` directory per invocation, referenced by `pipeline_summary.json`,
+  so cold and warm runs retain both traces. Benchmark stage timers use `timings-<run>.json`, with the filename recorded
+  in `benchmark.json`.
 
 ## Numerical tolerances
 
@@ -163,7 +165,14 @@ passing turns the run red until its entry is removed.
 
 ## Status
 
-Verified configurations for 1.1.0 (nothing else is claimed):
+Verified configurations for 1.1.1 (documentation-only release; nothing else is claimed):
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | installed sdist: the G-F product state baked through the production queue, table bit-identical to the 1.1.0 fixed G-F table (max relative difference 0.0), same O₄ asset |
+| macOS arm64 | 3.14 | NumPy | installed sdist (clean room): 524 passed, 65 skipped, 5 xfailed, 0 failed; the README quick start as written (O₄ download 3 s, reduced solve 36 s) |
+
+Verified configurations for 1.1.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
