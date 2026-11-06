@@ -3,7 +3,8 @@
 The measurements show where solve time goes, how close the kernels get to hardware limits and what each change achieved. One
 question remains open. The solver is fast enough for its purpose, as discussed under
 *Headroom*, but its main kernel has never been bound by memory bandwidth or by arithmetic throughput, and profiling found
-`long_scoreboard` as its largest measured stall reason without accounting for all stalled cycles.
+`long_scoreboard` as its largest measured stall reason in earlier probes without accounting for all stalled cycles.
+The release kernel's L4 measurement finds `wait` first and `long_scoreboard` second.
 The last section asks how to reduce the work per sample.
 
 The research records contain measurements on three cards: a GeForce
@@ -37,8 +38,10 @@ the following kernels during an evaluation.
 
 There are no global atomics, and the current kernel accumulates in a fixed order in both modes;
 `SOSFUSE2_DETERMINISTIC=1` is the mode in which the package guarantees bit-stable repeats. `sos_fused` carries
-`__launch_bounds__(256,2)`. The slimray variant compiles to 127 registers with 128-thread blocks and 18–19 KB of shared
-memory. Registers limit it to 4 blocks per SM, or 16 warps and 33 % of maximum occupancy. Shared memory would allow 5.
+`__launch_bounds__(256,2)`. In 1.0.x, the slimray variant compiled to 127 registers with 128-thread blocks and 18–19 KB of
+shared memory, limiting it to 4 blocks per SM, or 16 warps and 33 % of maximum occupancy.
+After 1.1.0 added NO₂ and O₄, it compiles to 141 registers, limiting it to 3 blocks per SM and 25 % occupancy, while
+shared memory would still allow 5.
 The kernel is 2,200 lines of CUDA C, with host launch planning in `src/sosfuse2/fused.py`.
 
 `KSPLIT=3` needs the column records of a whole bundle in device memory. Adding NO₂ and O₄ in 1.1.0 grew the records
@@ -62,6 +65,8 @@ size, so launch counts differ from production. The utilisation figures are per l
 | `vp_scatter` | 4 % | 12.1 | 41.1 | 7.5 | 13.3 / 14.6 | 39 | 0 | 2.4× |
 | `sos_vprod_y` | 3 % | 80.4 | 35.4 | 47.9 | 90.6 / 100 | 28 | 82.4 | 1.24× (FP64 pipe) |
 
+That table predates the 1.1.0 absorbers; the slimray variant now compiles to 141 registers, see *Stall reasons*.
+
 On the L4 the split of the 112.9 s of kernel time of a cold and a warm solve is `sos_fused` 60.6 %, `sos_vprod`
 28.9 %, `sos_vprod_y` 2.7 %, an FP64 GEMM from the Anderson step 2.4 % and `sos_slim_proj` 2.2 %
 (the research records, §3).
@@ -78,16 +83,15 @@ from the inner geometry (see the table below) changed the slimray time by 0.4 %.
 ## Stall reasons
 
 The `issue slot %` above is the fraction of cycles in which a scheduler issued an instruction.
-In the remaining cycles every warp it owns was stalled. The largest *measured* stall reason has been
-`long_scoreboard` at every stage where it was measured, and the probe below shows how much of the stall budget
-those measurements left out.
+In the remaining cycles every warp it owns was stalled. The largest *measured* stall reason in the earlier slimray
+probes was `long_scoreboard`, and the probes below show how much of the stall budget those measurements left out.
 
 | kernel stage | occupancy | issue active | dominant stall | other stalls | local memory |
 |---|---|---|---|---|---|
 | first fused kernel | 16.7 % (shared memory, 1 block/SM) | — | `long_scoreboard` 52 % | FP64 pipe 2.5 %, DRAM 0.15 % | spill 0 |
 | slimray after the register work | 33.0 % (registers, 4 blocks/SM) | 57.2 % | `long_scoreboard` 2.85 warps per issue (about 41 % of stalled warps) | `short_scoreboard` 0.57, `mio_throttle` 0.07 | 6.06 M local load sectors, under 0.1 % of the instructions: not spills |
 | slimray after two steps per warp | 33.1 % (128 registers, 4 blocks/SM) | 65.8 % | `long_scoreboard` 1.36 warps per issue-active cycle, largest of the four reasons measured | `short_scoreboard` 0.47, `math_pipe_throttle` 0.10, `mio_throttle` 0.012; threads per instruction 24.8 of 32 | spill 0 |
-| slimray of release 1.2.0 | not measured | not measured | not measured | not measured | not measured: no 127-register, 128-thread launch captured |
+| release 1.2.1 on the L4 (KSPLIT=3) | 24.9 % (141 registers, 3 blocks/SM) | 52.2 % | `wait` 1.50 warps per issue-active cycle | `long_scoreboard` 1.19, `not_selected` 0.62, `short_scoreboard` 0.52, `no_instruction` 0.23, `math_pipe_throttle` 0.09; threads per instruction 24.7 of 32 | 18.4 M local-load sectors per 25 ms launch; 141 registers, so not read as spills |
 
 The four reasons measured after two steps per warp sum to 1.95 of an estimated 5.0 stalled warps per issue, leaving about 3
 in
@@ -101,8 +105,8 @@ In a separate L4 knockout, folding every step's global-load addresses onto an L1
 values wrong and the loads effectively free, but only reduced `long_scoreboard` from 0.476 to 0.239 warps per issue
 and launch time from 125.6 to 122.3 ms (−2.6 %).
 Hiding the remaining load latency is therefore worth at most about 3 %, and slimray is not latency-bound.
-We tried raising occupancy in every form
-the register budget allows. A ray step at 15 wavelengths has a 127-register working set.
+Before the absorbers were added, we tried raising occupancy in every form
+the register budget allowed. A ray step at 15 wavelengths had a 127-register working set.
 Forcing 5 blocks per SM through `__launch_bounds__(128,5)` reduced the register count to 96 and gained 0.5 % of cycles.
 
 The release 1.2.0 probe used Nsight Compute 2025.3.1 on the RTX 3080, with `run_gpu_state_v3` running
@@ -144,8 +148,28 @@ quarter, with `selected` at about 17 % and not a stall, a pattern of a kernel co
 The largest SASS `long_scoreboard` count in the production captures was 187608 samples at
 `FMUL.FTZ R129, R128, R132`, or 18.1 % of that launch's `long_scoreboard` samples and 5.11 % of all its PC samples.
 This `FMUL` consumes a load result, and PC sampling attributes the wait to the consuming instruction.
-The probe does not establish slimray's current stall distribution: the 10 GB card no longer runs that variant,
-slimray remains unmeasured in 1.2.0, and measuring it on the L4 remains to be done.
+The probe does not establish slimray's current stall distribution: the 10 GB card no longer runs that variant.
+The L4 measurement follows.
+
+On the L4 (23 GB), the installed release 1.2.1 ran the `run_gpu_state_v3` G-F state with `KSPLIT=3` under Nsight Compute,
+with separate one-pass stall metric runs and one PC-sampling run.
+The slimray launches use 128-thread blocks, 18.4 KB of dynamic shared memory and grids of 77k–81k blocks, with 141
+registers limiting residency to 3 blocks per SM while shared memory allows 5, giving 24.9 % occupancy, 52.2 % issue
+activity and 24.7 threads per instruction out of 32.
+The nine measured stall reasons, including `lg_throttle` 0.03, `mio_throttle` 0.02 and `barrier` 0, sum to 4.20 stalled
+warps per issue-active cycle against an estimated total of 4.73 from occupancy and issue activity, explaining 89 %,
+with `long_scoreboard` taken from the earlier run.
+That earlier one-pass run measured 18.4 M local-load sectors per 25 ms launch, but 141 registers is below the limit
+of 255, so this is not read as evidence of spills.
+PC sampling, as percentages of the reported category sum including the non-stall `selected`, gives `wait` 26.6 %,
+`long_scoreboard` 21.0 %, `selected` 17.7 %, `not_selected` 10.6 %, `short_scoreboard` 9.3 %, `branch_resolving` 7.2 %,
+`dispatch_stall` 3.1 % and `tex_throttle` 2.0 %.
+The SASS instruction with the most `long_scoreboard` samples is an `FFMA` consuming a load result.
+The largest measured stall is the fixed-latency dependency `wait`, with `long_scoreboard` second, consistent with
+the load knockout gaining only 2.6 %.
+Following the NO₂ and O₄ additions in 1.1.0, registers rose from 127 to 141 and residency fell from 4 blocks per SM to 3,
+leaving 3 warps per scheduler at 25 % occupancy, too few to hide all fixed pipeline latency, which makes recovering the
+fourth block through `__launch_bounds__` a candidate for the next experiment, not yet run.
 
 ## Headroom
 
@@ -217,18 +241,21 @@ The state id is the G-F product state of `gate/fixtures.json`; any id from `asse
 tolerance checks of `docs/CHECKS.md` tier 2 run the same kernels on the reduced fixtures. For profiling, run the same
 command under `nsys` for the timeline and under `ncu --target-processes all` with one metric group per run.
 On cards with at least 23 GB, the state runs with `KSPLIT=3` and the launches of interest are `sos_fused` slimray
-with 127 registers and 128-thread blocks. On a 10 GB card it falls back to `KSPLIT=0`, whose `sos_fused` launches
+with 141 registers and 128-thread blocks. On a 10 GB card it falls back to `KSPLIT=0`, whose `sos_fused` launches
 use 255 registers and 128-thread blocks.
 
 ## The open question
 
 The consumer kernel walks rays through a spherical shell, with 15 wavelengths per ray in the lanes of a half-warp and
 two steps per warp. At each sample it needs the column record of the step, the four corner rows of the cell source and
-one aerosol record, interpolates, attenuates and accumulates. It sits at 33 % occupancy because a step needs 127
-registers, issues on 65 % of the cycles and has 24.8 active lanes out of 32. It is bound by neither DRAM nor FP32
-throughput, nor by load latency: the load knockout gained only 2.6 %. Moving the current step's own loads before the
+one aerosol record, interpolates, attenuates and accumulates. On the L4, release 1.2.1 sits at 25 % occupancy because a
+step needs 141 registers, issues on 52 % of the cycles and has 24.7 active lanes out of 32.
+The largest measured stall is `wait`, the fixed-latency dependency between consecutive instructions, with
+`long_scoreboard` second. It is bound by neither DRAM nor FP32 throughput, nor by load latency: the load knockout gained
+only 2.6 %. Moving the current step's own loads before the
 corner loop bought 13 %, but the separate knockout bounds the benefit of hiding the remaining load latency at about
-3 %. We therefore exclude interleaving two independent rays and lane-cooperative loads from the candidates.
+3 %. Recovering the fourth block per SM lost in 1.1.0 is the one cheap experiment not yet run.
+We therefore exclude interleaving two independent rays and lane-cooperative loads from the candidates.
 
 The static census (the research records) counts about 660 warp instructions per ray step
 for the corner and attenuation work, 570 for `corner_tensor` across four corners and 91 for attenuation. A hand-counted

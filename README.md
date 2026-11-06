@@ -8,11 +8,12 @@ a NumPy reference implementation, an optional CUDA kernel compiled at run time t
 compare against fixed references within tolerances, and a provenance record that signs every table with the hashes of the
 code and data that produced it.
 
-This is research code, published in the form we use it. Versions 1.0.0 to 1.2.1 are published together, and 1.2.1 is
+This is research code, published in the form we use it. Versions 1.0.0 to 1.2.2 are published together, and 1.2.2 is
 the current release. 1.2.0 replaced the source-text adapters of the engine loader with keyword-only hooks, moved the
 packaged tests into `sosfuse2/tests`, reformatted the Python sources to one statement per line and rewrote the documents;
-1.2.1 adds `docs/PERFORMANCE.md` and changes nothing else. The physics is that of 1.1.0: the tables carry new
-`code_hashes` since 1.2.0, and a comparison with 1.1.1 found no difference in the prepared arrays or the final tables.
+1.2.1 added `docs/PERFORMANCE.md`; 1.2.2 adds the L4 stall measurement of the release kernel to that page and changes
+nothing else. The physics is that of 1.1.0: the tables carry new `code_hashes` since 1.2.0, and a comparison with 1.1.1
+found no difference in the prepared arrays or the final tables.
 That comparison, and every configuration the release was verified on, is recorded under *Tested configurations*.
 
 ![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their
@@ -178,7 +179,7 @@ passing turns the run red until its entry is removed, so the failures stay visib
 
 ## Tested configurations
 
-1.2.1 changes documentation only, so the 1.2.0 rows apply to it unchanged.
+1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply to them unchanged.
 
 Configurations verified for 1.2.0:
 
