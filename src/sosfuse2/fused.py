@@ -14,6 +14,7 @@ import warnings
 from pathlib import Path
 import numpy as np
 from . import reference
+from .components import NCOMP, SINV_F
 from .arithmetic import F, norm_constants
 from .sh_layout import count, padded, workspace, source_size, kernel_source, combined_aux
 from .timers import TIMERS, stage
@@ -22,14 +23,14 @@ from .verify_tol import compare_tol, compare_chunks, tolerances, log_summary
 PROFILE_N_DEFAULT = 161   # density.PROFILE_STEPS[0.5]; kernel.cu #ifndef PROFILE_N
 
 from . import paths  # noqa: E402  (public split: package-relative resources, work root for caches)
-# R1 split (SOSFUSE2_KSPLIT=1, results/kdiag_20261025, handoff 2026-10-25b §5-1): warm/ground launches become a column
+# R1 split (SOSFUSE2_KSPLIT=1): warm/ground launches become a column
 # record pass once per bundle (SINV mode 1), then per chunk a producer (PROD: SH contraction -> own_aero) and a consumer
 # (SLIM: transport from own_aero and the columns). Internal compile variants, never user kernel flags.
 KSPLIT_DEFAULT = '3'                 # SOSFUSE2_KSPLIT when unset (Kernel.__init__)
 SLIM_PROJ_THREADS = 128                # two wavelength groups per moment
 SLIM_PROJ_MOMENTS = 64                 # includes the final flux row
 KSPLIT_BLOCK = 128      # split kernels only (168 registers: 12 warps/SM at 128 vs 8 at 256, kdiag §7)
-# SOSFUSE2_KSPLIT=2 (results/vprod_20261025): PROD is replaced by kernel.cu sos_vprod (visitor-stream producer, same module and
+# SOSFUSE2_KSPLIT=2: PROD is replaced by kernel.cu sos_vprod (visitor-stream producer, same module and
 # options as PROD). Plan per fixed chunk (aerosol cap, once per state): records (slot = (point-base)*4+corner) stable-sorted by
 # source cell (one uint64 sort of cell<<32|slot), visitors = runs of one (cell, ray), blocks = <= VPROD_VISITORS visitors of one cell.
 VPROD_VISITORS = 256
@@ -39,7 +40,7 @@ VPROD_THREADS = 128
 
 def aero_w(W):
     """Aerosol record row stride (floats): W padded to a multiple of 4 (kernel.cu AERO_W; 16 for FW 15). VPROD stores one float4 per
-    thread, the consumer reads lanes < W; the pad lane is never read (results/wavefront_20261101/vprod_gemm REPORT, 2.6x on a 5090)."""
+    thread, the consumer reads lanes < W; the pad lane is never read (measured 2.6x on a 5090)."""
     return ((W+3)//4)*4
 VPROD_SENTINEL = 0xFFFFFFFF          # SOSFUSE2_KSPLIT_VERIFY: unwritten aerosol words before each producer
 VPROD_VERIFY_STAGE = 16 << 20        # floats per device compare piece (64 MB)
@@ -234,7 +235,7 @@ class Kernel:
         self.flags = resolve_config(default_flags() if flags is None else flags).flags
         from .ground_sh import configured_order
         self.ground_sh_l = configured_order()
-        # Production default since 2026-10-26 (user decision; results/vprod_regs_rig_20261026, results/advise_profile_20261026):
+        # Production default since 2026-10-26:
         # unset means KSPLIT=3 (VPROD + warm ray consumer + projection) where it applies (CuPy, STRATO/FW15, L<=16, FP64
         # projection accumulator) and the unsplit kernel elsewhere; SOSFUSE2_KSPLIT=0 forces the unsplit kernel, and an
         # explicit 1-3 still fails loudly on an unsupported configuration.
@@ -318,7 +319,9 @@ class Kernel:
             if cfg.instrumented: ks = '0'
             if ks not in ('0', '1', '2', '3') or (ks != '0' and not cfg.ksplit_supported):
                 raise ValueError('E_KSPLIT_FLAGS: needs STRATO, FW15 and an uninstrumented transport role')
-            self.ksplit_mode = int(ks); self.ksplit = bool(self.ksplit_mode)
+            decision = getattr(s, 'ksplit_decision', None)
+            self.ksplit_mode = decision['effective'] if decision is not None else int(ks)
+            self.ksplit = bool(self.ksplit_mode)
             if self.ksplit_verify and self.ksplit_mode not in (2, 3):
                 # Only a CuPy FW15 kernel can run KSPLIT: the persistent pipeline's CPU-prepare Kernel (NumPy backend) and FW1 kernels
                 # have nothing to verify, so VERIFY=1 is inactive there with a warning (2026-11-03: before, SOSFUSE2_KSPLIT_VERIFY=1
@@ -348,7 +351,7 @@ class Kernel:
             if aer is not None:c['aer2']=np.ascontiguousarray(aer['kernel'],'f4')
             self.constants[key] = c
         c = self.constants[key]
-        # Review #1: every setup() call, cache hit or miss and installed constants alike (NumPy transport, geometry,
+        # Every setup() call, cache hit or miss and installed constants alike (NumPy transport, geometry,
         # table_fast and the persistent service all read prepared constants through here).
         if 'density_optics' in c: self.check_profile(c['density_optics'], 'setup')
         return c
@@ -437,7 +440,7 @@ class Kernel:
         (predict_seconds) fits the profile target, at most 1.5x the previous chunk; the first chunk of a kind is a
         probe (initial/PROBE_DIVISOR). Before returning, a chunk predicted above PREDICT_CAP of the budget is halved
         down to one unit; if even one unit is predicted above it, E_LAUNCH_BUDGET is raised before launching
-        (eda Q2, 2026-10-07: the earlier size floor could exceed the 5 s budget). Blocks/rays are independent, so
+        (the earlier size floor could exceed the 5 s budget). Blocks/rays are independent, so
         the split never changes the numbers."""
         if cum is None:   # no launch budget (rig profile): fixed step, or the whole rest when the caller has none (KSPLIT=3 projection)
             return n if step is None else min(n, c0+step)
@@ -512,7 +515,7 @@ class Kernel:
         # ACC_GLOBAL: the first-light phase-0 moment accumulator is the moments output (no shared rows).
         acc=(4+self.K) if phase==0 and not ((first or self.config(W).split_warm)
                                      or (self.config(W).c3_fw15 and not first)) else 0
-        size=(acc+1)*W*8+warps*((workspace(self.L)+8*W+33)*4+284+40*W+4)
+        size=(acc+1)*W*8+warps*((workspace(self.L)+8*W+33)*4+300+40*W+4)
         size += warps*(8+16*W) if 'STRATO' in self.flags else 0
         # Match RAY_CONST_F: six two-word coordinates cached by PATH_DS kernels (phase-0 first light and warm).
         size += warps*(108 if (not first or phase == 0) else 60)
@@ -523,7 +526,7 @@ class Kernel:
         # PT_BATCH (R4): 16 PointData slots per warp, non-first-light kernels only; RAY_SORT keys+perm.
         # KSPLIT=3 consumer (variant slimray): kernel.cu PointM2, 112 B (16-byte aligned) per batched sample instead of
         # PointData, plus 16 B slack for the aligned batch base
-        pt_bytes = 112 if (variant or '').startswith('slimray') else 284 + (8 if 'STRATO' in self.flags else 0)
+        pt_bytes = 112 if (variant or '').startswith('slimray') else 300 + (8 if 'STRATO' in self.flags else 0)
         size += warps * 16 * pt_bytes + (16 if (variant or '').startswith('slimray') else 0) if self.config(W).strato and (not first) else 0
         size += 512 if (self.config(W).strato and not first) else 0
         return size
@@ -562,7 +565,7 @@ class Kernel:
         return check_consumed(optics, self.profile_n, rows, where)
 
     def check_upload(self, c, dc, where):
-        """The uploaded PROFILE buffer still is the optics' table (review #2): N as check_profile, and the identity
+        """The uploaded PROFILE buffer still is the optics' table: N as check_profile, and the identity
         recorded at upload equals the current optics identity; a rebound table/mask/policy is E_PROFILE_STALE."""
         if 'density_optics' not in c: return
         from .density import profile_identity
@@ -670,7 +673,7 @@ class Kernel:
                     self.check_profile(c['density_optics'], 'upload', buf.shape[0])
                     dc['profile_table'] = self.xp.asarray(buf)
                     self.profile_consumed = evidence(c['density_optics'], self.profile_n, buf)
-                    # Review #2: the identity this upload belongs to (checked on every reuse and at launch).
+                    # The identity this upload belongs to (checked on every reuse and at launch).
                     self.__dict__.setdefault('device_profile_identity', {})[id(dc['profile_table'])] = self.profile_consumed['profile_identity']
                 if ('tropo_lut' in c)!=('TROPO_MIE' in self.flags):raise RuntimeError('E_TROPO_LUT_FLAGS: table and TROPO_MIE must come together')
                 if 'tropo_lut' in c:
@@ -775,8 +778,128 @@ class Kernel:
         return [aero if aero is not None else np.uint64(0),
                 kb.get('c0cp_ptr', np.uint64(0)), kb.get('dump', np.uint64(0))]
 
+    def ksplit_memory(self):
+        """Usable free bytes, including cached pool blocks and respecting its limit."""
+        pool = self.xp.get_default_memory_pool()
+        free = int(self.xp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
+        if pool.get_limit():
+            free = min(free, int(pool.get_limit())-int(pool.used_bytes()))
+        return max(0, free)
+
+    def ksplit_preflight(self, s, bundles):
+        """One decision before any split allocation, over all phase-0/1 bundles.
+
+        Spectral chunks have the same geometry and padded W; their caller carries
+        this decision forward. Query (phase 2) never allocates split buffers.
+        Other service states' measured allocations are added back only to decide
+        whether this state could fit alone. Insufficient live room still waits.
+        """
+        # Geometry survives spectral chunks, but split records belong to the
+        # chunk's solver. Release every old bundle before measuring free memory.
+        for bundle, _ in bundles:
+            if getattr(bundle, 'ksplit', None) is not None and bundle.ksplit['state'] != id(s):
+                bundle.ksplit = None
+        previous = getattr(s, 'ksplit_decision', None)
+        if previous is not None:
+            self.ksplit_mode = previous['effective']; self.ksplit = bool(self.ksplit_mode)
+            if not self.ksplit or getattr(self, '_ksplit_preflight_state', None) == id(s):
+                return previous
+        requested = self.ksplit_mode
+        if not requested:
+            s.ksplit_decision = dict(requested=0, effective=0)
+            return s.ksplit_decision
+        flag = os.environ.get('SOSFUSE2_KSPLIT_FALLBACK', '1')
+        if flag not in ('0', '1'):
+            raise ValueError('E_KSPLIT_FALLBACK: expected 0 or 1')
+        W = s.W; nh, nc = len(s.geo.h), len(s.geo.chi)
+        field_bytes = nh*nc*source_size(s)*W*4
+        text = os.environ.get('SOSFUSE2_KSPLIT_AERO_MB', '').strip()
+        cap = max(1, int(float(text)*2**20)//(4*aero_w(W)*4)) if text else None
+        rows = []
+        for bundle, phase in bundles:
+            co = np.asarray(self.host(bundle.arrays['cell_off']), 'i8')
+            pcum = (np.asarray(self.host(bundle.arrays['edge_off'][bundle.arrays['cell_off']]), 'i8')-co)*bundle.nq
+            points = int(pcum[-1]); column = (16+SINV_F*points)*4
+            S = 2 if self.config().c3_fw15 else 1
+            fixed = column + (S*bundle.cells*(4+self.K)*W*8 if phase == 0 else 0) + 5*nh*nc*self.K*W*4
+            rows.append(dict(bundle=bundle, co=co, pcum=pcum, points=points, column=column, fixed=fixed))
+        while True:
+            live = self.ksplit_memory()
+            solo = live + int(getattr(self, 'ksplit_other_bytes', lambda: 0)())
+            if requested == 1:
+                peak = sum(r['column'] for r in rows) + (cap or max(1, (1024<<20)//(4*aero_w(W)*4)))*4*aero_w(W)*4
+                budget = int(.9*solo); live_budget = int(.9*live)
+            else:
+                # Enumerate the same stored/rebuilt and device/host options as
+                # vprod_budget. Retained records from OTHER bundles are live too.
+                import itertools
+                choices = []
+                for row in rows:
+                    result = self.vprod_budget(row['co'], row['pcum'], row['points'], W, row['fixed'], solo,
+                                               field_bytes, cap, minimum=True)
+                    if result.get('error'):
+                        raise MemoryError('E_KSPLIT_MEMORY: '+result['error'])
+                    choices.append(result['options'])
+                def state_peak(combo):
+                    held = [row['column']+r['records_bytes']+r['store_bytes'] for row,r in zip(rows,combo)]
+                    return sum(held)+max(r['peak']-h for r,h in zip(combo,held))
+                combinations = list(itertools.product(*choices))
+                peak = min(map(state_peak, combinations))
+                budget = solo-16*field_bytes-max(256<<20, int(.03*solo))
+                live_budget = live-16*field_bytes-max(256<<20, int(.03*live))
+            decision = dict(requested=requested, effective=requested, peak=int(peak), budget=int(budget),
+                            free=int(live), points=sum(r['points'] for r in rows), reason='fits')
+            if peak > budget:
+                if flag == '0' or previous is not None:
+                    raise MemoryError(f'E_KSPLIT_MEMORY: state minimum peak {peak} exceeds solo budget {budget}')
+                decision.update(effective=0, reason='state_minimum_exceeds_solo_budget')
+                self.ksplit_mode = 0; self.ksplit = False
+                hold = getattr(self, 'ksplit_hold', None)
+                if hold is not None: hold(0)
+                break
+            if peak <= live_budget:
+                if requested >= 2:
+                    # Preserve vprod_budget's preference order, but size BOTH
+                    # bundles together: the first cannot spend the second's room.
+                    plans = list(next(c for c in combinations if state_peak(c) <= live_budget))
+                    for i,row in enumerate(rows):
+                        lo, hi = plans[i]['cap'], max(plans[i]['cap'], row['points'])
+                        if cap is not None: hi = lo
+                        while lo < hi:
+                            mid = (lo+hi+1)//2
+                            candidate = self.vprod_budget(row['co'], row['pcum'], row['points'], W, row['fixed'], live,
+                                field_bytes, cap, option=(plans[i]['store'], plans[i]['resident'], mid))
+                            trial = list(plans); trial[i] = candidate
+                            if state_peak(trial) <= live_budget: lo = mid; plans = trial
+                            else: hi = mid-1
+                    for row,plan in zip(rows,plans):
+                        # A plan may not grow its retained storage beyond the
+                        # global estimate. Existing overflow handling rebuilds it.
+                        plan['store_allowed'] = plan['store_bytes']
+                        row['bundle']._ksplit_plan = (id(s), plan)
+                    self.ksplit_planned_bytes = state_peak(plans)
+                else:
+                    self.ksplit_planned_bytes = peak
+                hold = getattr(self, 'ksplit_hold', None)
+                if hold is not None: hold(self.ksplit_planned_bytes)
+                break
+            wait = getattr(self, 'ksplit_wait', None)
+            if wait is None or not wait():
+                raise MemoryError('E_KSPLIT_MEMORY: other resident states leave insufficient room')
+        self._ksplit_preflight_state = id(s)
+        s.ksplit_decision = decision = previous or decision
+        if decision['effective'] == 0:
+            emit = getattr(self, 'ksplit_emit', None)
+            if emit is not None:
+                emit(decision)
+            else:
+                state_id = getattr(s, 'fuse_state', {}).get('id', 'UNKNOWN')
+                from .column_parallel import event_fields
+                print(json.dumps(dict(event='PHASE', phase='KSPLIT_FALLBACK', **(event_fields() | dict(id=state_id)), **decision)), flush=True)
+        return decision
+
     def ksplit_columns(self, bundle, s, field, phase, boundary):
-        """KSPLIT: the bundle's column records (kernel.cu SINV, 20 B/point, recorded once per state by a mode-1 pass) and
+        """KSPLIT: the bundle's column records (kernel.cu SINV, 28 B/point, recorded once per state by a mode-1 pass) and
         the chunk aerosol buffer shared by all bundles ([point][corner][w] FP32, SOSFUSE2_KSPLIT_AERO_MB, default 1024).
         SOSFUSE2_KSPLIT=2 (VPROD) sizes and allocates its own way (vprod_columns); KSPLIT=1 is unchanged."""
         kb = getattr(bundle, 'ksplit', None)
@@ -791,14 +914,14 @@ class Kernel:
         text = os.environ.get('SOSFUSE2_KSPLIT_AERO_MB', '').strip() or '1024'
         AW = aero_w(W); cap_points = max(1, int(float(text)*2**20)//(4*AW*4))
         aero = self.__dict__.get('ksplit_aero')
-        need = (16+5*points)*4 + (0 if aero is not None and aero.size >= cap_points*4*AW else cap_points*4*AW*4)
+        need = (16+SINV_F*points)*4 + (0 if aero is not None and aero.size >= cap_points*4*AW else cap_points*4*AW*4)
         pool = xp.get_default_memory_pool(); free = int(xp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
         if need > .9*free:
             raise MemoryError(f'E_KSPLIT_MEMORY: KSPLIT needs {need/1e9:.2f} GB of device memory for {points} points '
                               f'({bundle.cells} cells, phase {phase}), {free/1e9:.2f} GB free; lower SOSFUSE2_KSPLIT_AERO_MB or unset SOSFUSE2_KSPLIT')
         if aero is None or aero.size < cap_points*4*AW:
             self.ksplit_aero = aero = None; aero = self.ksplit_aero = xp.empty(cap_points*4*AW, 'f4')
-        buf = xp.empty(16+5*points, 'f4'); hdr32 = buf[:16].view('i4'); hdr64 = buf[:16].view('i8'); hdr64.fill(0)
+        buf = xp.empty(16+SINV_F*points, 'f4'); hdr32 = buf[:16].view('i4'); hdr64 = buf[:16].view('i8'); hdr64.fill(0)
         kb = bundle.ksplit = dict(state=id(s), buf=buf, hdr32=hdr32, hdr64=hdr64, pcum=pcum, cap_points=cap_points)
         print('KSPLIT '+json.dumps(dict(event='columns', phase=int(phase), cells=int(bundle.cells), rays=int(bundle.rays), nq=int(nq),
                                        points=points, column_bytes=int(buf.nbytes), aero_bytes=int(aero.nbytes),
@@ -821,10 +944,11 @@ class Kernel:
         S = 2 if self.config().c3_fw15 else 1
         # launch() arrays after this point: moments and CELL_SPLIT scratch (phase 0), the combined SH sidecar and its FP32
         # build temporaries (sh_layout.combined_aux, about 4 planes of [nh*nc][K][W])
-        fixed = (16+5*points)*4 + (S*bundle.cells*(4+K)*W*8 if phase == 0 else 0) + 5*nh*nc*K*W*4
+        fixed = (16+SINV_F*points)*4 + (S*bundle.cells*(4+K)*W*8 if phase == 0 else 0) + 5*nh*nc*K*W*4
         text = os.environ.get('SOSFUSE2_KSPLIT_AERO_MB', '').strip()
         env_cap = max(1, int(float(text)*2**20)//(4*aero_w(W)*4)) if text else None
         hold = getattr(self, 'ksplit_hold', None); others = self.__dict__.setdefault('_ksplit_held', {}); others.pop(id(bundle), None)
+        planned = getattr(bundle, '_ksplit_plan', None)
         while True:
             pool = xp.get_default_memory_pool(); limit = int(pool.get_limit())
             aero = self.__dict__.get('ksplit_aero'); held = int(aero.nbytes) if aero is not None else 0
@@ -835,7 +959,8 @@ class Kernel:
             if room is not None:  # persistent service, other states resident: stay out of their reservations (pipeline_execution)
                 free = min(free, int(room)-sum(others.values())-held)
             free += held                                     # the shared aerosol buffer is released and re-sized below
-            bud = self.vprod_budget(co, pcum, points, W, fixed, free, nh*nc*source_size(s)*W*4, env_cap)
+            bud = (dict(planned[1]) if planned is not None and planned[0] == id(s) else
+                   self.vprod_budget(co, pcum, points, W, fixed, free, nh*nc*source_size(s)*W*4, env_cap))
             # too little room beside the other resident states: wait until one releases memory (not while all of them wait)
             if not (bud.get('error') and room is not None and self.ksplit_wait()):
                 break
@@ -844,7 +969,7 @@ class Kernel:
                               f'{free/1e9:.2f} GB available; lower SOSFUSE2_KSPLIT_AERO_MB or unset SOSFUSE2_KSPLIT')
         if aero is not None:
             self.ksplit_aero = aero = None                   # released before the plans are built
-        buf = xp.empty(16+5*points, 'f4'); hdr32 = buf[:16].view('i4'); hdr64 = buf[:16].view('i8'); hdr64.fill(0)
+        buf = xp.empty(16+SINV_F*points, 'f4'); hdr32 = buf[:16].view('i4'); hdr64 = buf[:16].view('i8'); hdr64.fill(0)
         kb = bundle.ksplit = dict(state=id(s), buf=buf, hdr32=hdr32, hdr64=hdr64, pcum=pcum, co=co, cap_points=bud['cap'],
                                   chunks=bud['chunks'], pmax=bud['pmax'], resident=bud['resident'], store=bud['store'],
                                   plans={}, stored_bytes=0, iteration=0, c0cp_dev=None)
@@ -894,7 +1019,7 @@ class Kernel:
                                        auto=env_cap is None)), flush=True)
         return kb
 
-    def vprod_budget(self, co, pcum, points, W, fixed, free, field_bytes, env_cap):
+    def vprod_budget(self, co, pcum, points, W, fixed, free, field_bytes, env_cap, *, minimum=False, option=None):
         """SOSFUSE2_KSPLIT=2 memory rule. Budget B = free (pool-limited, shared aerosol buffer counted as free) - reserve, reserve =
         16 x the source field (solver growth after this point: Anderson history, apply temporaries) + max(256 MB, 3 %). eda
         2026-10-25 (62.6 MB field): 8 x left cap 4.51e6 points and the cold solve ran out of memory in iteration 5
@@ -934,8 +1059,19 @@ class Kernel:
                 run += 4*W*4*rmax*(2 if self.ksplit_verify else 1)
             build = fixed + rec + st + ws
             return dict(peak=max(run, build) if store else run, chunks=chunks, pmax=pmax, rmax=rmax, workspace=ws, y_bytes=y,
-                        records_bytes=rec, store_bytes=st, run=run)
+                        records_bytes=rec, store_bytes=st, run=run, cap=cap, store=store, resident=resident,
+                        budget=int(B), reserve=int(reserve), store_allowed=st)
 
+        if option is not None:
+            store, resident, cap = option
+            return peak(cap, store, resident)
+        if minimum:
+            options = []
+            for store, resident in ((True, 'device'), (True, 'host'), (False, 'device'), (False, 'host')):
+                cap = env_cap if env_cap is not None else max(lc, -(-points//64)) if store else lc
+                r = peak(cap, store, resident)
+                if r is not None: options.append(r)
+            return dict(options=options) if options else dict(error='no whole cell fits the requested aerosol cap')
         tried = []
         for store, resident in ((True, 'device'), (True, 'host'), (False, 'device'), (False, 'host')):
             lo = max(lc, -(-points//64)) if store else lc
@@ -1074,7 +1210,7 @@ class Kernel:
         blk = xp.empty(max(3*nblk, 3), 'i4'); work = xp.zeros(max(nblk, 1), xp.int64)
         mod.get_function('vp_blocks')(g(ncell), (T,), (np.int32(ncell), cstart, bstart, np.int32(VPROD_VISITORS), vis_rbeg, blk, work))
         if VPROD_ORDER and nblk:
-            # Block issue order (results/vprod_regs_20261026): source cells in tiles of th heights x tc chi columns (row-major
+            # Block issue order: source cells in tiles of th heights x tc chi columns (row-major
             # inside a tile, tiles row-major), a cell's blocks consecutive (stable argsort). Every record is computed and written
             # on its own, so the order changes no value; it only changes which y rows and aerosol lines share L2 in time.
             th, tc = VPROD_ORDER; b3 = blk[:3*nblk].reshape(nblk, 3); cb = b3[:, 0].astype(xp.int64); ih, ic = cb//nc, cb % nc
@@ -1191,7 +1327,7 @@ class Kernel:
             out[n] = np.asarray(H(args[i]))
         AW = aero_w(W)
         out['aero'] = np.asarray(H(self.ksplit_aero[:npt*4*AW]))            # chunk-local [point][corner][AW], slot = point-base
-        out['records'] = np.asarray(H(kb['buf'][16+5*base:16+5*(base+npt)]))   # this chunk's SINV_REC rows (5 floats/point); the whole bundle buffer is GBs
+        out['records'] = np.asarray(H(kb['buf'][16+SINV_F*base:16+SINV_F*(base+npt)]))   # this chunk's SINV_REC rows (7 floats/point); the whole bundle buffer is GBs
         out['hdr64'] = np.asarray(H(kb['hdr64'])); out['pcum'] = np.asarray(kb['pcum']); out['co'] = np.asarray(kb['co'])
         out['ray_rads'] = np.asarray(H(ray_rads[:nray*4*W])).reshape(nray, 4*W)
         out['meta'] = np.array(json.dumps(dict(where, c0=int(c0), c1=int(c1), r0=int(r0), nray=int(nray), base=int(base), npt=int(npt),
@@ -1255,7 +1391,7 @@ class Kernel:
             c0cp = self.vprod_c0cp(kb, base, npt)
             dump = os.environ.get('SOSFUSE2_VPROD_DUMP', '').strip()
             if dump and phase == 0 and it == 1 and ci == 0:
-                # Plan measurement input (results/vprod_20261025/plan_ab.py): this chunk's (c0, cp) records and ray offsets.
+                # Plan measurement input: this chunk's (c0, cp) records and ray offsets.
                 np.savez(dump, c0cp=self.host(c0cp), eo=self.host(bundle.arrays['edge_off'][r0:r1+1]), base=base, r0=r0,
                          nq=int(bundle.nq), nh=nh, nc=nc)
             plan, stored = self.vprod_plan(kb, ci, bundle, c0cp, nh, nc)
@@ -1310,7 +1446,7 @@ class Kernel:
                 self.slim_rays(kb, ctx, W, boundary, c0, c1, ray_buf, kind, report)
                 ev['c1'].record()
                 if os.environ.get('SOSFUSE2_WF_DUMP') and phase == 0 and it in (1, 2) and ci == 0:
-                    # exp/wavefront 2a (results/wavefront_20261101/wf2a/wf2a.py): one chunk's slimray inputs and ray radiances
+                    # exp/wavefront 2a: one chunk's slimray inputs and ray radiances
                     tag = f'chunk0_it{it}_{id(self) & 0xffff:04x}'
                     self.wf_dump(os.environ['SOSFUSE2_WF_DUMP'], tag, kb, ctx, bundle, W, boundary, c0, c1, ray_buf, nray, r0, base, npt,
                                  report['gpu_seconds']-g0, dict(phase=int(phase), iteration=it, chunk=ci, kind=kind))
@@ -1441,12 +1577,13 @@ class Kernel:
         if ks:
             if W != 15 or 'strato_ext' not in c:
                 raise ValueError('E_KSPLIT_STATE: SOSFUSE2_KSPLIT=1 needs 15 wavelengths and an enabled stratosphere '
-                                 '(column 3 is the strato profile, kernel.cu SINV)')
+                                 '(five separable columns plus the strato profile, kernel.cu SINV)')
             kb = bundle.ksplit if _ksplit else self.ksplit_columns(bundle, s, field, phase, boundary)
             if _ksplit == 'record':
-                # unit-basis extinction: wavelength lanes 0..2 integrate the profile columns Q0..Q2, lane 3 the strato Q3
-                e = xp.zeros(dc['ext'].size, dc['ext'].dtype); e[0] = e[W+1] = e[2*W+2] = 1
-                se = xp.zeros(dc['strato_ext'].size, dc['strato_ext'].dtype); se[3] = 1
+                # Unit-basis extinction: five profile columns, then the separate stratosphere column.
+                e = xp.zeros(dc['ext'].size, dc['ext'].dtype)
+                for k in range(NCOMP): e[k*W+k] = 1
+                se = xp.zeros(dc['strato_ext'].size, dc['strato_ext'].dtype); se[NCOMP] = 1
                 dc = dict(dc, ext=e.reshape(dc['ext'].shape), strato_ext=se.reshape(dc['strato_ext'].shape))
             else:
                 kb['hdr32'][0:1].fill(2)
@@ -1488,7 +1625,7 @@ class Kernel:
             args += [dc[name] for name in ('strato_ext','strato_sca','strato_chi','strato_density','strato_sun_col')]
             args += [endst,F(profile['center']),F(profile['sigma']),F(profile['norm'])]
         self.check_upload(c, dc, 'launch')   # N and upload identity (E_PROFILE_N_MISMATCH / E_PROFILE_STALE)
-        args += [dc.get('profile_table', np.uint64(0)), np.int32(c.get('density_optics', {}).get('mask', 0))]
+        args += [dc.get('profile_table', np.uint64(0)), np.int32(c.get('density_optics', {}).get('mask', 0)), F(c.get('density_optics', {}).get('air_surface', 1.))]
         lpt_index = None; split_count = None
         if not first and not (self.config().split_warm and phase == 0):
             # R4 LPT_ORDER: per-launch cell order by descending segment count (block work proxy).
@@ -1685,8 +1822,25 @@ class Solver:
         tt=time.perf_counter();s=self.s;xp=self.xp
         with stage('first_light_total'):
             zero=xp.zeros((s.geo.ns,source_size(s),s.W), 'f4')
-            self.first_moments,self.first_flux=self.geometry.evaluate(s,zero,first=True,phase=0)
+            first_moments,first_flux=self.geometry.evaluate(s,zero,first=True,phase=0)
             self.kernel.sync()
+        del zero
+        if xp is not np:
+            if self.geometry.bundle is None:
+                if hasattr(self.geometry, 'prepare'):
+                    self.geometry.prepare()
+                else:
+                    from .geometry import Bundle
+                    self.geometry.bundle=Bundle([self.geometry.cell(i) for i in range(s.geo.ns)],xp)
+            if self.geometry.ground_bundle is None:
+                from .geometry import Bundle
+                self.geometry.ground_bundle=Bundle([self.geometry.cell(i) for i in range(len(s.geo.chi))],xp)
+            bundles=[(self.geometry.ground_bundle,1),(self.geometry.bundle,0)]
+            from .pipeline_execution import prepare_bundle
+            for bundle,_ in bundles:
+                prepare_bundle(self.kernel,s,bundle);self.kernel.constants_device(s,bundle.nq)
+            self.timings['ksplit']=self.kernel.ksplit_preflight(s,bundles)
+        self.first_moments,self.first_flux=first_moments,first_flux
         self.timings['setup_seconds']=time.perf_counter()-tt
 
     def apply(self, field):

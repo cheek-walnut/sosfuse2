@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+from .components import MOLECULAR_COLUMNS
 
 R, Z = 6371., 80.
 NA, NX = 1024, 1024
@@ -46,6 +47,9 @@ def descriptor(kind, **parameters):
 def aerosol(old):
     scope = old.profiles.__globals__
     f = scope.get('AER_PROFILE')
+    if f is not None and f.__name__ == 'exponential_profile':
+        # Per-state default from engine.create; name/defaults survive worker freeze/thaw.
+        return descriptor('exp', height=float(f.__defaults__[0]))
     if f is not None:
         # The engine's explicit two-layer profile closure contains its vector.
         cells = dict(zip(f.__code__.co_freevars, (c.cell_contents for c in f.__closure__ or ())))
@@ -57,16 +61,31 @@ def aerosol(old):
 
 
 def molecular(optics, k):
+    if k == 2:
+        from .density import build
+        if optics is None: optics = build({})
+        from .density import profile_identity
+        ident = profile_identity(optics)
+        return descriptor('usstd76', component='no2', values=optics['table'][:, 2].tolist(),
+                          grid=dict(n=ident['n'], step_km=ident['step_km'], top_km=80., interpolation='linear'),
+                          **optics['meta']['no2'])
+    if k == 3:
+        air = molecular(optics, 0)
+        if air['kind'] == 'exp': return descriptor('exp', height=4.)
+        surface = air['values'][0]
+        return dict(air, kind='air_squared', component='o4',
+                    values=(np.asarray(air['values'])/surface).tolist(), air_surface=surface,
+                    interpolation='square of linear air')
     if optics is None or not optics['mask'] & (1 << k):
         return descriptor('exp', height=8.) if k == 0 else descriptor('triangle')
     # 'usstd76' = piecewise-linear PROFILE column (name kept); grid and policy from the effective table (②b), so the
     # table key separates node counts, origins (asset/external) and normalizations as well as values.
     from .density import profile_identity
     ident = profile_identity(optics)
-    return descriptor('usstd76', asset=optics.get('meta', {}).get('asset_sha256'), mask=int(optics['mask']),
+    return descriptor('usstd76', asset=optics.get('meta', {}).get('asset_sha256'),
                       component=k, values=np.asarray(optics['table'][:, k]).tolist(),
                       grid=dict(n=ident['n'], step_km=ident['step_km'], top_km=ident['top_km'], interpolation='linear'),
-                      origin=ident['origin'], normalization=ident['normalization'])
+                      origin=ident['origin'], normalization='effective air values' if k == 0 else 'effective ozone values')
 
 
 def strato(profile):
@@ -79,9 +98,10 @@ def values(h, spec):
         return np.exp(-np.maximum(h, 0)/spec['height'])
     if kind == 'triangle':
         return np.maximum(0, 1-np.abs(h-25)/15)
-    if kind == 'usstd76':
+    if kind in ('usstd76', 'air_squared'):
         from .density import grid
-        return np.interp(h, grid(len(spec['values'])), spec['values'])
+        q = np.interp(h, grid(len(spec['values'])), spec['values'])
+        return q*q if kind == 'air_squared' else q
     if kind == 'gaussian':
         return np.exp(-.5*((h-spec['center'])/spec['sigma'])**2)/spec['norm']
     if kind == 'two_layer':
@@ -205,6 +225,24 @@ def direct_columns(spec, p, d, end, n=24):
     p = np.broadcast_to(p, d.shape); c = coordinates(p, d, end)
     if spec['kind'] in ('usstd76', 'triangle'):
         return linear_columns(spec, c['rho'], c['sa'], c['sb'])
+    if spec['kind'] == 'air_squared':
+        # Split at every air knot before quadrature: integrate the square of the
+        # interpolant, never the interpolant of squared knots. Using local h in
+        # the integrand avoids cancellation of Earth-radius-sized primitives.
+        from .density import grid
+        out = np.zeros(len(d)); u, w = np.polynomial.legendre.leggauss(8)
+        z = grid(len(spec['values']))
+        for lo, hi in zip(z[:-1], z[1:]):
+            ca = np.sqrt(np.maximum((R+lo-c['rho'])*(R+lo+c['rho']), 0))
+            cb = np.sqrt(np.maximum((R+hi-c['rho'])*(R+hi+c['rho']), 0))
+            for left, right in ((ca, cb), (-cb, -ca)):
+                a = np.maximum(c['sa'], left); b = np.minimum(c['sb'], right); m = b > a
+                if not m.any(): continue
+                s = (a[m, None]+b[m, None])/2+(b-a)[m, None]*u/2
+                rho = c['rho'][m, None]
+                h = rho-R+s*s/(np.hypot(rho, s)+rho)
+                out[m] += (b-a)[m]*np.sum(values(h, spec)*w, axis=1)/2
+        return out
     cuts = [np.zeros(len(d)), end, np.clip(-c['sa'], 0, end)]
     heights = [10., 25., 40.]
     if spec['kind'] == 'two_layer':
@@ -278,9 +316,10 @@ def integrate(p, d, old, *, legacy=False, optics=None, profile=None, edges=None)
     end = old.probe.boundaries(p, d)[:, -1] if edges is None else edges[:, -1]
     c = coordinates(p, d, end)
     base = np.column_stack([column(spec, p, d, end, c) for spec in
-                            (molecular(None, 0), aerosol(old), molecular(None, 1))]) if legacy else None
-    corrected = (np.column_stack([column(molecular(optics, k), p, d, end, c) for k in (0, 1)])
-                 if optics is not None and optics['mask'] else None)
+                            (molecular(None, 0), aerosol(old), molecular(None, 1),
+                             molecular(None, 2), molecular(None, 3))]) if legacy else None
+    corrected = (np.column_stack([column(molecular(optics, k), p, d, end, c) for k in range(4)])
+                 if optics is not None else None)
     st = column(strato(profile), p, d, end, c) if profile is not None else None
     return base, corrected, st
 
@@ -294,7 +333,7 @@ def fill(out, kind, starts, cell_off, dirs, old, parameter):
         if kind == 'strato':
             out[lo:hi] = column(strato(parameter), p, d, end, c)
         else:
-            for col, k in ((0, 0), (2, 1)):
-                if parameter['mask'] & (1 << k):
+            for k, col in enumerate(MOLECULAR_COLUMNS):
+                if k >= 2 or parameter['mask'] & (1 << k):
                     out[lo:hi, col] = column(molecular(parameter, k), p, d, end, c)
     return True

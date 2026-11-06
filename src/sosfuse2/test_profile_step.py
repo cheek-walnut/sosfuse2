@@ -1,6 +1,6 @@
-"""②b PROFILE node count 161/321/641 (0.5/0.25/0.125 km), CPU only (results/kclean_20261029/SPEC_codex_2b.md).
+"""②b PROFILE node count 161/321/641 (0.5/0.25/0.125 km), CPU only.
 
-Eight groups (SPEC_2b_draft.md §7, ORACLE_ANSWER.k2b.md fixes 2-12):
+Eight groups:
   (a) grids keep the asset nodes and integrals; 0.5 is the historical table byte for byte
   (b) E_PROFILE_* rejections                      (c) clang++ profile_value == interpolate32 per N, profile_at masks
   (d) injected q_eff used as given, 0.125 state round trip through effective_state/build/signature, S1 adapter
@@ -50,7 +50,7 @@ def kink(z, center=24.3, width=6.):
 
 def external(n, q=None, mask=2, base=None, **kw):
     z = density.grid(n); q = kink(z) if q is None else q
-    return density.with_profile(state() if base is None else base, z_km=z, table=np.column_stack([np.ones(n), q]), mask=mask, **kw)
+    return density.with_profile(state() if base is None else base, air_surface_number_density_m3=2.5469e25, z_km=z, table=np.column_stack([np.ones(n), q]), mask=mask, **kw)
 
 
 @pytest.fixture(scope='module')
@@ -101,16 +101,16 @@ def test_a_grids_keep_asset_nodes_and_integrals(subtests):
     _, z, air, oz = density.load_asset()
     expected = np.column_stack([air*density.LEGACY_COLUMN/np.trapezoid(air, z), oz*15/np.trapezoid(oz, z)])
     half = density.build(state())
-    assert (within_tol(half['table'], expected)) and not half['table'].flags.writeable
-    assert set(half['meta']) == {*ASSET, 'asset_sha256', 'rayleigh_tau550', 'ozone_column', 'interpolation'}   # historical keys
+    assert (within_tol(half['table'][:, :2], expected)) and not half['table'].flags.writeable
+    assert set(half['meta']) == {*ASSET, 'asset_sha256', 'rayleigh_tau550', 'ozone_column', 'interpolation', 'no2', 'o4', 'profile_identity'}   # historical keys
     assert half['meta']['interpolation'] == 'linear 0.5 km'
-    assert (within_tol(density.build(state(profile_step_km=.5))['table'], expected))
-    assert density.build(dict(density=dict(profile_step_km=.125))) is None   # exp8/triangle: nothing to refine, asset unopened
+    assert (within_tol(density.build(state(profile_step_km=.5))['table'][:, :2], expected))
+    assert density.build(dict(density=dict(profile_step_km=.125)))['table'].shape == (641, 3)   # exp8/triangle: nothing to refine, asset unopened
     for step, n in STEPS[1:]:
         with subtests.test(step=step):
             o = density.build(state(profile_step_km=step)); zz = density.grid(n)
-            assert o['table'].shape == (n, 2) and np.array_equal(zz, np.linspace(0, 80, n))
-            assert (within_tol(o['table'][::round(.5/step)], expected))   # normalized on the 161 asset nodes first
+            assert o['table'].shape == (n, 3) and np.array_equal(zz, np.linspace(0, 80, n))
+            assert (within_tol(o['table'][::round(.5/step), :2], expected))   # normalized on the 161 asset nodes first
             for k in (0, 1):
                 assert np.trapezoid(o['table'][:, k], zz) == pytest.approx(np.trapezoid(expected[:, k], z), rel=1e-14)
             assert (o['meta']['profile_step_km'], o['meta']['origin']) == (step, 'asset')
@@ -121,15 +121,15 @@ def test_a_grids_keep_asset_nodes_and_integrals(subtests):
 
 def test_b_rejections_have_stable_codes(subtests):
     z, good = density.grid(321), np.column_stack([np.ones(321), kink(density.grid(321))])
-    wp = lambda base=None, **kw: density.with_profile(state() if base is None else base, **dict(dict(z_km=z, table=good, mask=2), **kw))
+    wp = lambda base=None, **kw: density.with_profile(state() if base is None else base, **dict(dict(air_surface_number_density_m3=2.5469e25, z_km=z, table=good, mask=2), **kw))
     bad = dict(
         step_value=(lambda: density.build(state(profile_step_km=.3)), 'E_PROFILE_STEP'),
         step_bool=(lambda: density.profile_n(True), 'E_PROFILE_STEP'),
         step_text=(lambda: density.build(state(profile_step_km='0.25')), 'E_PROFILE_STEP'),
         step_null=(lambda: density.profile_step_km(state(profile_step_km=None)), 'E_PROFILE_STEP'),
         unknown_key=(lambda: density.options(dict(density=dict(profile_nodes=161))), 'E_DENSITY_OPTIONS'),
-        grid_count=(lambda: wp(z_km=np.arange(160)*.5, table=good[:160]), 'E_PROFILE_GRID'),
-        grid_values=(lambda: wp(z_km=z+1e-9), 'E_PROFILE_GRID'),
+        grid_count=(lambda: wp(air_surface_number_density_m3=2.5469e25, z_km=np.arange(160)*.5, table=good[:160]), 'E_PROFILE_GRID'),
+        grid_values=(lambda: wp(air_surface_number_density_m3=2.5469e25, z_km=z+1e-9), 'E_PROFILE_GRID'),
         table_shape=(lambda: wp(table=np.ones((321, 3))), 'E_PROFILE_TABLE'),
         table_nan=(lambda: wp(table=np.where(good == good.max(), np.nan, good)), 'E_PROFILE_TABLE'),
         table_negative=(lambda: wp(table=good-2), 'E_PROFILE_TABLE'),
@@ -144,7 +144,7 @@ def test_b_rejections_have_stable_codes(subtests):
         scale_zero=(lambda: wp(scale=0.), 'E_PROFILE_SCALE'),
         scale_bool=(lambda: wp(scale=True), 'E_PROFILE_SCALE'),
         explicit_step_conflict=(lambda: wp(base=state(profile_step_km=.5)), 'E_PROFILE_STEP_CONFLICT'),
-        payload_keys=(lambda: density.build(state(external_profile=dict(version=1, z_km=z.tolist()))), 'E_PROFILE_PAYLOAD'),
+        payload_keys=(lambda: density.build(state(external_profile=dict(version=1, air_surface_number_density_m3=2.5469e25, z_km=z.tolist()))), 'E_PROFILE_PAYLOAD'),
         options_conflict=(lambda: density.with_options(state(profile_step_km=.25), SimpleNamespace(profile_step_km=.125)), 'E_PROFILE_STEP_CONFLICT'),
     )
     for name, (call, code) in bad.items():
@@ -173,19 +173,19 @@ def test_c_native_profile_value_matches_interpolate32(n, tmp_path):
     native = ctypes.CDLL(str(lib)); native.profile_c.argtypes = [ctypes.c_float, ctypes.c_void_p, ctypes.c_int]
     native.profile_c.restype = ctypes.c_float
     rng = np.random.default_rng(n)
-    table = np.ascontiguousarray(rng.uniform(.1, 2., (n, 2)), 'f4')
+    table = np.ascontiguousarray(rng.uniform(.1, 2., (n, 3)), 'f4')
     nodes = density.grid(n).astype('f4')
     h = np.r_[nodes, np.nextafter(nodes, np.float32(-1)), np.nextafter(nodes, np.float32(100)), rng.uniform(-1, 81, 2000),
               [-.5, 0., 80., 80.5, np.nextafter(np.float32(80), np.float32(0))]].astype('f4')
     want = density.interpolate32(h, table)
-    got = np.array([[native.profile_c(float(v), table.ctypes.data, k) for k in (0, 1)] for v in h], 'f4')
+    got = np.array([[native.profile_c(float(v), table.ctypes.data, k) for k in (0, 1, 2)] for v in h], 'f4')
     assert (within_tol(got, want))
 
 
 def test_c_profile_at_masks_and_bad_n(subtests):
     h = np.r_[np.linspace(0, 80, 777), [17.3, 24.93, 79.99]].astype('f4')
     for step, n in STEPS:
-        table = np.ascontiguousarray(np.column_stack([np.exp(-density.grid(n)/8.3), kink(density.grid(n))]), 'f4')
+        table = np.ascontiguousarray(np.column_stack([np.exp(-density.grid(n)/8.3), kink(density.grid(n)), density.no2_profile(density.grid(n))]), 'f4')
         tab = density.interpolate32(h, table)
         for mask in range(4):
             with subtests.test(n=n, mask=mask):
@@ -202,12 +202,12 @@ def test_c_profile_at_masks_and_bad_n(subtests):
 
 def test_d_injected_values_used_as_given():
     z = density.grid(321); t = np.column_stack([np.ones(321), kink(z)*.37])
-    st = json.loads(json.dumps(density.with_profile(state(), z_km=z, table=t, mask=2)))   # JSON-serializable state
+    st = json.loads(json.dumps(density.with_profile(state(), air_surface_number_density_m3=2.5469e25, z_km=z, table=t, mask=2)))   # JSON-serializable state
     o = density.build(st)
-    assert o['table'].tobytes() == t.tobytes() and (o['mask'], o['scale']) == (2, 1.)
+    assert o['table'][:, :2].tobytes() == t.tobytes() and (o['mask'], o['scale']) == (2, 1.)
     assert o['meta']['normalization'].startswith('none') and o['meta']['origin'] == 'external' and o['meta']['asset_sha256'] is None
     assert np.trapezoid(o['table'][:, 1], z) != pytest.approx(15.)
-    n = density.build(density.with_profile(state(), z_km=z, table=t, mask=2, normalize_ozone=True))
+    n = density.build(density.with_profile(state(), air_surface_number_density_m3=2.5469e25, z_km=z, table=t, mask=2, normalize_ozone=True))
     assert np.trapezoid(n['table'][:, 1], z) == pytest.approx(15., rel=1e-13) and n['table'][:, 0].tobytes() == t[:, 0].tobytes()
     assert density.profile_identity(n)['sha256'] != density.profile_identity(o)['sha256']
     for step, _ in STEPS:   # production asset path keeps 15 at every N
@@ -216,7 +216,7 @@ def test_d_injected_values_used_as_given():
 
 
 def test_d_0125_state_round_trip(tmp_path, env):
-    """Oracle §5.4 row 1: with_profile -> effective_state -> build / signed_contract keeps the external table and step."""
+    """with_profile -> effective_state -> build / signed_contract keeps the external table and step."""
     from sosfuse2 import run_gpu_state_v3 as v3
     st = external(641, mask=2)
     eff = v3.effective_state(st, SimpleNamespace())
@@ -238,7 +238,7 @@ def test_d_s1_qeff_adapter_keeps_air_mask_scale(tmp_path, env):
     """Fix #12: S1 form (air kept, ozone column = q_eff, mask|2, normalize_ozone=False, original scale) and its consumption."""
     base_state = state(profile_step_km=.125); base = density.build(base_state); z = density.grid(641)
     q_eff = base['table'][:, 1]*(1+.02*np.sin(z/3.))   # evaluated on the 0.125 km nodes (a stand-in for Model.effective)
-    st = density.with_profile(state(), z_km=z, table=np.column_stack([base['table'][:, 0], q_eff]), mask=base['mask'] | 2,
+    st = density.with_profile(state(), air_surface_number_density_m3=2.5469e25, z_km=z, table=np.column_stack([base['table'][:, 0], q_eff]), mask=base['mask'] | 2,
                               normalize_ozone=False, scale=base['scale'])
     o = density.build(st)
     assert (within_tol(o['table'][:, 0], base['table'][:, 0])) and (within_tol(o['table'][:, 1], q_eff))
@@ -274,11 +274,12 @@ def test_e_columns_vs_independent_reference(subtests):
 
 def simpson_prefix(table, nq, edges=(0., 10., 25., 40., 80.)):
     """reference.SimpsonPrefix driven like transport() on a vertical ray from the ground, unit ozone extinction."""
+    table = np.column_stack([table, density.no2_profile(density.grid(len(table)))])
     p, d = np.array([[0., 0., R]]), np.array([[0., 0., 1.]]); e = np.array([edges])
     g = dict(p=p, d=d, edges=e, lower=np.ones((1, len(edges)-1), bool), target=np.eye(3)[None], dloc=d.copy())
     u, wu = np.polynomial.legendre.leggauss(nq)
     c = dict(W=1, u=(u+1)/2, wu=wu/2, h=np.linspace(0, 80, 21).astype('f4'), chi=np.linspace(0, math.pi, 13).astype('f4'),
-             height=F(1.2), ext=np.zeros((3, 1), 'f4'), density_optics=dict(table=table, mask=2, meta=dict(profile_step_km=density.STEP_OF_N[len(table)])))
+             height=F(1.2), ext=np.zeros((5, 1), 'f4'), density_optics=dict(table=table, mask=2, meta=dict(profile_step_km=density.STEP_OF_N[len(table)])))
     c['ext'][2] = 1.
     P = reference.SimpsonPrefix(g, c); out = []
     for seg in range(len(edges)-1):
@@ -350,7 +351,7 @@ def test_g_one_key_rule_and_profile_option(subtests, monkeypatch):
 
 
 def test_g_shared_raw_dict_161_641_161(monkeypatch):
-    """Oracle §3.3/§5.4 row 3 at CPU level: one compiled (raw, attributes) pair shared like the persistent service."""
+    """At CPU level: one compiled (raw, attributes) pair shared like the persistent service."""
     for name in ('SOSFUSE2_KSPLIT', 'SOSFUSE2_FMAD', 'SOSFUSE2_FASTMATH'): monkeypatch.setenv(name, '0')
     shared = ({}, {})
     a, b, c = capture_kernel(.5), capture_kernel(.125), capture_kernel(.5)
@@ -371,7 +372,7 @@ def minimal_constants(table, mask=2):
 def test_g_consumption_checks_without_setup():
     """Fix #6: a restored/persistent kernel never runs setup(); upload and launch still check compiled == optics == table N."""
     s = SimpleNamespace()
-    table = np.column_stack([np.ones(641), kink(density.grid(641))])
+    table = np.column_stack([np.ones(641), kink(density.grid(641)), density.no2_profile(density.grid(641))])
     k = fused.Kernel(backend='numpy'); k.constants[(id(s), 4)] = minimal_constants(table)
     with pytest.raises(RuntimeError, match='E_PROFILE_N_MISMATCH: setup'):   # constants_device reads setup() first
         k.constants_device(s, 4)
@@ -379,7 +380,7 @@ def test_g_consumption_checks_without_setup():
         k.check_profile(k.constants[(id(s), 4)]['density_optics'], 'upload', 641)
     ok = fused.Kernel(backend='numpy', profile_step_km=.125); ok.constants[(id(s), 4)] = minimal_constants(table)
     dc = ok.constants_device(s, 4)
-    assert dc['profile_table'].shape == (641, 2) and ok.profile_consumed['uploaded_n'] == 641
+    assert dc['profile_table'].shape == (641, 3) and ok.profile_consumed['uploaded_n'] == 641
     assert ok.profile_consumed['table_f4_sha256'] == hashlib.sha256(np.ascontiguousarray(table, 'f4').tobytes()).hexdigest()
     with pytest.raises(RuntimeError, match='E_PROFILE_N_MISMATCH: launch'):
         ok.check_profile(ok.constants[(id(s), 4)]['density_optics'], 'launch', 321)
@@ -459,20 +460,20 @@ def test_h_identity_separates_tables_and_policies():
 
 
 def test_h_caches_A_B_A_cold_warm(tmp_path, env, monkeypatch):
-    """Oracle §5.4 row 2: same N/mask/integral, different shape; host endpoint cache, column disk cache and device memo."""
+    """Same N/mask/integral, different shape; host endpoint cache, column disk cache and device memo."""
     z = density.grid(321); qa = kink(z); qb = np.maximum(0, 1-np.abs(z-24.3)/7.); qb *= np.trapezoid(qa, z)/np.trapezoid(qb, z)
     sa = external(321, q=qa); sb = external(321, q=qb)
     s, scope, _ = create(tmp_path/'solver', sa); old = scope['b'].sh.old
     tg = geometry.TransientGeometry(s, scope); cells = [tg.cell(i) for i in (0, 9)]
     starts = np.stack([np.asarray(g['p'], 'f8').reshape(-1, 3)[0] for g in cells])   # one start per cell
     dirs = np.concatenate([g['d'] for g in cells]); off = np.r_[0, np.cumsum([len(g['d']) for g in cells])]
-    host = dict(starts=starts, cell_off=off, dirs=dirs, end_col=np.zeros((len(dirs), 3), 'f4'))
+    host = dict(starts=starts, cell_off=off, dirs=dirs, end_col=np.zeros((len(dirs), 5), 'f4'))
     oa, ob = density.build(sa), density.build(sb)
     for o in (oa, ob): o['old'] = old
     monkeypatch.setenv('SOSFUSE2_HOST_CACHE', '1')
     seq = [(k, host_cache.endpoint_columns(s, host, o, tmp_path/'hc', 'sig')) for k, o in (('a', oa), ('b', ob), ('a', oa), ('b', ob))]
     assert (within_tol(seq[0][1], seq[2][1])) and (within_tol(seq[1][1], seq[3][1]))
-    assert not np.array_equal(seq[0][1], seq[1][1])   # (diagnostic only; equality would not fail the contract)
+    assert not np.array_equal(seq[0][1], seq[1][1])   # (diagnostic only; equality would not fail the test)
     assert len(list((tmp_path/'hc'/'host_cache').glob('*.hcache'))) == 2
     monkeypatch.setenv('SOSFUSE2_COLUMN_CACHE', str(tmp_path/'cc'))
     k = s.kernel; results = []
@@ -506,10 +507,10 @@ def test_h_outputs_independent_of_N(tmp_path, env):
     assert src.count("np.savez(prepare/'moment.npz',moment=np.concatenate(moments,axis=-1),h=s.geo.h,chi=s.geo.chi") == 1
 
 
-# ------------------------------------------------------------------------------------------------ review (REVIEW_codex_2b.md)
+# ------------------------------------------------------------------------------------------------ review
 
 def review_bad_optics():
-    """Review #1 input: declared 0.5 km (Kernel N 161) with a 321-row table whose ozone row j is min(j*.5, 80)."""
+    """Declared 0.5 km (Kernel N 161) with a 321-row table whose ozone row j is min(j*.5, 80)."""
     table = np.column_stack([np.ones(321), np.minimum(np.arange(321)*.5, 80.)])
     return dict(table=table, mask=2, scale=1., meta=dict(density.DEFAULTS, asset_sha256=None, profile_step_km=.5))
 
@@ -524,7 +525,7 @@ def test_r1_declared_step_mismatch_rejected_on_every_path(subtests):
                               k.setup(s, 4)),
         reference_profile_at=lambda: reference.profile_at(h, dict(height=F(1.2), density_optics=bad)),
         reference_transport_sample=lambda: reference.SimpsonPrefix(dict(p=np.array([[0, 0, R]]), d=np.array([[0, 0, 1.]])),
-                                                                   dict(W=1, height=F(1.2), ext=np.zeros((3, 1), 'f4'), density_optics=bad)).beta(
+                                                                   dict(W=1, height=F(1.2), ext=np.zeros((5, 1), 'f4'), density_optics=bad)).beta(
                                                                        (np.array([20.], 'f4'), np.zeros(1, 'f4'))),
         profiles=lambda: density.profiles(np.array([20.]), bad),
         profile_identity=lambda: density.profile_identity(bad),
@@ -539,14 +540,14 @@ def test_r1_declared_step_mismatch_rejected_on_every_path(subtests):
 
 
 def test_r2_rebound_table_rejected_as_stale():
-    """Fix #2: the review's A->B rebinding (same N, same s/nq) after the upload is E_PROFILE_STALE on reuse and at launch."""
+    """A->B rebinding (same N, same s/nq) after the upload is E_PROFILE_STALE on reuse and at launch."""
     z = density.grid(161); s = SimpleNamespace()
-    a = density.build(density.with_profile(state(), z_km=z, table=np.column_stack([np.ones(161), z]), mask=2))
+    a = density.build(density.with_profile(state(), air_surface_number_density_m3=2.5469e25, z_km=z, table=np.column_stack([np.ones(161), z]), mask=2))
     optics = dict(a)   # attach-style: consumers hold this dict
     k = fused.Kernel(backend='numpy'); k.constants[(id(s), 4)] = dict(minimal_constants(a['table']), density_optics=optics)
     dc = k.constants_device(s, 4)
     assert k.constants_device(s, 4) is dc   # unchanged optics: the upload is reused
-    optics['table'] = np.column_stack([np.ones(161), 2*z])   # rebinding forbidden after attach
+    optics['table'] = np.column_stack([np.ones(161), 2*z, density.no2_profile(z)])   # rebinding forbidden after attach
     with pytest.raises(RuntimeError, match='E_PROFILE_STALE: device_constants'):
         k.constants_device(s, 4)
     with pytest.raises(RuntimeError, match='E_PROFILE_STALE: launch'):

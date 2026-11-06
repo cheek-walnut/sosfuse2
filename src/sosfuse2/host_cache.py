@@ -1,6 +1,6 @@
 """Disposable host sidecars: atomic, checked, and independent of optical state.
 
-col0/col2 are shared across scale heights. The host aerosol column (col1) is keyed by the aerosol
+Columns 0, 2, 3 and 4 are shared across scale heights. The host aerosol column (col1) is keyed by the aerosol
 profile (scale height, troposphere profile) and shared across optics (aod, ssa, g, ...). No solver
 outputs are persisted. The single-file envelope prevents a reader seeing mixed data/metadata generations.
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from . import paths
-VERSION = 1
+VERSION = 3
 PKG = paths.PKG
 
 
@@ -82,19 +82,17 @@ def array_hash(a):
 
 def context(s, optics):
     from .geometry_contract import identity
-    from .density import DEFAULTS, profile_identity
+    from .density import DEFAULTS, column_identity
     common, signature = identity(s)
     # Include the complete common identity, not only its shortened directory name. profile (②b): effective table bytes,
     # grid N/step, mask, scale, normalization and origin; options/asset/mask alone do not separate injected tables.
-    # sources (oracle k3 #12): every file whose code builds an entry here besides the common-identity upstream files
-    # (engine, sos_probe/sos_sky/sos_full, b2_driver, geometry_contract): sun02 = sun_parallel rows, ground = ground_parallel
-    # cells, endpoint02 = density.correct_columns / column_parallel / column_table, column_parallel freeze/thaw for the
-    # workers, ray_columns' GL walk, density's profiles and the exact closed form (column_table.exact_columns), sos_sky2 incoming.
+    # Additional sources cover sun_parallel rows, ground_parallel cells, density corrections, column workers and methods,
+    # ray_columns' GL walk, density profiles and the solver_sky incoming quadrature. Common-identity sources are in common.
     key = dict(version=VERSION, common=common, options={k: optics['meta'][k] for k in DEFAULTS},
-               asset_sha256=optics['meta'].get('asset_sha256'), mask=optics['mask'], profile=profile_identity(optics),
-               selected_columns=[col for col,bit in ((0,1),(2,2)) if optics['mask']&bit],
+               asset_sha256=optics['meta'].get('asset_sha256'), mask=optics['mask'], profile=column_identity(optics),
+               selected_columns=[0,2,3,4],
                sources={'sosfuse2/'+name:hashlib.sha256((PKG/name).read_bytes()).hexdigest()
-                        for name in ('host_cache.py','density.py','ray_columns.py','accepted/sos_sky2.py',
+                        for name in ('host_cache.py','density.py','ray_columns.py','solver_sky.py',
                                      'sun_parallel.py','ground_parallel.py','column_table.py','column_parallel.py')})
     root = Path(getattr(s, 'host_cache_root', None) or default_root())
     return root/('endpoints_'+signature)/'host_cache', key
@@ -172,22 +170,25 @@ def cached(folder, key, build, compressed=False):
 
 
 def sun_geometry(old, scale, folder, height, shared=None):
-    # The accepted SunGeometry disk cache has no height or scale key. Isolate it even
+    # The SunGeometry file carries an identity (code, components, height, scale; solver_columns.SunGeometry.identity) and a
+    # mismatch rebuilds it, so the folders below are for reuse, not safety: they keep states from replacing one file in turn
     # when a caller reuses a prepare folder for a different state; scale 1 keeps its old folder.
     # shared = the job's geometry cache: one table per (table source, aerosol profile, scale, height) for every state
-    # (2026-10-21 eda: four reduced states each built the same scale-4 table in their own prepare folders, 52 s).
+    # (2026-10-21 development GPU host: four reduced states each built the same scale-4 table in their own prepare folders, 52 s).
     # Unwritable shared root: warn and keep the per-state folder.
     from .sun_parallel import prebuild
     local = folder
     if shared is not None:
-        # Table identity: the code that computes it (old is rig/engine.py's namespace of sos_sky definitions, compiled
-        # under sos_sky.py's path) and its radius/top; scale and height key the folders below.
+        # Table identity: the code that computes it (old.total_columns is compiled from solver_columns.py), its
+        # dependencies and radius/top; scale and height key the folders below.
         here = Path(__file__).resolve()
         # tropo_profile.py: the aerosol_profile tag hashes the profile config, not the code that evaluates it.
-        files = sorted({old.total_columns.__code__.co_filename, str(here.parent/'accepted/sos_probe.py'),
+        files = sorted({old.total_columns.__code__.co_filename, str(here.parent/'solver_columns.py'),
                         str(here.parent/'accepted/engine.py'), str(here.with_name('sun_parallel.py')),
                         str(here.with_name('column_parallel.py')), str(here.with_name('tropo_profile.py')),
-                        str(here.with_name('ray_columns.py'))})
+                        str(here.with_name('ray_columns.py')),
+                        # B2: solver_columns.profiles reads density.no2_profile, which interpolates this asset.
+                        str(here.with_name('density.py')), str(here.parent/'assets/no2_afglus_profile.json')})
         source = hashlib.sha256(json.dumps(dict(R=float(old.R), Z=float(old.Z))).encode())
         for name in files:source.update(Path(name).read_bytes())
         folder = Path(shared)/'host_sun'/source.hexdigest()[:20]
@@ -223,13 +224,13 @@ def corrected_sun(s, optics, method=None):
     method = sun_method() if method is None else method   # density.attach passes its one resolution
     sun = s.geo.sun; folder, key = context(s, optics)
     key.update(kind='sun02', h=array_hash(sun.h), x=array_hash(sun.x),
-               lengths=[len(sun.h), len(sun.x)], base02=array_hash(sun.col[..., [0,2]]), sun_method=method)
+               lengths=[len(sun.h), len(sun.x)], base02=array_hash(sun.col[..., [0,2,3,4]]), sun_method=method)
     def build():
         from .sun_parallel import rows
         grid = rows(optics['old'], sun.h, sun.x, 6371., 32, sun.col, optics, method)
-        return dict(columns=grid[..., [0,2]])
+        return dict(columns=grid[..., [0,2,3,4]])
     result = sun.col.copy()
-    result[..., [0,2]] = cached(folder, key, build)['columns']
+    result[..., [0,2,3,4]] = cached(folder, key, build)['columns']
     return result
 
 
@@ -239,10 +240,10 @@ def endpoint_columns(s, host, optics, folder=None, signature=None, prepared=None
     folder = default if folder is None else Path(folder)/'host_cache'
     key.update(kind='endpoint02', endpoint_signature=signature, lengths=[len(host['starts']),len(host['dirs'])],
                inputs={k: array_hash(host[k]) for k in ('starts','cell_off','dirs')},
-               base02=array_hash(host['end_col'][:, [0,2]]))
+               base02=array_hash(host['end_col'][:, [0,2,3,4]]))
     def build():
         if prepared is not None:return dict(columns=prepared)
-        starts=host['starts'];co=host['cell_off'];dirs=host['dirs'];out=np.empty((len(dirs),2),'f4')
+        starts=host['starts'];co=host['cell_off'];dirs=host['dirs'];out=np.empty((len(dirs),4),'f4')
         from . import column_parallel as cp
         from .column_table import method
         if method() != 'gl24' or (cp.workers()>1 and len(dirs)>=cp.MIN_RAYS):
@@ -250,11 +251,11 @@ def endpoint_columns(s, host, optics, folder=None, signature=None, prepared=None
             # so columns 0/2 equal the loop below byte for byte; False = run that loop.
             full=np.array(host['end_col'],'f4')
             if cp.parallel_columns(full,'density',starts,co,dirs,optics['old'],optics):
-                return dict(columns=np.ascontiguousarray(full[:, [0,2]]))
+                return dict(columns=np.ascontiguousarray(full[:, [0,2,3,4]]))
         for lo in range(0,len(dirs),2048):
             hi=min(lo+2048,len(dirs));index=np.searchsorted(co,np.arange(lo,hi),side='right')-1
             value=correct_columns(starts[index],dirs[lo:hi],host['end_col'][lo:hi],optics['old'],optics,24)
-            out[lo:hi]=value[:, [0,2]]
+            out[lo:hi]=value[:, [0,2,3,4]]
         return dict(columns=out)
     try:return cached(folder, key, build)['columns']
     except CacheUnavailable:return build()['columns']
@@ -296,8 +297,7 @@ def prepare_ground(s, scope, optics, method=None):
             off.append(off[-1]+len(values[0]))
         return dict(off=np.array(off,'i8'),**{k:np.concatenate(v) for k,v in rows.items()})
     z=cached(folder,key,build,compressed=True)
-    # Compute only the candidate aerosol rays, using the original 3-column sum
-    # shape to retain rounding. Cached per aerosol profile, shared across optics.
+    # Compute only the candidate aerosol rays; cache them per aerosol profile and share across optics.
     built=[];started=time.monotonic()
     def build_aerosol():
         built.append(True);ps=[];ds=[]
@@ -315,7 +315,7 @@ def prepare_ground(s, scope, optics, method=None):
     ds=[];vs=[];off=[0];s.gm=np.zeros((g.ns,4,s.W),'f4')
     for cell in range(g.ns):
         lo,hi=z['off'][cell:cell+2];loc=z['loc'][lo:hi];w=z['w'][lo:hi];q=z['q'][lo:hi];r=z['r'][lo:hi]
-        col=np.empty((hi-lo,3));col[:, [0,2]]=z['columns'][lo:hi];col[:,1]=col1[lo:hi]
+        col=np.empty((hi-lo,5));col[:, [0,2,3,4]]=z['columns'][lo:hi];col[:,1]=col1[lo:hi]
         sc,lit=g.sun.lookup(q,np.maximum(b.R,r));ch=np.arccos(np.clip(q[:,2]/r,-1,1))
         value=b.sh.NORMAL['albedo']/np.pi*np.maximum(0,np.cos(ch))[:,None]*np.exp(-(sc+col)@s.ext)*lit[:,None]*(r<b.R+1e-5)[:,None]*w[:,None]
         take=np.any(value>0,axis=1);ds.append(loc[take]);vs.append(value[take]);off.append(off[-1]+take.sum())

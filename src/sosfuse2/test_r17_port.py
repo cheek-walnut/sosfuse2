@@ -2,13 +2,13 @@
 
 Run: python -B -m sosfuse2.test_r17_port
 1 column_cache job first-use comparison: miss, same-job hit, new-job hit and a poisoned payload all return
-  the direct bytes (strato-kernel-loop cycle17 REVIEW_astra F1).
+  the direct bytes.
 2 preview reuse: the repack of one attempt renders no previews; packed products are unchanged.
 3 nphi: v3 default 16 since 2026-10-21 (was 32; validated <=0.003 % on V14, a4f66a1); rig/engine.py stays 64; explicit 32/64 still generate their geometry.
 4 kernel.cu production configurations preprocess; r17 flags remain reachable and parse.
 5 pipeline.py --persistent --workers auto --gpu-active auto hands the real runner parser its work-root,
   geometry-cache, keep-geometry and column-cache arguments and the r17 environment.
-7 stage1 wiring (REVIEW_astra T1): rig S2 NVRTC options/keys, env 0 override, separate memo, fl_project options.
+7 stage1 wiring: rig S2 NVRTC options/keys, env 0 override, separate memo, fl_project options.
 """
 import ast
 import contextlib
@@ -55,13 +55,13 @@ def phase_events(text):
 
 
 class ColumnCacheFirstUse(unittest.TestCase):
-    """REVIEW_astra F1: the bytes the solver receives, not only the cache bookkeeping."""
+    """The bytes the solver receives, not only the cache bookkeeping."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix='r17-colcache-'))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        probe = functions(paths.ACCEPTED/'sos_probe.py', {'boundaries', 'gl'}, dict(np=np, R=6371., Z=80.))
-        self.old = functions(paths.ACCEPTED/'sos_sky.py', {'geometry_segments', 'profiles'}, dict(np=np, probe=probe, R=6371.))
+        probe = functions(paths.PKG/'solver_columns.py', {'boundaries', 'gl'}, dict(np=np, R=6371., Z=80.))
+        self.old = functions(paths.PKG/'solver_columns.py', {'geometry_segments', 'profiles'}, dict(np=np, probe=probe, R=6371., AER_PROFILE=lambda h:np.exp(-np.maximum(h,0)/1.2)))
         rng = np.random.default_rng(23)
         d = rng.normal(size=(200, 3)); d /= np.linalg.norm(d, axis=1)[:, None]
         self.arrays = dict(starts=np.array([[0, 0, 6371.1], [0, 0, 6381.], [0, 0, 6401.]]), dirs=d,
@@ -135,7 +135,8 @@ class PreviewReuse(unittest.TestCase):
         for label, reuse in (('before', False), ('after', True)):
             out = tmp/label/'state'; out.mkdir(parents=True)
             np.savez(out/'table.npz', **table)
-            (out/'meta.json').write_text(json.dumps(dict(complete=True)))
+            from sosfuse2.components import physics, optics_state
+            (out/'meta.json').write_text(json.dumps(dict(complete=True,contract='v4',physics=physics(),optics_state=optics_state({}))))
             with patch.object(pm, 'previews', wraps=pm.previews) as rendered:
                 pm.pack_state(out, tmp/label/'pack', 'gzip')
                 pm.pack_state(out, tmp/label/'pack', 'gzip', reuse_previews=reuse)   # run_gpu_state_v3 repack
@@ -162,6 +163,9 @@ class Nphi(unittest.TestCase):
         self.assertRegex(engine, r"if mode=='full':h,ch=old\.grids\(1\);nmu,nphi,path_n=12,64,12")
         tmp = Path(tempfile.mkdtemp(prefix='r17-nphi-')); self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         env = {k: v for k, v in os.environ.items() if not k.startswith('SOSFUSE2_')}
+        # This test clears tuning flags, but still needs its isolated synthetic O4 cache.
+        env['SOSFUSE2_WORK_ROOT'] = str(paths.work_root())
+        env['SOSFUSE2_OFFLINE'] = '1'
         with patch.dict(os.environ, env, clear=True):
             self.assertEqual(rv.settings_for(SimpleNamespace(reduced=False, settings_json=None))['nphi'], 16)
             explicit = tmp/'phi64.json'; explicit.write_text(json.dumps(dict(nphi=64)))
@@ -248,7 +252,7 @@ class FakeRawKernel:
 
 
 class Stage1Wiring(unittest.TestCase):
-    """REVIEW_astra T1: rig profile S2 (FMAD+FASTMATH) -> NVRTC options and stage1 keys, env 0 override,
+    """Rig profile S2 (FMAD+FASTMATH) -> NVRTC options and stage1 keys, env 0 override,
     separate memo entries, identical fl_project options. Fake RawKernel; no CUDA."""
 
     def kernel(self, profile_name):

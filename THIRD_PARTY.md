@@ -217,8 +217,47 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ## 10. Algorithms cited, no code copied
 
+- Bodhaine, B. A., Wood, N. B., Dutton, E. G., Slusser, J. R. (1999). *On Rayleigh Optical Depth Calculations.*
+  Journal of Atmospheric and Oceanic Technology 16, 1854–1861. Equations 18, 19, 5, 6, 23 and 22 in `rayleigh.py`,
+  with 360 ppm CO₂; vacuum wavelengths obtained from Ciddor standard-air coordinates. The engine preserves its
+  original optical depth at 450 nm in air and retains phase depolarization 0.03.
 - Bohren, C. F., Huffman, D. R. (1983). *Absorption and Scattering of Light by Small Particles.* The BHMIE recursion
   structure is reimplemented in `mie.py`.
 - Ciddor, P. E. (1996). *Refractive index of air: new equations for the visible and near infrared.* Applied Optics 35,
   1566 — `air_wavelength.py`.
-- Hable, J. (2010). *Uncharted 2: HDR Lighting* (GDC 2010). Constants of J. Hable's 2010 filmic tone curve in `accepted/sos_render.py` `film()`; formula only, no code copied. Used for the preview PNGs written by `host/pack_state.py`.
+- Hable, J. (2010). *Uncharted 2: HDR Lighting* (GDC 2010). Constants of J. Hable's 2010 filmic tone curve in `solver_render.py` `film()`; formula only, no code copied. Used for the preview PNGs written by `host/pack_state.py`.
+
+## 11. Bundled: Vandaele NO₂ absorption at 220 K
+
+- File: `src/sosfuse2/assets/no2_vandaele1998_fine.json`, derived from BIRA-IASB `no2c_97.dat` and `no2cp_97.dat`.
+- Attribution: Robert, S., Vandaele, A. C., Hermans, C. (2026). *NO2 absorption cross sections at different temperatures
+  and pressures (Version 1).* Royal Belgian Institute for Space Aeronomy. https://doi.org/10.18758/6b80spv8
+  Measurements: Vandaele, A. C., et al. (1998). JQSRT 59, 171–184.
+- Licence: **CC BY 4.0**, https://creativecommons.org/licenses/by/4.0/. This asset is excluded from the project's CC0 dedication.
+- Changes: column 1 gives inverse air wavelength; use C_97 column 3 below 660 nm, a linear blend over 660–666 nm,
+  and unscaled CP_97 column 6 (0.16 Torr) above 666 nm. Integrate the source linear interpolant into 0.1 nm cells,
+  convert cm² to m², and round to seven significant digits. End padding is removed; internal missing rows are refused.
+  Original digests, units, changes and generator version are recorded in the asset.
+
+## 12. Not bundled: HITRAN2024 O₂–O₂ collision-induced absorption (O₄)
+
+- Neither `O2-O2_2024.cia` nor its derived O4 JSON is included in git or the wheel. Redistribution terms have not
+  been confirmed with HITRAN. Source: https://hitran.org/data/CIA/main/O2-O2_2024.cia
+- Prepare explicitly: `python -m sosfuse2.prepare_minor_absorbers --cia FILE`, or `--download` to retrieve the official
+  source. The command verifies the pinned original SHA and atomically writes `assets/o4_hitran2024_fine.json` under
+  `SOSFUSE2_WORK_ROOT` (otherwise the XDG work root). It prints the generated SHA. Solve only reads this cache.
+  `SOSFUSE2_OFFLINE=1` refuses downloads. Run preparation once before precompile/baking or a B2 gate run.
+- References: Gordon, I. E., et al. (2026). *The HITRAN2024 molecular spectroscopic database.* JQSRT 353, 109807;
+  Terragni, J., et al. (2025). *Collision induced absorption in HITRAN2024.* JQSRT 347, 109631;
+  Thalman, R., Volkamer, R. (2013). PCCP 15, 15371; Finkenzeller, H., Volkamer, R. (2022). JQSRT 279, 108063.
+- Changes: convert vacuum wavenumber to standard-air wavelength, use ref 54 at 293 K through its 499.861 nm endpoint,
+  ref 32 at 293 K to 600 nm and at 287 K to 653.842 nm; zero outside the selected support. The 499.861–509.334 nm
+  connection is a product rule. Integrate into 0.1 nm cells, clip negative cell means, convert cm⁵ to m⁵, and round to
+  seven significant digits. O₂ A- and B-band CIA sets are excluded. The local output records source SHA and rules version.
+
+## 13. Bundled: AFGL U.S. Standard Atmosphere NO₂ profile
+
+- File: `src/sosfuse2/assets/no2_afglus_profile.json`, derived from `afglus.dat` in AFGL-TR-86-0110,
+  obtained through libRadtran 2.0.6. The source is U.S. Government work.
+- Changes: log-linear interpolation of NO₂ number density onto a 0.5 km grid. The profile supplies the shape;
+  the state sets the NO₂ column. The source SHA-256 and interpolation are recorded in the asset.

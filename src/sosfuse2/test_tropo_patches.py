@@ -45,7 +45,7 @@ def test_patch_source_has_no_drift_and_compiles(engine):
 
 def test_patch_source_reports_drift_when_a_count_changes(engine):
     create = inspect.getsource(engine.create)
-    drifted = create.replace("AER_HEIGHT)',2)", "AER_HEIGHT)',3)")
+    drifted = create.replace("oldscope['AER_HEIGHT']=H", "oldscope['AER_HEIGHT']=H+1")
     assert drifted != create
     with pytest.raises(RuntimeError, match='E_ADAPTER_DRIFT'):
         tp.patch_source(drifted, STATE, {})

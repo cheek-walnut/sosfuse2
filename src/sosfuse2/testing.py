@@ -109,3 +109,20 @@ def outside_package(path):
     except ValueError:
         return p
     raise ValueError(f'E_TEST_OUTPUT: {p} is inside the sosfuse2 package; use a folder under {scratch_parent()}')
+
+
+def synthetic_o4(root):
+    """Test-only, visibly synthetic positive spectrum; no HITRAN source or data."""
+    import json
+    import numpy as np
+    from . import generate_minor_absorbers as gen
+    from .minor_absorbers import O4_NAME, UNITS
+    fine, grid = gen.fine_grid()
+    values = np.where(grid <= 653.842, 1e-56*(1+np.exp(-((grid-577)/12)**2)), 0.)
+    doc = dict(format='o4-fine-v1', **gen.common(fine), o4=values.tolist(),
+               units=dict(wavelength_nm='nm (air)', o4=UNITS['o4']),
+               source=dict(sha256=gen.CIA_SHA, note='SYNTHETIC TEST FIXTURE; not HITRAN measurements'))
+    path = Path(root)/'assets'/O4_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, indent=1, allow_nan=False)+'\n')
+    return path

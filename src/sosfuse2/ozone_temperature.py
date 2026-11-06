@@ -1,7 +1,7 @@
-"""Opt-in A′ ozone scalars: band means followed by a profile-weighted layer mean (sky-sos research records).
+"""Opt-in A′ ozone scalars: band means followed by a profile-weighted layer mean.
 
-Arithmetic follows results/sigma_tz_20261028/model.py:87-147 (BM45 bin mean of every 193..293 K column, linear in T,
-vertical 64-point Gauss–Legendre on every knot interval). No research code is imported.
+Arithmetic uses the BM45 bin mean of every 193..293 K column, linear in T,
+and vertical 64-point Gauss–Legendre on every knot interval. No research code is imported.
 
 The q(z) shape is a property of the state, not of the settings: spectral.resolve(block, state) fills the block's
 ozone_profile from state_shape(state), the shape the engine itself uses (density.build mask bit 2; analytic triangle
@@ -130,7 +130,7 @@ class ProfileMean:
             self.sigmas = np.array([np.interp(wl, a['wavelength_nm'], column) for column in columns])
         else:
             raise ValueError('E_SPECTRAL_CONTRACT: band_mean_of in band, point')
-        if shape == 'usstd76':   # the analytic triangle never touches the usstd76 asset (offline triangle runs, 2026-11-03 release review)
+        if shape == 'usstd76':   # the analytic triangle never touches the usstd76 asset (offline triangle runs)
             _, _, _, oz = density.load_asset()
             self.q_usstd = oz*15/np.trapezoid(oz, Z)
         else: self.q_usstd = None

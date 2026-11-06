@@ -1,5 +1,5 @@
 """Five integration cases; PERSISTENT_TEST_BACKEND and PERSISTENT_TEST_DEADLINE select execution.
-Run with a NumPy/Pillow/zstandard Python: python -B .../test_pipeline_persistent.py
+Run with a NumPy/Pillow/zstandard Python: python -B -m sosfuse2.test_pipeline_persistent
 """
 import copy
 import json
@@ -36,9 +36,9 @@ def child_environment():
 
 
 def interleave_env():
-    """eda (RTX 3080 10 GB): the KSPLIT admission reserves 5.2 GB per state (1c870ff..b974ea0), so a second state waits in
+    """On the development GPU host (RTX 3080 10 GB), KSPLIT reserves 5.2 GB per state (1c870ff..b974ea0), so a second state waits in
     vram_wait and the service runs one state at a time. The interleaving case tests the scheduler, so it runs with KSPLIT off
-    there (user 2026-10-28); larger cards keep the default KSPLIT and still check interleaving with it."""
+    there; larger cards keep the default KSPLIT and still check interleaving with it."""
     from sosfuse2 import device_profile
     device = device_profile.smi_device_name() if BACKEND == 'cupy' else None
     if device is None and BACKEND == 'cupy':
@@ -98,9 +98,9 @@ class PersistentTests(unittest.TestCase):
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             try:
                 if kill:
-                    path = cls.root/label/'logs/GPU_SERVICE.log'
                     while time.monotonic()-start < 50:
-                        events = cls.events(path) if path.exists() else []
+                        logs = sorted((cls.root/label/'logs').glob('*/GPU_SERVICE.log'))
+                        events = cls.events(logs[-1]) if logs else []
                         hit = next((e for e in events if e['phase']=='gpu_piece_start'), None)
                         if hit:
                             os.kill(hit['pid'], signal.SIGKILL)
@@ -174,7 +174,7 @@ class PersistentTests(unittest.TestCase):
     def test_5_interleaving(self):
         kernel = interleave_env()
         # Bytes are compared with a sequential run of the same kernel: KSPLIT=0 and the default KSPLIT=3 differ by ULPs
-        # (max rel 7.6e-7, results/ksplit_rig_20261025), eda cq 1086 2026-10-28.
+        # (max rel 7.6e-7).
         base = 'baseline'
         if kernel:
             base = 'baseline_ksplit0'; code, summary = self.run_queue(base, 4, persistent=False, extra=kernel)
@@ -183,7 +183,7 @@ class PersistentTests(unittest.TestCase):
             extra={'SOS_PERSISTENT_TEST_OBSERVER_DELAY':os.environ.get('PERSISTENT_TEST_OBSERVER_DELAY','0.02'), **kernel})
         self.assertEqual(code, 0, summary)
         for i in range(4): self.equal_state('interleaved', i, base)
-        events = self.events(self.root/'interleaved/logs/GPU_SERVICE.log')
+        events = self.events(sorted((self.root/'interleaved/logs').glob('*/GPU_SERVICE.log'))[-1])
         pieces = [e['id'] for e in events if e['phase']=='gpu_piece_start' and
                   e['kind'] in ('first_light','sos_iteration','table_transport')]
         runs = [s for i,s in enumerate(pieces) if i==0 or s!=pieces[i-1]]

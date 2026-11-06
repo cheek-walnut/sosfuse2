@@ -1,8 +1,8 @@
 """Host-dependent resource ceilings (stdlib only).
 
-The 6 GB RSS ceiling protects the Mac and eda (15 GB RAM, GPU guard services).
+The 6 GB RSS ceiling protects the Mac and the development GPU host (15 GB RAM, GPU guard services).
 It is lifted on other Linux hosts by their RAM: rented rigs (>= 48 GB) and mid-size VMs such as the GCP L4
-g2-standard-8 (32 GB), where ncu --set full replay reached 6.4-6.8 GB (results/r1_k3_20261025, user 2026-10-26).
+g2-standard-8 (32 GB), where ncu --set full replay reached 6.4-6.8 GB (measured during development).
 default_workers (usable CPUs: affinity and cgroup-v2 cpu.max) moved here from column_parallel.py so the stdlib-only
 pipeline controller can size the per-state process pools with the same rule the children use.
 """
@@ -25,11 +25,11 @@ def physical_ram_gb():
         return 0.
 
 
-EDA_MARKERS = ('tools/gpu_guard', 'gpu_guard')  # current eda path first, then the pre-2026-10 ~/gpu_guard
+EDA_MARKERS = ('tools/gpu_guard', 'gpu_guard')  # current marker first, then the older home-relative marker
 
 
 def rss_cap_gb():
-    """6 on the Mac, on eda (~/tools/gpu_guard or the older ~/gpu_guard present) and on any small/unknown host;
+    """6 on the Mac, on a host with a GPU guard marker, and on any small/unknown host;
     min(128, physical RAM) on a Linux host with at least 48 GB RAM; 0.75 x RAM on one with 24-48 GB."""
     try:markers = [Path.home() / marker for marker in EDA_MARKERS]
     except RuntimeError:markers = []  # no home directory (container user without a passwd entry): no marker, never an error

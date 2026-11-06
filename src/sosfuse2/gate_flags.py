@@ -1,6 +1,6 @@
 """Two-stage numerical diagnostics; run with python -m sosfuse2.gate_flags.
 
-Since gate v2 (results/gate_redesign_20261021/SPEC_V2.md, L1/L2) the blocking gate is gate.py; E1 (bootstrap <=1e-6)
+Since gate v2 the blocking gate is gate.py; E1 (bootstrap <=1e-6)
 and E2 (15-lane observer <=1e-5) here are diagnostic records. CUDA must be invoked through the site's guarded GPU queue.
 Exit 1 preserves a failed check, exit 2 an exception; gate.json is written either way and contains every result. --display-atol is a radiance-unit
 bound derived from the caller's display transform, never an arbitrary 1/255.
@@ -94,7 +94,7 @@ def main():
 
 
 def finish(out,report,args):
-    # Historical fixture is a disabled-stratosphere, one-wavelength contract.
+    # The historical fixture uses disabled stratosphere and one wavelength.
     controls('C3_nostrato');fixture=out/'fixture';fixture.mkdir(exist_ok=True)
     report['historical_selftest'],_=reduced(fixture,'cupy',256)
     for name in ('C3','C3_nostrato'):

@@ -2,7 +2,7 @@
 """Fill the deployment NVRTC cache with every kernel a state uses, compiled in parallel processes.
 
 A new deployment otherwise compiles its kernels one after another inside the first state (rig 2026-10-04: setup
-154 s with an empty cache against 12 s with a warm one, sky-sos records). Run it once
+154 s with an empty cache against 12 s with a warm one, measured during development). Run it once
 per deployment, e.g. while geometry is copied:
 
     eval "$(python -m sosfuse2.configs.flags_env C3)"

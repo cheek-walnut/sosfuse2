@@ -31,12 +31,14 @@ def live_workers():
     return owned
 
 
-def signature_of(state,backend,reduced,wl,hs,nr,nc):
-    """Signature of a batch table: this module's own contract dict hashed with the package code hashes."""
+def signature_of(state,backend,reduced,wl,hs,nr,nc,settings=None):
+    """Signature of a batch table: this module's own `contract` dict hashed with the package code hashes."""
     from sosfuse2.run_gpu_state_v3 import package_hashes
+    from sosfuse2.components import physics, optics_state, canonical_state
     hashes=package_hashes()
-    contract=dict(state=state,backend=backend,reduced=reduced,wavelengths_nm=wl.tolist(),
+    contract=dict(physics=physics(),optics_state=optics_state(state),state=canonical_state(state),backend=backend,reduced=reduced,wavelengths_nm=wl.tolist(),
         solar_elevation_deg=hs.tolist(),view_shape=[nr,nc],tolerance=.005,code_hashes=hashes)
+    if settings is not None:contract['settings']=settings
     return hashlib.sha256(json.dumps(contract,sort_keys=True).encode()).hexdigest(),hashes
 
 
@@ -55,28 +57,37 @@ def process(root,ident,source,state,a,log):
     from sosfuse2 import table_fast as tf
     from sosfuse2.host.pack_state import pack_state
     from sosfuse2.run_gpu_state_v3 import CONTRACT_VERSION
+    from sosfuse2.components import physics, optics_state, check_same_state, production_only
+    production_only()
     out=root/'out'/ident;out.mkdir(parents=True,exist_ok=True)
     started=time.monotonic()
-    wl,hs,el,az=tf.axes(a.reduced)
-    signature,hashes=signature_of(state,a.backend,a.reduced,wl,hs,len(el),len(az))
+    settings=tf.restored_settings(source,state,a.reduced,a.backend);optical_meta=None
+    wl,hs,el,az=tf.axes(a.reduced) if settings is None else tf.restored_axes(settings)
+    signature,hashes=signature_of(state,a.backend,a.reduced,wl,hs,len(el),len(az),settings)
     meta_path=out/'meta.json'
     if meta_path.exists():
         old=json.loads(meta_path.read_text())
+        check_same_state(old,dict(physics=physics(),optics_state=optics_state(state)))
+        if old.get('signature')!=signature:raise ValueError('E_OUTPUT_IDENTITY: batch table signature differs')
         if old.get('complete') and (out/'table.npz').is_file():
             pack_state(out,root/'pack','zstd');return 'packed-existing'
-    t=time.monotonic();s,scope,settings=tf.build_solver(state,root/'tmp'/ident/'prepare',a.reduced,a.backend);create_seconds=time.monotonic()-t
-    field=tf.load_source(source,s,wl)
-    t=time.monotonic();table,seconds=tf.make_table(s,field,hs,el,az,a.group,a.batch,log);table_seconds=time.monotonic()-t
+    if settings is None:
+        t=time.monotonic();s,scope,settings=tf.build_solver(state,root/'tmp'/ident/'prepare',a.reduced,a.backend);create_seconds=time.monotonic()-t
+        field=tf.load_source(source,s,wl,settings=settings,backend=a.backend)
+        t=time.monotonic();table,seconds=tf.make_table(s,field,hs,el,az,a.group,a.batch,log);table_seconds=time.monotonic()-t
+    else:
+        table,seconds,create_seconds,table_seconds,optical_meta=tf.restored_table(source,state,settings,root/'tmp'/ident/'prepare',a.backend,a.group,a.batch,log)
     tf.save_table(out/'table.npz',table,wl,hs,el,az)
-    meta=dict(complete=True,contract=CONTRACT_VERSION,signature=signature,id=ident,parameters=state['parameters'],stratosphere=state['stratosphere'],
+    meta=dict(complete=True,contract=CONTRACT_VERSION,physics=physics(),optics_state=optics_state(state),signature=signature,id=ident,parameters=state['parameters'],stratosphere=state['stratosphere'],
         mode='reduced-validation' if a.reduced else 'full',shape=list(table.shape),dtype='float32',settings=settings,
-        source_solve=None,source_file=str(source),source_seconds=None,query_seconds=seconds,table_seconds=table_seconds,
+        source_solve=None,source_file=str(source.relative_to(root)),source_seconds=None,query_seconds=seconds,table_seconds=table_seconds,
         solver_create_seconds=create_seconds,elapsed_seconds=time.monotonic()-started,
         gpu=os.environ.get('CUDA_VISIBLE_DEVICES'),backend=a.backend,threads=a.threads,
         unsupported_parameters=['stratosphere_tau550'],folding='mirror azimuth around solar plane; cell centers 0.5..179.5 in full mode',
         units=tf.UNITS,convergence_scope='source and 35-box residual <=0.5% (stored source; solve stats in the worker log)',
         table_method=dict(runner='tables_from_sources',table='table_fast.make_table',group=a.group,batch=a.batch),
         code_hashes=hashes)
+    if optical_meta is not None:meta.update(optical_meta,unsupported_parameters=[])
     tmp=meta_path.with_suffix('.json.tmp');tmp.write_text(json.dumps(meta,indent=2,allow_nan=False)+'\n');os.replace(tmp,meta_path)
     pack_state(out,root/'pack','zstd',started=started)
     return f'done create={create_seconds:.1f}s table={table_seconds:.1f}s total={time.monotonic()-started:.1f}s'
@@ -103,6 +114,7 @@ def main():
     roots=[r.resolve() for r in a.work_roots]
     live=live_workers() if Path('/proc').is_dir() else set()
     log=lambda m:print(m,flush=True)
+    failed=False
     for root,ident,source in candidates(roots,set(a.ids or [])):
         out=root/'out'/ident
         if (out/'table.npz').is_file() and (root/'pack'/f'{ident}.tar.zst').is_file():continue
@@ -114,7 +126,8 @@ def main():
             try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError:log(f'SKIP {root.name}/{ident}: locked by another batch');continue
             try:log(f'TABLES {root.name}/{ident} {process(root,ident,source,states[ident],a,log)}')
-            except (ValueError,RuntimeError) as e:log(f'FAIL {root.name}/{ident}: {e}')
+            except (ValueError,RuntimeError) as e:failed=True;log(f'FAIL {root.name}/{ident}: {e}')
+    return 1 if failed else 0
 
 if __name__=='__main__':
-    main()
+    raise SystemExit(main())

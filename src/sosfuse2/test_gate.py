@@ -1,4 +1,4 @@
-"""gate.py without a GPU (SPEC_V2 11): synthetic fixture runs (--reuse) against a temporary gate home.
+"""gate.py without a GPU: synthetic fixture runs (--reuse) against a temporary gate home.
 Run: python -m pytest -q src/sosfuse2/test_gate.py"""
 import json
 import shutil
@@ -194,13 +194,13 @@ def test_gate_flags_exception_writes_json(tmp_path, monkeypatch):
 
 
 def test_boundary_ftz_numpy_matches_cuda_contract():
-    """G-B (SPEC_V2 3.8, 9): production reference.sun_columns lit at the FTZ boundary = the CUDA -ftz table
-    (results/gatediv_20261020/data/boundary.json: -FLT_MIN 0, -min subnormal 1, -0 1, +0 1, +min subnormal 1, +FLT_MIN 1)."""
+    """G-B: production reference.sun_columns lit at the FTZ boundary = the CUDA -ftz table
+    (-FLT_MIN 0, -min subnormal 1, -0 1, +0 1, +min subnormal 1, +FLT_MIN 1)."""
     from sosfuse2 import reference as ref
     from sosfuse2.arithmetic import F, R
     tiny = np.finfo('f4').tiny; sub = np.nextafter(F(0), F(1)); top = np.nextafter(tiny, F(0))     # top = largest subnormal
     v = np.array([-tiny, -sub, -0., 0., sub, tiny, -top, top, -np.nextafter(tiny, F(1)), np.nan], 'f4')
-    c = {'sun_h': np.array([0, 80], 'f4'), 'sun_col': np.ones((2, 2, 3), 'f4')}
+    c = {'sun_h': np.array([0, 80], 'f4'), 'sun_col': np.ones((2, 2, 5), 'f4')}
     q = {'h': np.zeros(len(v), 'f4'), 'r_DS': (np.full(len(v), R, 'f4'), np.zeros(len(v), 'f4')), 'qz_DS': (v*R, np.zeros(len(v), 'f4'))}
     assert ref.sun_columns(q, c)[1].tolist() == [False, True, True, True, True, True, True, True, False, False]
     pair = lambda h, l: float(ref.ftz_value((np.array([h], 'f4'), np.array([l], 'f4')))[0])  # noqa: E731
@@ -209,13 +209,81 @@ def test_boundary_ftz_numpy_matches_cuda_contract():
     assert np.isnan(pair(np.nan, 0.))
 
 
-@testing.known_failure('GATE_V2_ON_GRID', 'samples exactly on a chi node (ac == 0) gain a ~1e-6 corner weight under +1 ULP '
-                       'and switch to the linear fallback; the -9/-12 deg change exceeds 2e-4 with NumPy AVX-512 dispatch',
-                       when=testing.numpy_avx512())
-def test_zero_weight_rule_removes_one_ulp_sensitivity(tmp_path, monkeypatch):
-    """Gate v2 rule (zero-weight corners never force the linear fallback): +1 ULP on about half of the atan2 samples moves the
-    FX-N fixed-apply radiance at -9/-12 deg by <= 2e-4 (was 3.4e-3 / 6.7e-3 under the old rule, evidence/rootcause*.json).
-    2e-4 since the Simpson prefix (2026-10-22, measured 1.0248e-4 from a pre-existing gate v2 transition; taskB_simpson_20261022/FOLLOWUP_REPORT.md)."""
+def _log_blend_corners(traces, weights):
+    """Exercise the reference's corner moments and scale, retaining its linear tensor accumulation."""
+    from sosfuse2 import reference as ref
+    traces, weights = np.broadcast_arrays(np.asarray(traces, 'f4'), np.asarray(weights, 'f4'))
+    traces = traces.reshape(-1, 4); weights = weights.reshape(-1, 4)
+    val = np.zeros((len(traces), 1, 4), 'f4')
+    logs = np.zeros((len(traces), 1), 'f4'); wg = np.zeros_like(logs); am = np.zeros_like(logs)
+    for corner in range(4):
+        tensor = np.zeros_like(val); tensor[:, 0, 0] = traces[:, corner]
+        with np.errstate(invalid='ignore'):  # val intentionally retains 0*NaN, just as transport does
+            val += weights[:, corner, None, None]*tensor
+        ref.trace_accumulate(traces[:, corner, None], weights[:, corner, None], logs, wg, am)
+    return val, ref.trace_scale(val, logs, wg, am), ref.trace_scale(np.ones_like(val), logs, wg, am)[:, 0, 0]
+
+
+@pytest.mark.parametrize('pair', [(1., 9.), (1e-2, 1e-5), (1e-2, 1e-8), (1., 1e-30)])
+@pytest.mark.parametrize('axis', ['ac', 'ah'])
+def test_log_blend_continuity(pair, axis):
+    """Bad-corner weight b changes the result continuously on both bilinear axes, even at an exact grid node."""
+    b = np.array([0., np.nextafter(np.float32(0), np.float32(1)), 1.4e-6, 1.4e-5,
+                  1e-3, .3, 1-1.4e-5, 1.], 'f4')
+    weights = np.stack([.5*(1-b), .5*b, .5*(1-b), .5*b], axis=-1)
+    traces = np.array([pair[0], 0., pair[1], 0.], 'f4')
+    if axis == 'ah':
+        weights = weights[:, [0, 2, 1, 3]]; traces = traces[[0, 2, 1, 3]]
+    val, result, scale = _log_blend_corners(traces, weights)
+    assert np.isfinite(result).all() and np.isfinite(scale).all()
+    assert (scale <= 1+1e-5).all()
+    # Near the node (b <= 1e-3) the result itself moves by O(b). Over the whole sweep the log of the scale moves by
+    # b*ln(A/G) <= 69*b; the result may move far for large b, since b -> 1 is the linear limit by design.
+    small = b <= 1e-3
+    relative = np.abs(result[:, 0, 0].astype('f8')/result[0, 0, 0]-1)
+    assert (relative[small] <= 50*b[small].astype('f8')).all(), (b, relative)
+    log_step = np.abs(np.log(scale.astype('f8'))-np.log(np.float64(scale[0])))
+    assert (log_step <= 69*b.astype('f8')+1e-5).all(), (b, log_step)
+    assert scale[-1] == 1 and np.array_equal(result[-1], val[-1])
+    if pair == (1., 9.):
+        assert result[0, 0, 0] == pytest.approx(3., rel=1e-6)
+    # All-good stencils must recover the original geometric/linear trace ratio without a special branch.
+    good = np.array([pair[0], pair[0], pair[1], pair[1]], 'f4')
+    if axis == 'ah': good = good[[0, 2, 1, 3]]
+    val, result, scale = _log_blend_corners(good, weights)
+    logs = np.sum(weights.astype('f8')*np.log(good.astype('f8')), axis=1)
+    expected = np.exp(logs)/((val[:, 0, 0]+val[:, 0, 1])+val[:, 0, 2])
+    np.testing.assert_allclose(scale, expected, rtol=1e-5)
+    assert np.isfinite(result).all() and (scale <= 1+1e-5).all()
+
+
+@pytest.mark.parametrize('traces,weights', [
+    ([0., 0., 0., 0.], [.25]*4),
+    ([-1., -2., -3., -4.], [.25]*4),
+    ([np.nextafter(np.float32(0), np.float32(1)), 0., -1., 0.], [.25]*4),
+    ([1., 9., -2., 0.], [.25]*4),
+    ([1., 9., np.nan, 0.], [.25]*4),
+    ([1., 9., np.nan, 0.], [.5, .5, 0., 0.]),
+    ([np.nan]*4, [.25]*4),
+    ([np.finfo('f4').tiny, 0., 0., 0.], [.25]*4),
+])
+def test_log_blend_adversarial(traces, weights):
+    """Invalid and subnormal traces cannot poison the scale; only the original val may propagate NaN."""
+    from sosfuse2 import reference as ref
+    with np.errstate(invalid='raise', divide='raise', over='raise'):
+        val, result, scale = _log_blend_corners(traces, weights)
+    assert np.isfinite(scale).all() and (scale <= 1+1e-5).all()
+    np.testing.assert_array_equal(np.isnan(result), np.isnan(val))
+    assert np.isfinite(result[~np.isnan(val)]).all()
+    tr = np.asarray(traces, 'f8'); w = np.asarray(weights, 'f8'); good = tr>=ref.TRACE_MIN
+    wg = w[good].sum(); am = (w[good]*tr[good]).sum()
+    expected = np.exp(np.sum(w[good]*np.log(tr[good]))-wg*np.log(am/wg)) if wg>0 and am>=ref.TRACE_MIN else 1.
+    np.testing.assert_allclose(scale, expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize('perturbation', ['atan2-bit0', 'on-grid'])
+def test_log_blend_removes_one_ulp_sensitivity(tmp_path, monkeypatch, perturbation):
+    """The log-space blend keeps FX-N radiance at -9/-12 deg within 2e-4 under bit-selected or exact-grid +1 ULP perturbations."""
     from sosfuse2 import reference as ref
     F = gate.load_fixtures(); env = gate.fixture_env(F, 'FX-N')
     for k in ('SOSFUSE2_KERNEL_FLAGS', 'SOSFUSE2_BLOCK_SIZE', 'SOSFUSE2_STRATO_ASYNC') + tuple('SOSFUSE2_'+f for f in gate.STAGE1):
@@ -224,14 +292,32 @@ def test_zero_weight_rule_removes_one_ulp_sensitivity(tmp_path, monkeypatch):
     monkeypatch.delenv('STRATO_ATTACH_CACHE', raising=False)
     gate.worker('fixed', 'FX-N', tmp_path/'base', 'numpy')
 
-    class Ulp:                                       # numpy with atan2 one ULP up where bit 0 of the first argument is set
+    class Ulp:
+        def __init__(self, mask=None): self.mask = mask
         def __getattr__(self, name): return getattr(np, name)
-        @staticmethod
-        def arctan2(y, x):
+        def arctan2(self, y, x):
             a = np.arctan2(y, x)
-            return np.where((np.asarray(y, 'f4').view('u4') & 1).astype(bool), np.nextafter(a, np.float32(np.inf)), a)
-    monkeypatch.setattr(ref, 'np', Ulp())
+            mask = (np.asarray(y, 'f4').view('u4') & 1).astype(bool) if self.mask is None else self.mask
+            return np.where(mask, np.nextafter(a, np.float32(np.inf)), a)
+    changed = 0
+    if perturbation == 'atan2-bit0':
+        monkeypatch.setattr(ref, 'np', Ulp())
+    else:
+        original_sample = ref.sample
+        def on_grid(*args, **kwargs):
+            nonlocal changed
+            q = original_sample(*args, **kwargs)
+            mask = (q['sw'][:, 1]==0)&(q['sw'][:, 3]==0)  # exactly ac == 0, including ah endpoints
+            if mask.any():
+                with monkeypatch.context() as m:
+                    m.setattr(ref, 'np', Ulp(mask))
+                    perturbed = original_sample(*args, **kwargs)
+                changed += np.count_nonzero(q['valid']&mask&np.any(perturbed['sw']!=q['sw'], axis=1))
+                return perturbed
+            return q
+        monkeypatch.setattr(ref, 'sample', on_grid)
     gate.worker('fixed', 'FX-N', tmp_path/'ulp', 'numpy')
+    if perturbation == 'on-grid': assert changed>0, 'no valid on-grid sample was perturbed'
     a, b = (np.load(tmp_path/d/'fixed.npz')['radiance'] for d in ('ulp', 'base'))
     st = gate.ratchet_stats(a[-1], b[-1], np.zeros((1, 1)), np.zeros((1, 1)), F['observer_solar_deg'])
     assert max(st['S_max']['-9'], st['S_max']['-12']) <= 2e-4, st
@@ -289,12 +375,16 @@ def test_gf_fixed_tolerance_and_decision_no_bypass(home, monkeypatch, delta, dec
         t = work/'tmp'/sid; t.mkdir(parents=True, exist_ok=True)
         np.savez(d/'table.npz', radiance=np.ones((2, 3))*(1+delta)); np.savez(t/'source.npz', source=np.ones((2, 3)))
         gate.jdump(d/'meta.json', dict(source_solve=dict(evaluations=3, converged=[True]), kernel={}))
+        logs = work/'logs'/'fake'; logs.mkdir(parents=True, exist_ok=True)
+        (logs/'worker.log').write_text(json.dumps(dict(event='PHASE', phase='attach_cache', result='hit'))+'\n')
+        gate.jdump(work/'pipeline_summary.json', dict(logs=str(logs)))
         return 0, [], None
     monkeypatch.setattr(gate, 'child', fake_child)
     report = dict(gates={}); args = gate.NS(out=out, reference=ref, decision=decision, reason='test')
     assert gate.gf(args, F, report) == expected
     assert report['gates']['F']['pass_'] == expected
     assert report['gates']['F']['change']['pass_'] == expected
+    assert all(row['attach'] == ['hit'] for row in report['gates']['F']['runs'].values())
     assert gate.manifest()['gf'] == M['gf']
     if not expected: assert report['gates']['F']['code'] == 'E_GATE_GF_TOL'
 

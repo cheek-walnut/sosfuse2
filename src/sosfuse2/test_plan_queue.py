@@ -1,10 +1,9 @@
 """plan_queue.py against the keys the calculator actually used, and pipeline.py --plan.  CPU only, no CUDA.
 
 Ground truth = PHASE events the calculator printed while it ran full-grid queues:
-  rig 2026-10-03  rig/states_lutv2_strato_usstd.json      results/strato_rig_20261003_lut2/runs/*/logs/*.log
-                  (+ its column cache files, results/strato_rig_20261003_lut2/caches/column_cache)
-  eda 2026-10-07  results/purple_aod_axis_20261007/states/states_night.json  .../logs/runs/*/run.raw.log
-The packed geometry cache (results/sos_fuse/geometry_cache, git-ignored .bin files) and the rig logs live in the
+  rig 2026-10-03: states, run logs and column cache files
+  eda 2026-10-07: states and run logs
+The packed geometry cache (git-ignored .bin files) and the rig logs live in the
 main checkout; from a worktree the test looks there (or in SADDLE_DATA_ROOT) and skips if absent.
 
 Run: python -B -m sosfuse2.test_plan_queue
@@ -72,7 +71,7 @@ COLUMN_KEY_UPDATES = {
 }
 
 # The logged runs used nr20/nphi64; production now defaults to V14/nphi16, so replay both explicitly
-# (same packed geometry endpoints_bab3478c3f15b4d62418). rig/engine.py is unchanged from main.
+# (same packed geometry endpoints_bab3478c3f15b4d62418). The engine is unchanged from main.
 
 SIGNATURE = 'endpoints_bab3478c3f15b4d62418'
 LUT2 = paths.FIXTURES/'states_lutv2_strato_usstd.json'

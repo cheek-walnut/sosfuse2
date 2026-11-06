@@ -65,7 +65,7 @@ def static(out):
     host = host_point(out, STUB)
     ok = all(r['off_tokens_identical'] and r['on_rc'] == 0 and r['on_override'] and r['on_syntax_rc'] == 0 for r in rows)
     return dict(pass_=ok and host['pass_'], baseline=f'git show {base_ref()}:scripts/sosfuse2/kernel.cu', kernels=rows, host_point=host,
-                scope='clang preprocessing + stubbed host syntax; point() host build for numerics; NVRTC/CUDA is the eda/rig part')
+                scope='clang preprocessing + stubbed host syntax; point() host build for numerics; NVRTC/CUDA is tested on GPU hosts')
 
 
 def host_point(out, STUB):
@@ -80,7 +80,8 @@ extern "C" void sample_c(const double*p,const double*d,const float*B,const float
  const float*h,int nh,const float*chi,int nc,float height,const float*sun_h,int nsh,const float*sun_col,int nsx,float*out){
  Sample s{};point(s,p,d,B,dl,0.f,a,b,lower,gu,gw,h,nh,chi,nc,height,sun_h,nsh,sun_col,nsx,false);out[0]=s.h;out[1]=s.prof[1];}
 ''')
-    subprocess.run(['clang++', '-std=c++17', '-O2', '-ffp-contract=off', '-DFW=1', '-DAEROSOL_2L', '-dynamiclib', str(cpp), '-o', str(lib)], check=True)
+    link = ['-dynamiclib'] if sys.platform == 'darwin' else ['-shared', '-fPIC', '-nostdinc++']  # glibc: libstdc++'s <math.h> pulls in int64_t=long, which clashes with kernel.cu's NVRTC typedef (long long); the C header does not
+    subprocess.run(['clang++', '-std=c++17', '-O2', '-ffp-contract=off', '-DFW=1', '-DAEROSOL_2L', *link, str(cpp), '-o', str(lib)], check=True)
     native = ctypes.CDLL(str(lib)); P = ctypes.c_void_p; I = ctypes.c_int; D = ctypes.c_double; F = ctypes.c_float
     native.sample_c.argtypes = [P, P, P, P, D, D, I, D, D, P, I, P, I, F, P, I, P, I, P]
     state = copy.deepcopy(normal_state()); state['troposphere_profile'] = dict(status='enabled', model='two_layer')
@@ -391,8 +392,8 @@ def paths(out, jobs):
                  array_keys_equal=set(br) == set(nr) == set(dr))
     for key in ('identity_content', 'contract_identity', 'column_path', 'settings', 'flags', 'constants'):
         ident[key] = bk[key] == nk[key] == dk[key]
-    # v2/v3 (layers=1 and the non-contract two-layer class) hash scripts/sosfuse2/geometry.py itself; v1 and the
-    # production contract identity (v4) do not.
+    # v2/v3 (layers=1 and the two-layer class without geometry_contract) hash scripts/sosfuse2/geometry.py itself; v1 and the
+    # production common-layer identity (v4) do not.
     ident['identity_signatures'] = dict(base=bk['identity'], new=nk['identity'])
     ident['identity_files_changed'] = sorted({f for v in bk['identity_files'] for f in bk['identity_files'][v]
                                               if bk['identity_files'][v][f] != nk['identity_files'][v].get(f)})

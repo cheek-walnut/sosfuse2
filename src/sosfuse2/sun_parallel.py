@@ -64,7 +64,7 @@ def rows(old, h, x, radius, n, base=None, optics=None, method=None):
     if method not in SUN_METHODS:
         raise ValueError('E_SUN_METHOD: expected gl or exact')
     count = workers()
-    out = np.empty((len(h), len(x), 3)) if base is None else base.copy()
+    out = np.empty((len(h), len(x), 5)) if base is None else base.copy()
     if count > 1:
         started = time.monotonic()
         result, reason = 'parallel', None
@@ -92,8 +92,13 @@ def rows(old, h, x, radius, n, base=None, optics=None, method=None):
 def prebuild(old, scale, folder):
     """Publish the same NPZ arrays before the unchanged SunGeometry reads them."""
     path = folder/'sun_columns.npz'
+    ident = old.SunGeometry.identity(scale)
     if path.exists():
-        return
+        stored = old.SunGeometry.stored_identity(path)
+        if stored == ident:
+            return
+        import warnings   # a table without (or with another) identity is rebuilt, never reused (solver_columns.SunGeometry)
+        warnings.warn(f"SUN_TABLE_STALE: {path}: {'no identity' if stored is None else 'identity differs'}; rebuilding", RuntimeWarning)
     # Also with one worker (rows() then runs serially): the accepted SunGeometry writes its NPZ in place, so an
     # interrupted serial build would leave a partial table at the final path.
     started = time.perf_counter()
@@ -103,7 +108,7 @@ def prebuild(old, scale, folder):
     fd, name = tempfile.mkstemp(prefix='sun_columns.', suffix='.tmp', dir=folder)
     try:
         with os.fdopen(fd, 'wb') as stream:
-            np.savez(stream, h=h, x=x, col=col)
+            np.savez(stream, h=h, x=x, col=col, identity=np.array(ident))
         os.replace(name, path)
     finally:
         if os.path.exists(name):

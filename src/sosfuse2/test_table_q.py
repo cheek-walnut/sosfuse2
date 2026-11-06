@@ -1,12 +1,15 @@
-"""table_q codec (R3 lossy store, sky-sos docs/SPEC_R3_1000state_bake.md section 7 B2): bound, byte planes, explicit failures."""
+"""table_q codec (R3 lossy store, B2): bound, byte planes, explicit failures."""
 import numpy as np
 import pytest
+import json
+from .components import physics, optics_state
 from .table_q import COORDS, MAX_REL, MAX_WIDTH, TableQError, decode, encode, load, round_trip, save
 
 SHAPE = (3, 4, 5, 2)
 
 
 def table(path, radiance, **override):
+    path.with_name('meta.json').write_text(json.dumps(dict(contract='v4',physics=physics(),optics_state=optics_state({}))))
     coords = dict(wavelength_nm=np.array([400., 500.], 'f4'), solar_elevation_deg=np.array([1., 0., -1.], 'f4'),
                   view_elevation_deg=np.linspace(-1, 1, 4).astype('f4'), relative_azimuth_deg=np.linspace(0, 180, 5).astype('f4'),
                   units=np.array('W m-2 sr-1 nm-1'))

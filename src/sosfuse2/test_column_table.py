@@ -1,4 +1,4 @@
-"""Boundary, profile, method and cache contracts of the opt-in endpoint table."""
+"""Boundary, profile, method and cache rules of the opt-in endpoint table."""
 import json
 import os
 from pathlib import Path

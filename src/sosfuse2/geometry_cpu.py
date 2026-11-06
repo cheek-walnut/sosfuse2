@@ -1,8 +1,8 @@
-"""sosfuse2 replacement for rig/docker/geometry_cpu.py (that file imports the
-ORIGINAL sosfuse.geometry; rig/ is read-only).  Same contract: build the exact
+"""sosfuse2 geometry replacement for the legacy helper, which imports the
+original sosfuse.geometry. Same requirement: build the exact
 endpoint cache on the CPU without importing CuPy, via sosfuse2.geometry.
 
-layers=1: ResidentGeometry (packed v2, signature includes the scale height).
+layers=1: ResidentGeometry (cache identity v2, packed layout v3; signature includes the scale height).
 layers=2: ContractTwoLayerGeometry = TwoLayerGeometry whose COMMON-layer
           signature hashes geometry_contract.py instead of geometry.py (M2).
           ensure_column() writes this state's aerosol column before the worker
@@ -25,7 +25,7 @@ def _contract_class():
     from . import geometry_contract as gc
 
     class ContractTwoLayerGeometry(gm.TwoLayerGeometry):
-        """TwoLayerGeometry with the contract signature (geometry.py:345-354 otherwise identical)."""
+        """TwoLayerGeometry with the common-layer signature (geometry.py:345-354 otherwise identical)."""
         _version = gc.SIGNATURE_VERSION
 
         def __init__(self, s, scope, cache):

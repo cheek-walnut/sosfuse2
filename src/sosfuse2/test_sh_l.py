@@ -18,7 +18,7 @@ except ImportError:  # standalone research harness
 
 
 def test_default_source_is_current_kernel():
-    # L=32 must not rewrite the current kernel; historical source bytes are not a contract.
+    # L=32 must not rewrite the current kernel; historical source bytes need not match.
     assert kernel_source() == Path(__file__).with_name('kernel.cu').read_text()
 
 

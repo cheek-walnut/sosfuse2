@@ -5,15 +5,16 @@ import ctypes.util
 import math
 import platform
 import numpy as np
+from .components import NCOMP
 from .sh_layout import count, combined_coefficients
 from .arithmetic import F, R, split, add, sub, neg, mul, root, divide, quotient, rounded, basis, cosine, warp_sum, kahan
 
 PAIRS = ((0, 0), (1, 1), (2, 2), (0, 2))
-# FLT_MIN, same as kernel.cu TRACE_MIN: subnormal (or NaN) traces take the linear path.
+# FLT_MIN, same as kernel.cu TRACE_MIN: subnormal (or NaN) traces are excluded from the log-space moments.
 TRACE_MIN = np.float32(np.finfo(np.float32).tiny)
 
 
-# FP32 flush-to-zero of the device operations (2L task 2026-10-22, results/taskB_simpson_20261022/REPORT_2L.md): every CUDA build
+# FP32 flush-to-zero of the device operations (2L): every CUDA build
 # runs with -ftz=true (CuPy RawKernel adds it, fused.py raw_kernel), so subnormal FP32 inputs and results are 0 on the device. The
 # NumPy mirror computes transport() and project() in the same CPU mode (C99 fenv: AArch64 FPCR.FZ, x86-64 MXCSR FTZ+DAZ). Without
 # it, a corner trace just above FLT_MIN whose terms are subnormal takes the log path here and the linear fallback on CUDA
@@ -72,9 +73,17 @@ def ftz_value(a):
     return np.where(np.abs(v) < TRACE_MIN, F(0), v)
 
 
-def trace_scale(val, logs, positive):
-    tr = (val[:, :, 0]+val[:, :, 1])+val[:, :, 2]
-    scale = np.where(positive&(tr>=TRACE_MIN), np.exp(logs)/np.maximum(tr, TRACE_MIN), F(1))
+def trace_accumulate(tr, weight, logs, wg, am):
+    """Add one corner to the log-space blend moments; traces below TRACE_MIN (or NaN) are selected out before log and product."""
+    good = tr>=TRACE_MIN
+    t = np.where(good, tr, F(1)); w = np.where(good, weight, F(0))
+    logs += w*np.log(t); wg += w; am += w*t
+
+
+def trace_scale(val, logs, wg, am):
+    ok = (wg>F(0))&(am>=TRACE_MIN)
+    mean = np.where(ok, am, F(1))/np.where(ok, wg, F(1))
+    scale = np.exp(np.where(ok, logs-wg*np.log(mean), F(0)))
     return val*scale[:, :, None]
 
 
@@ -122,37 +131,40 @@ def path_height(rr):
 
 
 def profile_at(h, c):
-    """Profile components [n, 4] at FP32 heights h: air, tropospheric aerosol, ozone, stratospheric aerosol (0 without a layer).
+    """Five profiles at FP32 heights h: air, tropospheric aerosol, O3, NO2, O4; stratosphere is evaluated separately.
     The one profile evaluation of the transport (kernel.cu profile_at): sample() calls it at the quadrature nodes and the Simpson
     optical-depth prefix at segment ends and panel midpoints. Density table (PROFILE) and two-layer aerosol (AEROSOL_2L) options."""
     h = np.asarray(h, 'f4')
+    from .density import build, interpolate32, check_consumed
+    optics = c.get('density_optics')
+    if optics is None: optics = build({})
+    check_consumed(optics,where='reference.profile_at')
+    tab = interpolate32(h, optics['table'])
     prof = np.stack([np.exp(-h/F(8)), np.exp(-h/c['height']), np.maximum(F(0), F(1)-abs(h-F(25))/F(15)),
-                     strato_profile(h, c) if 'strato_ext' in c else np.zeros_like(h)], -1)
+                     tab[:, 2], np.zeros_like(h)], -1)
     if 'density_optics' in c:
-        from .density import interpolate32, check_consumed
-        optics=c['density_optics'];check_consumed(optics,where='reference.profile_at')   # declared step == table rows
-        tab=interpolate32(h,optics['table'])
         if optics['mask']&1:prof[:,0]=tab[:,0]
         if optics['mask']&2:prof[:,2]=tab[:,1]
     if 'aer2' in c:
         from .tropo_profile import profile32   # kernel.cu -DAEROSOL_2L aerosol_two_layer, FP32
         prof[:, 1] = profile32(h, c['aer2'])
+    q = prof[:, 0]/F(optics.get('air_surface', optics['table'][0, 0] if optics['mask'] & 1 else 1.))
+    prof[:, 4] = q*q
     return prof
 
 
-def extinction(prof, c):
-    """Extinction [n, W] of profile components [n, 4]: sum_k prof_k ext_k (+ prof_3 strato_ext); kernel.cu extinction_at."""
+def extinction(prof, c, st_prof=None):
+    """Extinction [n, W] from five components and a separate stratosphere; kernel.cu extinction_at."""
     out = np.zeros((len(prof), c['W']), 'f4')
-    for k in range(3):
+    for k in range(NCOMP):
         out += prof[:, k, None]*c['ext'][k]
     if 'strato_ext' in c:
-        out += prof[:, 3, None]*c['strato_ext']
+        out += st_prof[:, None]*c['strato_ext']
     return out
 
 
 class SimpsonPrefix:
-    """Optical depth from the path start to the transport's quadrature nodes (task B (1), user decision 2026-10-22,
-    results/taskB_simpson_20261022/E1_REPORT.md): on every panel [t_{k-1}, t_k] of a segment [a, b] (t_{-1} = a, the GL nodes
+    """Optical depth from the path start to the transport's quadrature nodes: on every panel [t_{k-1}, t_k] of a segment [a, b] (t_{-1} = a, the GL nodes
     t_0..t_{nq-1}, then b) Simpson (t_k - t_{k-1})/6 (beta_{k-1} + 4 beta(mid) + beta_k), mid = (t_{k-1} + t_k)/2.
     Node betas are the sample() profiles; beta(a), beta(b) and the midpoints are evaluated anew (profile_at) for every segment,
     never carried over from the previous segment (kernel.cu skips segments with b - a <= 1e-8). Path coordinates, panel widths
@@ -165,7 +177,8 @@ class SimpsonPrefix:
 
     def beta(self, t):
         """Extinction [n, W] at DS path coordinates t."""
-        return extinction(profile_at(path_height(path_point(self.pp, self.dd, t)[2]), self.c), self.c)
+        h = path_height(path_point(self.pp, self.dd, t)[2])
+        return extinction(profile_at(h, self.c), self.c, strato_profile(h, self.c) if 'strato_ext' in self.c else None)
 
     def piece(self, t1, b1):
         """Simpson on [self.t, t1]; adds it to acc where the segment is valid and moves the panel start to (t1, b1)."""
@@ -181,7 +194,7 @@ class SimpsonPrefix:
 
     def node(self, q):
         """Optical depth [n, W] at the node of sample() result q."""
-        self.piece(q['t_DS'], extinction(q['prof4'], self.c))
+        self.piece(q['t_DS'], extinction(q['prof'], self.c, q['st_prof']))
         return (self.tau-self.tc)+self.acc
 
     def finish(self):
@@ -241,11 +254,12 @@ def sample(g, segment, step, constants, st=None):
         st = np.sqrt(np.maximum(0., 1-g['d'][:, 2]**2)).astype('f4')
     cp = np.where(st>F(1e-12), (d[:, 0]*cx+d[:, 1]*sx)/np.maximum(st, F(1e-30)), F(1))
     cm = cosine(cp)
-    prof4 = profile_at(h, constants)
+    prof = profile_at(h, constants)
+    st_prof = strato_profile(h, constants) if 'strato_ext' in constants else np.zeros_like(h)
     cells = np.stack([ir*len(constants['chi'])+j, ir*len(constants['chi'])+j+1,
                       (ir+1)*len(constants['chi'])+j, (ir+1)*len(constants['chi'])+j+1], -1)
     sw = np.stack([(F(1)-ah)*(F(1)-ac), (F(1)-ah)*ac, ah*(F(1)-ac), ah*ac], -1)
-    return dict(h=h, ds=ds, cells=cells, sw=sw, ir=ir, j=j, T=T, cm=cm, prof=np.ascontiguousarray(prof4[:, :3]), prof4=prof4,
+    return dict(h=h, ds=ds, cells=cells, sw=sw, ir=ir, j=j, T=T, cm=cm, prof=prof, st_prof=st_prof,
                 cs=cs, ss=ss, Q=Q, d=d, valid=valid,r_DS=rr,qz_DS=(q[0][:,2],q[1][:,2]),t_DS=tt)
 
 
@@ -299,13 +313,13 @@ def sun_columns(q, c):
     col += (a*(F(1)-b))[:, None]*c['sun_col'][i+1, j]
     col += ((F(1)-a)*b)[:, None]*c['sun_col'][i, j+1]
     col += (a*b)[:, None]*c['sun_col'][i+1, j+1]
+    st = np.zeros(len(col), 'f4')
     if 'strato_ext' in c:
         st=((F(1)-a)*(F(1)-b))*c['strato_sun_col'][i,j]
         st+=(a*(F(1)-b))*c['strato_sun_col'][i+1,j]
         st+=((F(1)-a)*b)*c['strato_sun_col'][i,j+1]
         st+=(a*b)*c['strato_sun_col'][i+1,j+1]
-        col=np.column_stack([col,st])
-    return col,lit
+    return col,lit,st
 
 
 def transport(g, c, field, first=False, boundary=None, statistics=None, return_basis=False, sh_source=None):
@@ -345,15 +359,16 @@ def _transport(g, c, field, first=False, boundary=None, statistics=None, return_
                 continue
             statistics['samples'] += int(q['valid'].sum())
             if strat:
-                qs=q['prof4'][:, 3]
+                qs=q['st_prof']
             mid = prefix.node(q)
             att = q['ds'][:, None]*np.exp(-mid)
-            val = np.zeros_like(total); logs = np.zeros((n, W), 'f4'); positive = np.ones((n, W), bool)
+            val = np.zeros_like(total); logs = np.zeros((n, W), 'f4')
+            wg = np.zeros_like(logs); am = np.zeros_like(logs)
             if first:
-                sc, lit = sun_columns(q, c); optical = np.zeros((n, W), 'f4')
-                for k in range(3):
+                sc, lit, st_sc = sun_columns(q, c); optical = np.zeros((n, W), 'f4')
+                for k in range(NCOMP):
                     optical += sc[:, k, None]*c['ext'][k]
-                if strat:optical+=sc[:,3,None]*c['strato_ext']
+                if strat:optical+=st_sc[:,None]*c['strato_ext']
                 sun = np.exp(-optical)*lit[:, None]
                 ground = np.zeros((n, W), 'f4')
                 if strat:sground=np.zeros((n, W), 'f4')
@@ -424,11 +439,10 @@ def _transport(g, c, field, first=False, boundary=None, statistics=None, return_
                     val[:, :, k] += q['sw'][:, corner, None]*tensor[:, :, k]
                 if not first:
                     tr = (tensor[:, :, 0]+tensor[:, :, 1])+tensor[:, :, 2]
-                    # Gate v2 (2026-10-21): a zero-weight corner never forces the linear fallback (kernel.cu bad_trace).
-                    positive &= (tr>=TRACE_MIN)|(q['sw'][:, corner, None]==F(0))
-                    logs += q['sw'][:, corner, None]*np.log(np.maximum(tr, TRACE_MIN))
+                    # Valid corner traces set the scale (G/A)^W, continuous in their total weight W (kernel.cu, same rule).
+                    trace_accumulate(tr, q['sw'][:, corner, None], logs, wg, am)
             if not first:
-                val = trace_scale(val, logs, positive)
+                val = trace_scale(val, logs, wg, am)
             total, correction = kahan(total, correction, val*att[:, :, None])
         prefix.finish()
     if boundary is not None:
@@ -438,8 +452,8 @@ def _transport(g, c, field, first=False, boundary=None, statistics=None, return_
         endcol=g['end_columns']
         if 'density_optics' in c:
             from .density import correct_columns
-            opt=c['density_optics'];endcol=correct_columns(g['p'],g['d'],endcol,opt['old'],opt,24)
-        for k in range(3):
+            opt=c['density_optics'];endcol=correct_columns(g['p'],g['d'],endcol,opt['old'],opt,24,end=g['edges'][:,-1])
+        for k in range(NCOMP):
             optical += endcol[:, k, None].astype('f4')*c['ext'][k]
         if strat:
             from .stratosphere import columns

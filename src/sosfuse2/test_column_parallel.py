@@ -72,7 +72,7 @@ class ColumnParallelTests(unittest.TestCase):
         from sosfuse2 import geometry as gm, host_cache
         bundle = gm.Bundle.__new__(gm.Bundle); bundle.arrays = self.arrays; bundle.rays = self.rays; bundle.cells = self.cells
         text = io.StringIO()
-        with mock.patch.dict(os.environ, {'SOSFUSE2_COLUMN_WORKERS': str(workers)}), contextlib.redirect_stdout(text):
+        with mock.patch.dict(os.environ, {'SOSFUSE2_COLUMN_WORKERS': str(workers), 'SOSFUSE2_COLUMN_METHOD': 'gl24'}), contextlib.redirect_stdout(text):
             os.environ.pop('SOSFUSE2_COLUMN_CACHE', None)
             if kind == 'strato':
                 value = self.kernel.strato_end_columns(bundle, self.c)
@@ -99,7 +99,7 @@ class ColumnParallelTests(unittest.TestCase):
         global REAL_SEGMENTS
         REAL_SEGMENTS = self.p.old.geometry_segments
         freeze = column_parallel.freeze
-        flaky = lambda namespace, names: freeze(SimpleNamespace(geometry_segments=flaky_segments), names)
+        flaky = lambda namespace, names: freeze(SimpleNamespace(geometry_segments=flaky_segments, probe=namespace.probe), names)
         for kind in ('strato', 'density', 'endpoint'):
             a, _ = self.run_kind(kind, 1)
             with mock.patch.object(column_parallel, 'freeze', flaky):

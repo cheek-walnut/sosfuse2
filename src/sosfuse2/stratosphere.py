@@ -11,8 +11,8 @@ from pathlib import Path
 import numpy as np
 DEFAULT=Path(__file__).with_name('assets')/'strato_sulfate_rg0.08_sg1.6_n1.43.json'
 # State parameters the attach geometry never reads (_geometry_key, run_gpu_state_v3.attach_lock_name): optics
-# combined after attach; ssa/g/angstrom/ozone_du were byte-equal on the full grid (results/cpu_prep_multistate_20261024).
-ATTACH_OPTICS_PARAMS=('aod550','stratosphere_tau550','albedo','ssa','g','angstrom','ozone_du')
+# combined after attach; ssa/g/angstrom/ozone_du were byte-equal on the full grid.
+ATTACH_OPTICS_PARAMS=('aod550','stratosphere_tau550','albedo','ssa','g','angstrom','ozone_du','no2_du','o4')
 
 
 def tau_of(state):
@@ -76,7 +76,7 @@ def path_label(path):
 
 
 def computed_metadata(state,optics):
-    """One metadata contract shared by primary and derived runner paths."""
+    """One metadata format shared by primary and derived runner paths."""
     computed=dict(state['parameters']);computed['stratosphere_tau550']=0. if optics is None else optics['meta']['stratosphere_tau550']
     raw=state.get('stratosphere',{});layer=dict(raw) if isinstance(raw,dict) else {};layer['status']='disabled' if optics is None else 'enabled'
     if optics is None:
@@ -202,7 +202,7 @@ def _geometry_key(s,scope,profile):
     from .density import profile_identity
     h=hashlib.sha256()
     for a in (s.geo.h,s.geo.chi,s.geo.sun.h,s.geo.sun.x,s.geo.sun.col):h.update(np.ascontiguousarray(a).tobytes())
-    # k3 review #1: the code that computes col/st/geom, so an edit to it cannot reuse a stale npz.
+    # the code that computes col/st/geom, so an edit to it cannot reuse a stale npz.
     here=Path(__file__).resolve().parent
     for name in ('stratosphere.py','ground_parallel.py','ray_columns.py','density.py','column_table.py','column_parallel.py'):
         h.update(name.encode());h.update(hashlib.sha256((here/name).read_bytes()).digest())
@@ -225,7 +225,7 @@ def _ground_geometry(s,scope,old,profile):
     """(suncol, per-cell [loc,w,sc,lit,col,st,ssc,ec,re]): the state-independent, expensive part of attach.
     Always memoized in-process by _geometry_key (wavelength-independent: one state's FW15 bundles share it); STRATO_ATTACH_CACHE=<dir>
     adds the on-disk copy. Before 2026-11-03 the memo was tied to the directory, so a bake with the cache off recomputed it for every
-    bundle (L4: 23.6-29.1 s each, results/cardperf_l4_20261103/REPORT_bundle_gap.md)."""
+    bundle (L4: 23.6-29.1 s each)."""
     import os
     root=os.environ.get('STRATO_ATTACH_CACHE','').strip()
     key=_geometry_key(s,scope,profile)

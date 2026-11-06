@@ -40,8 +40,9 @@ default table stops at −18°.
 
 ## Constituents
 
-Four components extinguish or scatter light: air molecules, a tropospheric aerosol, ozone and, if enabled, a
-stratospheric sulfate layer. Each extinction coefficient is the product of a vertical profile and a wavelength law. A
+Six components extinguish or scatter light: air molecules, a tropospheric aerosol, ozone, NO₂, O₄ and, if enabled, a
+stratospheric sulfate layer. Each extinction coefficient is the product of a vertical profile and a wavelength law (for
+O₄, the square of a profile). NO₂ and O₄ were added in 1.1.0, together with a new Rayleigh law. A
 state file sets the parameters; `src/sosfuse2/assets/states_v2.json` holds 64 states sampled over the axes given in the
 tables below.
 
@@ -50,22 +51,27 @@ tables below.
 Molecular scattering follows
 
 $$
-\beta_R(h,\lambda) = \beta_{550}\,\rho_R(h)\left(\frac{550\ \mathrm{nm}}{\lambda}\right)^{4}
+\beta_R(h,\lambda) = \beta_{450}\,\rho_R(h)\,\frac{\sigma_B(\lambda_{\mathrm{vac}})}{\sigma_B(\lambda_{\mathrm{vac}}(450\ \mathrm{nm}_{\mathrm{air}}))}
 $$
 
-The wavelength law is exactly λ⁻⁴. The code applies no dispersion of the refractive index of air and no wavelength
-dependence of the depolarisation factor. A Rayleigh cross section that includes the dispersion of air, as in Bodhaine
-et al. (1999), is not a pure power law. The vertical profile `ρ_R` depends on the density option:
+`σ_B` is the Rayleigh cross section of Bodhaine et al. (1999), their equations 18, 19, 5, 6, 23 and 22 with 360 ppm
+CO₂, evaluated at the vacuum wavelength of the engine's standard-air wavelength λ (Ciddor 1996). It includes the
+dispersion of the refractive index and the King factor of air, so it is not a pure power law (`src/sosfuse2/rayleigh.py`).
+`β₄₅₀` is the coefficient of 1.0.0 at 450 nm, which 1.1.0 keeps: 1.0.0 used `β₅₅₀ (550 nm / λ)⁴`. Against that λ⁻⁴ law
+the new coefficient is 1.037 times larger at 360 nm, equal at 450 nm, and 0.973 times at 600 nm and 0.958 times at
+830 nm. The depolarisation factor of the phase function stays at 0.03 (see Rayleigh scattering below). The vertical
+profile `ρ_R` depends on the density option:
 
-| option | profile | Rayleigh optical depth at 550 nm, 0 to 80 km |
+| option | profile | Rayleigh optical depth, 0 to 80 km, at 450 nm / 550 nm |
 |---|---|---|
-| default | exp(−h / 8 km) | 0.1085 (β₅₅₀ = 0.013558 km⁻¹) |
-| `usstd76` with `rayleigh_column: usstd` | hydrostatic number density of the US Standard Atmosphere 1976 (NOAA et al. 1976) | 0.0993 |
+| default | exp(−h / 8 km) | 0.2420 / 0.1063 (β₄₅₀ = 0.030255 km⁻¹) |
+| `usstd76` with `rayleigh_column: usstd` | hydrostatic number density of the US Standard Atmosphere 1976 (NOAA et al. 1976) | 0.2215 / 0.0972 |
 
-The second row is what the gate fixtures and `states_v1_usstd.json` use. Its optical depth is the sum of the layers
-below 80 km in the tabulated Rayleigh optical depth at 450 nm of the IPRT phase E atmosphere (IPRT project: Emde et al.
-2015), multiplied by (450/550)⁴. The Rayleigh spectrum is therefore a λ⁻⁴ law anchored at that 450 nm value. The states in
-`states_v1.json` and `states_v2.json` carry no density block and take the default row.
+The second row is what the gate fixtures and `states_v1_usstd.json` use. Its optical depth at 450 nm is the sum of the
+layers below 80 km in the tabulated Rayleigh optical depth at 450 nm of the IPRT phase E atmosphere (IPRT project: Emde
+et al. 2015). The Rayleigh spectrum is therefore the Bodhaine law anchored at that 450 nm value. 1.0.0 used a λ⁻⁴ law
+with the same anchors, which gave 0.1085 and 0.0993 at 550 nm for the two rows. The states in `states_v1.json` and
+`states_v2.json` carry no density block and take the default row.
 
 ### Ozone
 
@@ -87,6 +93,40 @@ et al. 2014). In the default band mode of the full grid it is a mean over each b
 between the 193 to 293 K columns. The result is one number per band, used at all heights. A fixed 233 K column can be
 selected instead. The reduced smoke grid at 550 nm uses the older 48-wavelength table of `assets/spectra.json`
 (Bruneton's demo data, `THIRD_PARTY.md` §3).
+
+### NO₂
+
+NO₂ only absorbs. Its extinction coefficient is
+
+$$
+\beta_{\mathrm{NO_2}}(h,\lambda) = \bar\sigma_{\mathrm{NO_2}}(\lambda)\,\frac{N_{\mathrm{NO_2}}}{H_f}\,f(h),\qquad H_f = \int_0^{80\,\mathrm{km}} f\,\mathrm{d}h
+$$
+
+with the column `N_NO2` = `no2_du` × 2.687×10²⁰ m⁻². The state parameter `parameters.no2_du` defaults to 0.207 DU, the
+column of the reference profile, and 0 switches NO₂ off. The shape `f` is the NO₂ number density of the AFGL US Standard
+profile (`afglus.dat`, Anderson et al. 1986, AFGL-TR-86-0110, as distributed with libRadtran 2.0.6), interpolated log-linearly onto 0.5 km steps
+and normalised to a maximum of 1 (`assets/no2_afglus_profile.json`). It is used with every density option, also with an
+external air and ozone profile. The cross section is that of Vandaele et al. (1998) at 220 K, from BIRA-IASB data
+resampled to 0.1 nm cells (`assets/no2_vandaele1998_fine.json`, attribution and changes in `THIRD_PARTY.md` §11). In band
+mode `σ̄` is the mean over each band, in point mode the value at the wavelength. It is the same at all heights; the
+cross section has no temperature dependence.
+
+### O₄
+
+The collision-induced absorption of O₂–O₂ pairs (O₄) is proportional to the square of the O₂ number density:
+
+$$
+\beta_{\mathrm{O_4}}(h,\lambda) = \bar\sigma_{\mathrm{O_4}}(\lambda)\,\bigl(0.20946\,n_{\mathrm{air}}(h)\bigr)^2,\qquad n_{\mathrm{air}}(h) = n_0\,\frac{\rho_R(h)}{\rho_R(0)}
+$$
+
+`n₀` is the air number density at the surface: from the density asset for `usstd76`, 2.5469×10²⁵ m⁻³ for the default
+exp(−h / 8 km) profile, whose O₄ shape is then exp(−h / 4 km), and the value that an external profile declares as
+`air_surface_number_density_m3`. The state parameter `parameters.o4` (a JSON boolean, default true) switches O₄ on and
+off. The cross section is the HITRAN 2024 collision-induced absorption (Gordon et al. 2026; Terragni et al. 2025): data set 54 at 293 K up to 499.861 nm, and data
+set 32 at 293 K up to 600 nm and at 287 K up to 653.842 nm, resampled to 0.1 nm cells and zero outside that range. The
+O₂ A- and B-band sets are excluded. `σ̄` is a band or point value as for NO₂, with no temperature dependence. The O₄ data
+are not bundled. `python -m sosfuse2.prepare_minor_absorbers` prepares them once in the work root (README, Quick start;
+sources and changes in `THIRD_PARTY.md` §12).
 
 ### Tropospheric aerosol
 
@@ -183,8 +223,10 @@ four Rayleigh tensor components plus Legendre-expansion coefficients of the aero
 for the stratosphere if it is enabled. One application of the transport operator works as follows. For each cell, the
 radiance arriving from every incident direction is computed by integrating the source field along that direction, with
 attenuation by all constituents and with the light reflected from the ground where the ray ends on it. The source is
-interpolated linearly in height and `χ`, applied to the logarithm of the intensity, with a linear fallback where an
-intensity is not positive. The arriving radiance is then projected onto the source basis, which gives the next source
+interpolated linearly in height and `χ` and then rescaled by `(G/A)^W`, where `G` and `A` are the weighted geometric and
+arithmetic means of the corner traces that are at least `FLT_MIN` and `W` is their total weight. With all corners valid the
+trace is the geometric mean; as `W` goes to 0 the result goes continuously to the linear interpolation.
+The arriving radiance is then projected onto the source basis, which gives the next source
 field. The incident directions are Gauss–Legendre nodes inside intervals whose ends are the limb, the local horizon,
 the shadow boundary and the directions tangent to the shells at 0, 1.2, 8, 25, 40 and 80 km.
 
@@ -206,8 +248,9 @@ converged source and the single-scattering term along the lines of sight. All so
 
 A NumPy reference reproduces the arithmetic of the CUDA kernel in single precision, with double-single arithmetic for
 the ray geometry, and is the golden reference of the numeric gates. Tolerances and gates are described in the README and
-in `docs/CHECKS.md`. The frozen solver sources in `src/sosfuse2/accepted/` define the grids, the quadrature and the
-physical constants.
+in `docs/CHECKS.md`. The solver definitions in `src/sosfuse2/solver_*.py` define the grids, the quadrature and the
+physical constants, and `src/sosfuse2/rayleigh.py` and `minor_absorbers.py` hold the Rayleigh and minor-absorber
+coefficients of 1.1.0.
 
 ## Production grid
 
@@ -228,8 +271,8 @@ grid is too coarse for physical use.
 
 The default wavelength grid has 45 bands between 360 and 830 nm. It starts from 40 bands of 11.75 nm, and five of them
 (489.25 to 501, 512.75 to 524.5, 524.5 to 536.25, 559.75 to 571.5 and 642 to 653.75 nm) are each split into two halves.
-The solver runs at the centre wavelength of each band. The solar spectral irradiance and the ozone cross section are band
-means taken from a 0.1 nm grid. Rayleigh and aerosol coefficients, and the Mie tables, are evaluated at the band centre
+The solver runs at the centre wavelength of each band. The solar spectral irradiance and the ozone, NO₂ and O₄ cross
+sections are band means taken from a 0.1 nm grid. Rayleigh and aerosol coefficients, and the Mie tables, are evaluated at the band centre
 and not averaged over the band.
 
 The solar spectrum is the TSIS-1 Hybrid Solar Reference Spectrum version 2 (Coddington et al. 2021, 2023), averaged to
@@ -256,11 +299,15 @@ centres.
 
 ## Not in the model
 
-- Absorbers other than ozone. There is no NO₂, no O₄, no water vapour and no O₂ absorption.
+- Absorbers other than ozone, NO₂ and O₄. There is no water vapour, no absorption by the O₂ molecule and no O₂–O₂
+  absorption in the A and B bands.
+- Temperature dependence of the NO₂ and O₄ cross sections, NO₂ photochemistry and its change through twilight. The
+  shape of the NO₂ profile is fixed and only its column is a parameter.
 - Stokes output. Polarisation is carried internally but not written.
 - Polarisation by aerosol. Mie scattering matrices are used only through their scalar phase function.
 - Refraction, and any effect of a finite solar disc.
-- A wavelength dependence of the Rayleigh depolarisation factor, and any Rayleigh dispersion beyond the λ⁻⁴ law.
+- A wavelength dependence of the Rayleigh depolarisation factor of the phase function. The cross section includes
+  it through the King factor.
 - Wavelength dependence of the aerosol single-scattering albedo, of the asymmetry parameter unless a Mie table is
   selected, and of the ground albedo.
 - Clouds, moonlight, airglow, artificial light and inelastic scattering.

@@ -5,7 +5,7 @@ states no per-file terms; its footer licence is CC BY-SA 3.0 for wiki content). 
 original server into the work root and verified against pinned SHA-256 digests, so the derived US1976 + IPRT
 ozone-shape profile (generate_density_profile.py) is reproduced exactly from the original inputs.
 
-Measured 2026-11-03: the downloads are byte-identical to the research copies kept in sky-sos results/iprt_ref/.
+Measured 2026-11-03: the downloads are byte-identical to the copies used during development.
 A failed download is retried (3 attempts, short backoff) and then reported as E_IPRT_DOWNLOAD with the file, the URL and the cause.
 """
 import hashlib

@@ -39,12 +39,11 @@ def cache_key(kernel, bundle, c, kind):
                for i, f in enumerate(functions)}
     sources['joint_columns'] = hashlib.sha256(Path(__file__).with_name('ray_columns.py').read_bytes()).hexdigest()
     sources['engine'] = hashlib.sha256((Path(__file__).resolve().parent/'accepted/engine.py').read_bytes()).hexdigest()
-    from .density import profile_identity   # ②b: grid N/step, normalization, origin with the table bytes
-    parameters = (dict(asset=optics['meta'].get('asset_sha256'), mask=int(optics['mask']),
-                       table=array_hash(optics['table']), profile=profile_identity(optics)['sha256']) if optics is not None else
+    from .density import column_identity   # ②b: grid N/step, normalization, origin with the table bytes
+    parameters = (column_identity(optics) if optics is not None else
                   {k: repr(float(c['strato_profile'][k])) for k in ('center', 'sigma', 'norm')})
     from .column_table import identity as column_identity
-    return hashlib.sha256(json.dumps(dict(version=1, method=column_identity(), kind=kind, rays={k:hashes[k] for k in names},
+    return hashlib.sha256(json.dumps(dict(version=3, method=column_identity(), kind=kind, rays={k:hashes[k] for k in names},
         parameters=parameters, gl=24, chunk=2048, sources=sources), sort_keys=True).encode()).hexdigest()
 
 

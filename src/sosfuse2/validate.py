@@ -1,9 +1,8 @@
 """One final numerical validation checkpoint; accepted reference is read-only.
 
-E6 (selftest, full_35, spectral_15) and G-H pass against the record RECORD (HEAD NumPy, user decision DECISION, 2026-10-22;
-results/bless_20261022/SPEC_E6GH.md). The old references stay computed as information only (historical_delta, never in pass_):
+E6 (selftest, full_35, spectral_15) and G-H pass against the record RECORD (HEAD NumPy, decision DECISION, 2026-10-22). The old references stay computed as information only (historical_delta, never in pass_):
 the old CPU-engine fixture LEGACY (also rig/run_state.py and bootstrap_v3.sh:85, unchanged) and the original sos_full CPU
-transport (original_kernel). Task B's Simpson prefix moved fused results away from both by design (bless REPORT section 4).
+transport (original_kernel). Task B's Simpson prefix moved fused results away from both by design.
 """
 import hashlib
 import io
@@ -30,9 +29,9 @@ RECORD_META=paths.FIXTURES/'selftest_ref_simpson_meta.json'
 
 def legacy_available():
     return LEGACY is not None and LEGACY.is_file()
-# Pinned once (results/e6gh_20261022/make_record.py, cq mac-cpu); a new record needs a new user decision ID.
-RECORD_SHA256='2543ab1d296780e408cd93f8091bffc118cacbace6d11b3d47306df5471c58b4'
-DECISION='taskB1-simpson-tol001-20261022'
+# Pinned once; a new record needs a new decision ID.
+RECORD_SHA256='6fab113dc99e71ee2dc59fdb934919fe2fe2f7fcab52156634d54bc6737832e4'
+DECISION='b2-s2-gatev2-20261105'
 TOLERANCE=1e-5
 SPECTRAL_WAVELENGTHS=360+(np.arange(15)+.5)*470/15
 
@@ -130,14 +129,17 @@ def cases():
     h=a.rounded(a.sub(rr,(a.R,a.F(0))));expected=np.linalg.norm(p+t[:,None]*d,axis=-1)-6371.
     error=max(error,float(np.max(abs(h-expected))))
     result['coordinate_cancellation']=dict(max_absolute=error,pass_=error<2e-7)
-    # A nonpositive weighted corner selects the linear fallback; a zero-weight corner is ignored (gate v2 2026-10-21,
-    # reference.transport / kernel.cu bad_trace). trace_scale itself only applies the resulting per-sample flags.
-    value=np.array([[[2.,3.,5.,.7]], [[-1.,2.,0.,-.4]], [[2.,3.,5.,.7]]],'f4')
-    actual=reference.trace_scale(value,np.log(np.array([[20.],[9.],[20.]],'f4')),np.array([[True],[False],[False]]))
-    expected=np.array([[[4.,6.,10.,1.4]], [[-1.,2.,0.,-.4]], [[2.,3.,5.,.7]]],'f4')
+    # Log-space blend: the geometric mean when every corner trace is valid, the linear value when none is.
+    traces=np.array([[1.,9.,1.,9.], [1.,9.,0.,0.], [0.,0.,0.,0.]],'f4')
+    value=np.zeros((3,1,4),'f4');value[:,0,0]=traces.mean(axis=1)
+    logs=np.zeros((3,1),'f4');wg=np.zeros_like(logs);am=np.zeros_like(logs)
+    for corner in range(4):
+        reference.trace_accumulate(traces[:,corner,None],a.F(.25),logs,wg,am)
+    actual=reference.trace_scale(value,logs,wg,am)
+    expected=np.zeros_like(value);expected[:,0,0]=[3.,2.5*np.sqrt(.6),0.]
     error=float(np.max(abs(actual-expected)))
     result['fallback_rule']=dict(max_absolute=error,pass_=error<2e-6,
-                                  rule='positive traces use geometric mean; a nonpositive weighted corner uses linear fallback; zero-weight corners are ignored')
+                                  rule='valid traces give the geometric mean; the scale goes to 1 (linear) as their weight goes to 0')
     y=a.basis(np.array([0.,1.,-1.]));expected=np.array([1/np.sqrt(4*np.pi),0.,-np.sqrt(3/(4*np.pi))])
     error=float(np.max(abs(y[0,:3]-expected)))
     result['SH_low_orders']=dict(max_absolute=error,pass_=error<1e-7)
@@ -145,7 +147,7 @@ def cases():
     x=np.arange(33,dtype='f4')[None,:,None];got=a.warp_sum(x)[0,0]
     result['warp_tree']=dict(sum=float(got),pass_=bool(got==528))
     # Each adjacent stencil retains every old source cell it still references.
-    # Symbolic coefficient values establish the contract without recomputing SH.
+    # Symbolic coefficient values establish the reference without recomputing SH.
     moves=[(0,1),(0,-1),(1,0),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1),(1,1)]
     nc=20;old=np.tile(np.array([47,48,67,68],'i4'),(len(moves),1))
     cache=old[:,:,None,None].astype('f4')*a.F(1000)+np.arange(33,dtype='f4')[None,None,:,None]
@@ -327,7 +329,7 @@ def validate(output,backend='numpy',full=True,block_size=128):
     if full:
         report['full_35']=full_queries(output,backend,block_size);timings['full_35']=TIMERS.snapshot()
         report['spectral_15']=spectral(output,field,block_size);timings['spectral_15']=TIMERS.snapshot()
-    # L3 (gate v2, results/gate_redesign_20261021/SPEC_V2.md 8): CUDA/NumPy parity is a diagnostic record, not part of
+    # L3 (gate v2): CUDA/NumPy parity is a diagnostic record, not part of
     # pass; sosfuse2.gate G-P/G-T block CUDA vs NumPy instead (atan2f ULP, accumulation order).
     if backend=='cupy':report['cuda_numpy_parity']=dict(parity(output,block_size,field),blocking=False);timings['parity']=TIMERS.snapshot()
     # A1: stage timings are a separate file; the validation gate is unchanged.

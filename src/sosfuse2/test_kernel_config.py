@@ -30,8 +30,9 @@ def test_paired_sidecar_occupies_exactly_one_argument(tmp_path, monkeypatch):
     fixture = launch_fixture(flags=A+('SH_AUX_PAIR',))
     run_launch(fixture, tmp_path)
     args = fixture[2].calls[0][2]
-    assert len(args) == 51  # base + paired sidecar + profile pointer/mask + cell order
+    assert len(args) == 52  # base + paired sidecar + profile pointer/mask/surface + cell order
     assert int(args[48]) == 0 and int(args[49]) == 0  # absent density: NULL and analytic mask
+    assert float(args[50]) == 1.  # analytic air surface normalization
     assert args[47].shape == (5, 8, 576, 2)
     np.testing.assert_array_equal(args[47][:, :, :561, 0], fixture[-1][:, 10:, ::2].transpose(0, 2, 1))
 

@@ -385,7 +385,7 @@ class IndependentEvidence(unittest.TestCase):
                 self.assertTrue(json.loads((path / 'judge.json').read_text())['pass_'])
 
     def test_offflag_tokens_match_independent_clock_removal(self):
-        """Observer-removal contract only; numerical regression belongs to G-P/G-T.
+        """Observer-removal check only; numerical regression belongs to G-P/G-T.
 
         Strip entire observer-only blocks, including their off branches, and supply
         independent no-ops. This cannot detect numerical edits common to both copies.
@@ -526,7 +526,7 @@ class JudgeAdversarial(unittest.TestCase):
                     result, report = self.judge(data)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(report['pass_'])
-                    # The frozen contract requires nonzero exit and a false gate.
+                    # The fixed reference requires nonzero exit and a false gate.
                     # Existing judge diagnostic max raises TypeError for strings
                     # after writing that false verdict (reported separately).
                     if not isinstance(value, str):

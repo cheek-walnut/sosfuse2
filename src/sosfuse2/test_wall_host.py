@@ -19,12 +19,12 @@ class WallHost(unittest.TestCase):
 
     def test_noprefix_real_geometry_bytes(self):
         from sosfuse2 import paths
-        root=paths.ACCEPTED   # frozen accepted sources (sky-sos scripts/sos_*.py byte copies)
+        root=paths.PKG   # promoted definitions, same per-call globals
         def functions(path,names,namespace):
             tree=ast.parse(path.read_text());tree.body=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in names]
             exec(compile(tree,str(path),'exec'),namespace);return SimpleNamespace(**namespace)
-        probe=functions(root/'sos_probe.py',{'boundaries','gl'},dict(np=np,R=6371.,Z=80.))
-        old=functions(root/'sos_sky.py',{'geometry_segments','profiles'},dict(np=np,probe=probe,R=6371.))
+        probe=functions(root/'solver_columns.py',{'boundaries','gl'},dict(np=np,R=6371.,Z=80.))
+        old=functions(root/'solver_columns.py',{'geometry_segments','profiles'},dict(np=np,probe=probe,R=6371.,AER_PROFILE=lambda h:np.exp(-np.maximum(h,0)/1.2)))
         profile=stratosphere.profile_config({});rng=np.random.default_rng(17)
         for height,n in itertools.product((0.,.1,10.,21.,25.,40.,79.),(24,32)):
             d=rng.normal(size=(65,3));d/=np.linalg.norm(d,axis=1)[:,None]

@@ -44,7 +44,7 @@ from types import SimpleNamespace
 from sosfuse2 import paths
 
 
-FULL_MAIN_RAYS = 9586008   # results/sos_fuse/geometry_cache endpoints_bab3478c3f15b4d62418 layout.json
+FULL_MAIN_RAYS = 9586008   # Packed geometry cache layout.json
 # Serial seconds of one cold item.  None = not measured: counted as 0 in the totals and listed as unmeasured.
 COST_PROFILES = {
     'eda': dict(
@@ -85,7 +85,7 @@ COST_PROFILES = {
 
 
 # Column-build speed-up by SOSFUSE2_COLUMN_WORKERS, the lowest of the three kinds measured on the Mac full grid
-# (results/column_parallel_20261007/mac_full.json, mac_endpoint.json): strato 1.94/3.36/4.72, density 1.96/3.52/4.98,
+# (measured during development): strato 1.94/3.36/4.72, density 1.96/3.52/4.98,
 # endpoint02 3.50/5.02 at 2/4/8.  Linear between points; held at the 8-worker value above 8 (not measured).
 SPEEDUP = ((1, 1.), (2, 1.94), (4, 3.36), (8, 4.72))
 PARALLEL_KINDS = ('column', 'host_endpoint02')   # items the column workers divide; the others stay serial
@@ -103,7 +103,7 @@ def speedup(workers):
 
 def resources(a, n_states):
     """States per GPU (W) and column workers per state (T) for the commands, each with its basis.
-    The planner runs on the queue host (sky-sos research records), so the cores read here are the queue's."""
+    The planner runs on the queue host, so the cores read here are the queue's."""
     from sosfuse2 import pipeline
     from sosfuse2.host_limits import RIG_MIN_RAM_GB, rss_cap_gb
     try:

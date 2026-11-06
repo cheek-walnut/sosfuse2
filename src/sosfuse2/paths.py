@@ -7,7 +7,7 @@ Three kinds of paths, never mixed:
 Provenance keys are package-relative ('sosfuse2/fused.py'), see rel().
 
 The package must be installed as regular files (no zip import): the native source is handed to a C++ compiler and the
-accepted solver sources are read as text. resource_root() raises E_PACKAGE_NOT_ON_DISK otherwise.
+solver definitions are read as text. resource_root() raises E_PACKAGE_NOT_ON_DISK otherwise.
 """
 import os
 from importlib import resources
@@ -28,7 +28,7 @@ def resource_root():
 PKG = resource_root()
 ASSETS = PKG / 'assets'
 FIXTURES = PKG / 'fixtures'
-ACCEPTED = PKG / 'accepted'
+ACCEPTED = PKG / 'accepted'  # loader location, retained for fused.load_engine
 NATIVE = PKG / 'native'
 CONFIGS = PKG / 'configs'
 GATE = PKG / 'gate'
@@ -74,16 +74,17 @@ def module_command(name, *args):
     return [sys.executable, '-B', '-m', 'sosfuse2.' + name, *map(str, args)]
 
 
-# Production modules whose bytes enter the provenance contract v4 (run_gpu_state_v3.package_hashes) and the gate bless identity
+# Production modules whose bytes enter the v4 provenance format (run_gpu_state_v3.package_hashes) and the gate bless identity
 # (gate.code_identity): a fixed list, not a glob, so a file that goes missing is an error instead of a silently different
-# signature (Δ5, user 2026-11-03). test_*.py and testing.py (test support) are excluded; numerical_checks stays (validate_strato
+# signature. test_*.py and testing.py (test support) are excluded; numerical_checks stays (validate_strato
 # imports it). test_ozone_temperature.test_03c keeps this list equal to the tree: adding a module means adding it here.
 PRODUCTION_MODULES = (
-    '__init__', 'air_wavelength', 'arithmetic', 'cache_store', 'column_cache', 'column_parallel', 'column_table', 'compile_cache',
-    'density', 'device_profile', 'fused', 'gate', 'gate_flags', 'generate_density_profile', 'generate_strato_optics',
+    '__init__', 'air_wavelength', 'arithmetic', 'cache_store', 'column_cache', 'column_parallel', 'column_table', 'compile_cache', 'components',
+    'density', 'device_profile', 'fused', 'gate', 'gate_flags', 'generate_density_profile', 'generate_minor_absorbers', 'generate_strato_optics',
     'generate_tropo_optics', 'geometry', 'geometry_contract', 'geometry_cpu', 'geometry_parallel', 'ground_parallel', 'ground_sh',
-    'host_cache', 'host_limits', 'iprt', 'kernel_config', 'mie', 'numerical_checks', 'ozone_temperature', 'paths',
-    'pipeline', 'pipeline_execution', 'plan_queue', 'precompile', 'provenance', 'ray_columns', 'reference', 'run_fuse',
+    'host_cache', 'host_limits', 'iprt', 'kernel_config', 'mie', 'minor_absorbers', 'numerical_checks', 'ozone_temperature', 'paths', 'prepare_minor_absorbers',
+    'solver_columns', 'solver_optics', 'solver_sky', 'solver_legacy', 'solver_poly', 'solver_core', 'solver_render',
+    'pipeline', 'pipeline_execution', 'plan_queue', 'precompile', 'provenance', 'ray_columns', 'rayleigh', 'reference', 'run_fuse',
     'run_gpu_state_v3', 'sh_layout', 'spectral', 'strato_parallel', 'strato_states', 'stratosphere', 'sun_parallel', 'table_fast',
     'table_q', 'tables_from_sources', 'timers', 'tropo_mie', 'tropo_profile', 'validate', 'validate_strato', 'verify_tol',
 )

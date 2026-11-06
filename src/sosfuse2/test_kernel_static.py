@@ -3,7 +3,7 @@
 
 Runs without the full repository on macOS/Linux (clang++, Python >=3.9).
 Syntax and unsupported flag conflicts are checked; numerical tolerance is the
-contract in AGENTS.md. Historical token identity is not a requirement.
+requirement. Historical token identity is not a requirement.
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor

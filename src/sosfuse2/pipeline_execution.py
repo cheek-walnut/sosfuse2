@@ -1,7 +1,7 @@
 """CPU-only preparation and an opt-in exclusive GPU execution boundary.
 
 Ephemeral objects stay in their state process. Existing persistent geometry and
-output contracts are untouched; CuPy is imported only after acquiring the token.
+output formats are untouched; CuPy is imported only after acquiring the token.
 """
 import contextlib
 import copy
@@ -265,6 +265,7 @@ def device_payload(s, geometry):
                     raise RuntimeError('E_PREPARED_DENSITY_COLUMNS')
         constants[nq] = c
     fields = {k: getattr(s, k) for k in ('W', 'ext', 'rf', 'af', 'asca')}
+    if hasattr(s, 'ksplit_decision'): fields['ksplit_decision'] = s.ksplit_decision
     fields['geo'] = SimpleNamespace(ns=s.geo.ns, h=s.geo.h, chi=s.geo.chi)
     fields['strato'] = None if getattr(s, 'strato', None) is None else {
         k: v for k, v in s.strato.items() if k != 'old'}
@@ -278,14 +279,14 @@ def device_payload(s, geometry):
 
 def install_constants(kernel, s, constants):
     """Prepared constants installed without setup() (payload restore, persistent service): each PROFILE table is checked
-    against the kernel's PROFILE_N first (review #1); setup() checks again on every later read."""
+    against the kernel's PROFILE_N first; setup() checks again on every later read."""
     for c in constants.values():
         if 'density_optics' in c: kernel.check_profile(c['density_optics'], 'install')
     kernel.constants = {(id(s), nq): c for nq, c in constants.items()}
 
 
 def profile_service_event(kernel):
-    """Fields of the service 'profile' PHASE (review #5). CuPy: the upload record of fused.constants_device. NumPy (no
+    """Fields of the service 'profile' PHASE. CuPy: the upload record of fused.constants_device. NumPy (no
     upload, uploaded_n None): consumed mask, identity and N from the host table the reference transport reads."""
     from .density import evidence
     consumed = getattr(kernel, 'profile_consumed', None)
@@ -478,6 +479,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 pid=os.getpid(), **data)), flush=True)
     gate = threading.Condition(threading.RLock())
     reservations = {}
+    allocations = {}                           # actual live pool bytes per resident state, at each gate handoff
     compiled = {}
     token = GpuToken(lock, 'GPU_SERVICE', emit)
     xp = None
@@ -504,10 +506,9 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
             required = sum(arrays) + 30*field_bytes
             # KSPLIT (default on CuPy, fused.ksplit_setting) sizes its columns, plans and aerosol buffer from free VRAM. With
             # several resident states it stays out of the other states' reservations (ksplit_room) and adds what it holds to
-            # its own (ksplit_hold), so a later state is admitted only into memory nobody claims (codex review of the KSPLIT=3
-            # default, results/ksplit_default_20261026).
+            # its own (ksplit_hold), so a later state is admitted only into memory nobody claims.
             ksplit = (active_limit > 1 and backend == 'cupy' and   # one resident state keeps sizing from free VRAM as before
-                      ksplit_setting(backend, payload['flags'], payload['L']) in ('2', '3'))
+                      ksplit_setting(backend, payload['flags'], payload['L']) in ('1', '2', '3'))
             # Admit a KSPLIT state only with room for its smallest aerosol option too, and keep that floor reserved: base
             # reservations alone let two states in whose KSPLIT then fit beside neither (L4 2026-10-26: base 7.64 GB each,
             # 4.7 GB left < 5.07 GB minimum, both waited, E_KSPLIT_MEMORY; pipeline.KSPLIT_STATE_VRAM_GB).
@@ -532,7 +533,10 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                         free, _ = xp.cuda.runtime.memGetInfo()
                         capacity = min(pool_limit, int(free)+pool.total_bytes()-1024**3)
                         available = capacity-sum(reservations.values())
-                    if len(reservations) < active_limit and required+floor <= available: break
+                    # A lone state's unsplit base may fit while its KSPLIT floor
+                    # does not. Admit it for the exact preflight/fallback check.
+                    if len(reservations) < active_limit and (required+floor <= available or
+                                                            not reservations and required <= available): break
                     if not reservations: raise RuntimeError('E_PERSISTENT_VRAM_ADMISSION')
                     emit(name, 'vram_wait', required_bytes=required+floor, available_bytes=available)
                     gate.wait(.1)
@@ -541,6 +545,12 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 emit(name, 'gpu_acquired', reserved_bytes=required+floor)
                 kernel = Kernel(threads, payload['height'], payload['g'], backend, block_size, flags=payload['flags'], L=payload['L'],
                                 **kernel_kwargs(payload.get('profile_step_km', .5)))
+                def account():
+                    if backend == 'cupy':
+                        allocations[name] = max(0, int(xp.get_default_memory_pool().used_bytes())-
+                                                sum(v for k,v in allocations.items() if k != name))
+                kernel.ksplit_other_bytes = lambda: sum(v for k,v in allocations.items() if k != name)
+                kernel.ksplit_emit = lambda decision: emit(name, 'KSPLIT_FALLBACK', **decision)
                 if ksplit:
                     def ksplit_room(name=name, base=required):
                         # None alone (size from free VRAM as before); else the pool not reserved by the other states
@@ -549,12 +559,14 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                         pool = xp.get_default_memory_pool(); free_now, _ = xp.cuda.runtime.memGetInfo()
                         return min(pool_limit, int(free_now)+pool.total_bytes()-1024**3) - others - base
                     def ksplit_hold(held, name=name, base=required):
-                        reservations[name] = base + max(int(held), floor)
+                        reservations[name] = base + (max(int(held), floor, getattr(kernel, 'ksplit_planned_bytes', 0))
+                                                     if kernel.ksplit else 0)
                         emit(name, 'ksplit_reserved', reserved_bytes=reservations[name], ksplit_bytes=int(held))
                     def ksplit_wait(name=name):
                         # too little room for KSPLIT beside the others: wait for a release unless every other state waits too
                         others = [k for k in reservations if k != name]
                         if not others or all(k in ksplit_waiting for k in others): return False
+                        account()
                         ksplit_waiting.add(name); emit(name, 'ksplit_wait', waiting_for=others)
                         try: gate.wait(.5)
                         finally: ksplit_waiting.discard(name)
@@ -595,6 +607,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                     conn.send('observer')
                     # Other state threads can perform first-light/apply/table here.
                     before = time.monotonic()
+                    account()
                     gate.release()
                     try:
                         with wire_send(conn, values, root, emit, name):
@@ -628,7 +641,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                     conn.recv()
                 del observer_bundle, result
         except BaseException as exc:
-            # The traceback names the failing call (str(exc) alone hid the KSPLIT=3 rig-profile c0+None, results/r1_k3_20261025).
+            # The traceback names the failing call (str(exc) alone hid the KSPLIT=3 rig-profile c0+None).
             emit(name, 'persistent_error', reason='E_PERSISTENT_STATE', detail=f'{type(exc).__name__}: {exc}',
                  traceback=traceback.format_exc(limit=12))
             try: conn.send(f'E_PERSISTENT_STATE: {type(exc).__name__}: {exc}')
@@ -644,6 +657,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 s = geometry = None
                 if admitted:
                     reservations.pop(name, None)
+                    allocations.pop(name, None)
                     emit(name, 'gpu_released', seconds=time.monotonic()-start,
                          roundtrip_seconds=wait_seconds, cpu_seconds=time.thread_time()-cpu_start)
                 if not reservations: token.release()

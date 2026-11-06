@@ -5,8 +5,8 @@ message: >-
   citations, listed in THIRD_PARTY.md and src/sosfuse2/assets/README.md.
 title: "sosfuse2: successive-orders-of-scattering twilight sky radiance tables"
 type: software
-version: 1.0.0
-date-released: 2026-11-03
+version: 1.1.0
+date-released: 2026-11-06
 license: MIT
 authors:
   - name: sosfuse2 developers

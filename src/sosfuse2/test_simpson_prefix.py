@@ -1,4 +1,4 @@
-"""Task B (1) Simpson optical-depth prefix (2026-10-22, results/taskB_simpson_20261022/SPEC_IMPL.md): reference.py, Mac, < 1 min.
+"""Task B (1) Simpson optical-depth prefix (2026-10-22): reference.py, Mac, < 1 min.
 
 Run: python -m pytest -q -s src/sosfuse2/test_simpson_prefix.py   (-s prints the E4 closure numbers)
 
@@ -11,8 +11,8 @@ profile model (test-local, every panel split at the profile knots it crosses, Ga
   - constant and exponential beta, each component alone (air, tropospheric aerosol incl. AEROSOL_2L, ozone, stratosphere):
     FP64 replica of the Simpson rule (same panels and midpoints) to FP32 rounding, truth within the Simpson error bound, and the
     old GL-weight rule (copied below) shown to fail the same check.
-  - E4 closure (REVIEW_claude.md:84): sum ds beta exp(-tau_k) vs 1 - exp(-tau_end) for the old rule and Simpson, synthetic slant rays
-    and the frozen E1 production rays (results/taskB_simpson_20261022/e1_frozen_small.npz, when present).
+  - E4 closure: sum ds beta exp(-tau_k) vs 1 - exp(-tau_end) for the old rule and Simpson, synthetic slant rays
+    and the frozen E1 production rays (when present).
 """
 import json
 import math
@@ -25,7 +25,7 @@ import pytest
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 from sosfuse2 import reference as ref  # noqa: E402
-from sosfuse2 import tropo_profile  # noqa: E402
+from sosfuse2 import tropo_profile, density  # noqa: E402
 from sosfuse2.arithmetic import F, split, kahan  # noqa: E402
 try:
     from .numerical_checks import assert_equivalent, within_tol
@@ -67,9 +67,9 @@ def constants(nq, comp=None, kind='exp'):
     3 stratosphere) alone, kind 'const' / 'exp' / 'aer2' (two-layer aerosol) / 'triangle' (default ozone)."""
     u, wu = np.polynomial.legendre.leggauss(nq)
     c = dict(W=2, u=(u+1)/2, wu=wu/2, h=np.linspace(0, 80, 21).astype('f4'), chi=np.linspace(0, math.pi, 13).astype('f4'),
-             height=F(1.2), ext=np.zeros((3, 2), 'f4'))
+             height=F(1.2), ext=np.zeros((5, 2), 'f4'))
     ext = {0: [.045, .012], 1: [.5, .4], 2: [.02, .03], 3: [.02, .018]}
-    tab = np.stack([np.exp(-Z05/8.1), np.exp(-np.abs(Z05-24.)/6.)], 1).astype('f4')
+    tab = np.stack([np.exp(-Z05/8.1), np.exp(-np.abs(Z05-24.)/6.), density.no2_profile(Z05)], 1).astype('f4')
     strato = dict(center=20., sigma=3., norm=3.*math.sqrt(2*math.pi))
     a2 = np.asarray(tropo_profile.parameters(dict(tropo_profile.DEFAULTS, aod550=.6))['vector'], 'f4')
     if comp is None:
@@ -79,12 +79,12 @@ def constants(nq, comp=None, kind='exp'):
     if comp < 3: c['ext'][comp] = ext[comp]
     else: c.update(strato_ext=np.asarray(ext[3], 'f4'), strato_profile=strato)
     if kind == 'const':
-        if comp == 0: c['density_optics'] = dict(table=np.ones((161, 2), 'f4'), mask=1)
+        if comp == 0: c['density_optics'] = dict(table=np.ones((161, 3), 'f4'), mask=1)
         if comp == 1: c['height'] = F(1e30)                               # exp(-h/1e30) == 1 in FP32
-        if comp == 2: c['density_optics'] = dict(table=np.ones((161, 2), 'f4'), mask=2)
+        if comp == 2: c['density_optics'] = dict(table=np.ones((161, 3), 'f4'), mask=2)
         if comp == 3: c['strato_profile'] = dict(center=20., sigma=1e30, norm=1.)
     elif kind == 'exp':
-        if comp == 2: c['density_optics'] = dict(table=np.stack([np.ones(161), np.exp(-Z05/6.)], 1).astype('f4'), mask=2)
+        if comp == 2: c['density_optics'] = dict(table=np.stack([np.ones(161), np.exp(-Z05/6.), density.no2_profile(Z05)], 1).astype('f4'), mask=2)
     elif kind == 'aer2':
         c['aer2'] = a2
     return c
@@ -107,7 +107,7 @@ def profile64(h, c):
 
 
 def beta64(h, c):
-    pr = profile64(h, c); out = pr[..., :3]@np.asarray(c['ext'], 'f4').astype('f8')
+    pr = profile64(h, c); out = pr[..., :3]@np.asarray(c['ext'][:3], 'f4').astype('f8')
     return out+pr[..., 3:4]*np.asarray(c['strato_ext'], 'f4').astype('f8') if 'strato_ext' in c else out
 
 
@@ -205,7 +205,7 @@ def production(g, c):
             q = ref.sample(g, seg, step, c, st)
             if not q['valid'].any():
                 continue
-            nodes[:, seg, step] = P.node(q); ds[:, seg, step] = q['ds']; beta[:, seg, step] = ref.extinction(q['prof4'], c)
+            nodes[:, seg, step] = P.node(q); ds[:, seg, step] = q['ds']; beta[:, seg, step] = ref.extinction(q['prof'], c, q['st_prof'])
         P.finish(); ends[:, seg] = P.tau-P.tc
     return nodes, ends, ds, beta
 
@@ -267,20 +267,20 @@ def test_node_profile_matches_sample(opt):
         for step in range(len(c['u'])):
             q = ref.sample(g, seg, step, c, st)
             p4 = ref.profile_at(q['h'], c)
-            assert p4.dtype == np.float32 and p4.shape == (len(q['h']), 4)
-            assert within_tol(p4, q['prof4']) and within_tol(q['prof'], p4[:, :3])
-            assert within_tol(old_inline_profile(q['h'], c), q['prof'])
+            assert p4.dtype == np.float32 and p4.shape == (len(q['h']), 5)
+            assert within_tol(p4, q['prof'])
+            assert within_tol(old_inline_profile(q['h'], c), q['prof'][:, :3])
             if 'strato_ext' in c:
-                assert within_tol(ref.strato_profile(q['h'], c), p4[:, 3])
+                assert within_tol(ref.strato_profile(q['h'], c), q['st_prof'])
             else:
-                assert not p4[:, 3].any()
+                assert not q['st_prof'].any()
             # extinction * ds == the old dt (sum (prof_k ds) ext_k + (st ds) strato_ext) up to FP32 reassociation
             dt = np.zeros((len(q['h']), c['W']), 'f4')
             for k in range(3):
                 dt += (q['prof'][:, k]*q['ds'])[:, None]*c['ext'][k]
             if 'strato_ext' in c:
                 dt += (ref.strato_profile(q['h'], c)*q['ds'])[:, None]*c['strato_ext']
-            bds = ref.extinction(p4, c)*q['ds'][:, None]
+            bds = ref.extinction(p4, c, q['st_prof'])*q['ds'][:, None]
             assert np.all(np.abs(bds.astype('f8')-dt) <= 4e-7*np.abs(dt)+1e-37)
             # the DS height helper of the prefix gives sample()'s node height bit for bit
             assert within_tol(ref.path_height(ref.path_point(pp, dd, q['t_DS'])[2]), q['h'])
@@ -333,7 +333,8 @@ def frozen_sets():
         for s in sets:
             g = {k: Z[f"{s['name']}__{k}"] for k in ('p', 'd', 'edges', 'lower', 'target', 'dloc', 'hits_ground')}; pre = s['prefix']; nq = s['nq']
             c = dict(W=int(Z[pre+'W']), u=Z[pre+f'u{nq}'], wu=Z[pre+f'wu{nq}'], h=Z[pre+'h'], chi=Z[pre+'chi'], height=np.float32(Z[pre+'height']), ext=Z[pre+'ext'])
-            if pre+'dens_table' in Z: c['density_optics'] = dict(table=Z[pre+'dens_table'], mask=int(Z[pre+'dens_mask']))
+            c['ext'] = np.pad(c['ext'], ((0, 2), (0, 0)))
+            if pre+'dens_table' in Z: c['density_optics'] = dict(table=np.column_stack([Z[pre+'dens_table'], density.no2_profile(Z05)]), mask=int(Z[pre+'dens_mask']))
             if pre+'aer2' in Z: c['aer2'] = Z[pre+'aer2']
             if pre+'strato_ext' in Z:
                 sp = Z[pre+'strato_profile']; c.update(strato_ext=Z[pre+'strato_ext'], strato_profile=dict(center=float(sp[0]), sigma=float(sp[1]), norm=float(sp[2])))
@@ -350,7 +351,7 @@ def slant(g):
 
 
 def test_e4_closure():
-    """E4 (SPEC_IMPL step 0 stop rule): stop if the Simpson closure error is >= 1e-3 and more than twice the old rule's, on the
+    """E4: stop if the Simpson closure error is >= 1e-3 and more than twice the old rule's, on the
     slant class and on all rays. The closure also carries the GL source quadrature error (unchanged by task B), so both rules can
     exceed 1e-3 on under-resolved slant segments; the rule compares the two prefixes on the same nodes and weights."""
     rows = []

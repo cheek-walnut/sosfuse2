@@ -1,4 +1,4 @@
-"""CPU negative controls for the KSPLIT numerical contract."""
+"""CPU negative controls for the KSPLIT numerical tolerance."""
 import numpy as np
 import pytest
 from .verify_tol import compare_tol, compare_chunks, tolerances

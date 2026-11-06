@@ -1,4 +1,4 @@
-"""sosfuse2 numerical gate v2 (sky-sos results/gate_redesign_20261021/SPEC_V2.md). python -m sosfuse2.gate ...
+"""sosfuse2 numerical gate v2. python -m sosfuse2.gate ...
 
 G-R CUDA bytes (informational), G-P CUDA vs NumPy golden (rtol 1e-3 + atol), G-T ratchet against fixed anchors, G-A S2
 vs same-run exact, G-H reduced selftest vs record (old fixture delta informational), G-PS persistent test, G-F full-grid cold/warm (--gf, eda deploys).
@@ -61,7 +61,7 @@ def code_identity():
     """Hash of everything that decides fixture numbers (gate.py and tests excluded): a staged run is blessable only by it."""
     from sosfuse2 import density
     from sosfuse2.run_gpu_state_v3 import package_hashes
-    # One manifest for both contracts (Δ5, oracle 2026-11-03 Q2): the v4 package_hashes() set (fixed lists: production modules,
+    # One manifest for both provenance versions v3/v4: the v4 package_hashes() set (fixed lists: production modules,
     # kernel, accepted sources + loader, host helpers, native kernel, data assets) minus gate.py itself, plus the gate's own
     # fixtures/configs and the ozone profile asset under its logical key. A missing listed file is E_PACKAGE_FILE_MISSING.
     try: hashes = package_hashes()
@@ -95,12 +95,12 @@ def fixture_state(F, fx, solve=False):
 
 def fixture_settings(F, fx):
     """The shared settings with the fixture's own 'settings' keys on top (FX-AP: ozone_temperature profile_mean, the A′
-    reference added by P2 next to the fixed-233 K fixtures, sky-sos docs/SPEC_sigma_Tz_Aprime_adoption.md §2.4)."""
+    reference added by P2 next to the fixed-233 K fixtures)."""
     return dict(F['settings'], **F['fixtures'][fx].get('settings', {}))
 
 
 def fixture_env(F, fx, base=None):
-    """The caller's env (profile, LAUNCH_CELLS, caches) with every kernel control written explicitly (SPEC_V2 §2)."""
+    """The caller's env (profile, LAUNCH_CELLS, caches) with every kernel control written explicitly."""
     spec = F['fixtures'][fx]; c = config(spec['config'])
     e = {k: v for k, v in (os.environ if base is None else base).items() if k not in CONTROLS}
     e.update(SOSFUSE2_KERNEL_FLAGS=','.join(c['kernel_flags']), SOSFUSE2_BLOCK_SIZE=str(c['block_size']),
@@ -158,6 +158,7 @@ def toolkey(meta):
 # ---------------------------------------------------------------- worker (subprocess; only it imports sosfuse2.*)
 
 def worker(kind, fx, out, backend):
+    os.environ.setdefault('SOSFUSE2_KSPLIT_FALLBACK', '0')
     from sosfuse2 import run_gpu_state_v3 as v3
     from sosfuse2.compile_cache import configure
     F = load_fixtures(); out.mkdir(parents=True, exist_ok=True)
@@ -265,7 +266,7 @@ def run_fixture(F, fx, d, backend, solve, base=None):
         meta.update(evaluations=solve_evaluations(solve_), converged=solve_converged(solve_),
                     source_solve_sha256=hashlib.sha256(json.dumps(numeric(solve_), sort_keys=True).encode()).hexdigest(),
                     flags=sorted(m['kernel']['effective_flags']), block=m['kernel']['block_size'], spectral=(m.get('settings') or {}).get('spectral'),
-                    launch_max_seconds=max((m['kernel'].get('launch') or {}).get('max_seconds', 0.), log_launch(sorted((w/'logs').glob('*.log')))))
+                    launch_max_seconds=max((m['kernel'].get('launch') or {}).get('max_seconds', 0.), log_launch([Path(row['log'])])))
     jdump(d/'solve.json', meta)
 
 
@@ -409,7 +410,7 @@ def pairs(F, runs, golden):
 
 # ---------------------------------------------------------------- baselines
 
-RECORDS = None   # main(): None = package baselines (bless modes, --record-baselines); else <out>/records (2026-11-03 release review)
+RECORDS = None   # main(): None = package baselines (bless modes, --record-baselines); else <out>/records
 
 
 def record(rel):
@@ -474,7 +475,7 @@ def load_anchors():
 
 
 def inject(kind, runs, golden, F, anchors):
-    """Negative controls (SPEC_V2 §10 iv). An injected run is never blessed."""
+    """Negative controls. An injected run is never blessed."""
     if kind == 'bytes':
         runs['FX-C3']['radiance'].reshape(-1).view(np.uint8)[0] ^= 1          # lowest mantissa bit of one element
     elif kind == 'golden':
@@ -567,10 +568,10 @@ def run_all(F, names, out, backend, solve, base=None, reuse=None):
 
 
 def historical(out):
-    """G-H: cupy reduced selftest vs the record rig/selftest_ref_simpson.npz (decision taskB1-simpson-tol001-20261022, 1e-5);
-    the old CPU-engine fixture rig/selftest_ref.npz is only the informational historical_delta (validate.reduced)."""
+    """G-H: cupy reduced selftest vs the record fixtures/selftest_ref_simpson.npz (1e-5);
+    the old CPU-engine fixture is only the informational historical_delta (validate.reduced)."""
     if not (paths.FIXTURES/'selftest_ref_simpson.npz').is_file(): raise GateError('E_GATE_CONFIG', 'fixtures/selftest_ref_simpson.npz (G-H record) missing')
-    # the old CPU-engine fixture (sky-sos rig/selftest_ref.npz, outside git) is optional: without it the informational historical_delta is omitted
+    # the old CPU-engine fixture (outside git) is optional: without it the informational historical_delta is omitted
     rc, _, code = child([sys.executable, '-B', '-m', 'sosfuse2.gate', '--worker', 'historical', '--fixture', 'FX-N',
                          '--backend', 'cupy', '--out', str(out/'historical')], out/'historical.log', fixture_env(load_fixtures(), 'FX-N'))
     if rc: raise GateError('E_GATE_WORKER', f'historical rc={rc} last={code}')
@@ -588,8 +589,8 @@ def persistent(out):
 
 
 def gf(args, F, report):
-    """Product state on the full grid with bake common() arguments and one cache root: cold, then warm (SPEC_V2 3.7)."""
-    # G-F reuses the sky-sos bake template (rig/bake/bake_run.py): a research-side dependency, reachable only via SOSFUSE2_SKY_SOS_ROOT
+    """Product state on the full grid with bake common() arguments and one cache root: cold, then warm."""
+    # G-F reuses the sky-sos bake template: a research-side dependency, reachable only via SOSFUSE2_SKY_SOS_ROOT
     sky = paths.sky_sos_root()
     if sky is None or not (sky/'rig/bake/bake_run.py').is_file(): raise GateError('E_GATE_CONFIG', 'G-F needs the sky-sos bake template: set SOSFUSE2_SKY_SOS_ROOT')
     spec = importlib.util.spec_from_file_location('bake_run', sky/'rig/bake/bake_run.py'); br = importlib.util.module_from_spec(spec); spec.loader.exec_module(br)
@@ -616,7 +617,8 @@ def gf(args, F, report):
         if rc: raise GateError('E_GATE_WORKER', f'G-F {label} rc={rc} last={code}')
         keep = root/label; keep.mkdir()
         for p in (P.work/'out'/sid/'table.npz', P.work/'out'/sid/'meta.json', P.work/'tmp'/sid/'source.npz'): shutil.copy2(p, keep/p.name)
-        logs = sorted((P.work/'logs').glob('*.log')); m = json.loads((keep/'meta.json').read_text())
+        summary = json.loads((P.work/'pipeline_summary.json').read_text())
+        logs = sorted(Path(summary['logs']).glob('*.log')); m = json.loads((keep/'meta.json').read_text())
         ev = [json.loads(x) for p in logs for x in p.read_text(errors='replace').splitlines() if x.startswith('{"event": "PHASE"')]
         with np.load(keep/'table.npz') as t, np.load(keep/'source.npz') as s:
             rows[label] = dict(radiance=sha(t['radiance']), source=sha(s['source']), evaluations=solve_evaluations(m['source_solve']),
@@ -692,7 +694,7 @@ def bless(F, names, args, report):
 
 
 def bless_numpy(F, args, report):
-    """Mac golden (cq mac-cpu): E6 validate-mac PASS first; unchanged arrays keep their files."""
+    """Mac golden: E6 validate-mac PASS first; unchanged arrays keep their files."""
     e6 = json.loads(Path(args.e6).read_text()) if args.e6 else {}
     if e6.get('pass') is not True: raise GateError('E_GATE_CONFIG', 'E6 validate-mac PASS (--e6 validation.json) is required before a golden')
     names = goldens(F, F['fixtures']); runs = run_all(F, names, args.out/'numpy', 'numpy', False)
@@ -710,7 +712,7 @@ def bless_numpy(F, args, report):
     return True
 
 
-# ---------------------------------------------------------------- rig bake hooks (rig/bake/bake_run.py)
+# ---------------------------------------------------------------- rig bake hooks
 
 def plan_check(order, states, settings, reference):
     """Before MPS/precompile: the first state is the product fixture state, settings {} and the eda reference table."""
@@ -740,10 +742,17 @@ def first_state(table, reference, atol=0.):
 # ---------------------------------------------------------------- CLI
 
 def selected(F, args):
-    if args.flagsets:
+    if args.flagsets is not None:
         sets = set(args.flagsets.split(','))
-        return [fx for fx, v in F['fixtures'].items() if v['config'] in sets]           # C3 -> FX-C3, FX-S2; C3_nostrato -> FX-N
-    return list(args.fixtures.split(',') if args.fixtures else F['fixtures'])
+        unknown = sets - {v['config'] for v in F['fixtures'].values()}
+        if unknown: raise GateError('E_GATE_CONFIG', 'unknown flagsets: '+','.join(sorted(unknown)))
+        names = [fx for fx, v in F['fixtures'].items() if v['config'] in sets]
+    else:
+        names = list(args.fixtures.split(',') if args.fixtures is not None else F['fixtures'])
+        unknown = set(names)-set(F['fixtures'])
+        if unknown: raise GateError('E_GATE_CONFIG', 'unknown fixtures: '+','.join(sorted(unknown)))
+    if not names: raise GateError('E_GATE_CONFIG', 'no fixtures selected')
+    return names
 
 
 def first_code(G):
@@ -792,6 +801,7 @@ def baselines_writable():
 
 
 def main(argv=None):
+    os.environ.setdefault('SOSFUSE2_KSPLIT_FALLBACK', '0')
     p = argparse.ArgumentParser(description=__doc__)
     mode = p.add_mutually_exclusive_group(required=True)
     for m in ('all', 'pregate', 'stage', 'bless', 'bless_numpy', 'gf'): mode.add_argument('--'+m.replace('_', '-'), action='store_true')
@@ -830,7 +840,7 @@ def run_main(p, args, argv):
         ok = dispatch(args, report); report['code'] = report['code'] or first_code(report['gates']); rc = 0 if ok else 1
     except GateError as e:
         report.update(code=e.code, error=str(e)); rc = 2
-    except Exception as e:  # noqa: BLE001 - reason preserved, exit 2 (SPEC_V2 7)
+    except Exception as e:  # noqa: BLE001 - reason preserved, exit 2
         report.update(code='E_GATE_EXCEPTION', error=f'{type(e).__name__}: {e}', traceback=traceback.format_exc()[-4000:]); rc = 2
     report['exit'] = rc; jdump(args.out/'gate.json', report)
     print('GATE '+json.dumps(dict(exit=rc, code=report['code'], error=report.get('error'), max_launch_seconds=report.get('max_launch_seconds'))), flush=True)

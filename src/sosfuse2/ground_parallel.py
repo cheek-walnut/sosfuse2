@@ -69,7 +69,7 @@ def _cell(f, data, kind, task):
     ec = np.arccos(np.clip(q[:,2]/re,-1,1))
     if kind == 'host':
         candidate = (np.cos(ec)>0)&lit&(re<radius+1e-5)&(w>0)
-        return loc,w,q,re,col[:,[0,2]],candidate
+        return loc,w,q,re,col[:,[0,2,3,4]],candidate
     from .stratosphere import sun_lookup
     ssc,_ = sun_lookup(q,np.maximum(radius,re),sun,suncol)
     return loc,w,sc,lit,col,st,ssc,ec,re

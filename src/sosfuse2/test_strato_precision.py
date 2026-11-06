@@ -54,7 +54,7 @@ class NativePhase:
     def __init__(self, root, W, variant, out):
         compiler=shutil.which('clang++')
         if not compiler:raise RuntimeError('E_CLANG: clang++ required')
-        self.W=W;self.variant=variant;self.bins={'lut':8192,'fine':16384}.get(variant,0)
+        self.W=W;self.variant=variant;self.bins=16384 if variant=='lut' else 0
         base=(root/'assets/kernel_C2_strato_base.cu').read_text()
         current=(root/'kernel.cu').read_text()
         if variant=='base':
@@ -64,8 +64,7 @@ class NativePhase:
             end=current.index('__device__ void kah(',start)
             body=current[start:end]
             flags=['-DSTRATO']
-            if variant in ('lut','fine'):flags+=['-DSTRATO_MIE_LUT']
-            if variant=='fine':flags+=['-DSTRATO_MIE_LUT_FINE']
+        function='strato_phase_node' if variant=='exact' else 'mie_phase'
         source='''#include <cmath>
 #include <algorithm>
 #define __device__
@@ -77,9 +76,9 @@ struct Dim {int x,y,z;};Dim blockIdx,blockDim,threadIdx;
 float clip(float x,float lo,float hi){return fminf(hi,fmaxf(lo,x));}
 '''+body+'''
 extern "C" void phase_many(const float*u,const float*c,int n,float*out){
- for(int i=0;i<n;i++)for(int w=0;w<FW;w++)out[i*FW+w]=mie_phase(u[i],w,c);
+ for(int i=0;i<n;i++)for(int w=0;w<FW;w++)out[i*FW+w]=PHASE_FUNCTION(u[i],w,c);
 }
-#ifdef STRATO_MIE_LUT
+#ifdef STRATO
 extern "C" void phase_nodes(float*c){
  for(int i=0;i<=STRATO_LUT_BINS;i++)for(int w=0;w<FW;w++){
   float u=-1.f+(float)i*(2.f/(float)STRATO_LUT_BINS);
@@ -88,6 +87,7 @@ extern "C" void phase_nodes(float*c){
 }
 #endif
 '''
+        source=source.replace('PHASE_FUNCTION',function)
         cpp=out/f'phase_W{W}_{variant}.cpp';cpp.write_text(source)
         library=cpp.with_suffix('.dylib' if sys.platform=='darwin' else '.so')
         command=[compiler,'-std=c++17','-O2','-ffp-contract=off','-fno-fast-math','-fPIC',
@@ -138,7 +138,7 @@ def run(out):
     for W in (1,15):
         wanted=np.array([550.]) if W==1 else 360+(np.arange(15)+.5)*470/15
         coeff=np.stack([np.interp(wanted,wl,table[:,l]) for l in range(33)]).astype('f4')
-        functions={name:NativePhase(root,W,name,out) for name in ('base','exact','lut','fine')}
+        functions={name:NativePhase(root,W,name,out) for name in ('base','exact','lut')}
         base=functions['base'].evaluate(mu,coeff)
         assert (within_tol(base, numpy_phase(mu,coeff))), 'native/Python fixture disagreement'
         old_q=functions['base'].evaluate(qf,coeff)

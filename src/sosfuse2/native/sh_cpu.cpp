@@ -222,12 +222,12 @@ extern "C" void full_transport(int nr,int W,int nc,int ns,int mode,int first,int
    for(int u=0;u<4;u++){direct[u]=dp[3*ii[u]+jj[u]];pu[u]=P[3*ii[u]+jj[u]];}
    norm.eval(nu[ray],1,Y.data());std::vector<double>sum((int64_t)V*4,0.);double sun_phase=hg(nu[ray],aerosol_g);
    for(int64_t n=off[ray];n<off[ray+1];n++){
-    float expanded[14]={};const float*q;
-    if(compact){const float*x=p+6*n;expanded[0]=x[0];expanded[1]=x[1];expanded[4]=x[2];expanded[5]=x[3];expanded[12]=x[4];expanded[13]=x[5];q=expanded;}else q=p+14*n;
+    float expanded[18]={};const float*q;
+    if(compact){const float*x=p+6*n;expanded[0]=x[0];expanded[1]=x[1];expanded[4]=x[2];expanded[5]=x[3];expanded[16]=x[4];expanded[17]=x[5];q=expanded;}else q=p+18*n;
     int ir=base[n]/nc,j=base[n]%nc;double h=q[5],rh=exp(-std::max(0.,h)/8),ahh=aerosol_height<0?aerosol_two_layer(std::max(0.,h),asc+W):exp(-std::max(0.,h)/aerosol_height);
-    double angle=chi[j]+q[1]*(chi[j+1]-chi[j]),T[16];tensor_coeff(B,P,angle,q[12],q[13],T);
+    double angle=chi[j]+q[1]*(chi[j+1]-chi[j]),T[16];tensor_coeff(B,P,angle,q[16],q[17],T);
     double st=sqrt(std::max(0.,1-nu[ray]*nu[ray])),wx=B[0]*d[0]+B[1]*d[1]+B[2]*d[2],wy=B[3]*d[0]+B[4]*d[1]+B[5]*d[2];
-    double cp=st>1e-12?std::clamp((wx*q[12]+wy*q[13])/st,-1.,1.):1.,cm[33];cm[0]=1;cm[1]=cp;for(int m=2;m<33;m++)cm[m]=2*cp*cm[m-1]-cm[m-2];
+    double cp=st>1e-12?std::clamp((wx*q[16]+wy*q[17])/st,-1.,1.):1.,cm[33];cm[0]=1;cm[1]=cp;for(int m=2;m<33;m++)cm[m]=2*cp*cm[m-1]-cm[m-2];
     int count=(!first&&mode==2)?4:2,start=count==4?left[j]:j;double wr[4];
     if(count==2){wr[0]=1-q[1];wr[1]=q[1];}else for(int c=0;c<4;c++){const double*a=poly+16*j+4*c;wr[c]=((a[3]*q[1]+a[2])*q[1]+a[1])*q[1]+a[0];}
     std::vector<double>ground_aerosol(W,0.);
@@ -243,8 +243,9 @@ extern "C" void full_transport(int nr,int W,int nc,int ns,int mode,int first,int
      }
     }
     for(int w=0;w<W;w++){
-     double att=q[4]*exp(-q[6]*ext[w]-q[7]*ext[W+w]-q[8]*ext[2*W+w]);
-     double sun=first&&lit[n]?exp(-q[9]*ext[w]-q[10]*ext[W+w]-q[11]*ext[2*W+w]):0;
+     double od=0.,sun_od=0.;for(int k=0;k<5;k++){od+=q[6+k]*ext[k*W+w];sun_od+=q[11+k]*ext[k*W+w];}
+     double att=q[4]*exp(-od);
+     double sun=first&&lit[n]?exp(-sun_od):0;
      for(int lane=0;lane<2;lane++){
      int v=2*w+lane;if(!active[v]&&!first)continue;double val[4]={},logs=0;bool positive=true;double mixv=lane==0?mix:1.;
      if(first){

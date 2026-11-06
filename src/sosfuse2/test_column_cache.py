@@ -52,7 +52,8 @@ class ColumnCacheTests(unittest.TestCase):
             if code: raise AssertionError(f'E_COLUMN_TEST_QUEUE: {name} exit={code}')
 
     def events(self, i):
-        return [e for e in base.PersistentTests.events(self.root/f'C{i}-cache/logs/C{i}.log')
+        log = sorted((self.root/f'C{i}-cache/logs').glob(f'*/C{i}.log'))[-1]
+        return [e for e in base.PersistentTests.events(log)
                 if e['phase'] == 'column_cache' and e['kind'] == 'strato']
 
     def parity(self, i):

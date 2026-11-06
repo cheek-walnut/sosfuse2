@@ -2,7 +2,7 @@
 """Tropospheric rural aerosol Mie table (sosfuse2/assets/tropo_rural_sf79_rh70.json) and its checks.
 
 Particle model = LOWTRAN7/MODTRAN boundary-layer RURAL aerosol (Shettle & Fenn 1979, AFGL-TR-79-0214), the model
-Lee 2003 used for his LOWTRAN purple-light runs (results/lit_lee/lee_2003_purple.txt:446-451, IHAZE rural, V 23 km,
+Lee 2003 used for his LOWTRAN purple-light runs (IHAZE rural, V 23 km,
 midlatitude winter, Mie phase functions). Bimodal number-lognormal, sigma in log10:
   small (water-soluble/dust mix) N 0.999875, r 0.02700 um dry -> 0.02846 um at RH 70 %, sigma 0.35
   large                          N 0.000125, r 0.4300 um dry -> 0.4571 um at RH 70 %, sigma 0.40

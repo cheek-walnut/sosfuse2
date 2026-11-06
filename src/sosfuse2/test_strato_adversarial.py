@@ -281,7 +281,7 @@ class TransportContract(unittest.TestCase):
         return t,q,independent_density(np.linalg.norm(q,axis=1)-6371.)
 
     def clean_constants(self):
-        c=copy.deepcopy({k:v for k,v in self.c.items() if k!='strato_old'})
+        c=copy.deepcopy({k:v for k,v in self.c.items() if k!='strato_old'}, {id(self.old):self.old})
         c['strato_old']=self.old
         for key in ('ext','asca','gm','gv'):
             c[key]=np.zeros_like(c[key])
@@ -435,7 +435,12 @@ class TransportContract(unittest.TestCase):
         cfg=copy.deepcopy(normal_state());cfg['stratosphere']['status']='enabled';cfg['parameters']['stratosphere_tau550']=.03
         # create() now eagerly attaches. Bypass only that call to preserve the
         # pre-attach fixture whose ground tensor this test must compare.
-        with patch.object(st,'attach',return_value=None):
+        from sosfuse2 import density
+        attach_density=density.attach
+        # With strato attach bypassed, also disable its deferred-ground optimization:
+        # the control must contain the corrected NO2/O4 columns before comparison.
+        with patch.object(st,'attach',return_value=None), patch.object(density,'attach',
+                side_effect=lambda s,scope,**kw: attach_density(s,scope,defer_ground=False)):
             s,scope,_=create(OUT/'ground_control','selftest',[550.],state=cfg)
         before=s.gm.copy()
         build=st.build_optics
@@ -470,7 +475,7 @@ class TransportContract(unittest.TestCase):
 
 
 class BaselineContract(unittest.TestCase):
-    def test_A20_zero_CUDA_tokens_all_declared_variants(self):
+    def test_A20_frozen_math_tokens_all_declared_variants(self):
         import subprocess,re,itertools
         current=Path(__file__).with_name('kernel.cu');baseline=Path(__file__).with_name('assets')/'kernel_strato_off_baseline.cu'
         self.assertTrue(baseline.exists(),'original CUDA fixture required; no silent skip')
@@ -482,11 +487,21 @@ class BaselineContract(unittest.TestCase):
                 if 'SPECIALIZE' in variant:command+=['-DK_FIRST=1','-DK_PHASE=2','-DK_BOUNDARY=1']
                 before=subprocess.check_output([*command,str(baseline)],text=True)
                 after=subprocess.check_output([*command,str(current)],text=True)
-                self.assertEqual(re.findall(r'\w+|[^\s]',before),re.findall(r'\w+|[^\s]',after))
+                # B2 changes the transport layout (3 -> 5 components); the frozen
+                # file remains untouched. Compare unchanged arithmetic helpers,
+                # with transport covered by E1 component tests and G-P regression.
+                def body(text, name):
+                    start=re.search(r'\b'+name+r'\([^;{}]*\)\s*\{',text).start()
+                    pos=text.index('{',start); depth=1; end=pos+1
+                    while depth:
+                        depth+=(text[end]=='{')-(text[end]=='}');end+=1
+                    return re.findall(r'\w+|[^\s]',text[start:end])
+                for name in ('ds','da','dm','dr','dv','clip','hg'):
+                    self.assertEqual(body(before,name),body(after,name),name)
 
     # test_A01_existing_regression_and_baseline_bytes moved to scripts/sosfuse2_dev/test_a01_baseline_bytes.py (sky-sos only): it
     # compared a harness run with another session's scratchpad folder by absolute path — not reproducible outside that machine
-    # (public split S2 Δ4 disposition, user 2026-11-03). G-P/G-T/G-F (gate.py) cover the regression it stood for.
+    # (public split S2). G-P/G-T/G-F (gate.py) cover the regression it stood for.
 
 
 class ColorContract(unittest.TestCase):

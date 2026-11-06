@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sosfuse2"
-version = "1.0.0"
+version = "1.1.0"
 description = "Successive-orders-of-scattering twilight sky radiance tables (NumPy reference, optional CUDA via CuPy)"
 readme = "README.md"
 # PEP 639 expression for the whole distribution: code MIT; project data CC0; CIE colour tables via Mitsuba/colour-science
 # (BSD-3-Clause copies of CIE data that CIE publishes under CC BY-SA 4.0); details per file in THIRD_PARTY.md (2026-11-03 release review).
-license = "MIT AND CC0-1.0 AND BSD-3-Clause AND CC-BY-SA-4.0"
+license = "MIT AND CC0-1.0 AND BSD-3-Clause AND CC-BY-SA-4.0 AND CC-BY-4.0"
 # Both files land in the wheel's licence directory; the sdist always carries them (hatchling).
 license-files = ["LICENSE", "THIRD_PARTY.md"]
-# Measured floor: the production bakes run on Python 3.12.3 (eda) and the tests on 3.14 (Mac). 3.11 is a follow-up
+# Measured floor: the production bakes run on Python 3.12.3 (development GPU host) and the tests on 3.14 (Mac). 3.11 is a follow-up
 # (the accepted-source loader parses whole files, so older grammars need a check; sky-sos research records).
 requires-python = ">=3.12"
 dependencies = [
@@ -22,10 +22,10 @@ dependencies = [
 
 [project.optional-dependencies]
 # CUDA path (gate --all/--gf, pipeline --backend cupy). cupy-cuda12x alone does not bring the CUDA libraries: NVRTC (kernel
-# compilation), the runtime and cuBLAS come from the nvidia-* wheels, as in the rig image and the eda venv (2026-11-03 clean room
-# on eda: cupy imported but `Failure finding "libnvrtc.so.13 or libnvrtc.so.12"` → E_GATE_WORKER without them).
+# compilation), the runtime and cuBLAS come from the nvidia-* wheels, as in the rig image and the development GPU host venv
+# (2026-11-03 clean room: cupy imported but `Failure finding "libnvrtc.so.13 or libnvrtc.so.12"` → E_GATE_WORKER without them).
 # The Anderson step solves a small Gram system with cupy.linalg.solve → cuSOLVER, which needs cuSPARSE and nvJitLink
-# (S4 eda run 2026-11-03 without them: `Failure finding "libnvJitLink.so.13 or libnvJitLink.so.12"` → E_GATE_SOLVE).
+# (development GPU host run 2026-11-03 without them: `Failure finding "libnvJitLink.so.13 or libnvJitLink.so.12"` → E_GATE_SOLVE).
 gpu = [
   "cupy-cuda12x>=13",
   "nvidia-cuda-nvrtc-cu12>=12.8,<13",
@@ -64,6 +64,6 @@ addopts = "-p no:cacheprovider"
 [tool.ruff]
 # pre-commit passes file names; force-exclude keeps the excluded paths out anyway.
 force-exclude = true
-# accepted/ holds the byte-frozen approved solver sources plus engine.py, their loader (README "Layout"); docs/ holds records.
-# Neither is linted.
-extend-exclude = ["src/sosfuse2/accepted", "docs"]
+# Solver globals are injected by the per-call loader; docs/ holds records.
+# Promoted definitions declare injected globals locally; only records are excluded.
+extend-exclude = ["docs"]

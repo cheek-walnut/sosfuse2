@@ -1,7 +1,7 @@
 """③ stage 0(b): SOSFUSE2_SUN_METHOD (density.sun_method) = exact PROFILE columns of the sun table and first-ground rays.
 
 CPU only; every cache root is a temporary folder. The reference is GL64/GL128 between the PROFILE knot crossings and the
-tangent point (no antiderivative), as results/kclean_20261029/step3s0b/exact_check.py (larger sweep, observed maxima).
+tangent point (no antiderivative), as measured in a larger sweep (observed maxima).
 """
 import contextlib
 import copy
@@ -31,10 +31,12 @@ def reference(p, d, end, table, n):
     cuts = [0., end]+([-sa] if 0 < -sa < end else [])
     c2 = (R+z)**2-rho*rho; c = np.sqrt(c2[c2 > 0])
     cuts = np.unique(cuts+[t for t in np.r_[-sa-c, -sa+c] if 0 < t < end])
-    if len(cuts) < 2: return np.zeros(2)
+    if len(cuts) < 2: return np.zeros(4)
     x, w = np.polynomial.legendre.leggauss(n); x = (x+1)/2; w = w/2
     lo, hi = cuts[:-1], cuts[1:]; h = np.hypot(rho, sa+lo[:, None]+(hi-lo)[:, None]*x)-R
-    return np.array([np.sum(np.sum(np.interp(h, z, table[:, k])*w, 1)*(hi-lo)) for k in (0, 1)])
+    vals = [np.interp(h, z, table[:, k]) for k in (0, 1, 2)]
+    vals.append((vals[0]/table[0, 0])**2)
+    return np.array([np.sum(np.sum(v*w, 1)*(hi-lo)) for v in vals])
 
 
 def boundary_rays():
@@ -57,7 +59,7 @@ def boundary_rays():
 def external641():
     z = density.grid(641); base = density.build(dict(density=dict(USSTD, profile_step_km=.125)))
     oz = base['table'][:, 1]*2.3+.4*np.exp(-.5*((z-31.)/1.5)**2); oz[::37] *= 1.6
-    return density.build(density.with_profile(dict(id='t', parameters={}), z_km=z,
+    return density.build(density.with_profile(dict(id='t', parameters={}), air_surface_number_density_m3=2.5469e25, z_km=z,
                                               table=np.column_stack([base['table'][:, 0]*(1+.05*np.sin(z/3.)), oz]),
                                               mask=3, normalize_ozone=False, scale=1.0))
 
@@ -125,7 +127,7 @@ class SunMethodTests(unittest.TestCase):
         p, d = boundary_rays(); end = self.old.probe.boundaries(p, d)[:, -1]
         doubled = dict(self.external, table=np.asarray(self.external['table'])*2)
         np.testing.assert_allclose(density.exact_profile_columns(p, d, end, doubled),
-                                   2*density.exact_profile_columns(p, d, end, self.external), rtol=1e-13, atol=0)
+                                   density.exact_profile_columns(p, d, end, self.external)*np.array([2,2,2,1]), rtol=1e-13, atol=0)
 
     def test_4_sun_rows_parallel_serial_fallback(self):
         expected, events = self.rows(self.external, 'exact'); self.assertEqual(events, [])
@@ -149,7 +151,7 @@ class SunMethodTests(unittest.TestCase):
             for a, b in zip(exact, run(kind, 'exact', 2)):
                 for x, y in zip(a, b):assert_equivalent(x, y)
             for cell, (e, g) in enumerate(zip(exact, gl)):
-                cols = e[4] if kind == 'host' else e[4][:, [0, 2]]   # host: columns (n,2); strato: col (n,3)
+                cols = e[4] if kind == 'host' else e[4][:, [0, 2, 3, 4]]   # host: columns (n,2); strato: col (n,3)
                 ih, ic = divmod(cell, len(self.s.geo.chi)); r = R+self.s.geo.h[ih]
                 loc = e[0]; p, up, ex = self.old.probe.frame(np.array(r), self.s.geo.chi[ic]); ey = np.cross(up, ex)
                 d = loc[:, 0, None]*ex+loc[:, 1, None]*ey+loc[:, 2, None]*up; p = np.broadcast_to(p, d.shape)

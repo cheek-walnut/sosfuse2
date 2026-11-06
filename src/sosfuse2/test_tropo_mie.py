@@ -100,7 +100,7 @@ def static(out):
                               (tuple(f for f in C3 if f != 'STRATO_MIE_LUT_FINE')+('STRATO', 'PROFILE', 'TROPO_MIE'), (1, 0, 0), 'E_TROPO_MIE_GF_REQUIRES_STRATO_MIE_LUT_FINE')):
         rc, _, err = preprocess(new, flags, spec)
         errors.append(dict(expected=want, rc=rc, pass_=rc != 0 and want in err))
-    from test_kernel_static import STUB
+    from .test_kernel_static import STUB
     stub = out/'cuda_stub.h'; stub.write_text(STUB+SYNTAX_STUB_EXTRA); syntax = []
     for (name, flags), spec, mie in itertools.product(sets.items(), SPECS, (False, True)):
         if name == 'C3_strato_raylimit' and spec != (1, 0, 0):
@@ -295,8 +295,8 @@ def judge(rows):
                            moment_l2=r['moment_l2_relative'], ground=r['ground_flux_max_relative'],
                            pass_=r['ray_max_relative'] <= 2*h['ray_max_relative'] and r['moment_l2_relative'] <= 1e-5
                            and r['ground_flux_max_relative'] <= 1e-5))
-    worst = max(max(r['ray_max_relative'], r['moment_l2_relative'], r['ground_flux_max_relative']) for r in rows)
-    return dict(pass_=all(c['pass_'] for c in checks), worst=worst, rule='ray <= 2x HG control (same first), moment l2 and ground <= 1e-5',
+    worst = max((max(r['ray_max_relative'], r['moment_l2_relative'], r['ground_flux_max_relative']) for r in rows), default=None)
+    return dict(pass_=bool(checks) and all(c['pass_'] for c in checks), worst=worst, rule='ray <= 2x HG control (same first), moment l2 and ground <= 1e-5',
                 checks=checks, cases=rows, note='HG control row gives the float32 parity floor of the same flag set')
 
 
@@ -316,7 +316,7 @@ def main():
         rep['gpu'] = gpu(a.out, set(a.gpu_cases.split(',')) if a.gpu_cases else None)
     if a.recheck:
         rep['gpu'] = judge(json.loads(a.recheck.read_text())['gpu']['cases']); rep['gpu']['rechecked_from'] = str(a.recheck)
-    rep['pass_'] = all(v.get('pass_') is not False for v in rep.values())
+    rep['pass_'] = bool(rep) and all(v.get('pass_') is True for v in rep.values())
     (a.out/'tropo_mie_tests.json').write_text(json.dumps(rep, indent=1, default=str)+'\n')
     print(json.dumps({k: (v.get('pass_') if isinstance(v, dict) else v) for k, v in rep.items()}))
     print('TROPO_MIE TESTS', 'PASS' if rep['pass_'] else 'FAIL')

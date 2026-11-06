@@ -36,7 +36,7 @@ def accepted(s, scope, kind, optics=None, profile=None, suncol=None, method=None
         if optics is not None:col=density.correct_columns(p,d,col,old,optics,24)
         sc,lit=s.geo.sun.lookup(q,np.maximum(6371.,re));ec=np.arccos(np.clip(q[:,2]/re,-1,1))
         if kind == 'host':
-            rows.append((loc,w,q,re,col[:,[0,2]],(np.cos(ec)>0)&lit&(re<6371.+1e-5)&(w>0)))
+            rows.append((loc,w,q,re,col[:,[0,2,3,4]],(np.cos(ec)>0)&lit&(re<6371.+1e-5)&(w>0)))
         else:
             column=st.columns(p,d,old,profile,24);ssc,_=st.sun_lookup(q,np.maximum(6371.,re),s.geo.sun,suncol)
             rows.append((loc,w,sc,lit,col,column,ssc,ec,re))
@@ -106,7 +106,7 @@ class GroundTests(unittest.TestCase):
     def test_strato_entry_and_noprefix(self):
         with mock.patch.dict(os.environ,{'STRATO_ATTACH_CACHE':'','SOSFUSE2_STRATO_HOST_NOPREFIX':'1'}), \
                 mock.patch.object(st,'solar_grid',return_value=self.suncol):
-            expected=accepted(self.s,self.scope,'strato',None,self.profile,self.suncol)
+            expected=accepted(self.s,self.scope,'strato',getattr(self.s,'density_optics',None),self.profile,self.suncol)
             _,actual=self.mapped(lambda:st._ground_geometry(self.s,self.scope,self.old,self.profile),2)
             self.check_close(expected,actual)
 

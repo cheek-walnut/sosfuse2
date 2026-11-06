@@ -1,9 +1,8 @@
-"""Shared bake cache store: one copy per content key (2026-10-23, sky-sos results/cache_store_20261023/SPEC.md).
-Source line references below (file.py:NN) are to the sky-sos tree at 5b7f583 (scripts/sosfuse2/), not to this package.
+"""Shared bake cache store: one copy per content key.
 
 Store  : <rclone remote>:<path>/{geometry,attach,columns}/<the key names the pipeline already uses>; the remote is named by
          SKY_CACHE_REMOTE or the remote= argument, never built in (the remote work folder is the original, local copies are caches).
-Mirror : SKY_CACHE_MIRROR (default <work root>/sky-cache)/{geometry,attach,columns}; the sky-sos bake driver (rig/bake/eda_bake.py) passes it as --geometry-cache,
+Mirror : SKY_CACHE_MIRROR (default <work root>/sky-cache)/{geometry,attach,columns}; the sky-sos bake driver passes it as --geometry-cache,
          --column-cache and STRATO_ATTACH_CACHE (cold runs such as gate.py --gf keep their own empty caches).
 
   python -B -m sosfuse2.cache_store list [--json]
@@ -14,20 +13,20 @@ Mirror : SKY_CACHE_MIRROR (default <work root>/sky-cache)/{geometry,attach,colum
 A unit is what is checked complete, transferred and never overwritten. Local layout = the pipeline's (paths relative
 to the root); in the store every unit is ONE object, so an interrupted upload leaves nothing that looks complete:
   geometry/endpoints_<20 hex>   local: identity.json, source_height.json, packed/* (complete = packed/complete.json,
-      layout.json and every packed/<field>.bin of the size layout.json names, geometry.py:261-264; users/, *.lock,
+      layout.json and every packed/<field>.bin of the size layout.json names, geometry.py; users/, *.lock,
       *.tmp never belong to it). Store: geometry/endpoints_<sig>.tar, MANIFEST.json first ([rel, bytes, sha256] per
       file + content_sha256), deterministic members. The signature leaves the scale height out
-      (geometry_contract.py:71-78) while end_col[:,1] and source_height.json come from the height that built it, so two
+      (geometry_contract.py) while end_col[:,1] and source_height.json come from the height that built it, so two
       valid local copies of one key can differ: a store tar whose manifest differs from the local copy is
       E_CACHE_CONFLICT (kept, never overwritten or combined). Pull streams the tar, checks every member against the
       manifest and publishes the folder under the builder lock.
-  geometry/endpoints_<sig>/aerosol/<name>.f4  per-height column (tmp + os.replace, geometry_cpu.py:96); needs its endpoints.
-  geometry/endpoints_<sig>/host_cache/<64 hex>.hcache  one-file envelope (host_cache.py:138-148): header size check.
-  geometry/host_sun/.../sun_columns.npz      sun table (tmp + os.replace, sun_parallel.py:92-96): zip directory check.
-  attach/attach_geometry_<24 hex>.npz        published by atomic rename only (run_gpu_state_v3.py:84-85,
-      stratosphere.py:225-228): zip directory check. attach/attach_<16 hex>.done (group markers, a dedup hint:
-      run_gpu_state_v3.py:58-60) travel after every npz.
-  columns/<64 hex>   <key>.npy + marker <key>.sha256 = sha256(npy) (column_cache.py:99-133). The marker is attached only
+  geometry/endpoints_<sig>/aerosol/<name>.f4  per-height column (tmp + os.replace, geometry_cpu.py); needs its endpoints.
+  geometry/endpoints_<sig>/host_cache/<64 hex>.hcache  one-file envelope (host_cache.py): header size check.
+  geometry/host_sun/.../sun_columns.npz      sun table (tmp + os.replace, sun_parallel.py): zip directory check.
+  attach/attach_geometry_<24 hex>.npz        published by atomic rename only (run_gpu_state_v3.py,
+      stratosphere.py): zip directory check. attach/attach_<16 hex>.done (group markers, a dedup hint:
+      run_gpu_state_v3.py) travel after every npz.
+  columns/<64 hex>   <key>.npy + marker <key>.sha256 = sha256(npy) (column_cache.py). The marker is attached only
       to an npy this push uploaded or a stored npy whose bytes were downloaded and hashed equal; a stored marker that
       differs is E_CACHE_CONFLICT.
   Single-file units already stored with another size are E_CACHE_CONFLICT (same size: kept, contents not compared).
@@ -38,13 +37,13 @@ hit bake); `list` marks it. Nothing is deleted.
 Pull downloads into <root>/.cache_store/pull-* (same file system), re-checks every unit there, then publishes with the
 pipeline's own locks or no-clobber hard links, marker last; it never replaces a file the mirror already has.
 Concurrency note (two pipeline.py runs on one mirror; code read 2026-10-23 at 5b7f583): endpoints folders are leased
-under .v3-leases.lock and built under <sig>.lock (run_gpu_state_v3.py:97-120, 470-473), complete.json is written last
-(geometry.py:263-264), and bake_run.common always passes --keep-geometry so release_geometry never deletes a shared
-folder (run_gpu_state_v3.py:123-139); aerosol columns, host sidecars and sun tables take per-file locks and publish by
-os.replace (geometry_cpu.py:83-96, host_cache.py:115-148, 183-188); attach files are computed in a private overlay and
-renamed in (run_gpu_state_v3.py:51-94); columns are read and written under a per-key lock (column_cache.py:100-149),
+under .v3-leases.lock and built under <sig>.lock (run_gpu_state_v3.py, 470-473), complete.json is written last
+(geometry.py), and bake_run.common always passes --keep-geometry so release_geometry never deletes a shared
+folder (run_gpu_state_v3.py); aerosol columns, host sidecars and sun tables take per-file locks and publish by
+os.replace (geometry_cpu.py, host_cache.py, 183-188); attach files are computed in a private overlay and
+renamed in (run_gpu_state_v3.py); columns are read and written under a per-key lock (column_cache.py),
 first-use markers stay in each job's work root. flock needs a local file system (keep the mirror on a local disk). Not
-covered: writers outside pipeline.py, e.g. the geometry-only prefetch (run_gpu_state_v3.py:376 calls attach() outside
+covered: writers outside pipeline.py, e.g. the geometry-only prefetch (run_gpu_state_v3.py calls attach() outside
 the overlay, so _ground_geometry's fixed '<key>.tmp.npz' name could collide in a shared attach folder).
 Failures: CacheStoreError or row codes with stable E_CACHE_* names; rclone output is cut to its tail with URLs and
 token-like values removed."""
@@ -52,7 +51,7 @@ import argparse, contextlib, errno, fcntl, hashlib, io, json, os, re, shutil, su
 from pathlib import Path
 from sosfuse2 import paths
 
-# No built-in store: the remote, the rclone config and the mirror are the operator's (public split 2026-11-03 release review).
+# No built-in store: the remote, the rclone config and the mirror are the operator's.
 # REMOTE None -> E_CACHE_REMOTE_MISSING when a store operation needs it; CONFIG None -> rclone's own default config file;
 # MIRROR None -> <work root>/sky-cache (mirror()).
 REMOTE = os.environ.get('SKY_CACHE_REMOTE') or None
@@ -109,14 +108,49 @@ class Unit:
 def say(**kw): print('CACHE_STORE '+json.dumps(kw, default=str), flush=True)
 
 
+def redact_connections(text, *, remote=False):
+    """Hide all rclone connection parameters, retaining the backend and remote path."""
+    text = str(text)
+    start = re.compile(r'(?<![\w.+@-])(:?[\w.+@-]+(?: [\w.+@-]+)*),(?=[\w.-]+(?:=|,|:))')
+    parts = []; pos = 0
+    while match := (start.match(text, pos) if remote else start.search(text, pos)):
+        outer = text[match.start()-1] if match.start() and text[match.start()-1] in "'\"" else None
+        parts.extend((text[pos:match.end()], '<redacted>'))
+        i = match.end(); quote = None
+        while i < len(text):
+            c = text[i]
+            if quote:
+                if c == quote:
+                    if i+1 < len(text) and text[i+1] == quote: i += 1
+                    else: quote = None
+            elif c in "'\"": quote = c
+            elif c == ':' and text[i+1:i+3] != '//': break
+            i += 1
+        if remote:
+            parts.append(text[i:])
+            return ''.join(parts)
+        end = i+1 if i < len(text) else i
+        if outer:
+            while end < len(text) and text[end] != outer: end += 1
+        else:
+            while end < len(text) and not text[end].isspace() and text[end] not in "'\"": end += 1
+        parts.append(text[i:end]); pos = end
+    parts.append(text[pos:])
+    return ''.join(parts)
+
+
 def clean(text, limit=600):
     """rclone output for a record: tail only, URLs and token-like values removed (signed URLs and OAuth tokens are
     secrets until they expire)."""
-    text = re.sub(r'(?i)\b[a-z][a-z0-9+.-]*://\S+', '<url>', str(text))
+    text = redact_connections(text)
+    text = re.sub(r'(?i)\b[a-z][a-z0-9+.-]*://\S+', '<url>', text)
     text = re.sub(r'(?i)\b(bearer|basic)\s+\S+', r'\1 <redacted>', text)
     text = re.sub(r'\bya29\.[\w.-]+', '<redacted>', text)                                  # Google OAuth access token
-    text = re.sub(r'(?i)\b(access_token|refresh_token|token|bearer|authorization|signature|x-amz-[a-z-]+|key|secret|password)'
-                  r'(["\']?\s*[:=]\s*|\s+)["\']?[^\s"\',}]+', r'\1=<redacted>', text)
+    text = re.sub(r'(?i)(?<![\w.-])([a-z0-9_.-]*secret[a-z0-9_.-]*|[a-z0-9_.-]*_key(?:_id)?|'
+                  r'access_token|refresh_token|token|bearer|authorization|signature|x-amz-[a-z-]+|key|password)'
+                  r'''(["']?\s*[:=]\s*|\s+)(?:"(?:\\.|""|[^"\\\n])*(?:"|(?=\n|$))|'''
+                  r"""'(?:\\.|''|[^'\\\n])*(?:'|(?=\n|$))|[^\s"',}\]]+)""",
+                  r'\1=<redacted>', text)
     return text[-limit:]
 
 
@@ -492,7 +526,7 @@ def push(root, remote=None, work=None):
     seconds += copy_files(root, remote, content, work)
     seconds += copy_files(root, remote, markers, work)
     codes = sorted({c['code'] for c in conflicts} | ({'E_CACHE_ORPHAN'} if orphans else set()))
-    row = dict(event='push', root=str(root), remote=remote, units=len(units), units_sent=len(set(sent)),
+    row = dict(event='push', root=str(root), remote=redact_connections(remote, remote=True), units=len(units), units_sent=len(set(sent)),
                files_sent=len(content)+len(markers)+len(tar_bytes), bytes_sent=sum(tar_bytes.values())+sum((root/f).stat().st_size for f in content+markers),
                seconds=round(seconds, 2), already_stored=len(units)-len(set(sent))-len(orphans)-len(conflicts),
                conflicts=conflicts, orphans=orphans, codes=codes,
@@ -513,9 +547,6 @@ def _link(src, dst):
     dst.parent.mkdir(parents=True, exist_ok=True)
     try: os.link(src, dst); return 'published'
     except FileExistsError: return 'present'
-    except OSError:                                         # no hard links here: rename if still absent
-        if dst.exists(): return 'present'
-        os.replace(src, dst); return 'published'
 
 
 def publish(u, stage, root):
@@ -523,11 +554,17 @@ def publish(u, stage, root):
     an E_CACHE_* code (left out, nothing replaced)."""
     if u.kind == 'endpoints':
         sig = u.key.split('endpoints_', 1)[1]; dst = root/u.key
-        # Builder lock of run_gpu_state_v3.py:470 (every build and completeness check of this signature holds it).
+        # Builder lock of run_gpu_state_v3.py (every build and completeness check of this signature holds it).
         with flocked(root/'geometry'/(sig+'.lock')):
             if (dst/'packed/complete.json').exists(): return 'present'
             if (dst/'packed').exists(): return 'E_CACHE_LOCAL_PARTIAL'
-            for name in ('identity.json', 'source_height.json'): _link(stage/u.key/name, dst/name)
+            for name in ('identity.json', 'source_height.json'):
+                source, target = stage/u.key/name, dst/name
+                if target.exists() and target.read_bytes() != source.read_bytes(): return 'E_CACHE_CONFLICT'
+            for name in ('identity.json', 'source_height.json'):
+                source, target = stage/u.key/name, dst/name
+                if _link(source, target) == 'present' and target.read_bytes() != source.read_bytes():
+                    return 'E_CACHE_CONFLICT'
             os.rename(stage/u.key/'packed', dst/'packed')    # the whole build appears at once, complete.json inside
         return 'published'
     if u.kind == 'aerosol':
@@ -536,9 +573,9 @@ def publish(u, stage, root):
             return _link(stage/u.key, root/u.key)
     if u.kind == 'columns':
         npy, side = root/u.files[0], root/u.markers[0]
-        with flocked(root/(u.key+'.lock')):                 # cached_columns' per-key lock (column_cache.py:100)
+        with flocked(root/(u.key+'.lock')):                 # cached_columns' per-key lock (column_cache.py)
             if npy.exists(): return 'present'
-            os.replace(stage/u.markers[0], side); os.replace(stage/u.files[0], npy)   # writer's order (column_cache.py:133)
+            os.replace(stage/u.markers[0], side); os.replace(stage/u.files[0], npy)   # writer's order (column_cache.py)
         return 'published'
     out = 'present'
     for f in u.all(): out = 'published' if _link(stage/f, root/f) == 'published' else out
@@ -585,7 +622,7 @@ def pull(root, keys=None, remote=None, legacy=False):
         shutil.rmtree(stage, ignore_errors=True)
         with contextlib.suppress(OSError): (root/STAGE).rmdir()
     codes = sorted({v for v in results.values() if v.startswith('E_')})
-    row = dict(event='pull', root=str(root), remote=remote, selected=len(chosen), already_local=len(chosen)-len(need),
+    row = dict(event='pull', root=str(root), remote=redact_connections(remote, remote=True), selected=len(chosen), already_local=len(chosen)-len(need),
                published=sum(v == 'published' for v in results.values()), present=sum(v == 'present' for v in results.values()),
                files=len(rels)+sum(u.fmt == 'tar' for u in todo.values()), bytes=sum(u.bytes for u in todo.values()),
                seconds=round(seconds, 2), codes=codes, failed={k: v for k, v in results.items() if v.startswith('E_')},
@@ -672,7 +709,7 @@ def main(argv=None):
         if getattr(a, 'report', None): a.report.parent.mkdir(parents=True, exist_ok=True); a.report.write_text(json.dumps(row, indent=1)+'\n')
         return 1 if row.get('codes') else 0
     except CacheStoreError as exc:
-        code, detail = exc.code, exc.detail
+        code, detail = exc.code, clean(exc.detail)
     except Exception as exc:                                  # anything else still leaves a stable code
         code, detail = 'E_CACHE_INTERNAL', clean(f'{type(exc).__name__}: {exc}')
     say(event='error', cmd=a.cmd, code=code, detail=detail)

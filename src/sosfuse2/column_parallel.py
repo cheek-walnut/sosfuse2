@@ -5,12 +5,12 @@ Numerical equivalence with the serial loop is checked at rtol 1e-6: the same 204
 per-chunk call (stratosphere.columns / density.correct_columns) on equal input bytes, and each chunk's result is
 placed at its own index; no sum crosses a chunk.  Workers are spawned processes (no GIL; never a fork of a parent
 that may hold CUDA or threads).  The accepted solver functions (old.geometry_segments and the probe it calls) are
-exec-defined in dict scopes (rig/engine.py definitions) and cannot be pickled by reference, so they are shipped as
+exec-defined in dict scopes and cannot be pickled by reference, so they are shipped as
 marshalled code objects plus the globals their code names (freeze/thaw below); the bytecode is the parent's own.
 
 The process count is SOSFUSE2_COLUMN_WORKERS; unset = all usable CPUs (default_workers), 1 = the serial loop.
 pipeline.py exports max(--threads, usable CPUs // concurrent states) unless the variable is set (pipeline.prep_workers).  The worker count enters no cache key: column_cache.cache_key hashes stratosphere.py, density.py, the
-accepted sources and rig/engine.py; host_cache keys hash host_cache.py (which calls this module), not this file.  test_column_parallel.py checks shape, dtype and numerical tolerance.
+accepted sources and the engine; host_cache keys hash host_cache.py (which calls this module), not this file.  test_column_parallel.py checks shape, dtype and numerical tolerance.
 """
 import builtins
 import json
@@ -167,7 +167,7 @@ def parallel_columns(out, kind, starts, cell_off, dirs, old, parameter, count=No
     try:
         import multiprocessing
         from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
-        frozen = freeze(old, ['geometry_segments'])
+        frozen = freeze(old, ['geometry_segments', 'probe'] if kind == 'density' else ['geometry_segments'])
         if kind == 'density':
             parameter = {k: v for k, v in parameter.items() if k != 'old'}
         starts = np.ascontiguousarray(starts); cell_off = np.ascontiguousarray(cell_off)

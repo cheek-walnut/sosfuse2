@@ -156,7 +156,7 @@ def test_push_complete_units_one_object_per_geometry_key(tmp_path, store):
 
 
 def test_mixed_copies_are_refused_never_combined(tmp_path, store):
-    """Codex P1: one key, two valid local copies built from different scale heights. The store must never end up with
+    """One key, two valid local copies built from different scale heights. The store must never end up with
     parts of both under one marker: a stored tar with another manifest is E_CACHE_CONFLICT, an unfinished loose (legacy)
     upload gets no marker, a stored npy without marker only gets ours if its bytes hash equal."""
     a, b = tmp_path/'copyA', tmp_path/'copyB'; e = tree(a, height=1.2); tree(b, height=2.5)
@@ -235,7 +235,7 @@ def test_gf_and_eda_cold_do_not_use_the_mirror(tmp_path, monkeypatch, br, eda):
     assert warm.cache == mirror.resolve() and warm.push and '--keep-geometry' in w and w[w.index('--workers')+1] == '1'
     assert w[w.index('--column-cache')+1] == str(mirror.resolve()/'columns') and warm.envs['C3']['STRATO_ATTACH_CACHE'] == str(mirror.resolve()/'attach')
     assert warm.envs['C3']['SOSFUSE2_KERNEL_FLAGS'] == gate.fixture_env(gate.load_fixtures(), 'FX-C3', base)['SOSFUSE2_KERNEL_FLAGS']
-    # Codex P2b: a push that reports any code makes the eda run exit 12, not 0.
+    # a push that reports any code makes the eda run exit 12, not 0.
     assert [eda.final_exit(True, dict(codes=[])), eda.final_exit(True, dict(codes=['E_CACHE_ORPHAN'])),
             eda.final_exit(True, dict(code='E_CACHE_RCLONE')), eda.final_exit(False, {})] == [0, 12, 12, 10]
 
@@ -262,7 +262,7 @@ def test_bake_run_cache_new_cap_disk_and_enospc(tmp_path, store, monkeypatch, br
     full = br.collect_cache_new(P, before)
     assert full['cap_bytes'] == 0 and full['taken'] == [] and full['codes'] == ['E_CACHE_NEW_CAP', 'E_CACHE_ORPHAN']
     (P.out/'states.bin').unlink()
-    # Codex P2a: the free disk bounds the cap, and an ENOSPC mid-copy removes out/cache_new and still writes the record.
+    # the free disk bounds the cap, and an ENOSPC mid-copy removes out/cache_new and still writes the record.
     real = shutil.disk_usage
     monkeypatch.setattr(br.shutil, 'disk_usage', lambda p: real(p)._replace(free=int(br.CACHE_NEW_DISK_RESERVE+300)))
     tight = br.collect_cache_new(P, before)
@@ -314,7 +314,7 @@ def test_list_without_a_remote_is_a_coded_error(monkeypatch):
 def test_pack_for_rig_tar_and_retry_after_failure(tmp_path, store, monkeypatch):
     src = tmp_path/'cache'; e = tree(src); cs.push(src)
     out = tmp_path/'rig/cache.tar'; out.parent.mkdir()
-    monkeypatch.setenv('FAKE_RCLONE_FAIL', 'ERROR : drive quota')                     # Codex P2c: pull fails inside pack
+    monkeypatch.setenv('FAKE_RCLONE_FAIL', 'ERROR : drive quota')                     # pull fails inside pack
     with pytest.raises(cs.CacheStoreError, match='E_CACHE_RCLONE'): cs.pack_for_rig(None, out)
     assert sorted(p.name for p in out.parent.iterdir()) == []                          # no .mirror, no .part, no tar
     monkeypatch.delenv('FAKE_RCLONE_FAIL')
@@ -329,7 +329,7 @@ def test_pack_for_rig_tar_and_retry_after_failure(tmp_path, store, monkeypatch):
 
 
 def test_legacy_loose_store_is_read_only_and_migrates(tmp_path, store):
-    """The first fill (cq 627) stored the geometry key as loose files. list marks it, pull skips it unless --legacy,
+    """The first fill stored the geometry key as loose files. list marks it, pull skips it unless --legacy,
     push never adds to it but stores the tar beside it; afterwards the tar is what pull uses. Nothing is deleted."""
     src = tmp_path/'cache'; e = tree(src)
     for f in unit_files(e): put(store.remote, f, (src/f).read_bytes())                    # 10-23 layout

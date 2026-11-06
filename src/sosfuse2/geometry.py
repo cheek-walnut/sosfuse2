@@ -43,9 +43,9 @@ def pack(p, d, n, s, scope, weights=None, ground=True):
         profile=getattr(s,'strato',{}).get('profile')
         col,corrected,strato=integrate(p,d,old,24,legacy=True,optics=optics,profile=profile,edges=edges,main=True)
         # Numerically equivalent to old.total_columns(p,d,24) at rtol 1e-6, plus independent sidecars.
-        if optics is not None:joint['density']=replace(col,corrected,optics)[:,[0,2]].astype('f4')
+        if optics is not None:joint['density']=replace(col,corrected,optics)[:,[0,2,3,4]].astype('f4')
         if strato is not None:joint['strato']=strato.astype('f4')
-    else:col=np.zeros((len(d),3),'f8')
+    else:col=np.zeros((len(d),5),'f8')
     return dict(p=p,d=d,edges=edges,lower=lower,target=B,dloc=np.einsum('nij,ni->nj',B,d),
                 weight=np.ones(len(d),'f8') if weights is None else weights,
                 end_index=j.astype('i4'),end_fraction=f,end_columns=col,hits_ground=re<6371.+1e-5,nq=n,**({'_joint':joint} if joint else {}))
@@ -129,9 +129,8 @@ class Bundle:
 
     Compression removes duplicate zero-width intervals, preserving the retained
     interval's endpoint orientation flag. No path samples are ever generated.
-    A2: per-ray Python packing replaced by _csr_vector (numerically equivalent, see
-    docs/SOS_FUSE2_PHASE_A.md); consecutive groups with equal edge width are
-    packed in one array call.
+    A2: per-ray Python packing was replaced by the numerically equivalent
+    _csr_vector; consecutive groups with equal edge width are packed in one array call.
     """
     # Sidecars are method-scoped even when an existing host Bundle is reused.
     # Properties also cover __new__ bundles and device promotion's setters.
@@ -236,7 +235,7 @@ class TransientGeometry:
 FIELDS=('starts','targets','dirs','weights','edge_off','edges','lower','end_j','end_f','end_col','hits')
 DTYPES=dict(cell_off='i8',starts='f8',targets='f8',dirs='f8',weights='f4',edge_off='u4',edges='f8',lower='u2',
             end_j='i4',end_f='f4',end_col='f4',hits='u1')
-TRAIL=dict(starts=(3,),targets=(3,3),dirs=(3,),end_col=(3,))
+TRAIL=dict(starts=(3,),targets=(3,3),dirs=(3,),end_col=(5,))
 
 
 class PackedCache:
@@ -294,7 +293,7 @@ class PackedCache:
         rays=int(cell_off[-1]);shapes=dict(cell_off=[len(records)+1],starts=[len(records),3],targets=[len(records),3,3],
             edge_off=[rays+1],edges=[base])
         for k in ('dirs','weights','lower','end_j','end_f','end_col','hits'):shapes[k]=[rays,*TRAIL.get(k,())]
-        layout=dict(version=2,cells=len(records),rays=rays,edges=base,dtypes=DTYPES,shapes=shapes)
+        layout=dict(version=3,cells=len(records),rays=rays,edges=base,dtypes=DTYPES,shapes=shapes)
         for k,shape in shapes.items():
             if (f/(k+'.bin')).stat().st_size!=int(np.prod(shape))*np.dtype(DTYPES[k]).itemsize:raise RuntimeError(f'E_PACKED_SIZE: {k}')
         (f/'layout.json').write_text(json.dumps(layout,indent=1)+'\n')
@@ -303,6 +302,9 @@ class PackedCache:
     def open(self):
         """Host memmaps in the original Bundle key order, plus per-cell records."""
         layout=json.loads((self.folder/'layout.json').read_text())
+        from .geometry_contract import PACKED_LAYOUT_VERSION
+        if layout.get('version') != PACKED_LAYOUT_VERSION or layout['shapes'].get('end_col') != [layout['rays'],5]:
+            raise ValueError('E_PACKED_LAYOUT: incompatible optical component layout')
         records=[json.loads(line) for line in (self.folder/'journal.jsonl').read_text().splitlines()]
         arrays={}
         for k in ('cell_off',)+FIELDS:
@@ -316,7 +318,8 @@ def identity(s,version):
     lookup); version 2 = sosfuse2 packed cache (hashes sosfuse2/geometry.py);
     version 3 = sosfuse2 two-layer COMMON layer: identical but without the aerosol
     scale height (A3: only end_columns[:,1] depends on it)."""
-    upstream=[paths.ACCEPTED/n for n in ('engine.py','sos_probe.py','sos_sky.py','sos_full.py','b2_driver.py')]
+    from .geometry_contract import UPSTREAM
+    upstream=[paths.PKG/n for n in UPSTREAM]
     files={paths.rel(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in upstream}
     if version==1:
         # The original sosfuse (v1) geometry is not part of the package: its cache can be read only inside sky-sos. The v1
@@ -329,6 +332,8 @@ def identity(s,version):
                  height=s.kernel.height,version=version,files=files)
     from .column_table import identity as column_identity
     content['column_method']=column_identity()
+    from .column_table import molecular
+    content['minor_profiles']=[molecular(None,k) for k in (2,3)]
     if version==3:del content['height'];content['layer']='common: all endpoint arrays; end_col[:,1] replaced per scale height'
     profile=tropo_profile.of(s)
     # Two-layer aerosol: v1/v2 caches hold this state's end_col[:,1], so the profile joins their identity (absent = unchanged).
@@ -517,7 +522,7 @@ class TwoLayerGeometry(ResidentGeometry):
     The common layer is any complete packed build; it may be converted from a v1
     cache of ANY scale height (identity equal except height).  The aerosol column
     of the current height is loaded from common/aerosol/H_<hex>.f4 or recomputed by
-    aerosol_column() and stored.  The device end_col is the composite (rays,3)
+    aerosol_column() and stored.  The device end_col is the composite (rays,5)
     contiguous array, so kernel.cu's boundary attenuation reads this state's column.
     """
     _version=3
@@ -578,7 +583,7 @@ class TwoLayerGeometry(ResidentGeometry):
         from . import host_cache
         optics=getattr(self.s,'density_optics',None)
         if host_cache.enabled() and optics is not None:
-            end_col[:,[0,2]]=host_cache.endpoint_columns(self.s,host,optics,self.cache,self.stats['signature'],
+            end_col[:,[0,2,3,4]]=host_cache.endpoint_columns(self.s,host,optics,self.cache,self.stats['signature'],
                 prepared=getattr(self,'_joint',{}).get('density'))
         self.install(host,records,dict(end_col=end_col))
         joint=self.__dict__.pop('_joint',{})

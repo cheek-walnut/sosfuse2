@@ -174,10 +174,10 @@ def occupancy_tests():
                 predicted=min(shared_blocks,65536//register_block,1536//256)
                 rows.append(dict(variant=name,phase=phase,shared_bytes=shared,regs_assumed=regs,
                                  resource_blocks_upper_bound=predicted,warps_upper_bound=8*predicted))
-    assert Kernel(block_size=256,flags=C2+('STRATO',)).shared_bytes(15,0)==71832  # +8 warps x 48 B PATH_DS ray DS cache (warm)
-    assert Kernel(block_size=256,flags=C2+('STRATO',)).shared_bytes(15,1)==71832
+    assert Kernel(block_size=256,flags=C2+('STRATO',)).shared_bytes(15,0)==74008
+    assert Kernel(block_size=256,flags=C2+('STRATO',)).shared_bytes(15,1)==74008
     return dict(pass_=True,shared_comparisons=checks,block256_limit=101376,
-                remaining_C3_STRATO_bytes=101376-71832,resources=rows,
+                remaining_C3_STRATO_bytes=101376-74008,resources=rows,
                 scope='Analytic limits only. Register counts assumed; 256-register/warp allocation, 1KiB/block runtime shared reserve assumed. Use CUDA occupancy API on each target.')
 
 

@@ -8,7 +8,7 @@ from sosfuse2.numerical_checks import within_tol
 from sosfuse2.geometry import create,normal_state,TransientGeometry
 from sosfuse2.fused import Solver
 from sosfuse2.stratosphere import build_optics,density
-# --baseline is required: the npz pair of the fixed measurement lives outside the package (2026-11-03 release review).
+# --baseline is required: the npz pair of the fixed measurement lives outside the package.
 
 
 def zero_bytes(current,baseline):
@@ -70,7 +70,7 @@ def additivity(s,scope,g=None):
     e,z=np.deg2rad(el.ravel()),np.deg2rad(az.ravel())
     dirs=np.sin(e)[:,None]*up+np.cos(e)[:,None]*(np.cos(z)[:,None]*ex+np.sin(z)[:,None]*ey)
     g=s.geo.pack(np.broadcast_to(p,dirs.shape),dirs,s.geo.query_n)
-    c=copy.copy(s.kernel.setup(s,g['nq']));c['asca']=np.array([.00001],'f4');c['ext']=np.zeros((3,1),'f4')
+    c=copy.copy(s.kernel.setup(s,g['nq']));c['asca']=np.array([.00001],'f4');c['ext']=np.zeros_like(c['ext'])
     c['gm']=np.zeros_like(c['gm']);c['gval']=np.zeros_like(c['gval']);c['gv']=np.zeros_like(c['gv'])
     field=np.zeros((s.geo.ns,1132,1),'f4')
     both=reference.transport(g,c,field,True)
@@ -145,7 +145,7 @@ def main():
     if not a.skip_timing:report['V6']=timing(a.out)
     with open(Path(__file__).with_name('assets')/'strato_sulfate_rg0.08_sg1.6_n1.43.json') as f:report['Mie']=json.load(f)['checks']
     report['peak_rss_bytes']=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    report['local_numeric_pass_']=report['V1']['pass_'] and report['V2']['pass_'] and report['V4']['pass_'] and report['profile_grid']['pass_'] and all(v['pass_'] for v in report['Mie'].values())
+    report['local_numeric_pass_']=report['V1']['pass_'] and report['V2']['pass_'] and report['V3']['source_integral_pass_'] and report['V4']['pass_'] and report['profile_grid']['pass_'] and all(v['pass_'] for v in report['Mie'].values())
     (a.out/'strato_validation.json').write_text(json.dumps(report,indent=2,allow_nan=False)+'\n');print('STRATO numeric gates',report['local_numeric_pass_'],flush=True)
     return report
 if __name__=='__main__':raise SystemExit(0 if main()['local_numeric_pass_'] else 1)

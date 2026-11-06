@@ -86,7 +86,7 @@ if __name__ == '__main__':
 
 def test_column_keeps_the_cpu_budget_cap():
     # Mac cpu_budget() = 4: the column pool stays at the old max(--threads, budget // workers) while the other pools
-    # take host_cores // workers (codex review of c92d79f: pool children are outside the RSS guard).
+    # take host_cores // workers (pool children are outside the RSS guard).
     _, _, updates = pl.prep_workers(1, 1, 10, {}, column_budget=4)
     assert updates['SOSFUSE2_COLUMN_WORKERS'] == '4' and updates['SOSFUSE2_SUN_WORKERS'] == '10'
     _, _, updates = pl.prep_workers(2, 3, 10, {}, column_budget=4)

@@ -2,7 +2,8 @@
 
 A state enables it with a top-level block
     "troposphere_phase": {"status": "enabled", "model": "mie", "optics_table": "default" | "<package-relative or absolute json>"}
-Absent block or any other status = the historical Henyey-Greenstein path (parameters.g), untouched.
+An absent block or status "disabled" uses the historical Henyey-Greenstein path (parameters.g).
+Other status values are rejected.
 
 Only the angular distribution changes. Extinction, SSA and the Angstrom law stay the state's scalar
 parameters (aod550, ssa, angstrom), so an HG/Mie pair differs in the phase function alone.

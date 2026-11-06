@@ -5,6 +5,7 @@ XYZ summation order and the legacy 3 / density 2 / strato scalar reductions
 match sos_sky.geometry_segments and its consumers exactly.
 """
 import numpy as np
+from .components import NCOMP, MOLECULAR_COLUMNS
 
 
 def segments(p, d, old, n, edges=None):
@@ -41,27 +42,31 @@ def integrate(p, d, old, n=24, *, legacy=False, optics=None, profile=None, edges
         from . import column_table
         if column_table.method() != 'gl24':
             return column_table.integrate(p, d, old, legacy=legacy, optics=optics, profile=profile, edges=edges)
-    from .density import profiles
+    from .density import molecular_profiles
     from .stratosphere import density
     p = np.broadcast_to(p, np.shape(d))
-    base = np.zeros((len(d), 3)) if legacy else None
-    corrected = np.zeros((len(d), 2)) if optics is not None and optics['mask'] else None
+    base = np.zeros((len(d), NCOMP)) if legacy else None
+    corrected = np.zeros((len(d), 4)) if optics is not None else None
     strato = np.zeros(len(d)) if profile is not None else None
     for active, r, ds in segments(p, d, old, n, edges):
         h = r-6371.
         if base is not None:
             base[active] += np.sum(old.profiles(h)*ds[..., None], axis=1)
         if corrected is not None:
-            corrected[active] += np.sum(profiles(h, optics)*ds[..., None], axis=1)
+            corrected[active] += np.sum(molecular_profiles(h, optics)*ds[..., None], axis=1)
         if strato is not None:
             strato[active] += np.sum(density(h, profile)*ds, axis=1)
+    if corrected is not None:
+        from .density import exact_profile_columns
+        end = old.probe.boundaries(p,d)[:,-1] if edges is None else edges[:,-1]
+        corrected[:,2:] = exact_profile_columns(p,d,end,optics,selected=(2,3))[:,2:]
     return base, corrected, strato
 
 
 def replace(base, corrected, optics):
     out = np.array(base, copy=True)
     if corrected is not None:
-        for col, k in ((0, 0), (2, 1)):
-            if optics['mask'] & (1 << k):
+        for k, col in enumerate(MOLECULAR_COLUMNS):
+            if k >= 2 or optics['mask'] & (1 << k):
                 out[:, col] = corrected[:, k]
     return out

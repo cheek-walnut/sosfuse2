@@ -1,4 +1,4 @@
-"""2026-10-21 eda regressions (results/l16check_20261021): PHASE lines without timestamp_ns broke pipeline_trace.py,
+"""2026-10-21 development GPU host regressions: PHASE lines without timestamp_ns broke pipeline_trace.py,
 and concurrent states built the same solar table at once. No CUDA, no spawn."""
 import re
 import sys
@@ -81,7 +81,7 @@ def test_unwritable_shared_root_falls_back_to_the_state_folder(tmp_path):
 
 
 def test_profile_code_change_misses_the_shared_table(tmp_path):
-    # codex review 2026-10-21: the aerosol_profile tag hashes the profile config, so tropo_profile.py's code must key it.
+    # the aerosol_profile tag hashes the profile config, so tropo_profile.py's code must key it.
     old, prebuild, built = _fake(tmp_path); shared = tmp_path/'geometry'; state = tmp_path/'aerosol_profile'/'tagA'
     real = Path.read_bytes
     for edit in (b'', b'# changed profile code'):
@@ -93,7 +93,7 @@ def test_profile_code_change_misses_the_shared_table(tmp_path):
 
 
 def test_shared_write_failure_after_lock_falls_back_with_errno(tmp_path):
-    # codex review 2026-10-21: mkdir and the lock succeed, then prebuild's write is refused (e.g. folder made read-only).
+    # mkdir and the lock succeed, then prebuild's write is refused (e.g. folder made read-only).
     old, prebuild, built = _fake(tmp_path); shared = tmp_path/'geometry'
     def refusing(old_, scale, folder):
         if shared in folder.parents:raise PermissionError(13, 'Permission denied')

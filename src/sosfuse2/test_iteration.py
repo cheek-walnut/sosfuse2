@@ -27,7 +27,7 @@ def checks():
     solver.boxes=lambda field:np.broadcast_to(field[0,0],(5,7,waves)).copy()
     field,stats=solver.solve(max_eval=16,tolerance=.005)
     relative=float(np.max(abs(field-expected)/expected))
-    # The contract is a residual, not a true-error tolerance. For q <= .75,
+    # The tolerance applies to the residual, not the true error. For q <= .75,
     # e(F(x)) = q/(1-q) * residual; the conservative bound is 3 * .005.
     error_bound=float(contraction.max()/(1-contraction.max())*.005)
     first_done=next(i for i,row in enumerate(stats['history']) if row['converged'][0])

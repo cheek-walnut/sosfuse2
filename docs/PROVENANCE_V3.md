@@ -19,11 +19,11 @@ checkout (`scripts/sosfuse2`, 2026-10) are v3; tables baked from the `sosfuse2` 
 
 | v3 (`code_hashes` key) | v4 key | note |
 |---|---|---|
-| `scripts/sosfuse2/<module>.py` (every `*.py`, tests included: 141 keys) | `sosfuse2/<module>.py` for the fixed list `paths.PRODUCTION_MODULES` (54) | tests and `testing.py` are not provenance inputs in v4 |
-| — (not hashed) | `sosfuse2/accepted/<file>.py` (`run_gpu_state_v3.ACCEPTED_SOURCES`, 9) | the frozen accepted solver sources and their loader; v3 never hashed them (gap closed) |
+| `scripts/sosfuse2/<module>.py` (every `*.py`, tests included: 141 keys) | `sosfuse2/<module>.py` for the fixed list `paths.PRODUCTION_MODULES` | tests and `testing.py` are not provenance inputs in v4 |
+| — (not hashed) | `sosfuse2/accepted/<file>.py` (`run_gpu_state_v3.ACCEPTED_SOURCES`, 2) | the loader and package initializer; promoted `solver_*.py` files are in `PRODUCTION_MODULES` |
 | — | `sosfuse2/host/{__init__,host_cores,pack_state}.py`, `sosfuse2/native/sh_cpu.cpp` | host helpers and the CPU kernel source |
 | `scripts/sosfuse2/kernel.cu` | `sosfuse2/kernel.cu` | |
-| `scripts/sosfuse2/assets/<data>` (when the block used it) | `sosfuse2/assets/<data>` for `DATA_ASSETS` (10), always | v3 hashed the A′ inputs only when the spectral block used them |
+| `scripts/sosfuse2/assets/<data>` (when the block used it) | `sosfuse2/assets/<data>` for `DATA_ASSETS`, always | v3 hashed the A′ inputs only when the spectral block used them |
 | `scripts/sosfuse2/assets/usstd76_profile.json` | `sosfuse2/assets/usstd76_profile.json` — a logical key (`density.ASSET_KEY`) | the file is generated into the work root on first use (IPRT inputs, pinned sha256); hashed only when the state uses `ozone_profile usstd76` |
 | `scripts/sosfuse2/assets/strato_*.json`, `tropo_*.json` (state dependent) | `sosfuse2/assets/...` (state dependent) | `stratosphere.path_label`, `tropo_mie.path_label` |
 | `assets/spectra_fine.json` (spectral block `asset` label) | unchanged `assets/spectra_fine.json` | the label is part of the block signature; kept for block compatibility. The same file is also `sosfuse2/assets/spectra_fine.json` in the fixed list |
@@ -47,8 +47,10 @@ the current digest; re-resolving a block that carries a superseded digest record
 
 ## Signature inputs (v4)
 
-`sha256(json.dumps(dict(contract, state, backend, reduced, settings, polarization_model, tolerance, code_hashes, grid[, derived]),
-sort_keys=True))`. Not signature inputs: `package_version`, `package_commit`; they are recorded beside the signed fields in
+The signed dictionary has the keys `contract`, `physics`, `optics_state`, `state`, `backend`, `reduced`, `settings`,
+`polarization_model`, `tolerance`, `code_hashes` and `grid`; it also has `derived` when a derived source is used. Its
+signature is `hashlib.sha256(json.dumps(signed, sort_keys=True, allow_nan=False).encode()).hexdigest()`.
+Not signature inputs: `package_version`, `package_commit`; they are recorded beside the signed fields in
 `meta.json` so the same bytes sign the same whether run in-tree or installed (decision 2026-11-03). `package_version` is the
 installed metadata version (`null` in-tree without an install). `package_commit` is, in this order: `SOSFUSE2_PACKAGE_COMMIT`; the
 installer's `direct_url.json` (`vcs_info.commit_id` of a pip/uv VCS install), used only when the installed distribution's
@@ -75,7 +77,7 @@ mode, code_hashes` match; `package_version`/`package_commit` are recorded in its
   and the derived asset's values (≤ 4.7e-15 relative for air, ≤ 1.2e-15 for ozone) and identity changed. The AGENTS.md
   tolerance for prepared quantities is 1e-6. v3 tables record `ozone_profile.asset_sha256 = a7ccf7b1…` in their resolved
   spectral block; v4 tables record `05dfeb6e…`. Readers compare asset identities within the same `contract` version only.
-- Regression evidence: `widget_bm45` state `L19s3_tau0p01_aod0p15_g0p65` baked by the installed package on eda (RTX 3080,
+- Regression evidence: `widget_bm45` state `L19s3_tau0p01_aod0p15_g0p65` baked by the installed package on the development GPU host (RTX 3080,
   2026-11-03) against the 2026-11-02 v3 table: 0 of 20,250,000 values outside rtol 1e-5 (the two tables were byte-identical;
   that is an observation, not a requirement).
 
@@ -83,3 +85,7 @@ mode, code_hashes` match; `package_version`/`package_commit` are recorded in its
 
 `sky-sos-v0.1.1` (research checkout, `scripts/sosfuse2`) → public `sosfuse2` v1.0.0. The tag points are recorded in the sky-sos
 checkout (not in this repository); older commit SHAs cited in records stay valid there.
+
+The accepted-source promotion keeps the `contract` field at v4. All seven promoted `solver_*.py` files enter the fixed production manifest.
+Geometry, host and column key versions change once for the new source layout; `solver_optics.py` is excluded from those
+cache keys but included in product and gate identity. Old v4 tables remain readable; old sources cannot be reused by new code.

@@ -27,7 +27,7 @@ DEFAULTS. Source: LOWTRAN7 lowtran7.f, https://raw.githubusercontent.com/space-p
 (fetched 2026-10-07; 875,546 bytes, the same length and block offsets as the local copy sha256 25e83d94e24b... whose line
 numbers are quoted): BLOCK DATA PRFDTA :13587-13630, AERPRF :3900-3938, season default :1068, EXPINT interpolation :4057.
   bl_top_km 2.0          boundary layer table HZ2K covers ZHT <= 2 km (:13592-13593, AERPRF :3913). Verified.
-  bl_scale_height_km 2.14  HZ2K 23 km column (rural V 23 km = Lee 2003 reference case, results/lit_lee/lee_2003_purple.txt:461-463):
+  bl_scale_height_km 2.14  HZ2K 23 km column (rural V 23 km = Lee 2003 reference case):
                          0.158 / 0.0991 / 0.0621 km^-1 at 0 / 1 / 2 km (:13619-13624, verified); log least squares H = 2.142 km
                          (the 50 km column 0.0662/0.0415/0.026 gives the same H; the 10/5/2 km columns are flat 0-1 km).
   ft_aod550 0.0797, ft_scale_height_km 1.85  = lowtran_free_troposphere(V <= 23 km) below. LOWTRAN's own class rule
@@ -37,12 +37,12 @@ numbers are quoted): BLOCK DATA PRFDTA :13587-13630, AERPRF :3900-3938, season d
                          HZ2K(3,.) interpolated in 1/V (:3914-3920): 0.0621 for every VIS <= 23 km. MODEL 3 (midlatitude winter,
                          Lee 2003 lee_2003_purple.txt:444) selects fall/winter (:1068); levels are joined exponentially (EXPINT
                          :4057). V <= 23 km: 2-10 km integral 0.0797, log least squares H 1.85 km. The Lee comparison states (aod
-                         .2 / .4 ~ V 23 / 10 km by results/lee_turbidity_metric_20261007/REPORT.md:35, itself a 'hypothesis') are
+                         .2 / .4 ~ V 23 / 10 km by a development estimate, itself a 'hypothesis') are
                          in this class, so it is the default; a state with V > 23 km (aod below about .2) should carry its own
                          ft values from lowtran_free_troposphere(V) (V 50 km: 0.0429, H 2.39 km).
   bl_transition_km 1.0   smoothing width (not a LOWTRAN quantity). A real boundary-layer top is an entrainment zone a few
                          hundred m to ~1 km thick; 1 km also resolves the blend for the GL-24 column quadrature (vertical column
-                         vs a dense integral, these defaults, aod .15: +1.40 % at 0.2 km, -0.12 % at 1.0 km; sky-sos research records).
+                         vs a dense integral, these defaults, aod .15: +1.40 % at 0.2 km, -0.12 % at 1.0 km; measured during development).
 """
 import hashlib, inspect, json, math, re, textwrap, types
 import numpy as np
@@ -167,8 +167,20 @@ def parameters(cfg):
     abl = aod-aft
     kb = 0. if cfg['bl_shape'] == 'uniform' else 1./cfg['bl_scale_height_km']
     kf = 1./cfg['ft_scale_height_km']
+    # The kernel evaluates the FT exponential even where its blend is zero.
+    # Reject before the FP64 integral can overflow or produce a bad FP32 vector.
+    limit = math.log(np.finfo('f4').max) - 1e-4
+    if w/2*kf >= limit:
+        raise ValueError('E_TROPO_PROFILE_FP32: free-troposphere exponent overflows')
     ib, jf = basis_integrals(z, w, kb, kf)
     vector = np.array([z-w/2, 1./w, abl/aod/ib, kb, aft/aod/jf, kf, z], 'f8')
+    with np.errstate(over='ignore', invalid='ignore'):
+        k = vector.astype('f4')
+    if not np.isfinite(k).all():
+        raise ValueError('E_TROPO_PROFILE_FP32: nonfinite kernel parameter')
+    exponent = (float(k[6])-float(k[0]))*float(k[5])
+    if exponent >= limit or (k[4] > 0 and math.log(float(k[4]))+exponent >= limit):
+        raise ValueError('E_TROPO_PROFILE_FP32: free-troposphere term overflows')
     return dict(vector=vector, aod_bl=abl, aod_ft=aft, column=1., basis=(ib, jf))
 
 
@@ -258,11 +270,9 @@ def metadata(s):
 # ---- rig/engine.py create(): source patch applied only for an enabled block ----------------------------------------
 
 PATCHES = (
-    ("[('np.maximum(h,0)/1.2','np.maximum(h,0)/AER_HEIGHT')]", "[('np.exp(-np.maximum(h,0)/1.2)','AER_PROFILE(h)')]"),
     ("oldscope['AER_HEIGHT']=H\n", "oldscope['AER_HEIGHT']=H;oldscope['AER_PROFILE']=AER_PROFILE\n"),
     ("aer=params['aod550']/(H*(-np.expm1(-Z/H)))", "aer=params['aod550']/AER_COLUMN"),
     ("AER_HEIGHT=H,AER_G=gg)", "AER_HEIGHT=H,AER_G=gg,AER_PROFILE=AER_PROFILE)"),
-    ("('np.exp(-g.h/1.2)','np.exp(-g.h/AER_HEIGHT)',2)", "('np.exp(-g.h/1.2)','AER_PROFILE(g.h)',2)"),
     ("kernel=Kernel(threads,H,gg)", "kernel=AER_KERNEL(Kernel(threads,H,gg))"),
 )
 SUN = ((r"HOST_CACHE_SUN\(old,(\d+),cache,H\)", r"HOST_CACHE_SUN(old,\1,AER_FOLDER(cache),H)"),

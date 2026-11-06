@@ -62,6 +62,8 @@ def save(path,data):
 
 
 def run_state(args,output,wavelengths,state=None,cache=None):
+    if args.benchmark:
+        os.environ.setdefault('SOSFUSE2_KSPLIT_FALLBACK', '0')
     import numpy as np
     from sosfuse2.geometry import create,TransientGeometry,ResidentGeometry,TwoLayerGeometry
     from sosfuse2.fused import Solver
@@ -130,8 +132,10 @@ def run_state(args,output,wavelengths,state=None,cache=None):
         name=props['name'];name=name.decode() if isinstance(name,bytes) else str(name)
         report['device']=dict(name=name,compute_capability=[int(props['major']),int(props['minor'])],
                               CUDA_runtime=int(xp.cuda.runtime.runtimeGetVersion()),CuPy=xp.__version__)
+    timing_path=output/f'timings-{time.time_ns()}.json'
+    report['timing_file']=timing_path.name
     save(output/'benchmark.json',report)
-    TIMERS.write(output/'timings.json',dict(state=s.fuse_state['id'],scope='A1 stage timers; setup_seconds = first_light_total (includes geometry prepare)'))
+    TIMERS.write(timing_path,dict(state=s.fuse_state['id'],scope='A1 stage timers; setup_seconds = first_light_total (includes geometry prepare)'))
     return report
 
 

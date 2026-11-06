@@ -170,7 +170,7 @@ def test_disabled_ground_sh_preserves_ground_convolution_tokens(tmp_path):
         opts = ['-DFW=15', '-DK_FIRST=1', f'-DK_PHASE={phase}', '-DK_BOUNDARY=0']+['-D'+f for f in flags]
         tokens = [re.findall(r'\w+|[^\s\w]', subprocess.check_output(
             ['clang++', '-E', '-P', '-x', 'c++', *opts, str(p)], text=True)) for p in files]
-        # The numerical contract permits unrelated first-light arithmetic/layout
+        # The numerical tolerance permits unrelated first-light arithmetic/layout
         # changes. This test guards the disabled ground-SH path, not all HEAD tokens.
         def convolution(t):
             assert 'ground_sh_sums' not in t

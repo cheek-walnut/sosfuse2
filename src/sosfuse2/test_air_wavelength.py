@@ -1,4 +1,4 @@
-"""D1 air wavelength axis (sky-sos docs/SPEC_D1_wavelength_axis.md §6, §10): air_wavelength.py against NIST's published Ciddor values,
+"""D1 air wavelength axis: air_wavelength.py against NIST's published Ciddor values,
 the production builder's refusals, and independent recomputations of the relabelled ozone columns and of the TSIS-1 HSRS
 solar column (0.1 nm cell means).
 
@@ -44,10 +44,10 @@ def test_standard_air_chain_and_edlen_record():
     lam = np.arange(360., 840.1, 1.)
     np.testing.assert_allclose(AW.ciddor_dry(lam, 15., 101325.), AW.standard_n(lam), rtol=0, atol=1e-15)   # density ratio 1
     gap = AW.standard_n(lam) - AW.edlen1966_n(lam)
-    assert 1e-8 < gap.min() and gap.max() < 2e-8                     # record: 1.10-1.44e-8 (sky-sos research records, 10-31)
+    assert 1e-8 < gap.min() and gap.max() < 2e-8                     # record: 1.10-1.44e-8
     air = AW.vacuum_to_air(lam)
     assert np.all(np.diff(air) > 0) and np.all(np.diff(lam - air) > 0) and .101 < (lam - air)[0] and (lam - air)[-1] < .232
-    np.testing.assert_allclose((lam - air)[[40, 440]], [.11307, .21998], atol=1e-5)   # 10-30 wavelength_shift.md: 0.113 @400, 0.220 @800
+    np.testing.assert_allclose((lam - air)[[40, 440]], [.11307, .21998], atol=1e-5)   # measured: 0.113 @400, 0.220 @800
 
 
 def test_builder_refuses_other_sources(tmp_path):
@@ -96,7 +96,7 @@ def test_independent_relabel():
 
 @NEEDS_HSRS
 def test_hsrs_jacobian_conserves_energy():
-    """The builder's air relabel with the Jacobian keeps the source integral (sky-sos research records 1.04e-14, SPEC_D1 §10.1 ③)."""
+    """The builder's air relabel with the Jacobian keeps the source integral (measured 1.04e-14)."""
     B = builder(); H = B.read_hsrs(HSRS); la, ea = B.to_air(H)
     assert np.all(np.diff(la) > 0)
     assert abs(np.trapezoid(ea, la)/np.trapezoid(H[:, 1], H[:, 0]) - 1) <= 1e-12
@@ -106,7 +106,7 @@ def test_hsrs_jacobian_conserves_energy():
 def test_independent_solar_cell_means():
     """Restates the solar column without the builder and without a Jacobian: each air cell [l - 0.05, l + 0.05] is mapped to
     the vacuum axis (fixed-point inverse of vacuum_to_air) and the vacuum source's linear interpolant is integrated there.
-    Within the 7-digit rounding (measured max 4.70e-7, SPEC_D1 §10.1 ③ rtol 6e-7)."""
+    Within the 7-digit rounding (measured max 4.70e-7, rtol 6e-7)."""
     d = np.loadtxt(HSRS, delimiter=',', skiprows=1); lv, ev = d[:, 0], d[:, 1]
     fine = json.loads(FINE.read_text())
     grid = np.asarray(fine['wavelength_nm']); edges = np.r_[grid - .05, grid[-1] + .05]
@@ -136,7 +136,7 @@ def test_builder_provenance_refuses_bad_solar_columns():
 
 @NEEDS_HSRS
 def test_cpu_check_thresholds():
-    """SPEC_D1 §10.3 (user 2026-10-31): the filtered solar column vs exact source integrals — BM45 1e-3 (measured 7.3e-4),
+    """The filtered solar column vs exact source integrals — BM45 1e-3 (measured 7.3e-4),
     bins >= 5 nm 5e-3 (3.9e-3), Rayleigh 1e-4 (4.1e-5), sun |du'v'| 1e-5 (6.7e-7); a point-sampled column fails."""
     spec = importlib.util.spec_from_file_location('cpu_check', testing.sky_sos('results/d1_axis_20261031/cpu_check.py'))
     C = importlib.util.module_from_spec(spec); spec.loader.exec_module(C)

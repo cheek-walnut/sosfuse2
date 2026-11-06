@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Spectral sampling modes (spectral.py, sky-sos docs/SPEC_spectra_1nm.md §2, §4-1..4, §4-6, §6-3): Mac checks.
+"""Spectral sampling modes (spectral.py): Mac checks.
 
   (default)  unit checks: legacy settings unchanged, band = bin integral, point = monochromatic, edge/mode errors,
-             weights split invariance (§4-3), provenance vs assets/spectra.json (§4-4), contract keys and hashes
+             weights split invariance (§4-3), provenance vs assets/spectra.json (§4-4), `contract` keys and hashes
   --runs     reduced NumPy solves (rig/states_v2.json clear_33, 3 wavelengths) through run_gpu_state_v3:
                legacy     this tree == 6a5c3f5 tree (git archive), table bytes (§6-3)
                E          band with E of bin 1 doubled: that wavelength x2 exactly, the others bit-equal (§4-1)
@@ -12,7 +12,7 @@
                n>15       16 band wavelengths (2 chunks): M3 extra-elevation row from the stored source == direct run row
 usage: python -B -m sosfuse2.test_spectral [--runs --out <dir> --jobs 4]
 """
-import argparse, json, os, shutil, subprocess, sys, tempfile
+import argparse, json, os, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -112,9 +112,9 @@ def units():
         x15 = SP.representative(b15, w15)[1] @ SP.channel_weights(b15, w15)
         x30 = SP.representative(b30, w30)[1] @ SP.channel_weights(b30, w30)
         check(f'§4-3 split invariance ({mode}) XYZS', np.max(abs(x30/x15-1)) < 1e-12, '%.1e' % np.max(abs(x30/x15-1)))
-    # §4-4 provenance (D1, user 2026-10-31: the check moves to the pre-relabel columns, sky-sos docs/SPEC_D1_wavelength_axis.md §3-3):
+    # Provenance (the check uses the pre-relabel columns):
     # the vacuum-axis ozone columns the builder makes before the air relabel vs assets/spectra.json [l, l+10) means, and the
-    # solar checks of SPEC_D1 §10.1 (TSIS-1 HSRS: Jacobian energy, column integral, BM45 vs the HSRS p1nm product). With the
+    # solar checks (TSIS-1 HSRS: Jacobian energy, column integral, BM45 vs the HSRS p1nm product). With the
     # gitignored sources present the builder is rerun (its columns must match the asset within the 7-digit rounding);
     # without them the self-check the builder stored in the asset is read.
     doc = json.loads(SP.ASSET.read_text()); sc = doc['self_check']
@@ -125,7 +125,7 @@ def units():
         spec = importlib.util.spec_from_file_location('build_spectra_fine', testing.sky_sos('scripts/build_spectra_fine.py'))
         B = importlib.util.module_from_spec(spec); spec.loader.exec_module(B)
         H = B.read_hsrs(HSRS); cols = B.columns(H, B.read_serdyuchenko(RAW)); sc = B.provenance(cols, H)
-        # tol, not bytes: AGENTS.md numeric contract (user 2026-10-30) — prepared inputs compare at rtol 1e-6; 6e-7 = 7-digit rounding
+        # tol, not bytes: prepared inputs compare at rtol 1e-6; 6e-7 = 7-digit rounding
         check('§4-4 builder rerun reproduces the asset columns (rtol 6e-7)',
               all(np.allclose(cols[k], doc[k], rtol=6e-7, atol=0) for k in ('solar', 'ozone_213K', 'ozone_233K', 'ozone_253K')))
         st, rt = doc['self_check']['solar'], sc['solar']
@@ -178,8 +178,8 @@ from sosfuse2 import run_gpu_state_v3 as V3
 kind,k=sys.argv[2],1
 if kind!='none':
     orig=SP.spec_table
-    def patched(b,w):
-        t=orig(b,w);key={'E':'solar','sigma':'ozone'}[kind];t[key][k]*= {'E':2.,'sigma':1.5}[kind];return t
+    def patched(b,w,state=None):
+        t=orig(b,w,state);key={'E':'solar','sigma':'ozone'}[kind];t[key][k]*= {'E':2.,'sigma':1.5}[kind];return t
     SP.spec_table=patched
 sys.argv=[sys.argv[0]]+sys.argv[3:];V3.main()
 '''
@@ -202,9 +202,15 @@ def load_hs(work, name):
 
 def runs(out, jobs):
     if ROOT is None: raise SystemExit(f'E_SKY_SOS_ROOT: --runs extracts the legacy tree {LEGACY_BASELINE} from the sky-sos checkout ({testing.ENV})')
-    out = Path(out); shutil.rmtree(out, ignore_errors=True); out.mkdir(parents=True)
+    out = Path(out)
+    if (out.exists() or out.is_symlink()) and not out.is_dir(): raise SystemExit(f'E_SPECTRAL_OUT_NOT_DIRECTORY: {out}')
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()): raise SystemExit(f'E_SPECTRAL_OUT_NOT_EMPTY: {out}')
     tree = out/'legacy_tree'; tree.mkdir()
-    subprocess.run(f'git -C {ROOT} archive {LEGACY_BASELINE} {" ".join(TREE_FILES)} | tar -x -C {tree}', shell=True, check=True)
+    with subprocess.Popen(['git', '-C', str(ROOT), 'archive', LEGACY_BASELINE, *TREE_FILES], stdout=subprocess.PIPE) as archive:
+        try: subprocess.run(['tar', '-x', '-C', str(tree)], stdin=archive.stdout, check=True)
+        finally: archive.stdout.close()
+        if archive.wait(): raise subprocess.CalledProcessError(archive.returncode, archive.args)
     leg, band = {'wavelengths': 3, 'spectral_mode': 'legacy'}, {'wavelengths': 3, 'spectral_mode': 'band'}
     tasks = dict(head=(tree, out/'w_head', 'leg', leg), cur=(CUR, out/'w_cur', 'leg', leg), band=(CUR, out/'w_band', 'band', band),
                  E=(CUR, out/'w_E', 'bandE', band, 'E'), sigma=(CUR, out/'w_sig', 'bandS', band, 'sigma'),
@@ -213,7 +219,7 @@ def runs(out, jobs):
     with ThreadPoolExecutor(jobs) as ex: R = {k: f.result() for k, f in {k: ex.submit(run, *v) for k, v in tasks.items()}.items()}
     R['shared_band'] = run(CUR, out/'w_shared', 'band', band)        # after the legacy state on the same work root
     # More than one FW=15 chunk (16 band wavelengths, 450-800 nm: the reduced grid converges there): a direct run with
-    # -4.5 deg in its rows vs M3 rows from the stored chunked source (run_extra, user 2026-10-28 n-wavelength fix)
+    # -4.5 deg in its rows vs M3 rows from the stored chunked source (run_extra)
     e16 = np.linspace(450, 800, 17); w16 = ((e16[:-1]+e16[1:])/2).tolist()
     b16 = dict(wavelengths=16, wavelengths_nm=w16, bin_edges_nm=e16.tolist(), spectral_mode='band')
     with ThreadPoolExecutor(2) as ex:
@@ -250,18 +256,24 @@ def test_units():
 
 
 def test_check_meta_contract():
-    """spectral.check_meta_contract: only a *signed* table (meta has `signature`) must name contract v3/v4."""
+    """spectral.check_meta_contract: only a *signed* table (meta has `signature`) must name `contract` v3/v4; every table's physics
+    must be known, and a table without physics (written before B2) reads as the legacy identity."""
     import pytest      # not at module level: this file is also a CLI harness (`python -m sosfuse2.test_spectral`)
+    from sosfuse2.components import physics, optics_state
     for contract in ('v3', 'v4'):
         assert SP.check_meta_contract(dict(signature='s', contract=contract)) == contract
+        assert SP.check_meta_contract(dict(signature='s', contract=contract, physics=physics(), optics_state=optics_state({}))) == contract
     for bad in (None, 'v2', 'merge49 contract text'):
         with pytest.raises(ValueError, match='E_PROVENANCE_CONTRACT'):
             SP.check_meta_contract(dict(signature='s', contract=bad))
     with pytest.raises(ValueError, match='E_PROVENANCE_CONTRACT'):
-        SP.check_meta_contract(dict(signature='s'))                            # signed, contract key absent
+        SP.check_meta_contract(dict(signature='s'))                            # signed, `contract` key absent
     assert SP.check_meta_contract(dict(contract='derived table: merge of two signed tables')) == 'derived table: merge of two signed tables'
-    assert SP.check_meta_contract(dict(id='x')) is None                        # unsigned and without a contract
+    assert SP.check_meta_contract(dict(id='x')) is None                        # unsigned and without a `contract` field
     assert SP.table_block(dict(contract='free text', settings=dict(spectral=None))) is None
+    for meta in (dict(contract='free text', physics='lambda4_v0'), dict(signature='s', contract='v4', physics=dict(physics(), minor_absorbers='on'))):
+        with pytest.raises(ValueError, match='E_PHYSICS_CONTRACT'):
+            SP.check_meta_contract(meta)
 
 
 def main():

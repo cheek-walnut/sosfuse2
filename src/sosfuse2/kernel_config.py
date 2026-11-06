@@ -10,7 +10,7 @@ import os
 
 
 def deterministic():
-    """Single parser for the optional deterministic accumulation contract."""
+    """Parse the optional deterministic accumulation setting."""
     value = os.environ.get("SOSFUSE2_DETERMINISTIC", "0")
     if value not in ("0", "1"):
         raise ValueError("E_DETERMINISTIC: SOSFUSE2_DETERMINISTIC must be 0 or 1")

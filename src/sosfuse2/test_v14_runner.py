@@ -1,4 +1,4 @@
-"""V14 grid contract, CPU only: stop at the solver boundary before any optical preparation."""
+"""V14 grid rules, CPU only: stop at the solver boundary before any optical preparation."""
 import hashlib
 import importlib.util
 import inspect
@@ -36,9 +36,9 @@ class Captured(Exception):
 
 def grids(tmp_path, cfg, creator=v3.create_configured, drift=False):
     engine = fused.load_engine(); original = engine.definitions
-    def definitions(relative, names, scope, replace=()):
-        result = original(relative, names, scope, replace)
-        if relative == 'accepted/b2_driver.py':
+    def definitions(relative, names, scope):
+        result = original(relative, names, scope)
+        if relative == 'solver_core.py' and 'Solver' in names:
             class StopSolver:
                 def __init__(self, geo, *args):raise Captured(geo)
             scope['Solver'] = StopSolver
@@ -81,7 +81,7 @@ def test_reject_incompatible_pairs(tmp_path):
 
 
 def test_actual_grids_match_original_harness_and_nr20(tmp_path):
-    old = fused.load_engine().definitions('accepted/sos_sky.py', ['grids'], dict(np=np))
+    old = fused.load_engine().definitions('solver_columns.py', ['grids'], dict(np=np))
     h, chi = old.grids(1)
     # Frozen pre-port harness V14 rule (SPEC.md height definition), preserving operation order and float64 bytes.
     expected = np.sort(np.r_[h, [(u+v)/2 for u,v in zip(h[:-1], h[1:]) if v<=13+1e-9],

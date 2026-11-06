@@ -1,4 +1,4 @@
-"""GPU promotion and the persistent payload keep the solver's SH order (753cfb4 review: they rebuilt Kernel at L32).
+"""GPU promotion and the persistent payload keep the solver's SH order (they rebuilt Kernel at L32).
 
 No CUDA: fused.Kernel is replaced by a recorder, so this runs on the Mac."""
 import sys

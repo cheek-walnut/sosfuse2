@@ -18,7 +18,8 @@ python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2
   (file, URL and cause in the message). With `SOSFUSE2_OFFLINE=1` and an empty work root, the tests that depend on the
   `usstd76` density asset (about 23 cases) fail with `E_IPRT_OFFLINE`; they do not skip. Download the two files once
   (`python -B -c "from sosfuse2 import iprt; iprt.inputs()"`) or leave `SOSFUSE2_OFFLINE` unset.
-- One reduced NumPy solve (what the clean-room check runs, ~minutes):
+- One reduced NumPy solve (what the clean-room check runs, ~minutes), after the one-time O₄ preparation in the README
+  (`python -m sosfuse2.prepare_minor_absorbers --download`; without it the solve stops with `E_O4_ASSET_MISSING`):
   `python -B -m sosfuse2.run_gpu_state_v3 --id clear_34 --reduced --backend numpy --threads 2 --work-root <dir>`
 - Setting `SOSFUSE2_SKY_SOS_ROOT` to a checkout that lacks a record is a failure, not a skip.
 - macOS: the persistent queue (`pipeline --persistent`, `test_r17_port`, `test_pipeline_persistent`) listens on a Unix socket
@@ -35,7 +36,7 @@ python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2
   the kernel itself is compiled by NVRTC at run time and does not need clang.
 - Five cases are known failures from the research baseline and are `xfail(strict=True)`: ids, causes and the retirement rule are
   in `docs/KNOWN_FAILURES.md`. Expected tier-1 outcome: `0 failed`, 5 `xfailed`; an `XPASS` of a strict entry means an entry
-  must be retired. The platform-dependent entry `GATE_V2_ON_GRID` adds a sixth `xfailed` where NumPy dispatches AVX-512.
+  must be retired. The +1 ULP tests of the trace interpolation (on-grid samples and atan2 last bit) are ordinary tests on every platform.
 
 ## 2. CUDA machine (CuPy, CUDA 12), no sky-sos checkout
 
@@ -63,8 +64,8 @@ SOSFUSE2_SKY_SOS_ROOT=/path/to/sky-sos python -B -m sosfuse2.gate --gf --out <di
 G-F (full-grid fixed table) reuses the sky-sos bake template `rig/bake/bake_run.py`, a research-side dependency; without
 the root it fails with `E_GATE_CONFIG`. The fixed table itself is not part of the package: `gate/baselines/manifest.json`
 records it under `gf.reference` as a home-relative path on the measurement host (`~/...`, expanded against your home
-directory; `BASELINE_LOG.md` uses the same form; the absolute form was removed for publication, and a new record writes `~/…`
-for a file under the home directory and the bare file name otherwise) together with its radiance SHA-256; pass the table with `--reference <table.npz>` (the SHA
+directory) together with its radiance SHA-256. Historical paths in `BASELINE_LOG.md` are reduced to file or directory names;
+a new record writes `~/…` for a file under the home directory and the bare file name otherwise. Pass the table with `--reference <table.npz>` (the SHA
 check `E_GATE_MANIFEST_SHA` still applies). The research tests (`test_cache_store`, `test_v14_runner`, the kernel_ab evidence
 packs, …) run in this tier as well. This tier is outside the public CI; it is the consumer's (sky-sos) deployment check.
 `SADDLE_DATA_ROOT` (optional) names a research input root holding the packed full-grid geometry cache and the rig logs that

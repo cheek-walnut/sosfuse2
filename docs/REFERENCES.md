@@ -67,6 +67,9 @@ the CIE data sets against the CIE site. Where no DOI exists the entry names the 
 
 ## Data sources and model inputs
 
+- Anderson, G. P., Clough, S. A., Kneizys, F. X., Chetwynd, J. H., Shettle, E. P. (1986). AFGL atmospheric constituent
+  profiles (0–120 km). AFGL-TR-86-0110, Environmental Research Papers No. 954, Air Force Geophysics Laboratory, Hanscom
+  AFB, 15 May 1986. DTIC AD-A175173 (scanned copy read at archive.org, item DTIC_ADA175173). No DOI.
 - CIE (2019a). Colour-matching functions of CIE 1931 standard colorimetric observer [data set]. International Commission
   on Illumination, Vienna. https://doi.org/10.25039/CIE.DS.xvudnb9b
 - CIE (2019b). CIE spectral luminous efficiency for scotopic vision [data set]. International Commission on
@@ -77,6 +80,9 @@ the CIE data sets against the CIE site. Where no DOI exists the entry names the 
 - Coddington, O. M., Richard, E. C., Harber, D., Pilewskie, P., Woods, T. N., Snow, M., Chance, K., Liu, X., Sun, K. (2023).
   Version 2 of the TSIS-1 Hybrid Solar Reference Spectrum and extension to the full spectrum. Earth and Space Science,
   10(3), e2022EA002637. https://doi.org/10.1029/2022EA002637
+- Gordon, I. E., Rothman, L. S., Hargreaves, R. J., Gomez, F. M., Bertin, T., Hill, C., et al. (2026). The HITRAN2024
+  molecular spectroscopic database. Journal of Quantitative Spectroscopy and Radiative Transfer, 353, 109807.
+  https://doi.org/10.1016/j.jqsrt.2026.109807
 - Gorshelev, V., Serdyuchenko, A., Weber, M., Chehade, W., Burrows, J. P. (2014). High spectral resolution ozone
   absorption cross-sections – Part 1: Measurements, data analysis and comparison with previous measurements around
   293 K. Atmospheric Measurement Techniques, 7(2), 609–624. https://doi.org/10.5194/amt-7-609-2014
@@ -91,6 +97,15 @@ the CIE data sets against the CIE site. Where no DOI exists the entry names the 
 - Shettle, E. P., Fenn, R. W. (1979). Models for the aerosols of the lower atmosphere and the effects of humidity
   variations on their optical properties. AFGL-TR-79-0214, Air Force Geophysics Laboratory, Hanscom AFB, MA,
   20 September 1979. DTIC ADA085951. No DOI.
+- Terragni, J., Gordon, I. E., Adkins, E. M., Boulet, C., Campargue, A., Chistikov, D., Finenko, A., Finkenzeller, H.,
+  Fleurbaey, H., Hargreaves, R. J., Hanson, R. K., Hartmann, J.-M., Klingberg, A., Kohler, E., Koroleva, A. O., Mondelain,
+  D., Piccioni, G., Stefani, S., Strand, C. L., Tran, H., Turbet, M., Vigasin, A., Vitali, F., Volkamer, R., Wei, C. (2025).
+  Collision induced absorption in HITRAN2024: Enhanced and improved data for atmospheric and planetary studies. Journal
+  of Quantitative Spectroscopy and Radiative Transfer, 347, 109631. https://doi.org/10.1016/j.jqsrt.2025.109631
+- Vandaele, A. C., Hermans, C., Simon, P. C., Carleer, M., Colin, R., Fally, S., Mérienne, M. F., Jenouvrier, A., Coquart,
+  B. (1998). Measurements of the NO₂ absorption cross-section from 42 000 cm⁻¹ to 10 000 cm⁻¹ (238–1000 nm) at 220 K
+  and 294 K. Journal of Quantitative Spectroscopy and Radiative Transfer, 59(3–5), 171–184.
+  https://doi.org/10.1016/S0022-4073(97)00168-4
 
 ## Methods
 

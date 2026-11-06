@@ -1,4 +1,4 @@
-"""Lossy radiance table store for the R3 bake (sky-sos docs/SPEC_R3_1000state_bake.md section 2 and section 7 B2).
+"""Lossy radiance table store for the R3 bake.
 
 table_q.npz holds ln(radiance) quantized to uint16 over [log_lo, log_hi] of each slice along the first axis (solar
 elevation: the whole table spans W 25.7-26.0 on the 2026-10-26 L4 R3-corner states, one elevation at most 6.4, so a
@@ -59,15 +59,35 @@ def decode(lo, hi, planes, shape):
     return np.exp(L+q.astype('f8')/LEVELS*(H-L))
 
 
+def table_meta(table_npz):
+    """Physics identity of a table.npz from its meta.json (spectral.check_meta_contract). A table without meta.json, or
+    whose meta has no physics, was written before B2: the legacy identity. Unreadable
+    metadata is refused."""
+    from .spectral import check_meta_contract
+    path = Path(table_npz).with_name('meta.json')
+    try: meta = json.loads(path.read_text()) if path.exists() else {}
+    except (OSError, ValueError) as exc: raise TableQError('E_PHYSICS_CONTRACT: table metadata unreadable') from exc
+    check_meta_contract(meta)
+    return meta
+
+
+def table_physics(table_npz):
+    from .components import identity
+    return identity(table_meta(table_npz).get('physics'))
+
+
 def save(table_npz, out_path):
     """Write table_q.npz from a table.npz; returns its header dict (log range, width)."""
+    physics = table_physics(table_npz)
     with np.load(table_npz, allow_pickle=False) as z:
         r = z['radiance']; coords = {k: z[k] for k in COORDS}
         extra = sorted(set(z.files)-set(COORDS)-{'radiance'})
     if extra: raise TableQError(f'E_TABLE_Q_MEMBERS: unexpected {extra}')
     lo, hi, planes = encode(r)
-    header = dict(format=FORMAT, log_lo=lo.tolist(), log_hi=hi.tolist(), width=float((hi-lo).max()), levels=LEVELS,
+    header = dict(format=FORMAT, physics=physics, log_lo=lo.tolist(), log_hi=hi.tolist(), width=float((hi-lo).max()), levels=LEVELS,
                   shape=list(r.shape), dtype=r.dtype.str, delta_axis=delta_axis(r.ndim))
+    meta = table_meta(table_npz)
+    if 'optics_state' in meta: header['optics_state'] = meta['optics_state']
     buf = io.BytesIO()
     np.savez(buf, header=np.array(json.dumps(header)), log_lo=lo.astype('f8'), log_hi=hi.astype('f8'),
              shape=np.array(r.shape, 'i8'), q_planes=planes, **coords)
@@ -80,6 +100,11 @@ def load(path, dtype='f4'):
     """Consumer reader: {'radiance': array, coordinate arrays..., 'header': dict}."""
     with np.load(path, allow_pickle=False) as z:
         header = json.loads(str(z['header']))
+        from .components import check_physics, check_optics, LEGACY
+        if check_physics(header.get('physics')) == LEGACY and 'optics_state' in header:
+            raise TableQError('E_PHYSICS_LOST: optics_state without B2 physics')
+        if check_physics(header.get('physics')) != LEGACY:
+            check_optics(header.get('optics_state'))
         if header.get('format') != FORMAT: raise TableQError(f"E_TABLE_Q_FORMAT: {header.get('format')}")
         lo, hi, shape, planes = z['log_lo'], z['log_hi'], tuple(int(n) for n in z['shape']), z['q_planes']
         # header and arrays must agree, so a damaged scalar or a swapped header cannot decode silently
@@ -102,6 +127,8 @@ def round_trip(table_npz, q_path):
     """Read the stored table_q back with the consumer reader and compare it with the float32 original (B2).
     Returns a row with max_rel; raises TableQError on any mismatch."""
     back = load(q_path)
+    from .components import check_same_state
+    check_same_state(table_meta(table_npz), back['header'])
     with np.load(table_npz, allow_pickle=False) as z:
         r = z['radiance']
         for k in COORDS:

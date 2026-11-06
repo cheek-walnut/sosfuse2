@@ -1,4 +1,4 @@
-"""A′ P1 opt-in checks, sky-sos docs/SPEC_sigma_Tz_Aprime_adoption.md §2.3 groups ①–⑨ (numbers in the test names).
+"""A′ P1 opt-in checks, groups ①–⑨ (numbers in the test names).
 
 Fast (plain pytest; no GPU, no solve):
   ① test_01_default_path_unchanged        233K / 213 / 253 / point: same block fields, block_key and SPEC arithmetic
@@ -17,7 +17,7 @@ Slow (SOSFUSE2_APRIME_RUNS=1; CPU-heavy, skipped otherwise):
   ⑥ test_06_reduced_transport             reduced NumPy solve, 3 wavelengths: production A′ == research A′ injection
   ⑧ test_08_cold_warm_alternation         D -> A′ -> D on one work root (caches kept) == fresh roots; M3; geometry-only
 
-No GPU; the research modules under results/sigma_tz_20261028 are imported read-only.
+No GPU; the research modules are imported read-only.
 """
 import copy
 import importlib.util
@@ -89,7 +89,7 @@ def research():
         main_root = Path(common.strip()).parent
         original_sha = module.sha
         module.sha = lambda p: original_sha(main_root / raw if Path(p) == ROOT / raw else p)
-    # D1 (sky-sos docs/SPEC_D1_wavelength_axis.md §3-2): the research manifest pins the vacuum-axis assets it was frozen on. When the
+    # D1: the research manifest pins the vacuum-axis assets it was frozen on. When the
     # tree carries a production build of the air-axis assets (build_spectra_fine.py, frozen_source_sha256 consistent), the
     # research code is used as an independent reference on those bytes; any other mismatch still raises.
     rebuilt = ('assets/spectra_fine.json', 'assets/spectra_fine_temperature.json')
@@ -125,7 +125,7 @@ def test_01_default_path_unchanged(monkeypatch):
     explicit = settings(FIXED); named = settings({'spectral_mode': 'band', 'bin_edges_nm': SP.PRODUCT_EDGES,
                                                   'wavelengths': 45, 'wavelengths_nm': SP.PRODUCT['wavelengths_nm']})
     assert named == explicit and set(explicit['spectral']) == {'mode', 'asset', 'asset_sha256', 'ozone_column', 'bin_edges_nm',
-                                                                'bin_edges_sha256'}
+                                                                'bin_edges_sha256', 'physics', 'minor_absorber_sha256', 'point_definition'}
     A = SP.asset()
     # The fixed-233 K product (settings naming 233K, or naming spectral_mode like the gate fixtures): band mode, the
     # fixed 233 K column, and the SPEC table built from that very block.
@@ -137,9 +137,11 @@ def test_01_default_path_unchanged(monkeypatch):
     for mode, temp in (('band', 233), ('band', 213), ('band', 253), ('point', 253), ('point', 233)):
         raw = dict(spectral_mode=mode, bin_edges_nm=SP.PRODUCT_EDGES, ozone_temperature_K=temp)
         b = SP.block(dict(raw), WL, True); b233 = SP.block(dict(raw, ozone_temperature='233K'), WL, True)
-        assert b == b233 == dict(mode=mode, asset='assets/spectra_fine.json', asset_sha256=A['sha'], ozone_column=f'ozone_{temp}K',
-                                 bin_edges_nm=list(SP.PRODUCT_EDGES), bin_edges_sha256=SP.edges_sha(SP.PRODUCT_EDGES))
-        assert SP.block_key(b) == SP.block_key(b233) == (mode, A['sha'], f'ozone_{temp}K', SP.edges_sha(SP.PRODUCT_EDGES))
+        from .components import physics
+        assert b == b233 == dict(physics=physics(), mode=mode, asset='assets/spectra_fine.json', asset_sha256=A['sha'], ozone_column=f'ozone_{temp}K',
+                                 bin_edges_nm=list(SP.PRODUCT_EDGES), bin_edges_sha256=SP.edges_sha(SP.PRODUCT_EDGES),
+                                 minor_absorber_sha256=b['minor_absorber_sha256'], point_definition=b['point_definition'])
+        assert SP.block_key(b) == SP.block_key(b233) == (mode, A['sha'], f'ozone_{temp}K', SP.edges_sha(SP.PRODUCT_EDGES), json.dumps(b['physics'], sort_keys=True), json.dumps(b['minor_absorber_sha256'], sort_keys=True))
         table = SP.spec_table(b, WL)
         if mode == 'band':
             sigma, solar = band_means(A[f'ozone_{temp}K'], SP.PRODUCT_EDGES), band_means(A['solar'], SP.PRODUCT_EDGES)
@@ -160,7 +162,7 @@ def test_01_default_path_unchanged(monkeypatch):
 
 
 def test_01b_product_default_is_aprime():
-    """P2 (user 2026-10-31, SPEC §2.4): settings {} (the product, rig bakes, G-F) = BM45 bins + ozone profile_mean; a
+    """P2: settings {} (the product, rig bakes, G-F) = BM45 bins + ozone profile_mean; a
     settings file naming ozone_temperature or a fixed ozone_temperature_K column, or naming spectral_mode, keeps it."""
     product = settings({})
     assert product == settings({'ozone_temperature': 'profile_mean'})
@@ -244,8 +246,8 @@ def test_03_identity_and_conflicts():
 
 
 def test_03c_v4_fixed_provenance_lists(monkeypatch, tmp_path):
-    """Δ5: the v4 provenance inputs are fixed lists, kept equal to the tree, and a missing file is an error (not a gap)."""
-    tree = {p.stem for p in paths.PKG.glob('*.py') if not p.name.startswith(('test_', '._'))} - {'testing'}
+    """The v4 provenance inputs are fixed lists, kept equal to the tree, and a missing file is an error (not a gap)."""
+    tree = {p.stem for p in paths.PKG.glob('*.py') if not p.name.startswith(('test_', '._'))} - {'testing', 'conftest'}
     assert tree == set(paths.PRODUCTION_MODULES), (tree ^ set(paths.PRODUCTION_MODULES))   # add new modules to paths.PRODUCTION_MODULES
     assert len(set(paths.PRODUCTION_MODULES)) == len(paths.PRODUCTION_MODULES)
     assert {p.name for p in (paths.ACCEPTED).glob('*.py')} == set(V3.ACCEPTED_SOURCES)
@@ -276,7 +278,7 @@ def test_03b_contract_hashes(monkeypatch):
         cfg = V3.resolve_settings(settings(raw), current)
         rows[name] = V3.signed_contract(current, cfg, 'numpy', False, 'depolarizing')
     # v4 provenance keys are package-relative (paths.rel): 'sosfuse2/assets/...'. Under v4 package_hashes() lists every
-    # data asset for every contract (v3 hashed the A′ inputs only when the block used them), so the A′ keys are present in
+    # data asset for every `contract` version (v3 hashed the A′ inputs only when the block used them), so the A′ keys are present in
     # all three rows; the A′-specific part is spectral.asset_hashes (test_01: {} for fixed blocks) and the signatures differ.
     extra = {paths.rel(OT.FINE), paths.rel(OT.TEMP)}
     assert extra == {'sosfuse2/assets/spectra_fine_temperature.json', 'sosfuse2/assets/temperature_usstd76.json'}
@@ -338,7 +340,7 @@ def test_04_resolver(shape):
 def test_04c_superseded_profile_asset_digest():
     """A block made with the 2026-10 float64 usstd76 asset (a7ccf7b1…, density.ASSET_SHA256_SUPERSEDED) names the same logical
     profile: check_asset/representative/resolve accept it and re-resolving records the current digest; an unknown digest stays
-    refused (public split S4, user decision 2026-11-03: tables baked before the decimal asset must stay readable)."""
+    refused (public split S4: tables baked before the decimal asset must stay readable)."""
     b = SP.resolve(unresolved(), state('usstd76')); old = copy.deepcopy(b)
     old['ozone_profile']['asset_sha256'] = density.ASSET_SHA256_SUPERSEDED[0]
     assert old['ozone_profile'] != b['ozone_profile'] and OT.same_profile_identity(old['ozone_profile'], b['ozone_profile'])
@@ -354,8 +356,8 @@ def test_04c_superseded_profile_asset_digest():
 
 def test_04_resolver_external_tables():
     z = density.grid(161); base = state('usstd76', density_profile='usstd76')
-    air_only = density.with_profile(base, z_km=z, table=np.column_stack([np.exp(-z/8), np.zeros_like(z)]), mask=1)
-    ozone = density.with_profile(base, z_km=z, table=np.column_stack([np.exp(-z/8), np.maximum(0, 1-abs(z-22)/12)]), mask=3,
+    air_only = density.with_profile(base, air_surface_number_density_m3=2.5469e25, z_km=z, table=np.column_stack([np.exp(-z/8), np.zeros_like(z)]), mask=1)
+    ozone = density.with_profile(base, air_surface_number_density_m3=2.5469e25, z_km=z, table=np.column_stack([np.exp(-z/8), np.maximum(0, 1-abs(z-22)/12)]), mask=3,
                                  normalize_ozone=True)
     # mask bit 2 off: the kernel keeps the analytic triangle although the option string still says usstd76.
     assert density.options(air_only)['ozone_profile'] == 'usstd76' and OT.state_shape(air_only) == 'triangle'
@@ -599,7 +601,7 @@ def max_rel(a, b):
 @SLOW
 def test_08_cold_warm_alternation(tmp_path):
     """D (233 K) -> A′ -> D on one work root (geometry, attach, column and host caches kept; usstd76 density and ozone,
-    stratospheric layer on) against fresh work roots, final table tol rtol 1e-5 (AGENTS.md cold/warm); plus the M3
+    stratospheric layer on) against fresh work roots, final table tol rtol 1e-5 (cold/warm); plus the M3
     extra-elevation path from the A′ source and the geometry-only path, both through the resolver."""
     with ThreadPoolExecutor(3) as ex:
         cold = {k: ex.submit(runner, tmp_path/f'cold_{k}', k, raw) for k, raw in (('d0', D_SETTINGS), ('a0', A_SETTINGS))}

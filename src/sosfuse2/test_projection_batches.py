@@ -1,4 +1,4 @@
-"""GPU projection contracts: tails, empty cells/parts, offsets, all output slots, repeatability.
+"""GPU projection checks: tails, empty cells/parts, offsets, all output slots, repeatability.
 
 The production function bodies are compiled unchanged. The independent oracle sums
 per-ray float contributions in NumPy FP64, without production batch boundaries.

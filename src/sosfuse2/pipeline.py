@@ -24,7 +24,7 @@ THREAD_ENV = ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS',
               'VECLIB_MAXIMUM_THREADS', 'NUMEXPR_NUM_THREADS', 'BLIS_NUM_THREADS')
 # Process pools of one state's CPU preparation (column_parallel, sun_parallel, ground_parallel, geometry_parallel).
 # Unset, each pool takes every usable CPU, so W states prepared at once started W x cores processes
-# (eda 2026-10-21: 4 states x 12 workers, solar table 52 s, results/l16check_20261021/REPORT.md).
+# (eda 2026-10-21: 4 states x 12 workers, solar table 52 s).
 PREP_WORKER_ENV = ('SOSFUSE2_COLUMN_WORKERS', 'SOSFUSE2_SUN_WORKERS', 'SOSFUSE2_GROUND_WORKERS',
                    'SOSFUSE2_GEOMETRY_WORKERS')
 SAFE_ID = re.compile(r'[A-Za-z0-9_-]+\Z')
@@ -36,7 +36,7 @@ def clocks():
     return dict(timestamp_ns=time.time_ns(), monotonic_ns=time.monotonic_ns())
 
 
-CORES_LEFT_FREE = 4      # for the resident GPU service, the queue, telemetry and the OS (user 2026-10-05)
+CORES_LEFT_FREE = 4      # for the resident GPU service, the queue, telemetry and the OS
 WORKER_RSS_GB = 3.       # one state's process, measured 1.9-2.6 GB on the rigs of 2026-10-03 and 10-05
 RAM_SHARE = .8
 
@@ -77,6 +77,7 @@ def auto_workers(states, threads, backend='numpy', persistent=False):
 VRAM_SHARE = .85          # of the GPU memory free at queue start; the rest for the context, LUTs and fragmentation
 # A KSPLIT state also holds its aerosol chunk buffers: the smallest option for the product grid is 5.07 GB (L4
 # 2026-10-26 repjob: 5 resident states on 22 GB left 3.83 GB, 35 of 39 failed E_KSPLIT_MEMORY while every state waited).
+# B2 SINV_F=7 stores 28 bytes per point; retain this reservation until the 4090 pilot measures it.
 KSPLIT_STATE_VRAM_GB = 5.1
 
 
@@ -114,7 +115,7 @@ def auto_gpu_active(workers, backend):
 def prep_workers(workers, threads, host_cores, environ, column_budget=None):
     """Per-state pool sizes for the PREP_WORKER_ENV names the caller left unset: max(1, host_cores // workers), and
     the column builds max(--threads, column_budget // workers) (its help; column_budget = cpu_budget(), which keeps the
-    Mac at 4: the RSS guard counts the state process only, not these pool children; codex review of c92d79f).
+    Mac at 4: the RSS guard counts the state process only, not these pool children).
     A name with a nonempty value is kept as given (each module's workers() treats empty as unset the same way).
     Pool sizes preserve prepared values within rtol 1e-6 (parallel module tests).
     Returns (per_state, explicit names, {name: value} to export)."""
@@ -299,9 +300,11 @@ def kill_group(pid, signum):
 
 def run_queue(a):
     """Run an already validated queue, always retaining each child's outcome."""
+    from .components import production_only
+    production_only()
     a.work_root.mkdir(parents=True, exist_ok=True)
-    logs = a.work_root / 'logs'
-    logs.mkdir(exist_ok=True)
+    logs = a.work_root / 'logs' / str(time.time_ns())
+    logs.mkdir(parents=True, exist_ok=False)
     env = paths.child_env(dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))   # children import sosfuse2 in-tree too
     env.update({key: str(a.threads) for key in THREAD_ENV})
     # Each state's preparation pools share the host's usable CPUs with the other states prepared at once (bytes
@@ -323,7 +326,7 @@ def run_queue(a):
     controller_detail = None
     sample_count = 0
     sampled = sys.platform.startswith('linux') and Path('/proc/self/stat').is_file()
-    sample_path = a.work_root / 'cpu_samples.jsonl'
+    sample_path = logs / 'cpu_samples.jsonl'
     service = service_log = session = None
     old_handlers = {}
 
@@ -450,7 +453,7 @@ def run_queue(a):
                    controller=dict(pid=os.getpid(), start=start, end=clocks()),
                    workers=a.workers, threads=a.threads, prep_workers=prep, rss_gb=a.rss_gb,
                    gpu_lock=str(a.gpu_lock) if a.gpu_lock is not None else None,
-                   legacy=a.legacy, persistent=a.persistent, gpu_active=a.gpu_active,
+                   legacy=a.legacy, persistent=a.persistent, gpu_active=a.gpu_active, logs=str(logs),
                    service_pid=service.pid if service else None, cpu_sampling=dict(status='available' if sample_count else 'absent',
                    reason=None if sample_count else ('E_CPU_SAMPLES_UNAVAILABLE' if sampled else 'E_CPU_SAMPLES_PLATFORM'),
                    path=str(sample_path), count=sample_count, interval_seconds=SAMPLE_INTERVAL), states=rows)
@@ -469,6 +472,10 @@ def run_queue(a):
                     profiles[event['id']].append({k: v for k, v in event.items() if k not in ('event', 'id', 'phase', 'utc', 'timestamp_ns', 'monotonic_ns', 'pid')})
                 if isinstance(event, dict) and event.get('phase') == 'attach_cache' and event.get('id') in attach:
                     if event.get('result') in attach[event['id']]: attach[event['id']][event['result']] += 1
+                if isinstance(event, dict) and event.get('phase') == 'KSPLIT_FALLBACK':
+                    for row in rows:
+                        if row['id'] == event.get('id'):
+                            row.setdefault('ksplit_fallback', []).append(event)
     for row in rows: row['column_cache'] = counts[row['id']]
     for row in rows: row['attach_cache'] = attach[row['id']]
     for row in rows: row['profile'] = profiles[row['id']]

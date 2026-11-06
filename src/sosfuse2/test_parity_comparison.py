@@ -1,4 +1,4 @@
-"""D1 NumPy tests for the CUDA/NumPy moment comparison contract."""
+"""D1 NumPy tests for the CUDA/NumPy moment comparison rules."""
 import unittest
 import numpy as np
 from .validate import moment_comparison

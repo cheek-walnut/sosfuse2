@@ -1,4 +1,4 @@
-"""E6/G-H record path (sky-sos results/bless_20261022/SPEC_E6GH.md 4): pass is judged against fixtures/selftest_ref_simpson.npz (1e-5), the old
+"""E6/G-H record path: pass is judged against fixtures/selftest_ref_simpson.npz (1e-5), the old
 references only appear as historical_delta, and the old CPU-engine fixture stays as it was.
 Run: python -m pytest -q src/sosfuse2/test_selftest_record.py"""
 import copy
@@ -23,9 +23,21 @@ needs_legacy = pytest.mark.skipif(not v.legacy_available(),
                                   reason='legacy rig/selftest_ref.npz: sky-sos checkout (SOSFUSE2_SKY_SOS_ROOT) with the deploy-copied fixture')
 
 
+def synthetic_o4():
+    """True when this session's O4 asset is the synthetic test fixture (testing.synthetic_o4, written by conftest)."""
+    from sosfuse2 import minor_absorbers
+    try: note = json.loads(minor_absorbers.o4_path().read_text()).get('source', {}).get('note', '')
+    except (OSError, ValueError): return False
+    return 'SYNTHETIC' in note
+
+
 @pytest.fixture(scope='module')
 def computed(tmp_path_factory):
-    """One NumPy reduced selftest (about 7 s); each test re-judges a copy of it."""
+    """One NumPy reduced selftest (about 7 s); each test re-judges a copy of it. The record holds values computed with the
+    real O4 asset (HITRAN 2024 CIA, prepare_minor_absorbers); under the conftest's synthetic O4 the recomputed values
+    differ from it (about 1.3e-2), so the value tests skip instead of judging another physics."""
+    if synthetic_o4():
+        pytest.skip('record made with the real O4 asset (HITRAN 2024 CIA); this session uses the synthetic O4 test fixture')
     return v.reduced_values(tmp_path_factory.mktemp('reduced'), 'numpy', 128)
 
 
@@ -39,7 +51,7 @@ def test_record_is_pinned_with_decision_and_provenance():
     digest = hashlib.sha256(v.RECORD.read_bytes()).hexdigest()
     assert digest == v.RECORD_SHA256
     meta = json.loads(v.RECORD_META.read_text()); rec = v.load_record()
-    assert meta['decision'] == rec['contract']['decision'] == v.DECISION == 'taskB1-simpson-tol001-20261022'
+    assert meta['decision'] == rec['contract']['decision'] == v.DECISION == 'b2-s2-gatev2-20261105'
     assert meta['record']['sha256'] == digest and meta['numerical_files_equal_commit'] is True
     assert meta['numpy'] and meta['generated_commit'] and meta['command']['argv']
     for key in ('selftest_radiance', 'full_35_single', 'full_35_multiple', 'spectral_15_first', 'spectral_15_multiple'):

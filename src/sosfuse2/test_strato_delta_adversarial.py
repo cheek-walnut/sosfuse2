@@ -32,7 +32,7 @@ except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
 # The CLI harness (main --out) replaces this; under pytest/unittest collection the cases write into the test scratch instead of
-# failing with OUT=None (S2 Δ4 disposition, user 2026-11-03; harness semantics unchanged).
+# failing with OUT=None (harness semantics unchanged).
 OUT = testing.scratch_parent() / 'strato_revision/delta'
 OUT.mkdir(parents=True, exist_ok=True)
 MEASUREMENTS = {}
@@ -210,7 +210,7 @@ class Delta(unittest.TestCase):
         d = np.sin(e)[:, None]*up + np.cos(e)[:, None]*(np.cos(a)[:, None]*ex+np.sin(a)[:, None]*ey)
         g = s.geo.pack(np.broadcast_to(p, d.shape), d, s.geo.query_n)
         c = dict(s.kernel.setup(s, g['nq']))
-        c['asca'] = np.array([2e-5], 'f4'); c['ext'] = np.zeros((3, 1), 'f4')
+        c['asca'] = np.array([2e-5], 'f4'); c['ext'] = np.zeros_like(c['ext'])
         for name in ('gm', 'gv', 'gval'): c[name] = np.zeros_like(c[name])
         field = np.zeros((s.geo.ns, 1132, 1), 'f4')
         both = reference.transport(g, c, field, True)

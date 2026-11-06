@@ -1,24 +1,21 @@
 {
  "backend": "numpy",
  "block_size": 128,
- "code_identity_at_generation": "213bc69eca074ac8f278cfedc33fbd09d1c11210e5131158efd6a103ad80ccff",
+ "code_identity_at_generation": "7bf55070d69873aa7524debb7088b5f0b4ab9dbebc2ca79bb5b4f36cfd87b359",
  "command": {
   "argv": [
-   ".venv/bin/python",
-   "results/e6gh_20261022/make_record.py",
-   "<scratch>/e6gh_record/record_work",
-   "cq-id-see-meta-note"
+   "python",
+   "make_record.py",
+   "<tree>",
+   "<scratch>/record_work",
+   "<queue id>"
   ],
-  "cq": "mac-cpu 620",
-  "cwd": "<saddle-twilight checkout>",
-  "note": "cq job id filled in after submission (the job cannot read its own id); argv shows the placeholder that was passed"
+  "cwd": "<release checkout>",
+  "note": "maintainer harness (not packaged); argv shows placeholders",
+  "queue": "mac-cpu"
  },
- "crosscheck": {
-  "file": "results/e6gh_20261022/record_job/crosscheck.json",
-  "result": "record arrays byte-equal to an unchanged HEAD 5833493 validate-mac run (selftest, full_35); spectral and all historical numbers equal"
- },
- "decision": "taskB1-simpson-tol001-20261022",
- "description": "E6/G-H pass record: HEAD fused NumPy (Simpson prefix + FTZ option B) values of the reduced selftest, full_35 and spectral_15 (scripts/sosfuse2/validate.py); old references stay as historical_delta",
+ "decision": "b2-s2-gatev2-20261105",
+ "description": "E6/G-H pass record: HEAD fused NumPy values (B2 physics: Bodhaine Rayleigh, NO2, O4; continuous Gate v2 trace interpolation) of the reduced selftest, full_35 and spectral_15 (sosfuse2/validate.py); old references stay as historical_delta",
  "env": {
   "MKL_NUM_THREADS": null,
   "OMP_NUM_THREADS": "4",
@@ -26,33 +23,37 @@
   "VECLIB_MAXIMUM_THREADS": "1"
  },
  "ftz_active": true,
- "generated_commit": "5833493df4ab214ea99f4d60e90e2840920af0e7",
- "generated_utc": "2026-10-22T12:53:13.383702+00:00",
+ "generated_commit": "8e5d24b67935c4d19354e229814eef09ae8b5876",
+ "generated_utc": "2026-11-05T10:22:41.809436+00:00",
  "historical_delta_at_generation": {
   "full_35": {
-   "multiple": 0.004982786912470969,
-   "single": 0.0009839854718439477
+   "multiple": 0.00494715243787487,
+   "single": 0.000965850440808104
   },
-  "selftest": 0.0539247021537897,
+  "selftest": 0.05276562285711506,
   "spectral_15": {
-   "first": 0.00486094919707458,
-   "multiple": 0.2235204661540617
+   "first": 0.004902805292790759,
+   "multiple": 0.2266791790867463
   }
  },
  "legacy": {
-  "file": "rig/selftest_ref.npz",
-  "note": "old CPU-engine fixture (rig/run_state.py, bootstrap_v3.sh:85); unchanged",
+  "file": "legacy CPU-engine selftest fixture (research checkout, not packaged)",
+  "note": "unchanged",
   "sha256": "a48688cdc86bf6cb88950944840b88bc846a813864a54ad4672c9ee034ef03be"
  },
  "numerical_files_equal_commit": true,
  "numerical_sha256": {
-  "rig/engine.py": "01b9b4dc5d09d31944665c3cc39538e8fc2497d8df96f1ab8a59b8ef9cdfbc12",
-  "rig/sh_cpu.cpp": "adc69c93a56174fdaaed0430db048d16bb87fd4ca826d9529b72b6a0f5b6924c",
-  "scripts/sosfuse2/arithmetic.py": "1678e4a814a1350e0386075df1e508b3986265b71e56a94c02ee3be2653a8b5f",
-  "scripts/sosfuse2/fused.py": "c5636fd6c9ebe46bcb3043fdee5409d239cbd45945aba2b7e2516460ecee9b4c",
-  "scripts/sosfuse2/geometry.py": "dc8b1d82c926a51c97f577471f0e132a7d2dbe031a9099e00fb2a975298f6625",
-  "scripts/sosfuse2/kernel.cu": "e064847f8c7418ee1be1b404a9edb6b1bded984d70ddb88a41459cf7c2f2568a",
-  "scripts/sosfuse2/reference.py": "0d40a294959a0b2aeaa1ac74fcb60436ced21b888a01a7850cc514e26328fde9"
+  "src/sosfuse2/arithmetic.py": "1678e4a814a1350e0386075df1e508b3986265b71e56a94c02ee3be2653a8b5f",
+  "src/sosfuse2/components.py": "a699fdbac7e2b8f8ce28d248ce9cc627f58d1b2323787b9e25c1fb80a5ea6086",
+  "src/sosfuse2/density.py": "a030aff3c38a37ab686c2c18286085ba44f477f329b09bfbd6c71bfcdec2e00f",
+  "src/sosfuse2/fused.py": "0a9e7ec8e93753013f995f8f15239b447e8d8d20653a7c0290fd9c29079ac4fd",
+  "src/sosfuse2/geometry.py": "4a234ca5881e23096c220d6d5060ff2dc0df999a7717775661b0a88cc9cdd072",
+  "src/sosfuse2/kernel.cu": "bff37c7d21429d22d7f62d9df0643a86836e8a386c7f46f91af2d29aa1fccb51",
+  "src/sosfuse2/minor_absorbers.py": "a4a3bab329654176ae634836b059ab50d3343405f497022341b4d94b9b25bb3e",
+  "src/sosfuse2/rayleigh.py": "3f29c60606b2f3bf62fdc0291cc49d9eef35c4f75cbc253081fa9bd225ba2674",
+  "src/sosfuse2/reference.py": "819c002ed44267b9e3219f52eebe9a772d1044b93c47745a4be2ce9eb22c8b6b",
+  "src/sosfuse2/solver_optics.py": "ebe53fbb257517828f61a31c8cf5ebcdf4594d71c4fbb94db8adb3f3c08f8865",
+  "src/sosfuse2/spectral.py": "bd920707b3d93d81f93714c9390a42fc982e93918c5a4cda94c4efe895e99e76"
  },
  "numpy": "2.5.4",
  "parameters": {
@@ -65,7 +66,39 @@
   "ssa": 0.92,
   "stratosphere_tau550": 0.004
  },
+ "physics": {
+  "components": [
+   "air",
+   "tropo_aerosol",
+   "o3",
+   "no2",
+   "o4"
+  ],
+  "minor_absorbers": {
+   "no2": {
+    "asset_sha256": "23bdb5fb1f8a2e99f968ad2d3ce8395c9e3190c0aa8fb2e30289beea37f0fb9e",
+    "temperature_K": 220
+   },
+   "no2_normalization": "maximum=1, coefficient divided by actual H_f_km",
+   "o4": {
+    "asset_sha256": "dea296e1303fb10704354224c1d9c879730e7b8f2ebda3ce8bafe0481c9454a5",
+    "rules_version": "b2-s2-v2",
+    "source_sha256": "0146acfe5c1414b8deaa56be9a63159154479d5804d1615855888a2e1efd4961"
+   },
+   "o4_density": {
+    "n0_rule": "usstd76 asset; exp8 2.5469e25; external explicit",
+    "o2_vmr": 0.20946,
+    "shape": "q^2"
+   }
+  },
+  "phase_depolarization": 0.03,
+  "rayleigh": "bodhaine_iprt450air_vac_v1"
+ },
  "platform": "Darwin arm64",
+ "previous": {
+  "decision": "taskB1-simpson-tol001-20261022",
+  "sha256": "2543ab1d296780e408cd93f8091bffc118cacbace6d11b3d47306df5471c58b4"
+ },
  "python": "3.14.8",
  "record": {
   "arrays": {
@@ -78,7 +111,7 @@
    },
    "full_35_multiple": {
     "dtype": "float64",
-    "sha256": "764b28a5eab28bc20397268f4573ee2f6b03b9e89cfc78a67f7352c30007ba91",
+    "sha256": "e272d3e0c71b13a7f4032e99ef5776aad8d3b16e8070ceea32756c6cb7309da0",
     "shape": [
      5,
      7,
@@ -87,7 +120,7 @@
    },
    "full_35_single": {
     "dtype": "float64",
-    "sha256": "b67baf6f4dbfea52e6a1709fc975de89d116f9bfc1677518e349932275a675f4",
+    "sha256": "e58ea5bbfc30a9c29d66b8c89dcc1aa72c52a643899f0dffde0d050778a28e5f",
     "shape": [
      5,
      7,
@@ -122,7 +155,7 @@
    },
    "selftest_radiance": {
     "dtype": "float64",
-    "sha256": "588537b46f5651199be086001a071f2b50394c2ae25f624b443b12762bfa187d",
+    "sha256": "6876dfde531259bc7ecd76352d8b028fa730d07e30ff7b3bbd5651bbc601279a",
     "shape": [
      4,
      1
@@ -149,7 +182,7 @@
    },
    "spectral_15_first": {
     "dtype": "float64",
-    "sha256": "b4d236a760c1f28a67bb9c766d7cf36afdcc447416dedc9bb57b726c9925539c",
+    "sha256": "23dad77528f841ace1eb102779fb23c57a3e30492c3a397c24eb8798a33ab011",
     "shape": [
      3,
      15
@@ -157,7 +190,7 @@
    },
    "spectral_15_multiple": {
     "dtype": "float64",
-    "sha256": "47c777a30be6274b754441acd6857229f9dab9971b51c10c76c940bedaaf650a",
+    "sha256": "b2d50781fa5eca931b806f3df5a9ed67cff9eadd54490f4ad99bd70169050e1e",
     "shape": [
      3,
      15
@@ -183,8 +216,8 @@
     ]
    }
   },
-  "file": "rig/selftest_ref_simpson.npz",
-  "sha256": "2543ab1d296780e408cd93f8091bffc118cacbace6d11b3d47306df5471c58b4"
+  "file": "sosfuse2/fixtures/selftest_ref_simpson.npz",
+  "sha256": "6fab113dc99e71ee2dc59fdb934919fe2fe2f7fcab52156634d54bc6737832e4"
  },
  "settings": {
   "full_35": {
@@ -223,8 +256,9 @@
  },
  "tolerance": 1e-05,
  "worktree_changes_vs_commit": [
-  "scripts/sosfuse2/gate.py",
-  "scripts/sosfuse2/provenance.py",
-  "scripts/sosfuse2/validate.py"
+  "src/sosfuse2/fixtures/selftest_ref_simpson.npz",
+  "src/sosfuse2/fixtures/selftest_ref_simpson_meta.json",
+  "src/sosfuse2/test_selftest_record.py",
+  "src/sosfuse2/validate.py"
  ]
 }

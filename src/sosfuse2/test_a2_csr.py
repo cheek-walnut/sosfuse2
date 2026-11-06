@@ -43,7 +43,7 @@ def synthetic(n=100_000, seed=7):
         target = np.broadcast_to(rng.normal(size=(3, 3)), (size, 3, 3)).copy()
         groups.append(dict(p=p, d=d, edges=edges, lower=lower, target=target, weight=rng.random(size), nq=12,
                            end_index=rng.integers(0, 50, size).astype('i4'), end_fraction=rng.random(size),
-                           end_columns=rng.random((size, 3)), hits_ground=rng.random(size) < .5))
+                           end_columns=rng.random((size, 5)), hits_ground=rng.random(size) < .5))
         made += size
     return groups
 
@@ -68,7 +68,7 @@ def compare(groups, label):
 def overflow_case():
     edges = np.arange(19, dtype='f8')[None, :]; lower = np.ones((1, 18), bool)
     g = dict(p=np.zeros((1, 3)), d=np.array([[0, 0, 1.]]), edges=edges, lower=lower, target=np.eye(3)[None], weight=np.ones(1),
-             nq=4, end_index=np.zeros(1, 'i4'), end_fraction=np.zeros(1), end_columns=np.zeros((1, 3)), hits_ground=np.zeros(1, bool))
+             nq=4, end_index=np.zeros(1, 'i4'), end_fraction=np.zeros(1), end_columns=np.zeros((1, 5)), hits_ground=np.zeros(1, bool))
     out = {}
     for name, cls in (('original', OldBundle), ('vector', Bundle)):
         try: cls([g], np); out[name] = 'no error'

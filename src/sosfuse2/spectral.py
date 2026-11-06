@@ -1,21 +1,21 @@
-"""Spectral sampling modes of the solar spectrum and ozone cross section (sky-sos research records).
+"""Spectral sampling modes of the solar spectrum and ozone cross section.
 
   legacy  assets/spectra.json read as point values (the accepted behaviour; settings carry no 'spectral' block)
   point   values sigma(l_i), E(l_i) of assets/spectra_fine.json (adding a wavelength never moves another); sigma is a point
-          value, E the value of the filtered solar spectrum (0.1 nm cell means of TSIS-1 HSRS, sky-sos research records)
+          value, E the value of the filtered solar spectrum (0.1 nm cell means of TSIS-1 HSRS)
   band    arithmetic means over explicit bins [a_i, b_i): trapezoid of the 0.1 nm fine grid; default bins
           linspace(360, 830, n+1); explicit wavelengths_nm + band requires bin_edges_nm (E_SPECTRAL_EDGES)
 
 The engine reads its spectra only through the SPEC dict injected in accepted/engine.py create() (coefficients() and Solver.solar,
 both np.interp). spec_table() returns a table whose nodes are exactly the engine wavelengths, so the interpolation returns
 the representative values unchanged and the accepted solver code is untouched. The block returned by block() goes into
-the settings (and so into the signed contract, the table meta and every consumer check); legacy returns None so legacy
+the settings (and so into the signed inputs, the table meta and every consumer check); legacy returns None so legacy
 settings bytes do not change.
 
-ozone_temperature (sky-sos docs/SPEC_sigma_Tz_Aprime_adoption.md §2): '233K' = the fixed ozone_temperature_K column (block,
+ozone_temperature: '233K' = the fixed ozone_temperature_K column (block,
 block_key and SPEC unchanged; the default of every settings file that names its spectral_mode); 'profile_mean' = A′, band
 mode only: sigma_bar of ozone_temperature.py with the temperature/sigma(T) asset SHAs, the averaging rule and the q identity
-in the block. Product default since P2 (user 2026-10-31, §2.4): settings {} on the product grid mean BM45 + profile_mean;
+in the block. Product default since P2: settings {} on the product grid mean BM45 + profile_mean;
 naming ozone_temperature or ozone_temperature_K keeps the named treatment (opt-out: {"ozone_temperature": "233K"}). A settings block has no state, so
 its q shape is resolved per state by resolve(block, state) (run_gpu_state_v3.resolve_settings); an unresolved block is
 refused by every consumer (E_SPECTRAL_UNRESOLVED) and a pinned settings ozone_profile that is not the state's shape is
@@ -38,9 +38,8 @@ OZONE_COLUMNS = (213, 233, 253)
 KEYS = ('spectral_mode', 'bin_edges_nm', 'ozone_temperature_K', 'ozone_temperature', 'ozone_profile', 'ozone_column')
 KM, KS = 683.0, 1700.0
 _CACHE = {}
-# Product default (user 2026-10-28): band BM45 = W40 bins with 489-501, 512.75-524.5, 524.5-536.25, 559.75-571.5 and
-# 642-653.75 nm halved (results/spectra_1nm/out/bm45_edges.json, REPORT §1-11), ozone A′ profile_mean since P2 (user
-# 2026-10-31, sky-sos docs/SPEC_sigma_Tz_Aprime_adoption.md §2.4). Settings {} on the product grid mean this;
+# Product default: band BM45 = W40 bins with 489-501, 512.75-524.5, 524.5-536.25, 559.75-571.5 and
+# 642-653.75 nm halved, ozone A′ profile_mean since P2. Settings {} on the product grid mean this;
 # a settings file that changes the wavelengths must name its spectral_mode (legacy included).
 PRODUCT_EDGES = [360.0, 371.75, 383.5, 395.25, 407.0, 418.75, 430.5, 442.25, 454.0, 465.75, 477.5, 489.25, 495.125, 501.0,
                  512.75, 518.625, 524.5, 530.375, 536.25, 548.0, 559.75, 565.625, 571.5, 583.25, 595.0, 606.75, 618.5, 630.25,
@@ -77,7 +76,7 @@ def edges_sha(edges):
 
 
 def block(raw, wavelengths, explicit_wavelengths):
-    """Pop the spectral keys from a settings dict and return the contract block (None for legacy).
+    """Pop the spectral keys from a settings dict and return the spectral settings block (None for legacy).
 
     profile_mean: an optional settings ozone_profile pins the q shape (checked against every state by resolve());
     omitted, the block stays unresolved (ozone_profile None) until resolve() fills it from the state."""
@@ -107,8 +106,12 @@ def block(raw, wavelengths, explicit_wavelengths):
     if edges.shape != (n+1,) or not np.isfinite(edges).all() or np.any(np.diff(edges) <= 0) or edges[0] < a[0] or edges[-1] > a[-1]:
         raise ValueError('E_SPECTRAL_EDGES: n+1 increasing bin edges inside the fine asset (360-840 nm) required')
     if np.any(wl < edges[:-1]) or np.any(wl >= edges[1:]): raise ValueError('E_SPECTRAL_EDGES: each wavelength must lie in its bin [a_i, b_i)')
-    result = dict(mode=mode, asset='assets/spectra_fine.json', asset_sha256=asset()['sha'], ozone_column=f'ozone_{temp}K',
+    from .components import physics
+    result = dict(physics=physics(), mode=mode, asset='assets/spectra_fine.json', asset_sha256=asset()['sha'], ozone_column=f'ozone_{temp}K',
                   bin_edges_nm=edges.tolist(), bin_edges_sha256=edges_sha(edges))
+    from .minor_absorbers import hashes
+    result.update(minor_absorber_sha256=hashes(), point_definition={
+        'o3': 'point', 'no2': '0.1 nm cell-mean interpolant', 'o4': '0.1 nm cell-mean interpolant'})
     if temperature == 'profile_mean':
         from . import ozone_temperature as OT
         del result['ozone_column']
@@ -129,6 +132,9 @@ def _profile_mean(b):
 
 
 def check_asset(b):
+    from .components import check_physics
+    if b is not None: check_physics(b.get('physics'))
+    if b is not None: _minor_contract(b)
     if b is not None and b['asset_sha256'] != asset()['sha']: raise ValueError('E_SPECTRAL_CONTRACT: assets/spectra_fine.json changed since the block was made')
     if _profile_mean(b):
         from . import ozone_temperature as OT
@@ -138,7 +144,7 @@ def check_asset(b):
 
 
 def resolve(b, state):
-    """The block for one state (A′ resolver, sky-sos docs/SPEC_sigma_Tz_Aprime_adoption.md §2.1): a profile_mean block gets the
+    """The block for one state (A′ resolver): a profile_mean block gets the
     q identity of the shape the engine uses for this state (ozone_temperature.state_shape), as a new dict; a pinned
     settings ozone_profile that differs is E_SPECTRAL_OZONE_PROFILE_MISMATCH. Any other block (None, fixed 213/233/253 K
     columns) is returned as the same object, so the default path is untouched."""
@@ -201,12 +207,18 @@ def representative(b, wavelengths, *, band_mean_of='band'):
             np.array([band_mean(A['solar'], lo, hi) for lo, hi in zip(e[:-1], e[1:])]))
 
 
-def spec_table(b, wavelengths):
+def spec_table(b, wavelengths, state=None):
     """SPEC dict for accepted/engine.py: nodes = engine wavelengths, so np.interp returns the representative values exactly.
-    A profile_mean block must already be resolved for its state (resolve, check_state); spec_table has no state."""
+    A profile_mean block must already be resolved for its state (resolve, check_state). `state` only decides whether O4 is
+    on (components.o4_enabled; omitted = {} = the default, O4 on); NO2 and O4 are zero for the reference/legacy physics."""
     sigma, E = representative(b, wavelengths)
+    from .components import o4_enabled, reference_active, identity, LEGACY
+    from .minor_absorbers import representative as minor
+    values = ({k: np.zeros_like(wavelengths, dtype='f8') for k in ('no2', 'o4')} if reference_active() or identity(b.get('physics')) == LEGACY
+              else minor(b, wavelengths, o4=o4_enabled(state or {})))
     ozone = b.get('ozone_column', 'profile_mean')
     return dict(wavelength_nm=np.asarray(wavelengths, float).tolist(), ozone=sigma.tolist(), solar=E.tolist(),
+                **{k: v.tolist() for k,v in values.items()},
                 source=f"spectral {b['mode']} ({b['asset']} {b['asset_sha256'][:12]}, {ozone})")
 
 
@@ -292,34 +304,68 @@ def table_weights(block, wavelengths):
     return W, info
 
 
+def _minor_contract(b):
+    """B2 asset fields cannot disappear in a copied block, even without a signature."""
+    from .components import identity, LEGACY, S1_REFERENCE
+    physical = identity(b.get('physics'))
+    if physical == LEGACY and ('minor_absorber_sha256' in b or 'point_definition' in b):
+        raise ValueError('E_PHYSICS_LOST: B2 spectral fields without B2 physics')
+    if physical in (LEGACY, S1_REFERENCE):
+        return
+    minor = physical['minor_absorbers']
+    if b.get('minor_absorber_sha256') != {k: minor[k]['asset_sha256'] for k in ('no2', 'o4')}:
+        raise ValueError('E_PHYSICS_CONTRACT: missing or inconsistent minor absorber block SHA')
+    if b.get('point_definition') != dict(o3='point', no2='0.1 nm cell-mean interpolant', o4='0.1 nm cell-mean interpolant'):
+        raise ValueError('E_PHYSICS_CONTRACT: missing component point definitions')
+
+
 def block_key(b):
     if b is None: return None
+    _minor_contract(b)
+    from .components import identity   # a block without physics (before B2) keys as the legacy identity
+    physical = json.dumps(identity(b.get('physics')), sort_keys=True)
+    minor = json.dumps(b.get('minor_absorber_sha256'), sort_keys=True)
     if _profile_mean(b):
         return (b['mode'], b['asset_sha256'], 'profile_mean', b['bin_edges_sha256'], b['temperature_asset_sha256'],
-                b['ozone_sigma_asset_sha256'], b['ozone_temperature_rule'], tuple(sorted(b['ozone_profile'].items())))
-    return (b['mode'], b['asset_sha256'], b['ozone_column'], b['bin_edges_sha256'])
+                b['ozone_sigma_asset_sha256'], b['ozone_temperature_rule'], tuple(sorted(b['ozone_profile'].items())), physical, minor)
+    return (b['mode'], b['asset_sha256'], b['ozone_column'], b['bin_edges_sha256'], physical, minor)
 
 
-CONTRACTS = ('v3', 'v4')   # docs/PROVENANCE_V3.md "Reader rule": the contracts of signed tables (run_gpu_state_v3 meta.json)
+CONTRACTS = ('v3', 'v4')   # docs/PROVENANCE_V3.md "Reader rule": the `contract` fields of signed tables (run_gpu_state_v3 meta.json)
 
 
 def check_meta_contract(meta):
     """Returns meta['contract']. A *signed* table (meta carries `signature`, i.e. a run_gpu_state_v3 output) must name a known
-    contract, E_PROVENANCE_CONTRACT otherwise (2026-11-03 release review: SHA comparisons are only meaningful within a known contract).
-    A derived table without a signature (merge tools such as sky-sos results/widget_bm45_20261102/merge49.py write their own
-    descriptive contract text) is accepted as is (and may be paired with a signed table, as the product twilight/day pair is)."""
+    `contract` version, E_PROVENANCE_CONTRACT otherwise (SHA comparisons are only meaningful within a known version).
+    A derived table without a signature (merge tools write their own
+    descriptive `contract` text) is accepted as is (and may be paired with a signed table, as the product twilight/day pair is).
+    Physics applies to both (B2): the table's identity must be known, a table without one (written before B2) reads as the
+    legacy identity (components.identity), and its own spectral block must agree with it.
+    Combining tables is the caller's check (components.check_same, check_contract)."""
     c = meta.get('contract')
     if 'signature' in meta and c not in CONTRACTS: raise ValueError(f'E_PROVENANCE_CONTRACT: signed table with unsupported contract {c!r}')
+    from .components import check_same, check_optics, identity, LEGACY
+    if identity(meta.get('physics')) == LEGACY and 'optics_state' in meta:
+        raise ValueError('E_PHYSICS_LOST: optics_state without B2 physics')
+    b = (meta.get('settings') or {}).get('spectral')
+    if b is None: check_same(meta.get('physics'), what='table')
+    else: block_key(b); check_same(meta.get('physics'), b.get('physics'), what='table meta and its spectral block')
+    if identity(meta.get('physics')) != LEGACY:
+        check_optics(meta.get('optics_state'))
     return c
 
 
 def table_block(meta):
-    """The spectral block a table was made with (None = legacy) from its meta.json dict; refuses an unsupported contract."""
+    """The spectral block a table was made with (None = legacy) from its meta.json dict; refuses an unsupported `contract` version."""
     check_meta_contract(meta)
     return (meta.get('settings') or {}).get('spectral')
 
 
 def check_contract(table, weights):
-    """Refuse weights made for another spectral definition than the table (E_SPECTRAL_CONTRACT)."""
+    """Refuse weights made for another spectral definition than the table (E_SPECTRAL_CONTRACT) or for other physics
+    (E_PHYSICS_MIXED: a legacy block with a current one, components.check_same)."""
+    if table is not None and weights is not None:
+        from .components import check_same
+        check_same(table.get('physics'), weights.get('physics'), what='table and weights')
     key = block_key
     if key(table) != key(weights): raise ValueError(f'E_SPECTRAL_CONTRACT: table {key(table)} vs weights {key(weights)}')
