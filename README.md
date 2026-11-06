@@ -8,12 +8,24 @@ a NumPy reference implementation, an optional CUDA kernel compiled at run time t
 compare against fixed references within tolerances, and a provenance record that signs every table with the hashes of the
 code and data that produced it.
 
-This is research code, published in the form we use it. Versions 1.0.0 to 1.2.2 are published together, and 1.2.2 is
+This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 are published together, and 1.2.3 is
 the current release. 1.2.0 replaced the source-text adapters of the engine loader with keyword-only hooks, moved the
 packaged tests into `sosfuse2/tests`, reformatted the Python sources to one statement per line and rewrote the documents;
-1.2.1 added `docs/PERFORMANCE.md`; 1.2.2 adds the L4 stall measurement of the release kernel to that page and changes
-nothing else. The physics is that of 1.1.0: the tables carry new `code_hashes` since 1.2.0, and a comparison with 1.1.1
-found no difference in the prepared arrays or the final tables.
+1.2.1 added `docs/PERFORMANCE.md`; 1.2.2 added the L4 stall measurement of the release kernel to that page and changed
+nothing else. Up to 1.2.2 the physics is that of 1.1.0: the tables carry new `code_hashes` since 1.2.0, and a comparison
+of 1.2.0 with 1.1.1 found no difference in the prepared arrays or the final tables. That comparison does not extend to
+1.2.3, whose default tables differ because the stratospheric layer is now on.
+
+1.2.3 enables the background stratospheric layer in all 64 bundled `states_v2.json` states. The physics code, sampled
+optical depths and 21 km layer centre are unchanged; `states_v1.json` retains its previous default. Runs using the
+default v2 states now include the layer when `--stratosphere` is omitted.
+
+The changed `states_v2.json` asset hash changes every new table's provenance signature, including runs using another
+state file, because the bundled asset is always hashed. Existing tables remain readable; signatures and saved-source
+reuse must still satisfy the provenance checks described in `docs/PROVENANCE_V3.md`. To reproduce the earlier off state,
+copy the state file, set each desired state's `stratosphere.status` to `disabled`, and pass that copy via `--states`;
+the CLI has no `--stratosphere off` option.
+
 That comparison, and every configuration the release was verified on, is recorded under *Tested configurations*.
 
 ![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their
@@ -63,6 +75,8 @@ input against measured zenith polarisation (Ugolnikov et al. 2004).
   anchor. The phase depolarisation stays fixed at 0.03; a single-scattering estimate with Bodhaine's wavelength-dependent
   value (0.0305 at 360 nm to 0.0276 at 830 nm) gives at most 3.9e-5 in u′v′ and 0.083 % in Y. NO₂ and O₄ contribute
   extinction only.
+- The default states use a fixed Gaussian sulfate layer centred at 21 km with σ = 3 km and optical depths of
+  0.002–0.006 at 550 nm. These background choices do not track the observed stratospheric aerosol burden.
 - The tables hold total radiance only. The solver follows Rayleigh polarisation internally and treats aerosol scattering
   as depolarising, but writes no Stokes parameters.
 - The numeric tolerances bound the discretisation and iteration error against fixed references of the same model. They
@@ -117,8 +131,9 @@ use; the default states do not. `SOSFUSE2_OFFLINE=1` refuses that download as we
 The state ids come from `sosfuse2/assets/states_v2.json`, the default `--states` file. It holds 64 parameter sets over
 `aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo` and `stratosphere_tau550`; `states_v1.json`
 holds the 40 first-generation states. Solar depression is the runner's own axis, set by `solar_elevation_deg` in its
-settings, and is not part of a state. Every state in these two files marks its stratospheric layer `unsupported`, so the
-layer stays off unless `--stratosphere on` is given. A full-resolution table needs the CUDA backend (`--backend cupy`).
+settings, and is not part of a state. All 64 states in `states_v2.json` mark the stratospheric layer `enabled`, so it
+is on when `--stratosphere` is omitted. The first-generation `states_v1.json` retains `unsupported`; its layer stays
+off unless `--stratosphere on` is given. A full-resolution table needs the CUDA backend (`--backend cupy`).
 The production queue that bakes many states with overlapping preparation is `python -B -m sosfuse2.pipeline`.
 
 ### Production queues and gates
@@ -179,7 +194,15 @@ passing turns the run red until its entry is removed, so the failures stay visib
 
 ## Tested configurations
 
-1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply to them unchanged.
+1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply to them unchanged. The changed default v2 states in
+1.2.3 are covered by the separate installed-sdist checks below.
+
+Configurations verified for 1.2.3:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | installed sdist in a fresh virtual environment (identical source tree): `gate --all` exit 0, 78 nodes passed; `clear_34 --reduced` without `--stratosphere`: layer enabled; G-F against the fixed reference: max relative difference 0.0 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| macOS arm64 | 3.14 | NumPy | installed sdist in a fresh virtual environment outside the source tree: 525 passed, 65 skipped, 5 xfailed, 0 failed; cached IPRT inputs and synthetic O₄ test data, offline |
 
 Configurations verified for 1.2.0:
 

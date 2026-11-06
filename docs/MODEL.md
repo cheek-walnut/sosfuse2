@@ -154,9 +154,9 @@ default. No shipped state file carries either block.
 
 ### Stratospheric sulfate layer
 
-The layer stays off unless a state marks it `enabled` or the runner is given `--stratosphere on`. `states_v1.json` and
-`states_v2.json` mark it `unsupported`, `states_v1_usstd.json` marks it `disabled`, and the test fixtures enable it in
-some states. When on, its profile is a Gaussian, by default centred at 21 km with σ = 3 km and normalised over 0 to 80 km,
+The layer is enabled by default in all 64 bundled `states_v2.json` states. `states_v1.json` retains `unsupported` and
+`states_v1_usstd.json` retains `disabled`; the runner can enable either with `--stratosphere on`. Test fixtures enable
+the layer in some states. When on, its profile is a Gaussian, by default centred at 21 km with σ = 3 km and normalised over 0 to 80 km,
 and its optical depth at 550 nm is `stratosphere_tau550`, with an axis of 0.002 to 0.006 in `states_v2.json`. The
 particles are a single lognormal sulfate population with median radius 0.08 µm, geometric width 1.6 and refractive index
 1.43 + 0i, so they do not absorb. The shipped Mie table covers 360 to 830 nm at 18 wavelengths, and extinction at other

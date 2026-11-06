@@ -31,6 +31,11 @@ minutes, after the one-time O₄ preparation from the README
 python -B -m sosfuse2.run_gpu_state_v3 --id clear_34 --reduced --backend numpy --threads 2 --work-root <dir>
 ```
 
+This example uses the bundled `states_v2.json`, with the background stratospheric layer enabled even when
+`--stratosphere` is omitted. `test_strato_runner.py::test_bundled_v2_stratosphere_enabled_by_default` checks all 64
+bundled states. To reproduce the earlier off state, pass an explicit state file with the layer disabled via `--states`;
+there is no `--stratosphere off` option.
+
 On macOS, the persistent queue (`pipeline --persistent`, `test_r17_port`, `test_pipeline_persistent`) listens on a Unix
 socket under the run's temporary root, and macOS limits that path to 104 bytes. Keep `TMPDIR` and `SOSFUSE2_TEST_SCRATCH`
 short; the default `/var/folders/...` is fine, whereas a 108-byte `TMPDIR` failed with `E_PERSISTENT_SERVICE_START` in a

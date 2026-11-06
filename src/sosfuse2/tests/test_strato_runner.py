@@ -21,6 +21,24 @@ except ImportError:  # standalone research harness
 from sosfuse2 import paths, testing
 
 
+def test_bundled_v2_stratosphere_enabled_by_default():
+    from types import SimpleNamespace
+    from sosfuse2.run_gpu_state_v3 import effective_state
+    from sosfuse2.stratosphere import build_optics, computed_metadata, tau_of
+
+    states = json.loads((paths.ASSETS / 'states_v2.json').read_text())['states']
+    assert len(states) == 64
+    for state in states:
+        assert state['stratosphere']['status'] == 'enabled'
+        effective = effective_state(state, SimpleNamespace())  # --stratosphere omitted
+        tau = state['parameters']['stratosphere_tau550']
+        assert tau_of(effective) == tau > 0
+        optics = build_optics(effective, np.linspace(0, 80, 41), np.array([550.0]))
+        meta = computed_metadata(effective, optics)
+        assert meta['stratosphere']['status'] == 'enabled'
+        assert meta['parameters_computed']['stratosphere_tau550'] == tau
+
+
 def run(out):
     out = testing.outside_package(out)
     out.mkdir(parents=True, exist_ok=True)

@@ -8,7 +8,7 @@
                E          band with E of bin 1 doubled: that wavelength x2 exactly, the others bit-equal (§4-1)
                sigma      band with sigma of bin 1 x1.5: the other wavelengths bit-equal (§4-2)
                cache      legacy then band on one work root (geometry/attach/column caches kept) == band on a fresh root (§4-6),
-                          without and with --stratosphere on (attach cache hit)
+                          without and with --stratosphere on (explicit off fixture; attach cache hit)
                n>15       16 band wavelengths (2 chunks): M3 extra-elevation row from the stored source == direct run row
 usage: python -B -m sosfuse2.tests.test_spectral [--runs --out <dir> --jobs 4]
 """
@@ -33,7 +33,7 @@ except ImportError:  # standalone research harness
 LEGACY_BASELINE = '6a5c3f5'
 TREE_FILES = ('scripts', 'rig', 'results/sos_full/a2_driver.py', 'results/sos_full/b2_driver.py', 'assets')
 FAILS = []
-ON = ('--stratosphere', 'on')  # attach cache in use (clear states have the layer off)
+ON = ('--stratosphere', 'on')  # attach cache in use; run() supplies an explicit off fixture
 
 
 def check(name, ok, detail=''):
@@ -314,7 +314,13 @@ sys.argv=[sys.argv[0]]+sys.argv[3:];V3.main()
 def run(tree, work, out_name, raw, kind='none', extra=()):
     s = Path(work).parent / f'{Path(work).name}.{out_name}.settings.json'
     s.write_text(json.dumps(raw))
+    states = s.with_suffix('.states.json')
+    state = json.loads((paths.ASSETS / 'states_v2.json').read_text())['states'][0]
+    state['stratosphere']['status'] = 'unsupported'  # legacy comparison and off/on cache coverage
+    states.write_text(json.dumps(dict(version=2, states=[state])))
     args = [
+        '--states',
+        str(states),
         '--id',
         'clear_33',
         '--out-name',

@@ -45,7 +45,7 @@
       "linear"
     ]
   },
-  "supported_physics": "polarized Rayleigh + depolarizing HG + ozone + Lambert; independent stratosphere unsupported",
+  "supported_physics": "polarized Rayleigh + depolarizing HG + ozone + Lambert; independent scalar-Mie stratosphere enabled",
   "REPORT": {
     "parent_sampling": "maximin Latin hypercube (256 candidates)",
     "implementation": "bundled 30-bit LMS+digital-shift Sobol (PCG64); no SciPy bit-equivalence claim",
@@ -58,7 +58,7 @@
     "boundary_states": 0,
     "scheduled_states": 64,
     "quantize_height": "off",
-    "note": "v1 is maximin LHS; historical points cannot be a Sobol prefix. Skip Sobol points 1..32 as requested; do not replace v1."
+    "note": "v1 is maximin LHS; historical points cannot be a Sobol prefix. Skip Sobol points 1..32 as requested; do not replace v1. Background stratosphere enabled by default; sampled parameters and 21 km layer centre retained."
   },
   "states": [
     {
@@ -76,7 +76,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 33; new campaign sample 1",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -100,7 +100,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 34; new campaign sample 2",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -124,7 +124,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 35; new campaign sample 3",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -148,7 +148,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 36; new campaign sample 4",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -172,7 +172,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 37; new campaign sample 5",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -196,7 +196,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 38; new campaign sample 6",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -220,7 +220,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 39; new campaign sample 7",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -244,7 +244,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 40; new campaign sample 8",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -268,7 +268,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 41; new campaign sample 9",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -292,7 +292,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 42; new campaign sample 10",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -316,7 +316,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 43; new campaign sample 11",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -340,7 +340,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 44; new campaign sample 12",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -364,7 +364,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 45; new campaign sample 13",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -388,7 +388,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 46; new campaign sample 14",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -412,7 +412,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 47; new campaign sample 15",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -436,7 +436,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 48; new campaign sample 16",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -460,7 +460,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 49; new campaign sample 17",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -484,7 +484,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 50; new campaign sample 18",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -508,7 +508,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 51; new campaign sample 19",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -532,7 +532,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 52; new campaign sample 20",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -556,7 +556,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 53; new campaign sample 21",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -580,7 +580,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 54; new campaign sample 22",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -604,7 +604,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 55; new campaign sample 23",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -628,7 +628,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 56; new campaign sample 24",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -652,7 +652,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 57; new campaign sample 25",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -676,7 +676,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 58; new campaign sample 26",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -700,7 +700,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 59; new campaign sample 27",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -724,7 +724,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 60; new campaign sample 28",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -748,7 +748,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 61; new campaign sample 29",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -772,7 +772,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 62; new campaign sample 30",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -796,7 +796,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 63; new campaign sample 31",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -820,7 +820,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 64; new campaign sample 32",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -844,7 +844,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 65; new campaign sample 33",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -868,7 +868,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 66; new campaign sample 34",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -892,7 +892,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 67; new campaign sample 35",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -916,7 +916,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 68; new campaign sample 36",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -940,7 +940,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 69; new campaign sample 37",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -964,7 +964,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 70; new campaign sample 38",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -988,7 +988,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 71; new campaign sample 39",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1012,7 +1012,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 72; new campaign sample 40",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1036,7 +1036,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 73; new campaign sample 41",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1060,7 +1060,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 74; new campaign sample 42",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1084,7 +1084,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 75; new campaign sample 43",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1108,7 +1108,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 76; new campaign sample 44",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1132,7 +1132,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 77; new campaign sample 45",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1156,7 +1156,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 78; new campaign sample 46",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1180,7 +1180,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 79; new campaign sample 47",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1204,7 +1204,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 80; new campaign sample 48",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1228,7 +1228,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 81; new campaign sample 49",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1252,7 +1252,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 82; new campaign sample 50",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1276,7 +1276,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 83; new campaign sample 51",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1300,7 +1300,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 84; new campaign sample 52",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1324,7 +1324,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 85; new campaign sample 53",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1348,7 +1348,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 86; new campaign sample 54",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1372,7 +1372,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 87; new campaign sample 55",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1396,7 +1396,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 88; new campaign sample 56",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1420,7 +1420,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 89; new campaign sample 57",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1444,7 +1444,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 90; new campaign sample 58",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1468,7 +1468,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 91; new campaign sample 59",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1492,7 +1492,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 92; new campaign sample 60",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1516,7 +1516,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 93; new campaign sample 61",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1540,7 +1540,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 94; new campaign sample 62",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1564,7 +1564,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 95; new campaign sample 63",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
@@ -1588,7 +1588,7 @@
       "group": "clear_background",
       "description": "scrambled Sobol stream point 96; new campaign sample 64",
       "stratosphere": {
-        "status": "unsupported",
+        "status": "enabled",
         "profile": "gaussian",
         "center_km": 21.0,
         "sigma_km": 3.0,
