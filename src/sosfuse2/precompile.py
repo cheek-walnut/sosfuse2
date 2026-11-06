@@ -16,6 +16,7 @@ specializations without the FW15-only KSPLIT kernels. Use --no-strato
 for C3_nostrato. Ray-range first light (LAUNCH_RAY_LIMIT + fl_project) is added when the device profile splits
 launches (eda) or SOSFUSE2_FL_PROJECT=1.
 """
+
 import argparse
 import json
 import multiprocessing as mp
@@ -30,27 +31,32 @@ SPECS = ((1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, 0), (1, 2, 0), (0, 2, 0))
 def one(job):
     name, flags, block_size, cache, L, W, step = job
     from sosfuse2.compile_cache import configure
+
     configure(cache, 'cupy', block_size)
     from sosfuse2.fused import Kernel
+
     k = Kernel(1, backend='cupy', block_size=block_size, flags=flags, L=L, profile_step_km=step)
     started = time.perf_counter()
     if name == 'strato_lut_build':
         k.strato_lut_kernel(W)
     elif name == 'fl_project':
-        k.raw_kernel(W, 1, 0, 0, ray_limit=True); k.fl_project_kernel(W, 0)
+        k.raw_kernel(W, 1, 0, 0, ray_limit=True)
+        k.fl_project_kernel(W, 0)
     elif name[0] == 'ksplit':
         # KSPLIT=3 (production default): the column record pass and VPROD (PROD module: sos_vprod_y, sos_vprod) per pass, the warm ray consumer and
         # projection on phase 0, per-cell SLIM on the ground phase, and the plan module (fused.Kernel.ksplit_* paths).
         _, phase, boundary = name
-        k.raw_kernel(15, 0, phase, boundary, variant='record'); k.vprod_kernels(15, phase, boundary)
+        k.raw_kernel(15, 0, phase, boundary, variant='record')
+        k.vprod_kernels(15, phase, boundary)
         if phase == 0:
-            k.raw_kernel(15, 0, 0, boundary, ray_limit=True, variant='slimray'); k.slim_proj_kernel(15, boundary)
+            k.raw_kernel(15, 0, 0, boundary, ray_limit=True, variant='slimray')
+            k.slim_proj_kernel(15, boundary)
         else:
             k.raw_kernel(15, 0, phase, boundary, variant='slim')
         k.vprod_plan_module().get_function('vp_blocks')
     else:
         k.raw_kernel(W, *name)
-    return str(name), time.perf_counter()-started
+    return str(name), time.perf_counter() - started
 
 
 def main():
@@ -59,15 +65,26 @@ def main():
     p.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1))
     p.add_argument('--no-strato', action='store_true')
     p.add_argument('--ray-limit', choices=('auto', 'on', 'off'), default='auto')
-    p.add_argument('--L', type=int, choices=(16, 24, 32), default=None, help='SH order (default: run_gpu_state_v3.SH_L)')
-    p.add_argument('--profile-step-km', type=float, choices=(.5, .25, .125), default=.5,
-                   help='PROFILE node spacing of the states (density.profile_step_km); 0.5 = default kernels')
-    p.add_argument('--W', type=int, choices=(1, 15), default=15, help='kernel wavelength width (1: sigma monochromatic C mode)')
+    p.add_argument(
+        '--L', type=int, choices=(16, 24, 32), default=None, help='SH order (default: run_gpu_state_v3.SH_L)'
+    )
+    p.add_argument(
+        '--profile-step-km',
+        type=float,
+        choices=(0.5, 0.25, 0.125),
+        default=0.5,
+        help='PROFILE node spacing of the states (density.profile_step_km); 0.5 = default kernels',
+    )
+    p.add_argument(
+        '--W', type=int, choices=(1, 15), default=15, help='kernel wavelength width (1: sigma monochromatic C mode)'
+    )
     a = p.parse_args()
-    if not a.cache: p.error('E_PRECOMPILE: --cache or SOSFUSE2_COMPILE_CACHE required')
+    if not a.cache:
+        p.error('E_PRECOMPILE: --cache or SOSFUSE2_COMPILE_CACHE required')
     from sosfuse2.fused import default_flags, ksplit_setting
     from sosfuse2.kernel_config import resolve_config, deterministic
     from sosfuse2.run_gpu_state_v3 import SH_L
+
     mode = deterministic()
     L = a.L or SH_L
     flags = resolve_config(set(default_flags()) | (set() if a.no_strato else {'STRATO'})).flags
@@ -75,21 +92,40 @@ def main():
     ray = a.ray_limit == 'on'
     if a.ray_limit == 'auto':
         from sosfuse2.device_profile import select, smi_device_name
+
         name = smi_device_name()
         ray = bool(select(name)[1]['launch_target_seconds']) or os.environ.get('SOSFUSE2_FL_PROJECT', '').strip() == '1'
     W, step = a.W, a.profile_step_km
     tail = (block_size, a.cache, L, W, step)
     jobs = [(spec, flags) + tail for spec in SPECS]
-    if resolve_config(flags, W=W).strato: jobs.append(('strato_lut_build', flags) + tail)
-    if ray and resolve_config(flags, W=W).split_first: jobs.append(('fl_project', flags) + tail)
+    if resolve_config(flags, W=W).strato:
+        jobs.append(('strato_lut_build', flags) + tail)
+    if ray and resolve_config(flags, W=W).split_first:
+        jobs.append(('fl_project', flags) + tail)
     # KSPLIT kernels are FW15 only (fused.Kernel.setup: ksplit_supported); W=1 states run the unsplit kernel.
     if W == 15 and ksplit_setting('cupy', flags, L) == '3':
         jobs += [(('ksplit', phase, boundary), flags) + tail for phase, boundary in ((0, 0), (0, 1), (1, 0))]
     started = time.perf_counter()
     with ProcessPoolExecutor(max_workers=max(1, a.jobs), mp_context=mp.get_context('spawn')) as pool:
         results = list(pool.map(one, jobs))
-    print('PRECOMPILE ' + json.dumps(dict(wall_seconds=time.perf_counter()-started, jobs=a.jobs, kernels=dict(results),
-                                          deterministic=mode, flags=list(flags), block_size=block_size, ray_limit=ray, L=L, W=W, profile_step_km=step)), flush=True)
+    print(
+        'PRECOMPILE '
+        + json.dumps(
+            dict(
+                wall_seconds=time.perf_counter() - started,
+                jobs=a.jobs,
+                kernels=dict(results),
+                deterministic=mode,
+                flags=list(flags),
+                block_size=block_size,
+                ray_limit=ray,
+                L=L,
+                W=W,
+                profile_step_km=step,
+            )
+        ),
+        flush=True,
+    )
 
 
 if __name__ == '__main__':

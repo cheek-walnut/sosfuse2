@@ -5,6 +5,7 @@ on the Mac. eda is recognised by ~/tools/gpu_guard (current, 2026-10-21) or the 
 
 Run: PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider src/sosfuse2/test_host_limits.py
 """
+
 import sys
 from pathlib import Path
 
@@ -12,7 +13,7 @@ import pytest
 
 from sosfuse2 import host_limits as hl  # noqa: E402
 
-RIG_RAM_GB = 64.
+RIG_RAM_GB = 64.0
 
 
 @pytest.fixture
@@ -27,38 +28,38 @@ def linux_rig(tmp_path, monkeypatch):
 
 def test_tools_gpu_guard_marks_eda(linux_rig):
     (linux_rig / 'tools' / 'gpu_guard').mkdir(parents=True)
-    assert hl.rss_cap_gb() == hl.PROTECTED_RSS_GB == 6.
+    assert hl.rss_cap_gb() == hl.PROTECTED_RSS_GB == 6.0
 
 
 def test_old_gpu_guard_marks_eda(linux_rig):
     (linux_rig / 'gpu_guard').mkdir()
-    assert hl.rss_cap_gb() == hl.PROTECTED_RSS_GB == 6.
+    assert hl.rss_cap_gb() == hl.PROTECTED_RSS_GB == 6.0
 
 
 def test_no_marker_uses_ram_rule(linux_rig):
-    assert hl.rss_cap_gb() == min(hl.RIG_RSS_GB, RIG_RAM_GB) == 64.
+    assert hl.rss_cap_gb() == min(hl.RIG_RSS_GB, RIG_RAM_GB) == 64.0
 
 
 def test_mid_size_host_gets_ram_share(linux_rig, monkeypatch):
     """GCP L4 g2-standard-8 (32 GB): ncu --set full replay reached 6.4-6.8 GB (measured during development)."""
-    monkeypatch.setattr(hl, 'physical_ram_gb', lambda: 32.)
-    assert hl.rss_cap_gb() == 24.
-    assert hl.default_rss_gb(1) == 24.
+    monkeypatch.setattr(hl, 'physical_ram_gb', lambda: 32.0)
+    assert hl.rss_cap_gb() == 24.0
+    assert hl.default_rss_gb(1) == 24.0
     assert hl.default_rss_gb(2) == pytest.approx(12.8)
 
 
 def test_small_host_stays_protected(linux_rig, monkeypatch):
-    monkeypatch.setattr(hl, 'physical_ram_gb', lambda: 16.)
-    assert hl.rss_cap_gb() == hl.default_rss_gb(1) == 6.
+    monkeypatch.setattr(hl, 'physical_ram_gb', lambda: 16.0)
+    assert hl.rss_cap_gb() == hl.default_rss_gb(1) == 6.0
 
 
 def test_default_on_eda_is_protected(linux_rig):
     (linux_rig / 'tools' / 'gpu_guard').mkdir(parents=True)
-    assert hl.default_rss_gb(1) == hl.default_rss_gb(4) == 6.
+    assert hl.default_rss_gb(1) == hl.default_rss_gb(4) == 6.0
 
 
 def test_default_splits_ram_over_workers(linux_rig):
     """The limit is per process: the defaults of all workers together stay within 0.8 x RAM, never below 6."""
     assert hl.default_rss_gb(1) == pytest.approx(51.2)
     assert hl.default_rss_gb(4) == pytest.approx(12.8)
-    assert hl.default_rss_gb(16) == 6.
+    assert hl.default_rss_gb(16) == 6.0

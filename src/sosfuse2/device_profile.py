@@ -9,6 +9,7 @@ else 'rig' for an unmatched CUDA device and 'mac' without CUDA. Single fields ca
 SOSFUSE2_LAUNCH_BUDGET_SECONDS, SOSFUSE2_LAUNCH_TARGET_SECONDS ('0' or '' = off), SOSFUSE2_LAUNCH_CELLS
 (fixed cells per launch, disables the adaptive split) and SOSFUSE2_LAUNCH_PAUSE_MS.
 """
+
 import json
 import math
 import os
@@ -69,8 +70,11 @@ def select(device_name=None):
         p['launch_cells_fixed'] = None
     for key in ('launch_budget_seconds', 'launch_target_seconds'):
         p[key] = _number(key, p.get(key))
-    if p['launch_target_seconds'] is not None and p['launch_budget_seconds'] is not None and \
-            p['launch_target_seconds'] > p['launch_budget_seconds']:
+    if (
+        p['launch_target_seconds'] is not None
+        and p['launch_budget_seconds'] is not None
+        and p['launch_target_seconds'] > p['launch_budget_seconds']
+    ):
         raise ValueError('E_DEVICE_PROFILE: launch_target_seconds exceeds launch_budget_seconds')
     p['launch_cells_initial'] = int(p.get('launch_cells_initial') or 0)
     p['launch_pause_ms'] = float(p.get('launch_pause_ms') or 0)
@@ -89,10 +93,20 @@ def cuda_device_name(xp):
 def smi_device_name():
     """Visible GPU name from nvidia-smi without initializing CUDA (CPU-side workers); None if unavailable."""
     import subprocess
+
     dev = (os.environ.get('CUDA_VISIBLE_DEVICES') or '0').split(',')[0]
     try:
-        out = subprocess.run(['nvidia-smi', '-i', dev, '--query-gpu=name', '--format=csv,noheader'],
-                             capture_output=True, text=True, timeout=20, check=True).stdout.strip().splitlines()
+        out = (
+            subprocess.run(
+                ['nvidia-smi', '-i', dev, '--query-gpu=name', '--format=csv,noheader'],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=True,
+            )
+            .stdout.strip()
+            .splitlines()
+        )
         return out[0].strip() if out else None
     except (OSError, subprocess.SubprocessError):
         return None
@@ -103,7 +117,10 @@ def first_light_split_error(flags, strato, profile_name, profile):
     if not profile.get('requires_split'):
         return None
     from .kernel_config import resolve_config
+
     if resolve_config(flags).split_first:
         return None
-    return (f'E_LAUNCH_BUDGET_CONFIG: the {profile_name} profile needs first light split below one cell; '
-            'the instrumentation role uses unsplit transport. Not launched.')
+    return (
+        f'E_LAUNCH_BUDGET_CONFIG: the {profile_name} profile needs first light split below one cell; '
+        'the instrumentation role uses unsplit transport. Not launched.'
+    )

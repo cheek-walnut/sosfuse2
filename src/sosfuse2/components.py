@@ -11,6 +11,7 @@ Physics identity of a product (table meta, spectral block, source.npz, q16 heade
   check_same refuses legacy with current as E_PHYSICS_MIXED.
 - A declared value this code does not know is E_PHYSICS_CONTRACT.
 """
+
 import copy
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -49,17 +50,25 @@ def production_only():
 def _b2(o4_sha):
     from .minor_absorbers import load
     from .generate_minor_absorbers import CIA_SHA, RULES_VERSION
-    return dict(rayleigh='bodhaine_iprt450air_vac_v1', phase_depolarization=.03, components=list(COMPONENTS),
-                minor_absorbers=dict(no2=dict(asset_sha256=load('no2')['sha256'], temperature_K=220),
-                    o4=dict(source_sha256=CIA_SHA, rules_version=RULES_VERSION, asset_sha256=o4_sha),
-                    o4_density=dict(o2_vmr=.20946, shape='q^2', n0_rule='usstd76 asset; exp8 2.5469e25; external explicit'),
-                    no2_normalization='maximum=1, coefficient divided by actual H_f_km'))
+
+    return dict(
+        rayleigh='bodhaine_iprt450air_vac_v1',
+        phase_depolarization=0.03,
+        components=list(COMPONENTS),
+        minor_absorbers=dict(
+            no2=dict(asset_sha256=load('no2')['sha256'], temperature_K=220),
+            o4=dict(source_sha256=CIA_SHA, rules_version=RULES_VERSION, asset_sha256=o4_sha),
+            o4_density=dict(o2_vmr=0.20946, shape='q^2', n0_rule='usstd76 asset; exp8 2.5469e25; external explicit'),
+            no2_normalization='maximum=1, coefficient divided by actual H_f_km',
+        ),
+    )
 
 
 def physics():
     if reference_active():
         return copy.deepcopy(S1_REFERENCE)
     from .minor_absorbers import hashes
+
     return _b2(hashes()['o4'])
 
 
@@ -98,7 +107,7 @@ def check_current(value, what='product'):
 
 
 def no2_du(state):
-    value = state.get('parameters', {}).get('no2_du', .207)
+    value = state.get('parameters', {}).get('no2_du', 0.207)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
         raise ValueError('E_NO2_DU: finite non-negative no2_du required')
     return float(value)
@@ -115,6 +124,7 @@ def optics_state(state, optics=None):
     """Resolved optical amounts, separate from shape/cache identities."""
     if optics is None:
         from .density import build
+
         optics = build(state)
     return dict(no2_du=no2_du(state), o4=o4_enabled(state), n0=optics['meta']['o4']['n0'])
 
@@ -130,9 +140,12 @@ def check_optics(*values):
     for value in values:
         if not isinstance(value, dict) or set(value) != {'no2_du', 'o4', 'n0'}:
             raise ValueError('E_OPTICS_STATE_MIXED: missing or incomplete optics_state')
-        no2_du(dict(parameters=value)); o4_enabled(dict(parameters=value))
+        no2_du(dict(parameters=value))
+        o4_enabled(dict(parameters=value))
         n0 = value['n0']
-        if n0 is not None and (isinstance(n0, bool) or not isinstance(n0, (int, float)) or not math.isfinite(n0) or n0 <= 0):
+        if n0 is not None and (
+            isinstance(n0, bool) or not isinstance(n0, (int, float)) or not math.isfinite(n0) or n0 <= 0
+        ):
             raise ValueError('E_OPTICS_STATE_MIXED: invalid n0')
         if value['o4'] and n0 is None:
             raise ValueError('E_OPTICS_STATE_MIXED: enabled O4 needs n0')

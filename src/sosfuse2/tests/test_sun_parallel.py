@@ -1,4 +1,5 @@
 """Real accepted row arithmetic, spawn failures, and the unchanged NPZ reader."""
+
 import contextlib
 import io
 import json
@@ -12,6 +13,7 @@ from unittest import mock
 import numpy as np
 
 from sosfuse2 import density, geometry, host_cache, sun_parallel as sp
+
 try:
     from sosfuse2.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
@@ -29,9 +31,9 @@ class SunParallelTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         with mock.patch.dict(os.environ, {sp.ENV: '1'}):
-            _, scope, _ = geometry.create(Path(cls.tmp.name)/'prepare', 'selftest', [550.], 'numpy')
+            _, scope, _ = geometry.create(Path(cls.tmp.name) / 'prepare', 'selftest', [550.0], 'numpy')
         cls.old = scope['b'].sh.old
-        cls.h = np.array([0., .1, 13., 40., 80.])
+        cls.h = np.array([0.0, 0.1, 13.0, 40.0, 80.0])
         cls.x = np.linspace(0, 1, 21)
         cls.optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
         cls.optics['old'] = cls.old
@@ -64,20 +66,21 @@ class SunParallelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with mock.patch.dict(os.environ, {sp.ENV: '1'}):
-                expected = host_cache.sun_geometry(self.old, 1, root/'serial', .1)
+                expected = host_cache.sun_geometry(self.old, 1, root / 'serial', 0.1)
             with mock.patch.dict(os.environ, {sp.ENV: '2'}):
-                actual = host_cache.sun_geometry(self.old, 1, root/'parallel', .1)
+                actual = host_cache.sun_geometry(self.old, 1, root / 'parallel', 0.1)
                 self.assertGreater(actual.build_seconds, 0)
                 with mock.patch.object(sp, 'rows', side_effect=AssertionError('cache hit')):
-                    hit = host_cache.sun_geometry(self.old, 1, root/'parallel', .1)
+                    hit = host_cache.sun_geometry(self.old, 1, root / 'parallel', 0.1)
                     self.assertEqual(hit.build_seconds, 0)
             for name in ('h', 'x', 'col'):
                 assert_equivalent(getattr(expected, name), getattr(actual, name))
-            a = next((root/'serial').rglob('sun_columns.npz'))
-            b = next((root/'parallel').rglob('sun_columns.npz'))
+            a = next((root / 'serial').rglob('sun_columns.npz'))
+            b = next((root / 'parallel').rglob('sun_columns.npz'))
             with np.load(a) as x, np.load(b) as y:
                 self.assertEqual(set(x.files), set(y.files))
-                for key in x.files: assert_equivalent(x[key], y[key])
+                for key in x.files:
+                    assert_equivalent(x[key], y[key])
 
     def test_worker_setting(self):
         with mock.patch.dict(os.environ, {sp.ENV: ''}), mock.patch.object(sp, 'default_workers', return_value=3):
@@ -92,9 +95,11 @@ class SunParallelTests(unittest.TestCase):
         sun = SimpleNamespace(h=self.h, x=self.x, col=base)
         s = SimpleNamespace(geo=SimpleNamespace(sun=sun))
         expected, _ = self.run_rows(1, base, self.optics)
-        with tempfile.TemporaryDirectory() as tmp, \
-                mock.patch.object(host_cache, 'context', return_value=(Path(tmp), {})), \
-                mock.patch.dict(os.environ, {sp.ENV: '2'}):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(host_cache, 'context', return_value=(Path(tmp), {})),
+            mock.patch.dict(os.environ, {sp.ENV: '2'}),
+        ):
             actual = host_cache.corrected_sun(s, self.optics)
             assert_equivalent(actual, expected)
             assert_equivalent(sun.col, base)

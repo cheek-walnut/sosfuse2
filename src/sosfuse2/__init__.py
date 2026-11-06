@@ -10,7 +10,7 @@ import types
 class _Package(types.ModuleType):
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
-        if name == 'geometry' and __name__+'.geometry_parallel' not in sys.modules:
+        if name == 'geometry' and __name__ + '.geometry_parallel' not in sys.modules:
             importlib.import_module('.geometry_parallel', __name__)
 
 

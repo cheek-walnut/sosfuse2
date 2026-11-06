@@ -1,4 +1,5 @@
 """Numerical equivalence for research harnesses (not file-integrity checks)."""
+
 import numpy as np
 
 

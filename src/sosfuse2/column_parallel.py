@@ -12,6 +12,7 @@ The process count is SOSFUSE2_COLUMN_WORKERS; unset = all usable CPUs (default_w
 pipeline.py exports max(--threads, usable CPUs // concurrent states) unless the variable is set (pipeline.prep_workers).  The worker count enters no cache key: column_cache.cache_key hashes stratosphere.py, density.py, the
 accepted sources and the engine; host_cache keys hash host_cache.py (which calls this module), not this file.  test_column_parallel.py checks shape, dtype and numerical tolerance.
 """
+
 import builtins
 import json
 import marshal
@@ -25,9 +26,9 @@ import numpy as np
 # Moved to host_limits (stdlib only, so pipeline.py can use it); re-exported for sun/ground/geometry_parallel.
 from .host_limits import _quota_limits, default_workers  # noqa: F401
 
-CHUNK = 2048                      # fused.py strato_end_columns / density_end_columns
-TASK_CHUNKS = 32                  # chunks per task (65,536 rays)
-MIN_RAYS = 4*TASK_CHUNKS*CHUNK    # smaller bundles (tables: tens of rays) stay serial; spawning costs ~0.5 s
+CHUNK = 2048  # fused.py strato_end_columns / density_end_columns
+TASK_CHUNKS = 32  # chunks per task (65,536 rays)
+MIN_RAYS = 4 * TASK_CHUNKS * CHUNK  # smaller bundles (tables: tens of rays) stay serial; spawning costs ~0.5 s
 ENV = 'SOSFUSE2_COLUMN_WORKERS'
 
 
@@ -45,6 +46,7 @@ def workers():
 
 
 # ---- shipping exec-defined functions -------------------------------------------------------------------------
+
 
 def _names(code):
     out = set(code.co_names)
@@ -67,7 +69,7 @@ class _Freezer:
             return self.function(v)
         if isinstance(v, types.SimpleNamespace):
             return ('namespace', {k: self.value(x) for k, x in vars(v).items() if not k.startswith('__')})
-        pickle.dumps(v)                    # unsupported values fail here, before any worker starts
+        pickle.dumps(v)  # unsupported values fail here, before any worker starts
         return ('value', v)
 
     def function(self, f):
@@ -77,7 +79,7 @@ class _Freezer:
         scope = self.scopes.setdefault(sid, {})
         for name in _names(f.__code__):
             if name in f.__globals__ and name not in scope and not name.startswith('__'):
-                scope[name] = None         # reserve first: recursive functions share the scope
+                scope[name] = None  # reserve first: recursive functions share the scope
                 scope[name] = self.value(f.__globals__[name])
         return ('function', marshal.dumps(f.__code__), f.__name__, f.__defaults__, f.__kwdefaults__, sid)
 
@@ -90,6 +92,7 @@ def freeze(namespace, names):
 
 def thaw(frozen):
     import importlib
+
     scopes = {sid: {'__builtins__': builtins} for sid in frozen['scopes']}
 
     def build(item):
@@ -124,29 +127,56 @@ def _run(task):
     """The serial loop body for every 2048-ray chunk of [start, end)."""
     from .stratosphere import columns
     from .density import correct_columns
+
     start, end, dirs, base = task
-    w = _WORKER; old, starts, co, parameter = w['old'], w['starts'], w['cell_off'], w['parameter']
+    w = _WORKER
+    old, starts, co, parameter = w['old'], w['starts'], w['cell_off'], w['parameter']
     out = []
     for lo in range(start, end, CHUNK):
-        hi = min(lo+CHUNK, end); index = np.searchsorted(co, np.arange(lo, hi), side='right')-1
+        hi = min(lo + CHUNK, end)
+        index = np.searchsorted(co, np.arange(lo, hi), side='right') - 1
         if w['kind'] == 'strato':
-            out.append(columns(starts[index], dirs[lo-start:hi-start], old, parameter, 24))
+            out.append(columns(starts[index], dirs[lo - start : hi - start], old, parameter, 24))
         else:
-            out.append(correct_columns(starts[index], dirs[lo-start:hi-start], base[lo-start:hi-start], old, parameter, 24))
+            out.append(
+                correct_columns(
+                    starts[index], dirs[lo - start : hi - start], base[lo - start : hi - start], old, parameter, 24
+                )
+            )
     return start, out
 
 
 # ---- parent side ---------------------------------------------------------------------------------------------
 
+
 def event_fields():
     """Identity and clock fields every PHASE line carries (pipeline_trace.py reads pid/timestamp_ns)."""
-    return dict(id=os.environ.get('SOSFUSE2_STATE_ID', 'COLUMN_CACHE'), pid=os.getpid(),
-                timestamp_ns=time.time_ns(), monotonic_ns=time.monotonic_ns())
+    return dict(
+        id=os.environ.get('SOSFUSE2_STATE_ID', 'COLUMN_CACHE'),
+        pid=os.getpid(),
+        timestamp_ns=time.time_ns(),
+        monotonic_ns=time.monotonic_ns(),
+    )
 
 
 def _event(kind, count, rays, tasks, result, reason, started):
-    print(json.dumps(dict(event='PHASE', phase='column_parallel', **event_fields(), kind=kind, workers=count,
-        rays=rays, tasks=tasks, result=result, reason=reason, seconds=time.monotonic()-started)), flush=True)
+    print(
+        json.dumps(
+            dict(
+                event='PHASE',
+                phase='column_parallel',
+                **event_fields(),
+                kind=kind,
+                workers=count,
+                rays=rays,
+                tasks=tasks,
+                result=result,
+                reason=reason,
+                seconds=time.monotonic() - started,
+            )
+        ),
+        flush=True,
+    )
 
 
 def parallel_columns(out, kind, starts, cell_off, dirs, old, parameter, count=None):
@@ -157,35 +187,45 @@ def parallel_columns(out, kind, starts, cell_off, dirs, old, parameter, count=No
     False: one worker (default), a bundle below MIN_RAYS, or a failure of the parallel machinery (reason printed;
     a numerical error then recurs in the serial loop and is raised there)."""
     from . import column_table
+
     if column_table.method() != 'gl24':
         return column_table.fill(out, kind, starts, cell_off, dirs, old, parameter)
     count = workers() if count is None else int(count)
     rays = len(dirs)
     if count <= 1 or rays < MIN_RAYS:
         return False
-    started = time.monotonic(); span = CHUNK*TASK_CHUNKS; tasks = (rays+span-1)//span
+    started = time.monotonic()
+    span = CHUNK * TASK_CHUNKS
+    tasks = (rays + span - 1) // span
     try:
         import multiprocessing
         from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+
         frozen = freeze(old, ['geometry_segments', 'probe'] if kind == 'density' else ['geometry_segments'])
         if kind == 'density':
             parameter = {k: v for k, v in parameter.items() if k != 'old'}
-        starts = np.ascontiguousarray(starts); cell_off = np.ascontiguousarray(cell_off)
+        starts = np.ascontiguousarray(starts)
+        cell_off = np.ascontiguousarray(cell_off)
         # One snapshot of the inputs: density bases are the unmodified end_col rows of each task.
         bases = None if kind == 'strato' else out
-        with ProcessPoolExecutor(min(count, tasks), mp_context=multiprocessing.get_context('spawn'),
-                                 initializer=_init, initargs=(frozen, kind, starts, cell_off, parameter)) as pool:
-            queue = iter(range(0, rays, span)); pending = set()
+        with ProcessPoolExecutor(
+            min(count, tasks),
+            mp_context=multiprocessing.get_context('spawn'),
+            initializer=_init,
+            initargs=(frozen, kind, starts, cell_off, parameter),
+        ) as pool:
+            queue = iter(range(0, rays, span))
+            pending = set()
 
             def submit():
                 for lo in queue:
-                    hi = min(lo+span, rays)
+                    hi = min(lo + span, rays)
                     base = None if bases is None else np.array(bases[lo:hi])
                     pending.add(pool.submit(_run, (lo, hi, np.ascontiguousarray(dirs[lo:hi]), base)))
                     return True
                 return False
 
-            for _ in range(2*count):
+            for _ in range(2 * count):
                 submit()
             while pending:
                 done, _ = wait(pending, return_when=FIRST_COMPLETED)
@@ -193,7 +233,8 @@ def parallel_columns(out, kind, starts, cell_off, dirs, old, parameter, count=No
                     pending.discard(future)
                     lo, parts = future.result()
                     for k, value in enumerate(parts):
-                        a = lo+k*CHUNK; out[a:a+len(value)] = value
+                        a = lo + k * CHUNK
+                        out[a : a + len(value)] = value
                     submit()
     except Exception as exc:
         # The serial loop follows and rewrites every row.  Density rows written by completed tasks keep the

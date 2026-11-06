@@ -8,6 +8,7 @@ ozone-shape profile (generate_density_profile.py) is reproduced exactly from the
 Measured 2026-11-03: the downloads are byte-identical to the copies used during development.
 A failed download is retried (3 attempts, short backoff) and then reported as E_IPRT_DOWNLOAD with the file, the URL and the cause.
 """
+
 import hashlib
 import http.client
 import os
@@ -23,9 +24,11 @@ FILES = {  # name -> sha256 of the original server file
     'tau_absorption_320nm_usstd.dat': '2cdde3d5280e8bdd1798b2b3974959725f3311be5be6628330cfdf7b46e4ec43',
 }
 DOWNLOAD_ATTEMPTS = 3
-RETRY_SECONDS = 1.      # waits 1 s, 2 s between attempts
-CITATION = ('Emde, C. et al., IPRT polarized radiative transfer model intercomparison project, phase E inputs '
-            '(US standard atmosphere layer optical depths), https://www.libradtran.org/iprt/')
+RETRY_SECONDS = 1.0  # waits 1 s, 2 s between attempts
+CITATION = (
+    'Emde, C. et al., IPRT polarized radiative transfer model intercomparison project, phase E inputs '
+    '(US standard atmosphere layer optical depths), https://www.libradtran.org/iprt/'
+)
 
 
 def cache_dir():
@@ -51,17 +54,24 @@ def fetch(name, offline=None):
         offline = os.environ.get('SOSFUSE2_OFFLINE', '') not in ('', '0')
     url = BASE + name
     if offline:
-        raise RuntimeError(f'E_IPRT_OFFLINE: {name} missing from {dst.parent}; download {url} and place it there (sha256 {want})')
+        raise RuntimeError(
+            f'E_IPRT_OFFLINE: {name} missing from {dst.parent}; download {url} and place it there (sha256 {want})'
+        )
     tmp = dst.with_suffix(dst.suffix + f'.{os.getpid()}.tmp')
-    for attempt in range(1, DOWNLOAD_ATTEMPTS+1):
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(url, timeout=60) as r:
                 data = r.read()
             break
-        except (OSError, http.client.HTTPException) as e:   # URLError, HTTPError, TimeoutError, ConnectionError, IncompleteRead
+        except (
+            OSError,
+            http.client.HTTPException,
+        ) as e:  # URLError, HTTPError, TimeoutError, ConnectionError, IncompleteRead
             if attempt == DOWNLOAD_ATTEMPTS:
-                raise RuntimeError(f'E_IPRT_DOWNLOAD: {name} from {url}: {type(e).__name__}: {e} ({attempt} attempts)') from e
-            time.sleep(RETRY_SECONDS*2**(attempt-1))
+                raise RuntimeError(
+                    f'E_IPRT_DOWNLOAD: {name} from {url}: {type(e).__name__}: {e} ({attempt} attempts)'
+                ) from e
+            time.sleep(RETRY_SECONDS * 2 ** (attempt - 1))
     tmp.write_bytes(data)
     got = sha256(tmp)
     if got != want:

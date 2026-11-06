@@ -16,14 +16,16 @@ parameters (aod550, ssa, angstrom), so an HG/Mie pair differs in the phase funct
 The kernel reads the table behind the asca pointer (asca[0:W] unchanged, table at asca+W), so the kernel
 signature and launch argument lists do not change.
 """
+
 import hashlib, json, math
 from pathlib import Path
 import numpy as np
 
 from . import paths
-ROOT = paths.PKG                 # relative optics_table paths resolve inside the package
-DEFAULT = paths.ASSETS/'tropo_rural_sf79_rh70.json'
-LUT_BINS = 16384          # == STRATO_LUT_BINS under STRATO_MIE_LUT_FINE (kernel.cu GF path shares the node indices)
+
+ROOT = paths.PKG  # relative optics_table paths resolve inside the package
+DEFAULT = paths.ASSETS / 'tropo_rural_sf79_rh70.json'
+LUT_BINS = 16384  # == STRATO_LUT_BINS under STRATO_MIE_LUT_FINE (kernel.cu GF path shares the node indices)
 L = 32
 
 
@@ -51,8 +53,8 @@ def config(state):
         return None
     if status != 'enabled':
         raise ValueError('E_TROPO_PHASE_STATUS: status must be "enabled" or "disabled"')
-    if set(block)-KEYS:
-        raise ValueError('E_TROPO_PHASE_KEYS: unknown keys '+','.join(sorted(set(block)-KEYS)))
+    if set(block) - KEYS:
+        raise ValueError('E_TROPO_PHASE_KEYS: unknown keys ' + ','.join(sorted(set(block) - KEYS)))
     if block.get('model') != 'mie':
         raise ValueError('E_TROPO_PHASE_MODEL: only model "mie" is supported')
     table = block.get('optics_table')
@@ -64,7 +66,7 @@ def config(state):
 def table_path(block):
     raw = block['optics_table']
     path = DEFAULT if raw == 'default' else Path(raw)
-    return path if path.is_absolute() else ROOT/path
+    return path if path.is_absolute() else ROOT / path
 
 
 def path_label(path):
@@ -79,41 +81,55 @@ def load_table(path):
     try:
         if d['version'] != 1:
             raise ValueError()
-        wl = np.array(d['wavelengths_nm'], float); th = np.array(d['theta_deg'], float); rows = d['rows']
-        chi = np.array([r['chi_l'][:L+1] for r in rows], float); P = np.array([r['phase'] for r in rows], float)
-        rwl = np.array([r['wavelength_nm'] for r in rows], float); g = np.array([r['g'] for r in rows], float)
+        wl = np.array(d['wavelengths_nm'], float)
+        th = np.array(d['theta_deg'], float)
+        rows = d['rows']
+        chi = np.array([r['chi_l'][: L + 1] for r in rows], float)
+        P = np.array([r['phase'] for r in rows], float)
+        rwl = np.array([r['wavelength_nm'] for r in rows], float)
+        g = np.array([r['g'] for r in rows], float)
         if not all(np.isfinite(v).all() for v in (wl, th, chi, P, rwl, g)):
             raise ValueError()
         if not np.array_equal(wl, rwl) or wl.ndim != 1 or len(wl) < 2 or np.any(wl <= 0) or np.any(np.diff(wl) <= 0):
             raise ValueError()
         if th.ndim != 1 or th[0] != 0 or th[-1] != 180 or np.any(np.diff(th) <= 0) or P.shape != (len(wl), len(th)):
             raise ValueError()
-        if chi.shape != (len(wl), L+1) or np.any(P <= 0):
+        if chi.shape != (len(wl), L + 1) or np.any(P <= 0):
             raise ValueError()
-        if np.max(abs(chi[:, 0]-1)) > 1e-6 or np.any(abs(chi) > 2*np.arange(L+1)+1+1e-8) or np.max(abs(g-chi[:, 1]/3)) > 1e-8:
+        if (
+            np.max(abs(chi[:, 0] - 1)) > 1e-6
+            or np.any(abs(chi) > 2 * np.arange(L + 1) + 1 + 1e-8)
+            or np.max(abs(g - chi[:, 1] / 3)) > 1e-8
+        ):
             raise ValueError()
     except (KeyError, TypeError, ValueError, IndexError) as e:
         raise ValueError('E_TROPO_TABLE_SCHEMA') from e
     mu = np.cos(np.deg2rad(th))
-    mean = (-np.diff(mu)*(P[:, :-1]+P[:, 1:])/2).sum(1)/2
-    if np.max(abs(mean-1)) > TABLE_MEAN_TOL:
-        raise ValueError(f'E_TROPO_TABLE_NORMALIZATION: table mean {mean.min():.6f}..{mean.max():.6f}, tolerance {TABLE_MEAN_TOL}')
-    u = lut_nodes(); rowsl = phase_on(np.rad2deg(np.arccos(np.clip(u, -1, 1))), th, P)
-    w = np.full(len(u), 2./LUT_BINS); w[[0, -1]] /= 2
-    lmean = (rowsl@w)/2
-    if np.max(abs(lmean-1)) > LUT_MEAN_TOL:
-        raise ValueError(f'E_TROPO_LUT_NORMALIZATION: LUT mean {lmean.min():.6f}..{lmean.max():.6f}, tolerance {LUT_MEAN_TOL}')
-    eig = ((rowsl*w)@np.polynomial.legendre.legvander(u, L))/2           # eigenvalues chi_l/(2l+1) of the LUT
-    diff = np.max(abs(eig-chi/(2*np.arange(L+1)+1)))
+    mean = (-np.diff(mu) * (P[:, :-1] + P[:, 1:]) / 2).sum(1) / 2
+    if np.max(abs(mean - 1)) > TABLE_MEAN_TOL:
+        raise ValueError(
+            f'E_TROPO_TABLE_NORMALIZATION: table mean {mean.min():.6f}..{mean.max():.6f}, tolerance {TABLE_MEAN_TOL}'
+        )
+    u = lut_nodes()
+    rowsl = phase_on(np.rad2deg(np.arccos(np.clip(u, -1, 1))), th, P)
+    w = np.full(len(u), 2.0 / LUT_BINS)
+    w[[0, -1]] /= 2
+    lmean = (rowsl @ w) / 2
+    if np.max(abs(lmean - 1)) > LUT_MEAN_TOL:
+        raise ValueError(
+            f'E_TROPO_LUT_NORMALIZATION: LUT mean {lmean.min():.6f}..{lmean.max():.6f}, tolerance {LUT_MEAN_TOL}'
+        )
+    eig = ((rowsl * w) @ np.polynomial.legendre.legvander(u, L)) / 2  # eigenvalues chi_l/(2l+1) of the LUT
+    diff = np.max(abs(eig - chi / (2 * np.arange(L + 1) + 1)))
     if diff > EIGEN_TOL:
         raise ValueError(f'E_TROPO_CHI_LUT: eigenvalue from LUT vs table {diff:.2e} > {EIGEN_TOL}')
-    chi[:, 0] = 1.
+    chi[:, 0] = 1.0
     return wl, th, chi, P
 
 
 def lut_nodes(bins=LUT_BINS):
     """u nodes exactly as the kernel indexes them: x=(u+1)*(bins/2), node i at u=-1+i*(2/bins)."""
-    return -1.+np.arange(bins+1)*(2./bins)
+    return -1.0 + np.arange(bins + 1) * (2.0 / bins)
 
 
 def phase_on(theta_deg, th, P):
@@ -126,32 +142,46 @@ def build_optics(state, wavelengths_nm, bins=LUT_BINS):
     block = config(state)
     if block is None:
         return None
-    path = table_path(block); wl, th, chi, P = load_table(path)
+    path = table_path(block)
+    wl, th, chi, P = load_table(path)
     wanted = np.asarray(wavelengths_nm, float)
     if wanted.ndim != 1 or not np.isfinite(wanted).all() or np.any(wanted < wl[0]) or np.any(wanted > wl[-1]):
         raise ValueError('E_TROPO_WAVELENGTH_RANGE')
-    coeff = np.stack([np.interp(wanted, wl, chi[:, l]) for l in range(L+1)])            # [33,W]
-    u = lut_nodes(bins); theta = np.rad2deg(np.arccos(np.clip(u, -1, 1)))
-    rows = phase_on(theta, th, P)                                                        # [nwl, bins+1]
+    coeff = np.stack([np.interp(wanted, wl, chi[:, l]) for l in range(L + 1)])  # [33,W]
+    u = lut_nodes(bins)
+    theta = np.rad2deg(np.arccos(np.clip(u, -1, 1)))
+    rows = phase_on(theta, th, P)  # [nwl, bins+1]
     # Linear in wavelength between table rows (exact at the 15 band centres, which are table rows).
-    j = np.searchsorted(wl, wanted, side='right').clip(1, len(wl)-1)
-    f = (wanted-wl[j-1])/(wl[j]-wl[j-1])
-    mean_one = rows[j-1]*(1-f)[:, None]+rows[j]*f[:, None]                               # [W, bins+1]
-    lut = np.ascontiguousarray((mean_one/(4*math.pi)).T, 'f4')                          # [bins+1, W], per sr
-    du = 2./bins
-    energy = (2*math.pi*du*(lut[:-1].astype('f8')+lut[1:].astype('f8'))/2).sum(0)        # trapezoid of the linear LUT
-    return dict(chi=coeff, eigen=coeff/(2*np.arange(L+1)[:, None]+1), lut=lut, bins=bins,
-                meta=dict(model='mie', optics_table=path_label(path), optics_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-                          single_scattering='full Mie phase, per-wavelength LUT linear in u, bins %d' % bins,
-                          multiple_scattering='SH eigenvalues chi_l/(2l+1), l<=32, plain truncation (no delta-M)',
-                          extinction_ssa_angstrom='state scalars (unchanged from HG path)',
-                          lut_energy_trapezoid=[float(x) for x in energy]))
+    j = np.searchsorted(wl, wanted, side='right').clip(1, len(wl) - 1)
+    f = (wanted - wl[j - 1]) / (wl[j] - wl[j - 1])
+    mean_one = rows[j - 1] * (1 - f)[:, None] + rows[j] * f[:, None]  # [W, bins+1]
+    lut = np.ascontiguousarray((mean_one / (4 * math.pi)).T, 'f4')  # [bins+1, W], per sr
+    du = 2.0 / bins
+    energy = (2 * math.pi * du * (lut[:-1].astype('f8') + lut[1:].astype('f8')) / 2).sum(
+        0
+    )  # trapezoid of the linear LUT
+    return dict(
+        chi=coeff,
+        eigen=coeff / (2 * np.arange(L + 1)[:, None] + 1),
+        lut=lut,
+        bins=bins,
+        meta=dict(
+            model='mie',
+            optics_table=path_label(path),
+            optics_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+            single_scattering='full Mie phase, per-wavelength LUT linear in u, bins %d' % bins,
+            multiple_scattering='SH eigenvalues chi_l/(2l+1), l<=32, plain truncation (no delta-M)',
+            extinction_ssa_angstrom='state scalars (unchanged from HG path)',
+            lut_energy_trapezoid=[float(x) for x in energy],
+        ),
+    )
 
 
 def eigen_by_sh(optics, L=32):
     from .sh_layout import count
+
     count(L)
-    levels = np.array([l for l in range(L+1) for m in range(l+1)])
+    levels = np.array([l for l in range(L + 1) for m in range(l + 1)])
     return optics['eigen'][levels]
 
 

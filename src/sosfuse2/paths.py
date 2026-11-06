@@ -9,6 +9,7 @@ Provenance keys are package-relative ('sosfuse2/fused.py'), see rel().
 The package must be installed as regular files (no zip import): the native source is handed to a C++ compiler and the
 solver definitions are read as text. resource_root() raises E_PACKAGE_NOT_ON_DISK otherwise.
 """
+
 import os
 from importlib import resources
 from pathlib import Path
@@ -21,7 +22,9 @@ def resource_root():
     except TypeError:
         p = None
     if p is None or not p.is_dir():
-        raise RuntimeError('E_PACKAGE_NOT_ON_DISK: sosfuse2 must be installed as plain files (accepted sources and sh_cpu.cpp are read from disk)')
+        raise RuntimeError(
+            'E_PACKAGE_NOT_ON_DISK: sosfuse2 must be installed as plain files (accepted sources and sh_cpu.cpp are read from disk)'
+        )
     return p.resolve()
 
 
@@ -32,7 +35,7 @@ ACCEPTED = PKG / 'accepted'  # loader location, retained for fused.load_engine
 NATIVE = PKG / 'native'
 CONFIGS = PKG / 'configs'
 GATE = PKG / 'gate'
-SRC = PKG.parent            # directory that makes `import sosfuse2` work (src/ in-tree, site-packages when installed)
+SRC = PKG.parent  # directory that makes `import sosfuse2` work (src/ in-tree, site-packages when installed)
 
 
 def work_root():
@@ -71,6 +74,7 @@ def child_env(env=None):
 
 def module_command(name, *args):
     import sys
+
     return [sys.executable, '-B', '-m', 'sosfuse2.' + name, *map(str, args)]
 
 
@@ -79,14 +83,72 @@ def module_command(name, *args):
 # signature. test_*.py and testing.py (test support) are excluded; numerical_checks stays (validate_strato
 # imports it). test_ozone_temperature.test_03c keeps this list equal to the tree: adding a module means adding it here.
 PRODUCTION_MODULES = (
-    '__init__', 'air_wavelength', 'arithmetic', 'cache_store', 'column_cache', 'column_parallel', 'column_table', 'compile_cache', 'components',
-    'density', 'device_profile', 'fused', 'gate', 'gate_flags', 'generate_density_profile', 'generate_minor_absorbers', 'generate_strato_optics',
-    'generate_tropo_optics', 'geometry', 'geometry_contract', 'geometry_cpu', 'geometry_parallel', 'ground_parallel', 'ground_sh',
-    'host_cache', 'host_limits', 'iprt', 'kernel_config', 'mie', 'minor_absorbers', 'numerical_checks', 'ozone_temperature', 'paths', 'prepare_minor_absorbers',
-    'solver_columns', 'solver_optics', 'solver_sky', 'solver_legacy', 'solver_poly', 'solver_core', 'solver_render',
-    'pipeline', 'pipeline_execution', 'plan_queue', 'precompile', 'provenance', 'ray_columns', 'rayleigh', 'reference', 'run_fuse',
-    'run_gpu_state_v3', 'sh_layout', 'spectral', 'strato_parallel', 'strato_states', 'stratosphere', 'sun_parallel', 'table_fast',
-    'table_q', 'tables_from_sources', 'timers', 'tropo_mie', 'tropo_profile', 'validate', 'validate_strato', 'verify_tol',
+    '__init__',
+    'air_wavelength',
+    'arithmetic',
+    'cache_store',
+    'column_cache',
+    'column_parallel',
+    'column_table',
+    'compile_cache',
+    'components',
+    'density',
+    'device_profile',
+    'fused',
+    'gate',
+    'gate_flags',
+    'generate_density_profile',
+    'generate_minor_absorbers',
+    'generate_strato_optics',
+    'generate_tropo_optics',
+    'geometry',
+    'geometry_contract',
+    'geometry_cpu',
+    'geometry_parallel',
+    'ground_parallel',
+    'ground_sh',
+    'host_cache',
+    'host_limits',
+    'iprt',
+    'kernel_config',
+    'mie',
+    'minor_absorbers',
+    'numerical_checks',
+    'ozone_temperature',
+    'paths',
+    'prepare_minor_absorbers',
+    'solver_columns',
+    'solver_optics',
+    'solver_sky',
+    'solver_legacy',
+    'solver_poly',
+    'solver_core',
+    'solver_render',
+    'pipeline',
+    'pipeline_execution',
+    'plan_queue',
+    'precompile',
+    'provenance',
+    'ray_columns',
+    'rayleigh',
+    'reference',
+    'run_fuse',
+    'run_gpu_state_v3',
+    'sh_layout',
+    'spectral',
+    'strato_parallel',
+    'strato_states',
+    'stratosphere',
+    'sun_parallel',
+    'table_fast',
+    'table_q',
+    'tables_from_sources',
+    'timers',
+    'tropo_mie',
+    'tropo_profile',
+    'validate',
+    'validate_strato',
+    'verify_tol',
 )
 
 

@@ -62,8 +62,16 @@ testpaths = ["src/sosfuse2"]
 addopts = "-p no:cacheprovider"
 
 [tool.ruff]
+line-length = 120
 # pre-commit passes file names; force-exclude keeps the excluded paths out anyway.
 force-exclude = true
 # Solver globals are injected by the per-call loader; docs/ holds records.
 # Promoted definitions declare injected globals locally; only records are excluded.
 extend-exclude = ["docs"]
+
+[tool.ruff.format]
+# One statement per line, 120 columns; quotes stay as written (tests and provenance strings quote source text).
+quote-style = "preserve"
+# generate_minor_absorbers.py hashes its own bytes into the generated O4 asset (generator.sha256): formatting it would change
+# the O4 asset identity that provenance records and the research harness pins, so it keeps its 1.1.x text.
+exclude = ["src/sosfuse2/generate_minor_absorbers.py"]

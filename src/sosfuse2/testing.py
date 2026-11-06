@@ -5,6 +5,7 @@ legacy selftest fixture) asks for it through sky_sos(): with SOSFUSE2_SKY_SOS_RO
 variable set but the record missing the test FAILS (a wrong root or a moved record must not look like a pass).
 Both unittest and pytest honour unittest.SkipTest, so the same helper serves the dual-mode harnesses.
 """
+
 import os
 import shutil
 import tempfile
@@ -92,11 +93,14 @@ def sky_sos_optional(*relative):
 
 def scratch(prefix):
     """Fresh output folder for a harness run; under $TMPDIR, never inside the package (the research tree's old in-package scratchpad)."""
-    return Path(tempfile.mkdtemp(prefix=prefix+'-', dir=scratch_parent()))
+    return Path(tempfile.mkdtemp(prefix=prefix + '-', dir=scratch_parent()))
 
 
 def scratch_parent():
-    p = Path(os.environ.get('SOSFUSE2_TEST_SCRATCH', '').strip() or Path(tempfile.gettempdir())/f'sosfuse2-tests-{os.getuid()}')
+    p = Path(
+        os.environ.get('SOSFUSE2_TEST_SCRATCH', '').strip()
+        or Path(tempfile.gettempdir()) / f'sosfuse2-tests-{os.getuid()}'
+    )
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -117,12 +121,17 @@ def synthetic_o4(root):
     import numpy as np
     from . import generate_minor_absorbers as gen
     from .minor_absorbers import O4_NAME, UNITS
+
     fine, grid = gen.fine_grid()
-    values = np.where(grid <= 653.842, 1e-56*(1+np.exp(-((grid-577)/12)**2)), 0.)
-    doc = dict(format='o4-fine-v1', **gen.common(fine), o4=values.tolist(),
-               units=dict(wavelength_nm='nm (air)', o4=UNITS['o4']),
-               source=dict(sha256=gen.CIA_SHA, note='SYNTHETIC TEST FIXTURE; not HITRAN measurements'))
-    path = Path(root)/'assets'/O4_NAME
+    values = np.where(grid <= 653.842, 1e-56 * (1 + np.exp(-(((grid - 577) / 12) ** 2))), 0.0)
+    doc = dict(
+        format='o4-fine-v1',
+        **gen.common(fine),
+        o4=values.tolist(),
+        units=dict(wavelength_nm='nm (air)', o4=UNITS['o4']),
+        source=dict(sha256=gen.CIA_SHA, note='SYNTHETIC TEST FIXTURE; not HITRAN measurements'),
+    )
+    path = Path(root) / 'assets' / O4_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(doc, indent=1, allow_nan=False)+'\n')
+    path.write_text(json.dumps(doc, indent=1, allow_nan=False) + '\n')
     return path

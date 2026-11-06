@@ -9,6 +9,7 @@ worker exception and checks that the serial rerun gives the serial values within
 
 Run: python -B -m sosfuse2.tests.test_column_parallel
 """
+
 import contextlib
 import io
 import json
@@ -24,13 +25,14 @@ import numpy as np
 
 from sosfuse2 import column_parallel, plan_queue
 from sosfuse2.tests import test_plan_queue as tp
+
 try:
     from sosfuse2.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
 
-REAL_SEGMENTS = None   # old.geometry_segments, read by flaky_segments in the workers (shipped with it by freeze)
+REAL_SEGMENTS = None  # old.geometry_segments, read by flaky_segments in the workers (shipped with it by freeze)
 
 
 def flaky_segments(p, d, n):
@@ -49,37 +51,60 @@ class ColumnParallelTests(unittest.TestCase):
         from sosfuse2.fused import Kernel
         from sosfuse2 import run_gpu_state_v3 as rv
         from sosfuse2.stratosphere import profile_config
+
         options = plan_queue.parser().parse_args(['--states', str(tp.LUT2), '--geometry-cache', '.', '--out', 'x'])
         options.reduced = False
-        state = rv.effective_state(next(s for s in rv.read_states(tp.LUT2) if s['id'] == 'B22s5_tau0p01_aod0p15'), options)
+        state = rv.effective_state(
+            next(s for s in rv.read_states(tp.LUT2) if s['id'] == 'B22s5_tau0p01_aod0p15'), options
+        )
         with tempfile.TemporaryDirectory() as tmp:
             # These ray bundles are the recorded nr20/nphi64 geometry, not the new V14 default.
-            options.settings_json = Path(tmp)/'settings.json'
+            options.settings_json = Path(tmp) / 'settings.json'
             options.settings_json.write_text(json.dumps(dict(nr=20, h_refine='none', nphi=64)))
-            cls.p = plan_queue.probe(state, rv.settings_for(options), tp.DATA/'results/sos_fuse/geometry_cache', Path(tmp))
-        host, _ = gm.PackedCache(tp.DATA/'results/sos_fuse/geometry_cache'/tp.SIGNATURE/'packed').open()
-        cls.rays = rays = 404496; co = np.asarray(host['cell_off']); cls.cells = cells = int(np.searchsorted(co, rays))
-        off = co[:cells+1].copy(); off[-1] = rays
-        cls.arrays = dict(cell_off=off, starts=np.asarray(host['starts'][:cells]), dirs=np.asarray(host['dirs'][:rays]),
-                          end_col=np.asarray(host['end_col'][:rays]))
+            cls.p = plan_queue.probe(
+                state, rv.settings_for(options), tp.DATA / 'results/sos_fuse/geometry_cache', Path(tmp)
+            )
+        host, _ = gm.PackedCache(tp.DATA / 'results/sos_fuse/geometry_cache' / tp.SIGNATURE / 'packed').open()
+        cls.rays = rays = 404496
+        co = np.asarray(host['cell_off'])
+        cls.cells = cells = int(np.searchsorted(co, rays))
+        off = co[: cells + 1].copy()
+        off[-1] = rays
+        cls.arrays = dict(
+            cell_off=off,
+            starts=np.asarray(host['starts'][:cells]),
+            dirs=np.asarray(host['dirs'][:rays]),
+            end_col=np.asarray(host['end_col'][:rays]),
+        )
         cls.c = dict(strato_old=cls.p.old, strato_profile=profile_config(state), density_optics=cls.p.s.density_optics)
         cls.kernel = Kernel(backend='numpy')
 
     def run_kind(self, kind, workers):
         """(array, column_parallel events) of one cold build through the production method."""
         from sosfuse2 import geometry as gm, host_cache
-        bundle = gm.Bundle.__new__(gm.Bundle); bundle.arrays = self.arrays; bundle.rays = self.rays; bundle.cells = self.cells
+
+        bundle = gm.Bundle.__new__(gm.Bundle)
+        bundle.arrays = self.arrays
+        bundle.rays = self.rays
+        bundle.cells = self.cells
         text = io.StringIO()
-        with mock.patch.dict(os.environ, {'SOSFUSE2_COLUMN_WORKERS': str(workers), 'SOSFUSE2_COLUMN_METHOD': 'gl24'}), contextlib.redirect_stdout(text):
+        with (
+            mock.patch.dict(os.environ, {'SOSFUSE2_COLUMN_WORKERS': str(workers), 'SOSFUSE2_COLUMN_METHOD': 'gl24'}),
+            contextlib.redirect_stdout(text),
+        ):
             os.environ.pop('SOSFUSE2_COLUMN_CACHE', None)
             if kind == 'strato':
                 value = self.kernel.strato_end_columns(bundle, self.c)
             elif kind == 'density':
                 value = self.kernel.density_end_columns(bundle, self.c)
-            else:   # host-cache endpoint02 build only (no cache file is read or written)
-                with tempfile.TemporaryDirectory() as tmp, \
-                        mock.patch.object(host_cache, 'cached', lambda folder, key, build, compressed=False: build()):
-                    value = host_cache.endpoint_columns(self.p.s, self.arrays, self.c['density_optics'], Path(tmp), tp.SIGNATURE)
+            else:  # host-cache endpoint02 build only (no cache file is read or written)
+                with (
+                    tempfile.TemporaryDirectory() as tmp,
+                    mock.patch.object(host_cache, 'cached', lambda folder, key, build, compressed=False: build()),
+                ):
+                    value = host_cache.endpoint_columns(
+                        self.p.s, self.arrays, self.c['density_optics'], Path(tmp), tp.SIGNATURE
+                    )
         events = [json.loads(line) for line in text.getvalue().splitlines() if '"column_parallel"' in line]
         return np.asarray(value), events
 
@@ -97,13 +122,18 @@ class ColumnParallelTests(unittest.TestCase):
         global REAL_SEGMENTS
         REAL_SEGMENTS = self.p.old.geometry_segments
         freeze = column_parallel.freeze
-        flaky = lambda namespace, names: freeze(SimpleNamespace(geometry_segments=flaky_segments, probe=namespace.probe), names)
+        flaky = lambda namespace, names: freeze(
+            SimpleNamespace(geometry_segments=flaky_segments, probe=namespace.probe), names
+        )
         for kind in ('strato', 'density', 'endpoint'):
             a, _ = self.run_kind(kind, 1)
             with mock.patch.object(column_parallel, 'freeze', flaky):
                 b, events = self.run_kind(kind, 3)
-            self.assertEqual([(e['result'], e['reason']) for e in events], [('fallback', 'E_TEST_WORKER_FAILURE')], kind)
+            self.assertEqual(
+                [(e['result'], e['reason']) for e in events], [('fallback', 'E_TEST_WORKER_FAILURE')], kind
+            )
             assert_equivalent(a, b)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

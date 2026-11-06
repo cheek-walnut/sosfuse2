@@ -1,104 +1,289 @@
 """Solver definitions loaded into per-call scopes by accepted.engine.definitions."""
 # ruff: noqa: F821 -- globals are injected by the per-call loader.
 
-def basis_at(q):
-    r=np.linalg.norm(q,axis=-1);up=q/r[...,None];cos=up[...,2]
-    ex=np.array([0.,0.,1.])-cos[...,None]*up;l=np.linalg.norm(ex,axis=-1)
-    ex=np.divide(ex,l[...,None],out=np.zeros_like(ex),where=l[...,None]>1e-12)
-    ex=np.where((l<1e-12)[...,None],np.stack([-np.where(cos>=0,1.,-1.),np.zeros_like(cos),np.zeros_like(cos)],-1),ex)
-    return np.stack([ex,np.cross(up,ex),up],-1)
 
-def pack(p,d,h,ch,sun,n):
-    rows=[];pts=[];bases=[];lits=[]
-    for active,q,r,ds,prefix in b.sh.old.geometry_segments(p,d,n):
-        base,ah,ac,mu,cp=b.sh.spatial_lookup(q,r,d[active,None,:],h,ch)
-        sc,lit=sun.lookup(q,r);rho=np.linalg.norm(q[...,:2],axis=-1)
-        cx=np.divide(q[...,0],rho,out=np.ones_like(rho),where=rho>1e-12);sx=np.divide(q[...,1],rho,out=np.zeros_like(rho),where=rho>1e-12)
-        z=np.stack([ah,ac,mu,cp,ds,r-b.R,*[prefix[...,k] for k in range(5)],*[sc[...,k] for k in range(5)],cx,sx],-1)
-        rows.append(np.repeat(active,ds.shape[1]));pts.append(z.reshape(-1,18).astype('f4'));bases.append(base.ravel());lits.append(lit.ravel())
-    B=basis_at(p)
+def basis_at(q):
+    r = np.linalg.norm(q, axis=-1)
+    up = q / r[..., None]
+    cos = up[..., 2]
+    ex = np.array([0.0, 0.0, 1.0]) - cos[..., None] * up
+    l = np.linalg.norm(ex, axis=-1)
+    ex = np.divide(ex, l[..., None], out=np.zeros_like(ex), where=l[..., None] > 1e-12)
+    ex = np.where(
+        (l < 1e-12)[..., None],
+        np.stack([-np.where(cos >= 0, 1.0, -1.0), np.zeros_like(cos), np.zeros_like(cos)], -1),
+        ex,
+    )
+    return np.stack([ex, np.cross(up, ex), up], -1)
+
+
+def pack(p, d, h, ch, sun, n):
+    rows = []
+    pts = []
+    bases = []
+    lits = []
+    for active, q, r, ds, prefix in b.sh.old.geometry_segments(p, d, n):
+        base, ah, ac, mu, cp = b.sh.spatial_lookup(q, r, d[active, None, :], h, ch)
+        sc, lit = sun.lookup(q, r)
+        rho = np.linalg.norm(q[..., :2], axis=-1)
+        cx = np.divide(q[..., 0], rho, out=np.ones_like(rho), where=rho > 1e-12)
+        sx = np.divide(q[..., 1], rho, out=np.zeros_like(rho), where=rho > 1e-12)
+        z = np.stack(
+            [ah, ac, mu, cp, ds, r - b.R, *[prefix[..., k] for k in range(5)], *[sc[..., k] for k in range(5)], cx, sx],
+            -1,
+        )
+        rows.append(np.repeat(active, ds.shape[1]))
+        pts.append(z.reshape(-1, 18).astype('f4'))
+        bases.append(base.ravel())
+        lits.append(lit.ravel())
+    B = basis_at(p)
     if not rows:
-        return dict(off=np.zeros(len(d)+1,'i8'),base=np.empty(0,'i4'),point=np.empty((0,18),'f4'),lit=np.empty(0,'u1'),
-            nu=d[:,2].copy(),target=np.ascontiguousarray(B),dloc=np.einsum('nij,ni->nj',B,d))
-    row=np.concatenate(rows);order=np.argsort(row,kind='stable')
-    return dict(off=np.r_[0,np.cumsum(np.bincount(row,minlength=len(d)))].astype('i8'),
-        base=np.concatenate(bases)[order].astype('i4'),point=np.concatenate(pts)[order],lit=np.concatenate(lits)[order].astype('u1'),
-        nu=d[:,2].copy(),target=np.ascontiguousarray(B),dloc=np.einsum('nij,ni->nj',B,d))
+        return dict(
+            off=np.zeros(len(d) + 1, 'i8'),
+            base=np.empty(0, 'i4'),
+            point=np.empty((0, 18), 'f4'),
+            lit=np.empty(0, 'u1'),
+            nu=d[:, 2].copy(),
+            target=np.ascontiguousarray(B),
+            dloc=np.einsum('nij,ni->nj', B, d),
+        )
+    row = np.concatenate(rows)
+    order = np.argsort(row, kind='stable')
+    return dict(
+        off=np.r_[0, np.cumsum(np.bincount(row, minlength=len(d)))].astype('i8'),
+        base=np.concatenate(bases)[order].astype('i4'),
+        point=np.concatenate(pts)[order],
+        lit=np.concatenate(lits)[order].astype('u1'),
+        nu=d[:, 2].copy(),
+        target=np.ascontiguousarray(B),
+        dloc=np.einsum('nij,ni->nj', B, d),
+    )
+
 
 class Solver:
-    def __init__(self,g,kernel,wavelengths,mode=0,delta=.03):
-        self.geo,self.kernel,self.mode,self.delta=g,kernel,mode,delta;self.folder=g.folder;self.wl=np.asarray(wavelengths,float);self.W=len(self.wl);self.V=2*self.W;self.active=np.ones(self.V,'i4')
-        self.ext=np.ascontiguousarray(b.sh.old.coefficients(self.wl,b.sh.NORMAL));self.asca=np.ascontiguousarray(self.ext[1]*b.sh.NORMAL['ssa'])
-        self.hr=np.exp(-g.h/8);self.ha=AER_PROFILE(g.h);self.solar=np.interp(self.wl,b.sh.old.SPEC['wavelength_nm'],b.sh.old.SPEC['solar'])
-        self.levels=np.array([l for l in range(33) for m in range(l+1)]);self.rf=(self.levels[:6]==0)+.1*(self.levels[:6]==2);self.af=AER_G**self.levels
-        self.dummy=np.empty(0,'f4');t=time.perf_counter();self.prepare_ground();self.prepare_seconds=time.perf_counter()-t
-        self.timings=dict(transport_seconds=0.,projection_seconds=0.,ground_seconds=0.)
+    def __init__(self, g, kernel, wavelengths, mode=0, delta=0.03):
+        self.geo, self.kernel, self.mode, self.delta = g, kernel, mode, delta
+        self.folder = g.folder
+        self.wl = np.asarray(wavelengths, float)
+        self.W = len(self.wl)
+        self.V = 2 * self.W
+        self.active = np.ones(self.V, 'i4')
+        self.ext = np.ascontiguousarray(b.sh.old.coefficients(self.wl, b.sh.NORMAL))
+        self.asca = np.ascontiguousarray(self.ext[1] * b.sh.NORMAL['ssa'])
+        self.hr = np.exp(-g.h / 8)
+        self.ha = AER_PROFILE(g.h)
+        self.solar = np.interp(self.wl, b.sh.old.SPEC['wavelength_nm'], b.sh.old.SPEC['solar'])
+        self.levels = np.array([l for l in range(33) for m in range(l + 1)])
+        self.rf = (self.levels[:6] == 0) + 0.1 * (self.levels[:6] == 2)
+        self.af = AER_G**self.levels
+        self.dummy = np.empty(0, 'f4')
+        t = time.perf_counter()
+        self.prepare_ground()
+        self.prepare_seconds = time.perf_counter() - t
+        self.timings = dict(transport_seconds=0.0, projection_seconds=0.0, ground_seconds=0.0)
+
     def prepare_ground(self):
-        ds=[];vs=[];off=[0];g=self.geo;self.gm=np.zeros((g.ns,4,self.W),'f4')
+        ds = []
+        vs = []
+        off = [0]
+        g = self.geo
+        self.gm = np.zeros((g.ns, 4, self.W), 'f4')
         for cell in range(g.ns):
-            ih,ic=divmod(cell,len(g.chi));loc,w=b.sh.incoming(b.R+g.h[ih],g.chi[ic],1)
-            p,up,ex=b.sh.old.probe.frame(np.array(b.R+g.h[ih]),g.chi[ic]);ey=np.cross(up,ex);d=loc[:,0,None]*ex+loc[:,1,None]*ey+loc[:,2,None]*up;p=np.broadcast_to(p,d.shape)
-            end=b.sh.old.probe.boundaries(p,d)[:,-1];q=p+end[:,None]*d;r=np.linalg.norm(q,axis=-1);col=b.sh.old.total_columns(p,d,24);sc,lit=g.sun.lookup(q,np.maximum(b.R,r))
-            ch=np.arccos(np.clip(q[:,2]/r,-1,1));value=b.sh.NORMAL['albedo']/np.pi*np.maximum(0,np.cos(ch))[:,None]*np.exp(-(sc+col)@self.ext)*lit[:,None]*(r<b.R+1e-5)[:,None]*w[:,None]
-            take=np.any(value>0,axis=1);ds.append(loc[take]);vs.append(value[take]);off.append(off[-1]+take.sum())
-            factor=np.stack([(1-loc[:,0]**2)/2,(1-loc[:,1]**2)/2,(1-loc[:,2]**2)/2,-loc[:,0]*loc[:,2]/2],-1)
-            self.gm[cell]=(factor.T@value)*(2*C*self.ext[0])[None,:]
-        self.goff=np.array(off,'i8');self.gdir=np.ascontiguousarray(np.concatenate(ds),'f4');self.gval=np.ascontiguousarray(np.concatenate(vs),'f4')
-    def radiance(self,i,field,boundary=None):
-        z=self.geo.cell(i,self);t=time.perf_counter();L=self.kernel.transport(z,self,field)+z['first'];self.timings['transport_seconds']+=time.perf_counter()-t
+            ih, ic = divmod(cell, len(g.chi))
+            loc, w = b.sh.incoming(b.R + g.h[ih], g.chi[ic], 1)
+            p, up, ex = b.sh.old.probe.frame(np.array(b.R + g.h[ih]), g.chi[ic])
+            ey = np.cross(up, ex)
+            d = loc[:, 0, None] * ex + loc[:, 1, None] * ey + loc[:, 2, None] * up
+            p = np.broadcast_to(p, d.shape)
+            end = b.sh.old.probe.boundaries(p, d)[:, -1]
+            q = p + end[:, None] * d
+            r = np.linalg.norm(q, axis=-1)
+            col = b.sh.old.total_columns(p, d, 24)
+            sc, lit = g.sun.lookup(q, np.maximum(b.R, r))
+            ch = np.arccos(np.clip(q[:, 2] / r, -1, 1))
+            value = (
+                b.sh.NORMAL['albedo']
+                / np.pi
+                * np.maximum(0, np.cos(ch))[:, None]
+                * np.exp(-(sc + col) @ self.ext)
+                * lit[:, None]
+                * (r < b.R + 1e-5)[:, None]
+                * w[:, None]
+            )
+            take = np.any(value > 0, axis=1)
+            ds.append(loc[take])
+            vs.append(value[take])
+            off.append(off[-1] + take.sum())
+            factor = np.stack(
+                [
+                    (1 - loc[:, 0] ** 2) / 2,
+                    (1 - loc[:, 1] ** 2) / 2,
+                    (1 - loc[:, 2] ** 2) / 2,
+                    -loc[:, 0] * loc[:, 2] / 2,
+                ],
+                -1,
+            )
+            self.gm[cell] = (factor.T @ value) * (2 * C * self.ext[0])[None, :]
+        self.goff = np.array(off, 'i8')
+        self.gdir = np.ascontiguousarray(np.concatenate(ds), 'f4')
+        self.gval = np.ascontiguousarray(np.concatenate(vs), 'f4')
+
+    def radiance(self, i, field, boundary=None):
+        z = self.geo.cell(i, self)
+        t = time.perf_counter()
+        L = self.kernel.transport(z, self, field) + z['first']
+        self.timings['transport_seconds'] += time.perf_counter() - t
         if boundary is not None:
-            E=(1-z['end_fraction'][:,None,None])*boundary[z['end_index']]+z['end_fraction'][:,None,None]*boundary[z['end_index']+1]
-            v=z['loc'];P=np.stack([1-v[:,0]**2,1-v[:,1]**2,1-v[:,2]**2,-v[:,0]*v[:,2]],-1)/2
-            L+=E[...,None]*z['ground_tr'][:,:,None,None]*P[:,None,None,:]
-        return z,L
-    def boundary(self,field):
-        t=time.perf_counter();out=np.empty((len(self.geo.chi),self.W,2))
+            E = (1 - z['end_fraction'][:, None, None]) * boundary[z['end_index']] + z['end_fraction'][
+                :, None, None
+            ] * boundary[z['end_index'] + 1]
+            v = z['loc']
+            P = np.stack([1 - v[:, 0] ** 2, 1 - v[:, 1] ** 2, 1 - v[:, 2] ** 2, -v[:, 0] * v[:, 2]], -1) / 2
+            L += E[..., None] * z['ground_tr'][:, :, None, None] * P[:, None, None, :]
+        return z, L
+
+    def boundary(self, field):
+        t = time.perf_counter()
+        out = np.empty((len(self.geo.chi), self.W, 2))
         for i in range(len(out)):
-            z,L=self.radiance(i,field);I=L[...,:3].sum(-1);out[i]=b.sh.NORMAL['albedo']/np.pi*np.einsum('n,nwl->wl',z['weight']*np.maximum(0,z['loc'][:,2]),I)
-        self.timings['ground_seconds']+=time.perf_counter()-t;return out
-    def apply(self,field):
-        boundary=self.boundary(field);out=np.empty_like(field);t=time.perf_counter();last=t
-        for i in range(self.geo.ns):
-            z,L=self.radiance(i,field,boundary);tt=time.perf_counter();I=L[...,:3].sum(-1);ch=self.geo.chi[i%len(self.geo.chi)];v=z['loc']
-            glob=np.column_stack([v[:,2]*np.sin(ch)-v[:,0]*np.cos(ch),-v[:,1],v[:,2]*np.cos(ch)+v[:,0]*np.sin(ch)]);Y=self.kernel.basis(glob,32)
-            moment=Y.T@(I.reshape(len(I),self.V)*z['weight'][:,None]);matrix=np.einsum('n,nwlp->pwl',z['weight'],L).reshape(4,self.V)
-            out[i,:4]=matrix*np.repeat(2*C*self.ext[0],2)[None,:];out[i,4:10]=moment[:6]*self.rf[:,None]*np.repeat(self.ext[0],2)[None,:]
-            out[i,10:]=moment*self.af[:,None]*np.repeat(self.asca,2)[None,:]
-            inactive=self.active==0;out[i,:,inactive]=field[i,:,inactive];self.timings['projection_seconds']+=time.perf_counter()-tt
-            if time.perf_counter()-last>30:print(f'FULL STREAM {self.geo.name} cell={i}/{self.geo.ns} seconds={time.perf_counter()-t:.1f} RSS={b.peak()/1e9:.3f}GB',flush=True);last=time.perf_counter()
+            z, L = self.radiance(i, field)
+            I = L[..., :3].sum(-1)
+            out[i] = (
+                b.sh.NORMAL['albedo'] / np.pi * np.einsum('n,nwl->wl', z['weight'] * np.maximum(0, z['loc'][:, 2]), I)
+            )
+        self.timings['ground_seconds'] += time.perf_counter() - t
         return out
-    def query(self,h,el,az,field=None,first=False):
-        ee,aa=np.broadcast_arrays(el,az);shape=ee.shape;e,z=np.deg2rad(ee.ravel()),np.deg2rad(aa.ravel());p,up,ex=b.sh.old.probe.frame(np.array(b.R+b.sh.OBS),np.deg2rad(90-h));ey=np.cross(up,ex)
-        d=np.sin(e)[:,None]*up+np.cos(e)[:,None]*(np.cos(z)[:,None]*ex+np.sin(z)[:,None]*ey);out=np.empty((len(d),self.W,2));field=self.ms if field is None else field
-        active=self.active.copy();self.active[:]=1
-        for j in range(0,len(d),64):
-            dd=d[j:j+64];raw=self.geo.pack(np.broadcast_to(p,dd.shape),dd,getattr(self.geo,'query_n',24));out[j:j+len(dd)]=self.kernel.transport(raw,self,field,first)[...,:3].sum(-1)
-        self.active=active;return out.reshape(*shape,self.W,2)*self.solar[:,None]
-    def boxes(self,field,first=False):
-        u,w=np.polynomial.legendre.leggauss(4);ww=(w[:,None]*w[None,:]/4).ravel();el=np.array([e+de for _,e,z in b.DIRS for de in u for dz in u]);az=np.array([z+dz for _,e,z in b.DIRS for de in u for dz in u])
-        return np.stack([np.einsum('dnwl,n->dwl',self.query(h,el,az,field,first).reshape(7,16,self.W,2),ww) for h in b.HS])
-    def solve(self,initial,max_eval=16,tolerance=.0005):
-        x=initial.copy();history=[];gs=[[] for _ in range(self.V)];fs=[[] for _ in range(self.V)];done=np.zeros(self.V,bool);start=time.perf_counter()
-        for it in range(1,max_eval+1):
-            b.STATUS.update(stage=f'B residual {it}',case=self.geo.name);old=self.boxes(x).reshape(5,7,self.V);g=self.apply(x);new=self.boxes(g).reshape(5,7,self.V)
-            rr=np.max(abs(new-old)/np.maximum(abs(new),1e-30),axis=(0,1));ss=np.max(abs(g-x),axis=(0,1))/np.maximum(np.max(abs(g),axis=(0,1)),1e-30)
-            if it>=2:done|=np.maximum(rr,ss)<=tolerance
-            history.append(dict(evaluation=it,observer_relative=rr.tolist(),source_relative=ss.tolist(),converged=done.tolist(),seconds=time.perf_counter()-start))
-            print(f'FULL EVAL {self.geo.name} {it} maxObs={100*max(rr):.5f}% maxSrc={100*max(ss):.5f}% done={done.sum()}/{self.V}',flush=True)
-            if done.all():x=g;break
-            nextx=g.copy()
+
+    def apply(self, field):
+        boundary = self.boundary(field)
+        out = np.empty_like(field)
+        t = time.perf_counter()
+        last = t
+        for i in range(self.geo.ns):
+            z, L = self.radiance(i, field, boundary)
+            tt = time.perf_counter()
+            I = L[..., :3].sum(-1)
+            ch = self.geo.chi[i % len(self.geo.chi)]
+            v = z['loc']
+            glob = np.column_stack(
+                [v[:, 2] * np.sin(ch) - v[:, 0] * np.cos(ch), -v[:, 1], v[:, 2] * np.cos(ch) + v[:, 0] * np.sin(ch)]
+            )
+            Y = self.kernel.basis(glob, 32)
+            moment = Y.T @ (I.reshape(len(I), self.V) * z['weight'][:, None])
+            matrix = np.einsum('n,nwlp->pwl', z['weight'], L).reshape(4, self.V)
+            out[i, :4] = matrix * np.repeat(2 * C * self.ext[0], 2)[None, :]
+            out[i, 4:10] = moment[:6] * self.rf[:, None] * np.repeat(self.ext[0], 2)[None, :]
+            out[i, 10:] = moment * self.af[:, None] * np.repeat(self.asca, 2)[None, :]
+            inactive = self.active == 0
+            out[i, :, inactive] = field[i, :, inactive]
+            self.timings['projection_seconds'] += time.perf_counter() - tt
+            if time.perf_counter() - last > 30:
+                print(
+                    f'FULL STREAM {self.geo.name} cell={i}/{self.geo.ns} seconds={time.perf_counter() - t:.1f} RSS={b.peak() / 1e9:.3f}GB',
+                    flush=True,
+                )
+                last = time.perf_counter()
+        return out
+
+    def query(self, h, el, az, field=None, first=False):
+        ee, aa = np.broadcast_arrays(el, az)
+        shape = ee.shape
+        e, z = np.deg2rad(ee.ravel()), np.deg2rad(aa.ravel())
+        p, up, ex = b.sh.old.probe.frame(np.array(b.R + b.sh.OBS), np.deg2rad(90 - h))
+        ey = np.cross(up, ex)
+        d = np.sin(e)[:, None] * up + np.cos(e)[:, None] * (np.cos(z)[:, None] * ex + np.sin(z)[:, None] * ey)
+        out = np.empty((len(d), self.W, 2))
+        field = self.ms if field is None else field
+        active = self.active.copy()
+        self.active[:] = 1
+        for j in range(0, len(d), 64):
+            dd = d[j : j + 64]
+            raw = self.geo.pack(np.broadcast_to(p, dd.shape), dd, getattr(self.geo, 'query_n', 24))
+            out[j : j + len(dd)] = self.kernel.transport(raw, self, field, first)[..., :3].sum(-1)
+        self.active = active
+        return out.reshape(*shape, self.W, 2) * self.solar[:, None]
+
+    def boxes(self, field, first=False):
+        u, w = np.polynomial.legendre.leggauss(4)
+        ww = (w[:, None] * w[None, :] / 4).ravel()
+        el = np.array([e + de for _, e, z in b.DIRS for de in u for dz in u])
+        az = np.array([z + dz for _, e, z in b.DIRS for de in u for dz in u])
+        return np.stack(
+            [np.einsum('dnwl,n->dwl', self.query(h, el, az, field, first).reshape(7, 16, self.W, 2), ww) for h in b.HS]
+        )
+
+    def solve(self, initial, max_eval=16, tolerance=0.0005):
+        x = initial.copy()
+        history = []
+        gs = [[] for _ in range(self.V)]
+        fs = [[] for _ in range(self.V)]
+        done = np.zeros(self.V, bool)
+        start = time.perf_counter()
+        for it in range(1, max_eval + 1):
+            b.STATUS.update(stage=f'B residual {it}', case=self.geo.name)
+            old = self.boxes(x).reshape(5, 7, self.V)
+            g = self.apply(x)
+            new = self.boxes(g).reshape(5, 7, self.V)
+            rr = np.max(abs(new - old) / np.maximum(abs(new), 1e-30), axis=(0, 1))
+            ss = np.max(abs(g - x), axis=(0, 1)) / np.maximum(np.max(abs(g), axis=(0, 1)), 1e-30)
+            if it >= 2:
+                done |= np.maximum(rr, ss) <= tolerance
+            history.append(
+                dict(
+                    evaluation=it,
+                    observer_relative=rr.tolist(),
+                    source_relative=ss.tolist(),
+                    converged=done.tolist(),
+                    seconds=time.perf_counter() - start,
+                )
+            )
+            print(
+                f'FULL EVAL {self.geo.name} {it} maxObs={100 * max(rr):.5f}% maxSrc={100 * max(ss):.5f}% done={done.sum()}/{self.V}',
+                flush=True,
+            )
+            if done.all():
+                x = g
+                break
+            nextx = g.copy()
             for v in range(self.V):
-                if done[v]:continue
-                norm=np.linalg.norm(g[:,:,v],axis=1);scale=np.maximum(norm,norm.max()*1e-8);feature=((g[:,:,v]-x[:,:,v])/scale[:,None]).astype('f8').ravel();obs=((new[:,:,v]-old[:,:,v])/np.maximum(abs(new[:,:,v]),1e-20)).ravel()*np.sqrt(len(feature)/35)
-                gs[v].append(g[:,:,v].copy());fs[v].append(np.r_[feature,obs])
-                if len(fs[v])>4:fs[v].pop(0);gs[v].pop(0)
-                if len(fs[v])>1:
-                    f=np.stack(fs[v],1);G=f.T@f;G+=np.eye(len(G))*max(np.trace(G)*1e-10,1e-30);alpha=np.linalg.solve(G,np.ones(len(G)));alpha/=alpha.sum()
-                    if np.isfinite(alpha).all() and max(abs(alpha))<8:nextx[:,:,v]=sum(c*f for c,f in zip(alpha,gs[v]))
-            x=nextx;self.active=(~done).astype('i4');np.savez(self.folder/'checkpoint.npz',source=x)
-            progress(RESULT,f'{self.geo.name} 잔차{it}: {done.sum()}/{self.V} 수렴')
-        self.ms=x;self.active[:]=1
-        return dict(seconds=time.perf_counter()-start,evaluations=it,converged=done.tolist(),history=history,prepare_seconds=self.prepare_seconds,geometry=json.loads(json.dumps(self.geo.meta)),timings=self.timings,peak_bytes=b.peak()),self.boxes(x)
+                if done[v]:
+                    continue
+                norm = np.linalg.norm(g[:, :, v], axis=1)
+                scale = np.maximum(norm, norm.max() * 1e-8)
+                feature = ((g[:, :, v] - x[:, :, v]) / scale[:, None]).astype('f8').ravel()
+                obs = ((new[:, :, v] - old[:, :, v]) / np.maximum(abs(new[:, :, v]), 1e-20)).ravel() * np.sqrt(
+                    len(feature) / 35
+                )
+                gs[v].append(g[:, :, v].copy())
+                fs[v].append(np.r_[feature, obs])
+                if len(fs[v]) > 4:
+                    fs[v].pop(0)
+                    gs[v].pop(0)
+                if len(fs[v]) > 1:
+                    f = np.stack(fs[v], 1)
+                    G = f.T @ f
+                    G += np.eye(len(G)) * max(np.trace(G) * 1e-10, 1e-30)
+                    alpha = np.linalg.solve(G, np.ones(len(G)))
+                    alpha /= alpha.sum()
+                    if np.isfinite(alpha).all() and max(abs(alpha)) < 8:
+                        nextx[:, :, v] = sum(c * f for c, f in zip(alpha, gs[v]))
+            x = nextx
+            self.active = (~done).astype('i4')
+            np.savez(self.folder / 'checkpoint.npz', source=x)
+            progress(RESULT, f'{self.geo.name} 잔차{it}: {done.sum()}/{self.V} 수렴')
+        self.ms = x
+        self.active[:] = 1
+        return dict(
+            seconds=time.perf_counter() - start,
+            evaluations=it,
+            converged=done.tolist(),
+            history=history,
+            prepare_seconds=self.prepare_seconds,
+            geometry=json.loads(json.dumps(self.geo.meta)),
+            timings=self.timings,
+            peak_bytes=b.peak(),
+        ), self.boxes(x)
+
 
 def build(self, i, s):
     t = time.perf_counter()
@@ -123,7 +308,7 @@ def build(self, i, s):
     off = [0]
     for start in range(0, len(loc), 256):
         t = time.perf_counter()
-        z = self.pack(p[start:start + 256], d[start:start + 256], self.cfg['path_n'])
+        z = self.pack(p[start : start + 256], d[start : start + 256], self.cfg['path_n'])
         self.meta['geometry_seconds'] += time.perf_counter() - t
         t = time.perf_counter()
         first.append(s.kernel.transport(z, s, s.dummy, True).astype('f4'))
@@ -136,7 +321,20 @@ def build(self, i, s):
             self.meta['fold_seconds'] += time.perf_counter() - t
         off.extend((z['off'][1:] + off[-1]).tolist())
         chunks.append(z)
-    z = dict(off=np.array(off, 'i8'), **{key: np.concatenate([v[key] for v in chunks]) for key in ('point', 'base', 'lit', 'nu', 'target', 'dloc')}, loc=loc, weight=w, first=np.concatenate(first), ground_tr=tr, end_index=j.astype('i4'), end_fraction=frac, end_columns=col, hits_ground=re < b.R + 1e-05, wavelengths=s.wl.copy(), delta=np.array(s.delta))
+    z = dict(
+        off=np.array(off, 'i8'),
+        **{key: np.concatenate([v[key] for v in chunks]) for key in ('point', 'base', 'lit', 'nu', 'target', 'dloc')},
+        loc=loc,
+        weight=w,
+        first=np.concatenate(first),
+        ground_tr=tr,
+        end_index=j.astype('i4'),
+        end_fraction=frac,
+        end_columns=col,
+        hits_ground=re < b.R + 1e-05,
+        wavelengths=s.wl.copy(),
+        delta=np.array(s.delta),
+    )
     self.meta['incoming_rays'] += len(w)
     self.meta['points'] += len(z['point'])
     self.meta['largest_block_bytes'] = max(self.meta['largest_block_bytes'], sum((v.nbytes for v in z.values())))

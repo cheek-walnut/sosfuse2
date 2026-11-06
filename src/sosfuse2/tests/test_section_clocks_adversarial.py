@@ -3,6 +3,7 @@
 Set TMPDIR to a scratch folder, then run python -B -m sosfuse2.tests.test_section_clocks_adversarial.
 The fake CUDA seam exercises real launch plumbing, not device arithmetic.
 """
+
 import contextlib
 import hashlib
 import importlib.util
@@ -34,14 +35,14 @@ def evidence():
 def campaign_checks():
     return testing.sky_sos('rig/campaign_usstd/campaign_checks.py')
 
+
 FLAG = 'EXP_SECTION_CLOCKS'
 A = ('LANE_GROUND', 'LM_LUT', 'PHASE2_NOBARRIER', 'SH_AUX', 'SPECIALIZE')
-NAMES = ('point', 'ground', 'sh_basis', 'transport', 'attenuation',
-         'projection', 'barrier', 'total')
+NAMES = ('point', 'ground', 'sh_basis', 'transport', 'attenuation', 'projection', 'barrier', 'total')
 
 
 def baseline_module():
-    path = evidence() /'prechange_source/fused.py'
+    path = evidence() / 'prechange_source/fused.py'
     spec = importlib.util.spec_from_file_location('sosfuse2._clock_baseline', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -50,6 +51,7 @@ def baseline_module():
 
 class FakeXP:
     """Separate, observable allocation/event seam backed by NumPy arrays."""
+
     def __init__(self):
         self.allocations = []
         self.events = []
@@ -77,6 +79,7 @@ class FakeXP:
 
 class FakeRaw:
     """Records numeric ABI and writes distinguishable counter slots only."""
+
     def __init__(self, clocks):
         self.clocks = clocks
         self.calls = []
@@ -100,8 +103,7 @@ class FakeRaw:
             counters = args[-1]
             assert counters.dtype == np.uint64
             self.counter_views.append(counters)
-            for c, tile, warp in itertools.product(range(grid[0]), range(grid[1]),
-                                                   range(block[0] // 32)):
+            for c, tile, warp in itertools.product(range(grid[0]), range(grid[1]), range(block[0] // 32)):
                 marker = 1 + (c0 + c) * 100 + tile * 10 + warp
                 values = [marker + i for i in range(7)]
                 counters[c, tile, warp] = values + [sum(values) + 3]
@@ -116,15 +118,52 @@ def launch_fixture(module=fused, flags=(), W=15, cells=5, block=256):
     kernel.sync = lambda: None
     kernel.memory = lambda: None
     state = SimpleNamespace(W=W, geo=SimpleNamespace(h=np.zeros(2), chi=np.zeros(2)))
-    constants = dict(height=np.float32(1), g=np.float32(.8), mix=np.float32(.5),
-                     albedo=.2, sun_h=np.zeros(2), sun_col=np.zeros((2, 2)))
+    constants = dict(
+        height=np.float32(1),
+        g=np.float32(0.8),
+        mix=np.float32(0.5),
+        albedo=0.2,
+        sun_h=np.zeros(2),
+        sun_col=np.zeros((2, 2)),
+    )
     kernel.setup = lambda *a: constants
-    dc = {name: np.arange(3, dtype='f4') for name in
-          ('u', 'wu', 'aa', 'bb', 'dd', 'h', 'chi', 'hr', 'ha', 'ext', 'asca',
-           'sun_h', 'sun_col', 'gm', 'goff', 'gdir', 'gval')}
+    dc = {
+        name: np.arange(3, dtype='f4')
+        for name in (
+            'u',
+            'wu',
+            'aa',
+            'bb',
+            'dd',
+            'h',
+            'chi',
+            'hr',
+            'ha',
+            'ext',
+            'asca',
+            'sun_h',
+            'sun_col',
+            'gm',
+            'goff',
+            'gdir',
+            'gval',
+        )
+    }
     kernel.constants_device = lambda *a: dc
-    names = ('cell_off', 'starts', 'targets', 'dirs', 'weights', 'edge_off',
-             'edges', 'lower', 'end_j', 'end_f', 'end_col', 'hits')
+    names = (
+        'cell_off',
+        'starts',
+        'targets',
+        'dirs',
+        'weights',
+        'edge_off',
+        'edges',
+        'lower',
+        'end_j',
+        'end_f',
+        'end_col',
+        'hits',
+    )
     arrays = {name: np.arange(cells + 1) for name in names}
     arrays['starts'] = np.stack((np.arange(cells), np.zeros(cells), np.zeros(cells)), axis=1)
     arrays['targets'] = np.zeros((cells, 9))
@@ -136,14 +175,22 @@ def launch_fixture(module=fused, flags=(), W=15, cells=5, block=256):
 def run_launch(fixture, directory, *, module=fused, chunk=0, phase=0, first=False, timed=False):
     kernel, xp, raw, state, bundle, field = fixture
     text = io.StringIO()
-    with patch.dict(os.environ, {'SOSFUSE2_SECTION_CLOCKS_DIR': str(directory),
-                                 'SOSFUSE2_LAUNCH_CELLS': str(chunk),
-                                 'CUDA_VISIBLE_DEVICES': '1'}), \
-            patch.object(module, 'stage', lambda *a, **k: contextlib.nullcontext()), \
-            contextlib.redirect_stdout(text):
+    with (
+        patch.dict(
+            os.environ,
+            {
+                'SOSFUSE2_SECTION_CLOCKS_DIR': str(directory),
+                'SOSFUSE2_LAUNCH_CELLS': str(chunk),
+                'CUDA_VISIBLE_DEVICES': '1',
+            },
+        ),
+        patch.object(module, 'stage', lambda *a, **k: contextlib.nullcontext()),
+        contextlib.redirect_stdout(text),
+    ):
         output = kernel.launch(bundle, state, field, first=first, phase=phase, timed=timed)
-    reports = [json.loads(line.split(' ', 1)[1]) for line in text.getvalue().splitlines()
-               if line.startswith('SECTION_CLOCKS ')]
+    reports = [
+        json.loads(line.split(' ', 1)[1]) for line in text.getvalue().splitlines() if line.startswith('SECTION_CLOCKS ')
+    ]
     return output, reports
 
 
@@ -189,11 +236,13 @@ class SummaryAdversarial(unittest.TestCase):
         self.assertAlmostEqual(sum(report['fractions'].values()), 28 / 30)
 
     def test_invalid_schema_fails_distinguishably(self):
-        for value in (np.zeros((1, 1, 1, 8), 'int64'),
-                      np.zeros((1, 1, 1, 8), 'float64'),
-                      np.zeros((1, 1, 8), 'uint64'),
-                      np.zeros((1, 1, 1, 7), 'uint64'),
-                      np.zeros((0, 1, 1, 8), 'uint64')):
+        for value in (
+            np.zeros((1, 1, 1, 8), 'int64'),
+            np.zeros((1, 1, 1, 8), 'float64'),
+            np.zeros((1, 1, 8), 'uint64'),
+            np.zeros((1, 1, 1, 7), 'uint64'),
+            np.zeros((0, 1, 1, 8), 'uint64'),
+        ):
             with self.subTest(shape=value.shape, dtype=value.dtype):
                 with self.assertRaisesRegex(ValueError, 'E_SECTION_CLOCK_BUFFER'):
                     fused.section_clock_summary(value)
@@ -215,8 +264,12 @@ class FlagAdversarial(unittest.TestCase):
         self.assertEqual(kernel.flags, (FLAG,))
 
     def test_lookalikes_are_rejected_and_never_enabled(self):
-        for token in ('exp_section_clocks', 'EXP_SECTION_CLOCKS_EXTRA',
-                      'PRE_EXP_SECTION_CLOCKS', 'XEXP_SECTION_CLOCKSX'):
+        for token in (
+            'exp_section_clocks',
+            'EXP_SECTION_CLOCKS_EXTRA',
+            'PRE_EXP_SECTION_CLOCKS',
+            'XEXP_SECTION_CLOCKSX',
+        ):
             with self.subTest(token=token):
                 with self.assertRaisesRegex(ValueError, 'E_KERNEL_FLAG'):
                     fused.Kernel(flags=(token,))
@@ -240,8 +293,9 @@ class FlagAdversarial(unittest.TestCase):
 
         xp = FakeXP()
         xp.RawKernel = FakeCompiled
-        xp.cuda.runtime = SimpleNamespace(getDevice=lambda: 0,
-                                          getDeviceProperties=lambda device: {'sharedMemPerBlock': 200000})
+        xp.cuda.runtime = SimpleNamespace(
+            getDevice=lambda: 0, getDeviceProperties=lambda device: {'sharedMemPerBlock': 200000}
+        )
         flags = A + ('LANE_ATTEN',)  # Current Simpson path; keep immutable baseline A/B unchanged.
         kernel = fused.Kernel(flags=flags)
         kernel.xp = xp
@@ -329,7 +383,6 @@ class LaunchAdversarial(unittest.TestCase):
                         self.assertEqual([call[0][0] for call in raw.calls], [2, 2, 1])
                         self.assertFalse(np.shares_memory(raw.counter_views[0], raw.counter_views[1]))
 
-
     def test_new_buffer_each_launch_raw_artifacts_provenance_and_events(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = launch_fixture(flags=A + (FLAG,))
@@ -351,10 +404,10 @@ class LaunchAdversarial(unittest.TestCase):
                 self.assertEqual(report['wavelengths'], 15)
                 self.assertEqual(report['block_size'], 256)
                 self.assertEqual(set(report['flags']), {FLAG})
-                self.assertEqual(report['cuda_event_seconds'], .0125)
+                self.assertEqual(report['cuda_event_seconds'], 0.0125)
                 self.assertTrue(Path(report['raw_path']).is_file())
             self.assertEqual(len(fixture[1].events), 4)
-            self.assertEqual(fixture[0].cuda_events, [.0125])
+            self.assertEqual(fixture[0].cuda_events, [0.0125])
             for a, b in zip(out1, out2):
                 assert_equivalent(a, b)
 
@@ -366,7 +419,7 @@ class LaunchAdversarial(unittest.TestCase):
             fixture[2].clocks = False
             _, off = run_launch(fixture, directory)
             self.assertEqual(off, [])
-            self.assertEqual(len(fixture[2].calls[-1][2]), len(fixture[2].calls[-2][2])-1)
+            self.assertEqual(len(fixture[2].calls[-1][2]), len(fixture[2].calls[-2][2]) - 1)
             self.assertEqual(fixture[2].calls[-1][2][47].dtype, np.dtype('f4'))  # paired SH sidecar
             self.assertEqual(fixture[2].calls[-1][2][-1].dtype, np.dtype('i4'))  # cell-order tail
             fixture[0].flags = tuple(sorted(A + (FLAG,)))
@@ -379,7 +432,7 @@ class IndependentEvidence(unittest.TestCase):
     def test_baseline_reference_hashes_and_judge(self):
         for name in ('A', 'B', 'default'):
             with self.subTest(name=name):
-                path = evidence() /'prechange_selftests' / name
+                path = evidence() / 'prechange_selftests' / name
                 digest = hashlib.sha256((path / 'selftest_values.npz').read_bytes()).hexdigest()
                 self.assertEqual(digest, 'b68be01c94f8f39225e545c2344623583eba394cb314bd5eebbd71d27fa6b049')
                 self.assertTrue(json.loads((path / 'judge.json').read_text())['pass_'])
@@ -391,39 +444,53 @@ class IndependentEvidence(unittest.TestCase):
         independent no-ops. This cannot detect numerical edits common to both copies.
         """
         source = Path(fused.__file__).with_name('kernel.cu').read_text()
+
         def without_clocks(code):
-            lines = code.splitlines(keepends=True); kept = []; depth = 0
+            lines = code.splitlines(keepends=True)
+            kept = []
+            depth = 0
             for line in lines:
                 if not depth and line.strip() == '#ifdef EXP_SECTION_CLOCKS':
                     depth = 1
                 elif depth:
-                    if re.match(r'\s*#\s*if(?:def|ndef)?\b', line): depth += 1
-                    elif re.match(r'\s*#\s*endif\b', line): depth -= 1
-                else: kept.append(line)
+                    if re.match(r'\s*#\s*if(?:def|ndef)?\b', line):
+                        depth += 1
+                    elif re.match(r'\s*#\s*endif\b', line):
+                        depth -= 1
+                else:
+                    kept.append(line)
             self.assertEqual(depth, 0)
-            return ('#define SECTION_PARAM\n#define SECTION_BEGIN()\n#define SECTION_BEGIN_IF(c)\n'
-                    '#define SECTION_END(k)\n#define SECTION_END_IF(k,c)\n#define SECTION_SYNC(op) op\n'
-                    + ''.join(kept))
+            return (
+                '#define SECTION_PARAM\n#define SECTION_BEGIN()\n#define SECTION_BEGIN_IF(c)\n'
+                '#define SECTION_END(k)\n#define SECTION_END_IF(k,c)\n#define SECTION_SYNC(op) op\n' + ''.join(kept)
+            )
+
         def pp(code, options):
             out = subprocess.check_output(['clang++', '-E', '-P', '-x', 'c++', *options, '-'], input=code, text=True)
             return re.findall(r'\w+|[^\s]', out)
+
         testing.require_tool('clang++')
         reference = without_clocks(source)
-        specs = ((1,0,0), (0,1,0), (0,0,1), (0,0,0), (1,2,0), (0,2,0))
+        specs = ((1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, 0), (1, 2, 0), (0, 2, 0))
         for W, strato, spec in itertools.product((1, 15), (False, True), specs):
             with self.subTest(W=W, strato=strato, spec=spec):
                 options = [f'-DFW={W}', f'-DK_FIRST={spec[0]}', f'-DK_PHASE={spec[1]}', f'-DK_BOUNDARY={spec[2]}']
-                if strato: options += ['-DSTRATO']
+                if strato:
+                    options += ['-DSTRATO']
                 off = pp(source, options)
                 self.assertEqual(pp(reference, options), off)
-                self.assertFalse(set(off) & {'clock64', 'section_clocks', 'section_cycles', 'section_begin', 'barrier_begin'})
-                on = pp(source, options+['-DEXP_SECTION_CLOCKS'])
+                self.assertFalse(
+                    set(off) & {'clock64', 'section_clocks', 'section_cycles', 'section_begin', 'barrier_begin'}
+                )
+                on = pp(source, options + ['-DEXP_SECTION_CLOCKS'])
                 self.assertTrue({'clock64', 'section_clocks', 'section_cycles'} <= set(on))
                 self.assertNotEqual(off, on)
         # Negative controls: off synchronization loss and leaked observer ABI must fail.
         options = ['-DFW=15', '-DK_FIRST=1', '-DK_PHASE=2', '-DK_BOUNDARY=1']
-        for old, new in (('#define SECTION_SYNC(op) op', '#define SECTION_SYNC(op)'),
-                         ('#define SECTION_PARAM\n', '#define SECTION_PARAM ,int*leaked_clock\n')):
+        for old, new in (
+            ('#define SECTION_SYNC(op) op', '#define SECTION_SYNC(op)'),
+            ('#define SECTION_PARAM\n', '#define SECTION_PARAM ,int*leaked_clock\n'),
+        ):
             mutated = source.replace(old, new)
             self.assertNotEqual(pp(mutated, options), pp(without_clocks(mutated), options))
 
@@ -432,9 +499,10 @@ class IndependentEvidence(unittest.TestCase):
         testing.require_tool('clang++')
         source = Path(fused.__file__).with_name('kernel.cu').read_text()
         start = source.index('#ifdef EXP_SECTION_CLOCKS\n#define SECTION_PARAM')
-        macros = source[start:source.index('#endif', start) + len('#endif')]
+        macros = source[start : source.index('#endif', start) + len('#endif')]
         slot = re.search(r'int64_t slot=([^;]+);', source).group(1)
-        program = '''
+        program = (
+            '''
 #include <cstdio>
 #include <cassert>
 #include <initializer_list>
@@ -443,7 +511,9 @@ class IndependentEvidence(unittest.TestCase):
 struct Dim { int x, y; } blockIdx;
 unsigned long long ticks[2]; int tick_index;
 unsigned long long clock64() { return ticks[tick_index++]; }
-''' + macros + '''
+'''
+            + macros
+            + '''
 int main() {
   int lane = 0; unsigned long long section_begin = 0, section_cycles[8] = {};
   ticks[0] = (~0ULL) - 8; ticks[1] = 1; tick_index = 0;
@@ -480,27 +550,33 @@ int main() {
   std::puts("actual macros and slot: PASS (host only)");
 }
 '''.replace('EXPRESSION', slot)
+        )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'clock_contract.cpp'
             path.write_text(program)
             executable = Path(directory) / 'clock_contract'
-            compiled = subprocess.run(['clang++', '-std=c++17', str(path), '-o', str(executable)],
-                                      capture_output=True, text=True)
+            compiled = subprocess.run(
+                ['clang++', '-std=c++17', str(path), '-o', str(executable)], capture_output=True, text=True
+            )
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             self.assertIn('PASS', subprocess.check_output([str(executable)], text=True))
 
 
 class JudgeAdversarial(unittest.TestCase):
     """Exercise the unchanged public CLI using normative validation artifacts."""
+
     def validation(self):
-        return json.loads((evidence() /'prechange_selftests/A/validation.json').read_text())
+        return json.loads((evidence() / 'prechange_selftests/A/validation.json').read_text())
 
     def judge(self, data):
         with tempfile.TemporaryDirectory() as directory:
             src, out = Path(directory) / 'validation.json', Path(directory) / 'judge.json'
             src.write_text(json.dumps(data))
-            result = subprocess.run([sys.executable, '-B', str(campaign_checks()),
-                                     'selftest-judge', str(src), str(out)], capture_output=True, text=True)
+            result = subprocess.run(
+                [sys.executable, '-B', str(campaign_checks()), 'selftest-judge', str(src), str(out)],
+                capture_output=True,
+                text=True,
+            )
             return result, json.loads(out.read_text()) if out.exists() else None
 
     def test_exact_metric_limits_pass_despite_informational_validation_status(self):
@@ -550,8 +626,11 @@ class JudgeAdversarial(unittest.TestCase):
                 src, out = Path(directory) / 'validation.json', Path(directory) / 'judge.json'
                 if mode == 'truncated':
                     src.write_text('{"selftest":')
-                result = subprocess.run([sys.executable, '-B', str(campaign_checks()),
-                                         'selftest-judge', str(src), str(out)], capture_output=True, text=True)
+                result = subprocess.run(
+                    [sys.executable, '-B', str(campaign_checks()), 'selftest-judge', str(src), str(out)],
+                    capture_output=True,
+                    text=True,
+                )
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(out.exists())
 

@@ -1,4 +1,5 @@
 """Explicit one-time preparation of the unbundled HITRAN O4 table."""
+
 import argparse
 import hashlib
 import json
@@ -18,15 +19,15 @@ def prepare(cia=None, *, download=False):
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='minor-', dir=target.parent) as work:
         if download:
-            cia = Path(work)/'input.cia'
+            cia = Path(work) / 'input.cia'
             try:
                 with urllib.request.urlopen(generator.CIA_URL, timeout=60) as response:
                     cia.write_bytes(response.read())
             except OSError as exc:
                 raise RuntimeError(f'E_O4_DOWNLOAD: {generator.CIA_URL}: {type(exc).__name__}: {exc}') from exc
         doc = generator.build_o4(cia)  # validates the pinned original SHA before parsing
-        tmp = Path(work)/'asset.json'
-        tmp.write_text(json.dumps(doc, indent=1, allow_nan=False)+'\n')
+        tmp = Path(work) / 'asset.json'
+        tmp.write_text(json.dumps(doc, indent=1, allow_nan=False) + '\n')
         load('o4', path=tmp)
         digest = hashlib.sha256(tmp.read_bytes()).hexdigest()
         os.replace(tmp, target)

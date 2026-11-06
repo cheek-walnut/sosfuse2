@@ -3,6 +3,7 @@
 Call compare_tol with complete semantic groups, or compare_chunks with all pieces
 of those groups. Missing/unwritten valid slots fail even when both sides agree.
 """
+
 import os
 import numpy as np
 
@@ -42,14 +43,17 @@ def _pieces(chunks, stage_size, *, reference_only=False):
     offset = 0
     for a, b, valid, groups in chunks:
         for start in range(0, b.size, stage_size):
-            stop = min(start+stage_size, b.size)
+            stop = min(start + stage_size, b.size)
             mask = _slice(valid, b.shape, start, stop).astype(bool, copy=False)
             indices = np.flatnonzero(mask)
             keys = _slice(groups, b.shape, start, stop)[mask]
             # Index first, then promote only this bounded piece.
-            yield (None if reference_only else a.flat[start:stop][mask].astype('f8', copy=False),
-                   b.flat[start:stop][mask].astype('f8', copy=False), keys,
-                   indices+offset+start)
+            yield (
+                None if reference_only else a.flat[start:stop][mask].astype('f8', copy=False),
+                b.flat[start:stop][mask].astype('f8', copy=False),
+                keys,
+                indices + offset + start,
+            )
         offset += b.size
 
 
@@ -59,8 +63,17 @@ def _compare(chunks, r, alpha, details, stage_size):
     if stage_size <= 0:
         raise ValueError('E_KSPLIT_VERIFY: stage_size must be positive')
     stage_size = min(stage_size, COMPARE_STAGE)
-    out = dict(pass_=False, E_inf=float('inf'), violations=1, max_abs=float('inf'),
-               max_rel=float('inf'), groups={}, first=None, rtol=float(r), atol=float(alpha))
+    out = dict(
+        pass_=False,
+        E_inf=float('inf'),
+        violations=1,
+        max_abs=float('inf'),
+        max_rel=float('inf'),
+        groups={},
+        first=None,
+        rtol=float(r),
+        atol=float(alpha),
+    )
     chunks = [(np.asarray(a), np.asarray(b), mask, keys) for a, b, mask, keys in chunks]
     for a, b, _, _ in chunks:
         if a.shape != b.shape:
@@ -75,7 +88,7 @@ def _compare(chunks, r, alpha, details, stage_size):
         if not len(local):
             continue
         local_scale = np.zeros(len(local))
-        np.maximum.at(local_scale, inv, np.where(np.isfinite(b), np.abs(b), 0.))
+        np.maximum.at(local_scale, inv, np.where(np.isfinite(b), np.abs(b), 0.0))
         merged = local if labels is None else np.union1d(labels, local)
         merged_scale = np.zeros(len(merged))
         if labels is not None:
@@ -85,9 +98,10 @@ def _compare(chunks, r, alpha, details, stage_size):
         labels, scale = merged, merged_scale
     if labels is None:
         labels = np.array([], dtype=int)
-    dl = np.zeros(len(labels)); bl = np.zeros(len(labels))
+    dl = np.zeros(len(labels))
+    bl = np.zeros(len(labels))
     peak = first = failure = None
-    emax = max_abs = max_rel = 0.
+    emax = max_abs = max_rel = 0.0
     violations = 0
     for a, b, keys, indices in _pieces(chunks, stage_size):
         if not len(b):
@@ -96,40 +110,51 @@ def _compare(chunks, r, alpha, details, stage_size):
         sg = scale[inv]
         finite = np.isfinite(a) & np.isfinite(b)
         with np.errstate(invalid='ignore', divide='ignore', over='ignore'):
-            delta = np.where(finite, np.abs(a-b), np.inf)
+            delta = np.where(finite, np.abs(a - b), np.inf)
             abs_b = np.abs(b)
-            bound = r*abs_b + alpha*sg
-            error = np.divide(delta, bound, out=np.where(delta == 0, 0., np.inf), where=bound > 0)
+            bound = r * abs_b + alpha * sg
+            error = np.divide(delta, bound, out=np.where(delta == 0, 0.0, np.inf), where=bound > 0)
             error[~finite] = np.inf
-            rel = np.divide(delta, abs_b, out=np.where(delta == 0, 0., np.inf), where=abs_b > 0)
+            rel = np.divide(delta, abs_b, out=np.where(delta == 0, 0.0, np.inf), where=abs_b > 0)
             rel[~finite] = np.inf
             bad = (~finite) | (delta > bound)
-            norm_delta = np.divide(delta, sg, out=np.where(delta == 0, 0., np.inf), where=sg > 0)
+            norm_delta = np.divide(delta, sg, out=np.where(delta == 0, 0.0, np.inf), where=sg > 0)
             norm_ref = np.divide(b, sg, out=np.zeros_like(b), where=sg > 0)
             # add.at preserves input accumulation order across staging boundaries.
             np.add.at(dl, inv, norm_delta**2)
             np.add.at(bl, inv, norm_ref**2)
         local_peak = int(error.argmax())
         if peak is None or error[local_peak] > emax or (np.isnan(error[local_peak]) and not np.isnan(emax)):
-            peak = int(indices[local_peak]); emax = float(error[local_peak])
+            peak = int(indices[local_peak])
+            emax = float(error[local_peak])
         max_abs = max(max_abs, float(delta.max()))
         max_rel = max(max_rel, float(rel.max()))
         violations += int(bad.sum())
         if first is None and bad.any():
-            i = int(np.flatnonzero(bad)[0]); first = int(indices[i])
+            i = int(np.flatnonzero(bad)[0])
+            first = int(indices[i])
             failure = (int(inv[i]), float(a[i]), float(b[i]))
     with np.errstate(invalid='ignore', divide='ignore', over='ignore'):
-        l2 = np.sqrt(np.divide(dl, bl, out=np.where(dl == 0, 0., np.inf), where=bl > 0))
-    rows = ({str(k): dict(scale=float(scale[i]), rel_l2=float(l2[i])) for i, k in enumerate(labels)}
-            if details else {})
+        l2 = np.sqrt(np.divide(dl, bl, out=np.where(dl == 0, 0.0, np.inf), where=bl > 0))
+    rows = {str(k): dict(scale=float(scale[i]), rel_l2=float(l2[i])) for i, k in enumerate(labels)} if details else {}
     failure_group = None
     if failure is not None:
         g, a, b = failure
         failure_group = dict(key=str(labels[g]), scale=float(scale[g]), rel_l2=float(l2[g]), actual=a, reference=b)
-    return dict(out, pass_=not violations, E_inf=emax, violations=violations, max_abs=max_abs, max_rel=max_rel,
-                groups=rows, first=None if first is None else [first], peak=None if peak is None else [peak],
-                failure_group=failure_group, scale_min=float(scale.min()) if len(scale) else 0.,
-                scale_max=float(scale.max()) if len(scale) else 0.)
+    return dict(
+        out,
+        pass_=not violations,
+        E_inf=emax,
+        violations=violations,
+        max_abs=max_abs,
+        max_rel=max_rel,
+        groups=rows,
+        first=None if first is None else [first],
+        peak=None if peak is None else [peak],
+        failure_group=failure_group,
+        scale_min=float(scale.min()) if len(scale) else 0.0,
+        scale_max=float(scale.max()) if len(scale) else 0.0,
+    )
 
 
 def compare_tol(actual, reference, valid, groups, r=1e-5, alpha=1e-7, *, details=True, stage_size=COMPARE_STAGE):
