@@ -49,7 +49,8 @@
 #define SINV_SIMPSON
 #define SINV_AND_SIMPSON
 #endif
-// NVRTC, CUDA 12. FW is specialized to 1 or 15; no fast-math or implicit FMA.
+// NVRTC, CUDA 12. FW is specialized to 1 or 15. Fast math and FMA contraction only through the stage-1 options
+// (fused.Kernel: --fmad, --prec-div/--prec-sqrt and SOSFUSE2_FASTMATH below); the default build has neither.
 // One destination cell (and optional spectral tile)/block, one ray/warp. No floating-point atomics: the only atomics are
 // integer counters (ray queue, cell and split completion) that hand out work; every sum keeps a fixed order.
 // NVRTC: math builtins available without headers
@@ -320,7 +321,9 @@ __device__ float mie_phase(float u,int w,const float*chi){
  return a+f*(b-a);
 }
 #endif
+__device__ void kah(float &t,float &c,float v){float y=v-c,z=t+y;c=(z-t)-y;t=z;}
 // LUT_ONLY (fused.Kernel.strato_lut_kernel, precompile.py) compiles strato_lut_build above and nothing below.
+// tests/test_strato_precision.py compiles the STRATO block up to kah() on its own: keep this boundary below kah.
 #ifdef LUT_ONLY
 #if defined(GROUND_SH_L)
 #error E_GROUND_SH_PATH: the LUT_ONLY unit has no ground path
@@ -329,7 +332,6 @@ __device__ float mie_phase(float u,int w,const float*chi){
 #error E_TROPO_MIE_UNSUPPORTED_GROUND_PATH: the LUT_ONLY unit has no ground path
 #endif
 #else
-__device__ void kah(float &t,float &c,float v){float y=v-c,z=t+y;c=(z-t)-y;t=z;}
 #if defined(PT_ACTIVE)
 struct PointData {
  float T[16],cm[33],sw[4],prof[NCOMP],h,ds,cs;
@@ -1221,7 +1223,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
        for(int w=0;w<TW;w++)scache[corner][w]=0.f;
 #endif
        // Degree-major loads: consecutive active lanes read consecutive SHs.
-       // Each lane still sums l=m..32 in precisely the reference order.
+       // Each lane still sums l=m..SH_L in precisely the reference order.
        for(int l=0;l<=SH_L;l++){
         if(lane<=l){int k=ix(l,lane);float pref=y[k];
 #ifndef SKIP_ACTIVE
