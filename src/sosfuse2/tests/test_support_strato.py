@@ -31,6 +31,10 @@ NEW = BYTE + ('STRATO_SH_AUX', 'STRATO_MIE_LUT', 'STRATO_MIE_LUT_FINE')
 def load_wrapper(path=None):
     path = Path(path) if path else (paths.PKG / 'fused.py')
     tree = ast.parse(path.read_text())
+    # fused re-exports the KSPLIT host side (ksplit.KsplitMixin and its constants); take those names from the package.
+    reexported = [
+        a.name for n in tree.body if isinstance(n, ast.ImportFrom) and n.level and n.module == 'ksplit' for a in n.names
+    ]
     tree.body = [node for node in tree.body if not (isinstance(node, ast.ImportFrom) and node.level)]
     module = types.ModuleType('_strato_host_wrapper')
     module.__file__ = str(path.resolve())
@@ -59,5 +63,9 @@ def load_wrapper(path=None):
             for name in ('KERNEL_FLAGS', 'STAGE1_FLAGS', 'KSPLIT_VARIANTS', 'resolve_config', 'deterministic')
         }
     )
+    if reexported:
+        from sosfuse2 import ksplit
+
+        module.__dict__.update({name: getattr(ksplit, name) for name in reexported})
     exec(compile(tree, str(path), 'exec'), module.__dict__)
     return module

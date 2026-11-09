@@ -135,7 +135,7 @@ def test_aero_groups_use_whole_target_cell_and_metadata(capsys):
 
 def test_aero_window_log_is_bounded_and_vectorized(capsys, monkeypatch):
     import json
-    from sosfuse2 import fused
+    from sosfuse2 import fused, ksplit
 
     k = object.__new__(fused.Kernel)
     k.host = np.asarray
@@ -146,13 +146,13 @@ def test_aero_window_log_is_bounded_and_vectorized(capsys, monkeypatch):
     k.ksplit_aero = ref.ravel()
     k._vprod_snap = actual.ravel()
     calls = []
-    original = fused.compare_tol
+    original = ksplit.compare_tol
 
     def compare(*args, **kwargs):
         calls.append(1)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(fused, 'compare_tol', compare)
+    monkeypatch.setattr(ksplit, 'compare_tol', compare)
     for fail in (False, True):
         if fail:
             actual[17, 2, 3] += 1e-3
@@ -214,7 +214,7 @@ def test_strided_broadcast_metadata_and_string_groups():
 @pytest.mark.parametrize('points', [16384, 32768])
 def test_aero_host_peak_below_three_windows(points, monkeypatch, capsys):
     import tracemalloc
-    from sosfuse2 import fused
+    from sosfuse2 import fused, ksplit
 
     # CPU arrays stand in for device allocations, outside host accounting.
     W = 15
@@ -223,8 +223,8 @@ def test_aero_host_peak_below_three_windows(points, monkeypatch, capsys):
     valid = np.ones(points, bool)
     valid[::13] = False
     device[~valid] = np.nan
-    monkeypatch.setattr(fused, 'VPROD_VERIFY_WINDOW', device.nbytes)
-    monkeypatch.setattr(fused, 'VPROD_VERIFY_STAGE', 4093)
+    monkeypatch.setattr(ksplit, 'VPROD_VERIFY_WINDOW', device.nbytes)
+    monkeypatch.setattr(ksplit, 'VPROD_VERIFY_STAGE', 4093)
     k = object.__new__(fused.Kernel)
     k.host = lambda x: x.copy()  # include real D2H allocation, not np.asarray
     k.ksplit_aero = device.ravel()
@@ -236,7 +236,7 @@ def test_aero_host_peak_below_three_windows(points, monkeypatch, capsys):
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
-    assert peak <= 3 * fused.VPROD_VERIFY_WINDOW, (peak, device.nbytes)
+    assert peak <= 3 * ksplit.VPROD_VERIFY_WINDOW, (peak, device.nbytes)
     capsys.readouterr()
     print(f'aero window={device.nbytes} stage=4093 peak={peak} ratio={peak / device.nbytes:.3f}')
 
@@ -251,9 +251,9 @@ def test_projection_snapshots_no_concatenation_peak(capsys, monkeypatch):
     k = object.__new__(Kernel)
     k._verify_tolerances = (1e-5, 1e-7)
     # Account for all retained host chunks, as well as the comparison scratch.
-    from sosfuse2 import fused
+    from sosfuse2 import ksplit
 
-    monkeypatch.setattr(fused, 'VPROD_VERIFY_STAGE', 4093)
+    monkeypatch.setattr(ksplit, 'VPROD_VERIFY_STAGE', 4093)
     tracemalloc.start()
     try:
         chunks = []
@@ -271,7 +271,7 @@ def test_projection_snapshots_no_concatenation_peak(capsys, monkeypatch):
 
 
 def test_aero_stage_boundaries_with_offset_and_empty_cells(monkeypatch):
-    from sosfuse2 import fused
+    from sosfuse2 import fused, ksplit
 
     W = 3
     pc = np.array([0, 3, 3, 8, 19, 25])
@@ -295,7 +295,7 @@ def test_aero_stage_boundaries_with_offset_and_empty_cells(monkeypatch):
         actual, ref[:16], valid[:16, None, None], cells[:, None, None] * W + np.arange(W), details=False
     )
     for size in (1, 17, 61, 10000):
-        monkeypatch.setattr(fused, 'VPROD_VERIFY_STAGE', size)
+        monkeypatch.setattr(ksplit, 'VPROD_VERIFY_STAGE', size)
         k.vprod_verify(0, actual.size, W, dict(window=[wa, wb], base=base), valid, pc, aw=W)
         out, info = results[-1]
         assert out == expected

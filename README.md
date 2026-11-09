@@ -236,6 +236,7 @@ than the 60 s default: their setup queue took 462 s on a 12-core host, and CI us
 ```
 src/sosfuse2/
   fused.py, kernel.cu, kernel_config.py   CUDA kernel, launch configuration, NumPy reference (reference.py)
+  ksplit.py                               split transport (KSPLIT) host side of fused.Kernel
   geometry*.py, ray_columns.py, ...       spherical-shell geometry, columns, caches
   stratosphere.py, tropo_*.py, mie.py     aerosol layers and Mie tables
   spectral.py, air_wavelength.py          spectra, colour weights

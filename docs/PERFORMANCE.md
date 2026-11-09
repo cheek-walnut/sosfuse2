@@ -43,7 +43,8 @@ variant of `sos_fused` carries `__launch_bounds__(256,2)`. In 1.0.x, the slimray
 shared memory, limiting it to 4 blocks per SM, or 16 warps and 33 % of maximum occupancy.
 After 1.1.0 added NO₂ and O₄, it compiles to 141 registers, limiting it to 3 blocks per SM and 25 % occupancy, while
 shared memory would still allow 5.
-The kernel is 2,200 lines of CUDA C, with host launch planning in `src/sosfuse2/fused.py`.
+The kernel is about 2,000 lines of CUDA C, with host launch planning in `src/sosfuse2/fused.py` and, for the
+split path, `src/sosfuse2/ksplit.py`.
 
 `KSPLIT=3` needs the column records of a whole bundle in device memory. Adding NO₂ and O₄ in 1.1.0 grew the records
 to 28 B per sample point from 20 B. The product state's minimum peak of 7.06 GB exceeds the 6.7 GB solo budget of a
