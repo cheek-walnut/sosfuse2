@@ -1,5 +1,17 @@
-"""Solver definitions loaded into per-call scopes by accepted.engine.definitions."""
-# ruff: noqa: F821 -- globals are injected by the per-call loader.
+"""Solver definitions loaded into per-call scopes by accepted.engine.definitions.
+
+The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by accepted.engine.create). The imports and
+placeholders below never run there; they name the injected globals for static analysis (ruff, pyright)."""
+
+import time
+from typing import Any
+
+import numpy as np
+
+b: Any = None  # namespace: sh, R, legacy, peak, DIRS, HS (engine.create)
+C: Any = None  # 3/(16 pi), Rayleigh phase normalisation (engine.create)
+AER_G: Any = None  # aerosol asymmetry parameter of the state (engine.create)
+AER_PROFILE: Any = None  # aerosol profile of the state (engine.create)
 
 
 def basis_at(q):
@@ -211,78 +223,6 @@ class Solver:
         return np.stack(
             [np.einsum('dnwl,n->dwl', self.query(h, el, az, field, first).reshape(7, 16, self.W, 2), ww) for h in b.HS]
         )
-
-    def solve(self, initial, max_eval=16, tolerance=0.0005):
-        x = initial.copy()
-        history = []
-        gs = [[] for _ in range(self.V)]
-        fs = [[] for _ in range(self.V)]
-        done = np.zeros(self.V, bool)
-        start = time.perf_counter()
-        for it in range(1, max_eval + 1):
-            b.STATUS.update(stage=f'B residual {it}', case=self.geo.name)
-            old = self.boxes(x).reshape(5, 7, self.V)
-            g = self.apply(x)
-            new = self.boxes(g).reshape(5, 7, self.V)
-            rr = np.max(abs(new - old) / np.maximum(abs(new), 1e-30), axis=(0, 1))
-            ss = np.max(abs(g - x), axis=(0, 1)) / np.maximum(np.max(abs(g), axis=(0, 1)), 1e-30)
-            if it >= 2:
-                done |= np.maximum(rr, ss) <= tolerance
-            history.append(
-                dict(
-                    evaluation=it,
-                    observer_relative=rr.tolist(),
-                    source_relative=ss.tolist(),
-                    converged=done.tolist(),
-                    seconds=time.perf_counter() - start,
-                )
-            )
-            print(
-                f'FULL EVAL {self.geo.name} {it} maxObs={100 * max(rr):.5f}% maxSrc={100 * max(ss):.5f}% done={done.sum()}/{self.V}',
-                flush=True,
-            )
-            if done.all():
-                x = g
-                break
-            nextx = g.copy()
-            for v in range(self.V):
-                if done[v]:
-                    continue
-                norm = np.linalg.norm(g[:, :, v], axis=1)
-                scale = np.maximum(norm, norm.max() * 1e-8)
-                feature = ((g[:, :, v] - x[:, :, v]) / scale[:, None]).astype('f8').ravel()
-                obs = ((new[:, :, v] - old[:, :, v]) / np.maximum(abs(new[:, :, v]), 1e-20)).ravel() * np.sqrt(
-                    len(feature) / 35
-                )
-                gs[v].append(g[:, :, v].copy())
-                fs[v].append(np.r_[feature, obs])
-                if len(fs[v]) > 4:
-                    fs[v].pop(0)
-                    gs[v].pop(0)
-                if len(fs[v]) > 1:
-                    f = np.stack(fs[v], 1)
-                    G = f.T @ f
-                    G += np.eye(len(G)) * max(np.trace(G) * 1e-10, 1e-30)
-                    alpha = np.linalg.solve(G, np.ones(len(G)))
-                    alpha /= alpha.sum()
-                    if np.isfinite(alpha).all() and max(abs(alpha)) < 8:
-                        nextx[:, :, v] = sum(c * f for c, f in zip(alpha, gs[v]))
-            x = nextx
-            self.active = (~done).astype('i4')
-            np.savez(self.folder / 'checkpoint.npz', source=x)
-            progress(RESULT, f'{self.geo.name} 잔차{it}: {done.sum()}/{self.V} 수렴')
-        self.ms = x
-        self.active[:] = 1
-        return dict(
-            seconds=time.perf_counter() - start,
-            evaluations=it,
-            converged=done.tolist(),
-            history=history,
-            prepare_seconds=self.prepare_seconds,
-            geometry=json.loads(json.dumps(self.geo.meta)),
-            timings=self.timings,
-            peak_bytes=b.peak(),
-        ), self.boxes(x)
 
 
 def build(self, i, s):

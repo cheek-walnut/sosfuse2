@@ -251,7 +251,9 @@ docs/                                     MODEL.md, VALIDATION.md (+ validation/
 ```
 
 The solver definitions live in the editable `src/sosfuse2/solver_*.py` files. `accepted/engine.py` selects definitions and
-executes them in a fresh scope for each state; it stays at that location as the engine loader. Optical coefficients are
+executes them in a fresh scope for each state; it stays at that location as the engine loader. Only the top-level
+`def`/`class` nodes are executed; the imports and placeholders at the head of each file name the injected globals for
+static analysis and never run. Optical coefficients are
 kept apart from the column and geometry producers, so coefficient edits do not invalidate geometry caches.
 `run_gpu_state_v3.create_configured` and `tropo_profile.engine_hooks` pass the production grid, spectrum, sun geometry,
 deferred ground preparation and two-layer aerosol profile to `create()` through keyword-only hooks; no source text is

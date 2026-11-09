@@ -1,5 +1,19 @@
-"""Solver definitions loaded into per-call scopes by accepted.engine.definitions."""
-# ruff: noqa: F821 -- globals are injected by the per-call loader.
+"""Solver definitions loaded into per-call scopes by accepted.engine.definitions.
+
+The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by accepted.engine.create). The imports and
+placeholders below never run there; they name the injected globals for static analysis (ruff, pyright)."""
+
+import json
+import time
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+R: Any = None  # Earth radius, km (engine.R)
+Z: Any = None  # top of the atmosphere, km (engine.Z)
+probe: Any = None  # gl/frame/boundaries of this file in their own scope (engine.create)
+AER_PROFILE: Any = None  # aerosol profile of the state, bound after the definitions (engine.create)
 
 
 def gl(n):
