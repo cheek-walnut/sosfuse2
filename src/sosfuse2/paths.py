@@ -111,6 +111,7 @@ PRODUCTION_MODULES = (
     'host_limits',
     'iprt',
     'kernel_config',
+    'ksplit',
     'mie',
     'minor_absorbers',
     'numerical_checks',

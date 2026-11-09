@@ -107,7 +107,7 @@ def main():
         selftest_tolerance=1e-5,
         code_sha256={
             n: hashlib.sha256((paths.PKG / n).read_bytes()).hexdigest()
-            for n in ('kernel.cu', 'fused.py', 'reference.py', 'validate.py')
+            for n in ('kernel.cu', 'fused.py', 'ksplit.py', 'reference.py', 'validate.py')
         },
         exact={},
         approximate={},

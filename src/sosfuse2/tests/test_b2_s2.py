@@ -452,11 +452,12 @@ def test_ksplit_fallback_strict_and_wait(monkeypatch, capsys):
 
 def test_lut_launch_only():
     import ast
-    from sosfuse2 import fused, kernel_config
+    from sosfuse2 import fused, kernel_config, ksplit
 
-    tree = ast.parse(Path(fused.__file__).read_text())
+    # Kernel's methods live in fused.py and, for the split transport, ksplit.py (KsplitMixin).
+    trees = [ast.parse(Path(m.__file__).read_text()) for m in (fused, ksplit)]
     users = []
-    for node in ast.walk(tree):
+    for node in (n for tree in trees for n in ast.walk(tree)):
         if isinstance(node, ast.FunctionDef) and any(
             isinstance(k, ast.keyword)
             and k.arg == 'role'

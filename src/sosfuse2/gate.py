@@ -1384,7 +1384,7 @@ def run_main(p, args, argv):
         fixtures={},
         gates={},
         code=None,
-        code_sha256={n: file_sha(HERE / n) for n in ('kernel.cu', 'fused.py', 'reference.py', 'gate.py')},
+        code_sha256={n: file_sha(HERE / n) for n in ('kernel.cu', 'fused.py', 'ksplit.py', 'reference.py', 'gate.py')},
         env={k: v for k, v in os.environ.items() if k.startswith(('SOSFUSE2_', 'CUDA_VISIBLE'))},
     )
     try:
