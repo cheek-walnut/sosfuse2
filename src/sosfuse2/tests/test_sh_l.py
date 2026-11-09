@@ -24,6 +24,32 @@ def test_default_source_is_current_kernel():
 
 
 @pytest.mark.parametrize('L', [16, 24, 32])
+@pytest.mark.parametrize('combine', [False, True])
+def test_rewrite_targets_present(L, combine):
+    # Every rewrite counts its targets (sh_layout._replace); the current kernel.cu matches all of them.
+    kernel_source(L, combine=combine)
+
+
+@pytest.mark.parametrize(
+    'L,combine,old,new',
+    [
+        # Reformatting the density factor the combined plane already carries (sh_layout.combined_coefficients) must
+        # not leave it in the kernel: the plane would be scaled by ha twice.
+        (16, True, 'if(!first)aero*=ha[ir];', 'if(!first) aero*=ha[ir];'),
+        (32, True, 'if(!first)aero*=ha[ir];', 'if(!first) aero*=ha[ir];'),
+        # A new source-row literal that the L<32 renumbering would rewrite unnoticed.
+        (16, False, '#define K 561', '#define K 561\n// row 1132'),
+        (24, True, 'if(m<32)', 'if (m<32)'),
+    ],
+)
+def test_rewrite_drift_is_an_error(L, combine, old, new):
+    code = (paths.PKG / 'kernel.cu').read_text()
+    assert old in code
+    with pytest.raises(RuntimeError, match='E_SH_LAYOUT_DRIFT'):
+        kernel_source(L, combine=combine, code=code.replace(old, new, 1))
+
+
+@pytest.mark.parametrize('L', [16, 24, 32])
 def test_basis_and_layout(L):
     K = count(L)
     mu = np.linspace(-1, 1, 67)
