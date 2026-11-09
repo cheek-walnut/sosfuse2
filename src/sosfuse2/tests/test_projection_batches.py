@@ -41,6 +41,7 @@ def check_projection_batches(L, W, deterministic):
     header = (
         f'''typedef long long int64_t; typedef unsigned int uint32_t;
 #define K {K}
+#define NMOM (4+K)
 #define TW {W}
 #define FW {W}
 #define SH_L {L}

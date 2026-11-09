@@ -22,6 +22,15 @@
 #define REC_ON 0
 #endif
 #define NOSH_ON (SLIM_ON || REC_ON)
+// The SLIM consumer reads the PROD aerosol of the combined SH plane and has no stratospheric contraction of its own
+// (fused.Kernel.raw_kernel compiles every warm STRATO FW15 unit with SH_COMBINE).
+#if SLIM_ON && defined(STRATO) && !defined(SH_COMBINE)
+#error E_SLIM_REQUIRES_SH_COMBINE
+#endif
+// SLIM_RAYS only publishes ray_rads; sos_slim_proj projects them (fused.Kernel.slim_rays builds it with ray limits).
+#if defined(SLIM_RAYS) && !defined(LAUNCH_RAY_LIMIT)
+#error E_SLIM_RAYS_REQUIRES_RAY_LIMIT
+#endif
 #define NOOUT_ON (PROD_ON || REC_ON)
 #ifdef SINV
 // Column records (28 B/point, bundle-global [point][7]): [0] ds, [1..5] separable columns, [6] stratosphere.
@@ -63,7 +72,7 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 // the compiler cannot hoist the next corner's global reads and a step waits for 4+ serial L2 round trips (measured:
 // L1TEX long_scoreboard ~41 % of warp stalls, no local spills). SLIM_PRELOAD issues a step's PROD aerosol, cell source
 // rows and column record before the corner loop; the arithmetic and its order are unchanged.
-#if defined(SINV) && defined(SLIM) && defined(STRATO) && FW==15 && !defined(LUT_ONLY)
+#if defined(SINV) && defined(SLIM) && defined(STRATO) && FW==15
 #define SLIM_PRELOAD
 #endif
 // Phase-0 first light (FP64 pipe ~76 % after the p/d DS cache): point() and the Simpson
@@ -71,17 +80,30 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 // instead of converting the same doubles every step; the DS values equal ds() of them, so results are unchanged.
 // Warm kernels do the same (slimray FP64 pipe 39 % at 926b06e): the ray's p/d DS cache, segment-end DS and
 // lane-held node DS feed the batched point()/point_m2 and the Simpson prefix.
-#if !defined(LUT_ONLY) && (!K_FIRST || K_PHASE==0)
+#if !K_FIRST || K_PHASE==0
 #define PATH_DS
 #endif
-#define K 561
+// Transported SH order: 16, 24 or 32 (sh_layout.kernel_source defines it below 32). The warp width, the m=32 cosine
+// table entry and the single-scattering Mie expansion stay at 32 for every order.
+#ifndef SH_L
+#define SH_L 32
+#endif
+#if SH_L!=16 && SH_L!=24 && SH_L!=32
+#error E_SH_L: SH_L must be 16, 24 or 32
+#endif
+#define K ((SH_L+1)*(SH_L+2)/2)
+// Rows per cell of src (fused.Kernel source layout): 10 + K, and 10 + 2K with the stratospheric SH plane; 4 + K moments.
+#define SRC_ROWS (10+K)
+#define SRC_ROWS_ST (10+2*K)
+#define NMOM (4+K)
+// Per-warp Y row: first-light GROUND_FUSED borrows it for 162 floats (sh_layout.workspace).
+#define YPAD (K>162?K:162)
 #define PI 3.14159265358979323846
 // Smallest normal float (FLT_MIN). Traces below it are excluded from log-space moments; NaN fails >= as well. The trace
 // itself compares the same under FTZ, but subnormal terms inside it do not: CuPy always builds with
 // -ftz=true, so reference.py runs transport under flush_to_zero() to match (taskB_simpson_20261022/REPORT_2L.md).
 #define TRACE_MIN 1.17549435e-38f
 // Transport defaults are isolated from the historical LUT translation unit.
-#ifndef LUT_ONLY
 // Specialized transport always uses paired SH sidecars, lane attenuation/ground,
 // wavelength-owned transport and the existing accumulation order. The former C3
 // domain is STRATO; FW1 omits its four FW15-only optimizations. No nostrato expansion.
@@ -106,6 +128,12 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 // Thin-layer masking uses the FW15 reduce-scatter path only.
 #if defined(STRATO) && FW==15 && !K_FIRST
 #define SKIP_ACTIVE
+// SH_COMBINE: the first SH plane already holds aerosol + stratosphere, so it is live where either layer is.
+#ifdef SH_COMBINE
+#define SK_A (sk_a || sk_s)
+#else
+#define SK_A sk_a
+#endif
 #ifndef SKIP_TAU
 #define SKIP_TAU 1e-7f
 #endif
@@ -145,10 +173,6 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 #else
 #define SPLIT_PARAM
 #endif
-#else // LUT_ONLY: retain the original unspecialized fallback translation unit.
-#define LPT_PARAM
-#define SPLIT_PARAM
-#endif
 #ifndef SOS_LAUNCH_BOUNDS
 #define SOS_LAUNCH_BOUNDS
 #endif
@@ -172,31 +196,17 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 #define SECTION_END_IF(k,cond)
 #define SECTION_SYNC(op) op
 #endif
-#ifndef LUT_ONLY
 #define P_FIRST first_arg
 #define P_PHASE phase_arg
 #define P_BOUNDARY boundary_arg
-#else
-#define P_FIRST first
-#define P_PHASE phase
-#define P_BOUNDARY with_boundary
-#endif
-#ifndef LUT_ONLY
-#define KPAD 576
+#define KPAD (((K+31)/32)*32)
 #define SH_PARAM ,const float*src_sh
-#else
-#define SH_PARAM
-#endif
 #ifndef LUT_ONLY
 struct LMTable { unsigned char l[K],m[K];
- constexpr LMTable():l(),m(){int k=0;for(int a=0;a<=32;a++)for(int b=0;b<=a;b++){l[k]=(unsigned char)a;m[k]=(unsigned char)b;k++;}} };
+ constexpr LMTable():l(),m(){int k=0;for(int a=0;a<=SH_L;a++)for(int b=0;b<=a;b++){l[k]=(unsigned char)a;m[k]=(unsigned char)b;k++;}} };
 __constant__ LMTable LM=LMTable();
 #endif
-#ifndef LUT_ONLY
 #define PROFILE_PARAM ,const float*profile_table,int profile_mask,float air_surface
-#else
-#define PROFILE_PARAM
-#endif
 #ifdef STRATO
 #define STRATO_PARAM ,const float*st_ext,const float*st_sca,const float*st_chi,const float*st_density,const float*st_sun_col,const float*st_end_col,float st_center,float st_sigma,float st_norm
 #define COPY_STRATO(DST,SRC) do { _Pragma("unroll") for(int cw=0;cw<TW;cw++)scache[DST][cw]=scache[SRC][cw];if(lane==0){ _Pragma("unroll") for(int cw=0;cw<TW;cw++)s.st_c32[DST][cw]=s.st_c32[SRC][cw]; } } while(0);
@@ -255,7 +265,6 @@ __device__ float dv(DS a){return a.h+a.l;}
 __device__ float ftz_dv(DS a){float h=fabsf(a.h)<TRACE_MIN?0.f:a.h,l=fabsf(a.l)<TRACE_MIN?0.f:a.l,v=h+l;return fabsf(v)<TRACE_MIN?0.f:v;}
 __device__ float clip(float x,float lo,float hi){return fminf(hi,fmaxf(lo,x));}
 __device__ int search(const float*a,int n,float x){int lo=0,hi=n;while(lo<hi){int m=(lo+hi)/2;if(a[m]<=x)lo=m+1;else hi=m;}return max(0,min(n-2,lo-1));}
-#ifndef LUT_ONLY
 // PROFILE grid: PROFILE nodes 0..80 km at 0.5/0.25/0.125 km = 161/321/641 rows. The
 // host passes -DPROFILE_N only for 321/641 (fused.Kernel profile_step_km); the default expands to the same literals.
 #ifndef PROFILE_N
@@ -277,7 +286,6 @@ __device__ float profile_value(float h,const float*table,int k){
  float x=clip(h,0.f,80.f)*PROFILE_INV;int i=min((int)x,PROFILE_LAST);float f=x-(float)i;
  return table[i*3+k]+f*(table[(i+1)*3+k]-table[i*3+k]);
 }
-#endif
 #ifdef AEROSOL_2L
 // Two-layer tropospheric aerosol (tropo_profile.py, opt-in by state; without -DAEROSOL_2L nothing here exists and
 // s.prof[1] stays expf(-s.h/height)). P = [bl_top-w/2, 1/w, a_bl, k_bl, a_ft, k_ft, bl_top] follows sun_h[0..nsh) in
@@ -312,6 +320,15 @@ __device__ float mie_phase(float u,int w,const float*chi){
  return a+f*(b-a);
 }
 #endif
+// LUT_ONLY (fused.Kernel.strato_lut_kernel, precompile.py) compiles strato_lut_build above and nothing below.
+#ifdef LUT_ONLY
+#if defined(GROUND_SH_L)
+#error E_GROUND_SH_PATH: the LUT_ONLY unit has no ground path
+#endif
+#if defined(TROPO_MIE)
+#error E_TROPO_MIE_UNSUPPORTED_GROUND_PATH: the LUT_ONLY unit has no ground path
+#endif
+#else
 __device__ void kah(float &t,float &c,float v){float y=v-c,z=t+y;c=(z-t)-y;t=z;}
 #if defined(PT_ACTIVE)
 struct PointData {
@@ -363,11 +380,11 @@ struct Sample {
 #endif
 __device__ void sh_basis(double mu,int lane,float*y,const double*aa,const double*bb,const double*dd){
  mu=fmin(1.,fmax(-1.,mu));double st=sqrt(fmax(0.,1-mu*mu));
- for(int m=lane;m<=32;m+=32){
+ for(int m=lane;m<=SH_L;m+=32){
   double diag=1/sqrt(4*PI);for(int j=1;j<=m;j++)diag=(diag*dd[j])*st;
   double mult=m?sqrt(2.):1.,z0=diag;y[ix(m,m)]=(float)(mult*z0);
-  if(m<32){double z1=(sqrt(2.*m+3)*mu)*z0;y[ix(m+1,m)]=(float)(mult*z1);
-   for(int l=m+2;l<=32;l++){int k=ix(l,m);double z2=(aa[k]*mu)*z1-bb[k]*z0;
+  if(m<SH_L){double z1=(sqrt(2.*m+3)*mu)*z0;y[ix(m+1,m)]=(float)(mult*z1);
+   for(int l=m+2;l<=SH_L;l++){int k=ix(l,m);double z2=(aa[k]*mu)*z1-bb[k]*z0;
     y[k]=(float)(mult*z2);z0=z1;z1=z2;}
   }
  }
@@ -378,11 +395,11 @@ __device__ void sh_basis(double mu,int lane,float*y,const double*aa,const double
 // FP64 st, above the 1e-6 prep-product requirement).
 __device__ void sh_basis_ds(double mu,int lane,float*y,const float2*aa2,const float2*bb2,const float2*dd2){
  mu=fmin(1.,fmax(-1.,mu));const DS u=ds(mu),st=ds(sqrt(fmax(0.,1-mu*mu)));
- for(int m=lane;m<=32;m+=32){
+ for(int m=lane;m<=SH_L;m+=32){
   DS diag=ds(1/sqrt(4*PI));for(int j=1;j<=m;j++)diag=dm(dm(diag,DS{dd2[j].x,dd2[j].y}),st);
   const DS mult=m?ds(sqrt(2.)):DS{1.f,0.f};DS z0=diag;y[ix(m,m)]=dv(dm(mult,z0));
-  if(m<32){DS z1=dm(dm(ds(sqrt(2.*m+3)),u),z0);y[ix(m+1,m)]=dv(dm(mult,z1));
-   for(int l=m+2;l<=32;l++){int k=ix(l,m);
+  if(m<SH_L){DS z1=dm(dm(ds(sqrt(2.*m+3)),u),z0);y[ix(m+1,m)]=dv(dm(mult,z1));
+   for(int l=m+2;l<=SH_L;l++){int k=ix(l,m);
     DS z2=dx(dm(dm(DS{aa2[k].x,aa2[k].y},u),z1),dm(DS{bb2[k].x,bb2[k].y},z0));
     y[k]=dv(dm(mult,z2));z0=z1;z1=z2;}
   }
@@ -391,11 +408,7 @@ __device__ void sh_basis_ds(double mu,int lane,float*y,const float2*aa2,const fl
 // Task B (1) (2026-10-22): the profile is evaluated by one function, profile_at, for
 // the quadrature nodes (point()) and the Simpson optical-depth prefix (segment ends, panel midpoints); reference.py profile_at,
 // extinction, SimpsonPrefix use the same operations. Path coordinates, panel widths and midpoints are DS, like point().
-#ifndef LUT_ONLY
 #define PROFILE_ARG ,profile_table,profile_mask,air_surface
-#else
-#define PROFILE_ARG
-#endif
 #ifdef STRATO
 #define SP_ST_PARAM ,float st_center,float st_sigma,float st_norm
 #define SP_ST_ARG ,st_center,st_sigma,st_norm
@@ -436,12 +449,10 @@ __device__ __forceinline__ void profile_at(float h,PROF_PARAM,float*prof,float &
 #ifdef AEROSOL_2L
  prof[1]=aerosol_two_layer(h,aer2);
 #endif
-#ifndef LUT_ONLY
  if(profile_mask&1)prof[0]=profile_value(h,profile_table,0);
  if(profile_mask&2)prof[2]=profile_value(h,profile_table,1);
  prof[3]=profile_value(h,profile_table,2);
  float q=prof[0]/air_surface;prof[4]=q*q;
-#endif
 #ifdef STRATO
  float st_t=(h-st_center)/st_sigma;st_prof=expf(-.5f*(st_t*st_t))/st_norm;
 #else
@@ -470,11 +481,7 @@ __device__ __forceinline__ float simpson_piece(const Coord*p,const Coord*d,DS t0
  const float bm=beta_at(p,d,tm,BETA_FWD,gw);
  return (dv(dx(t1,t0))/6.f)*((b0+b1)+4.f*bm);
 }
-#ifndef LUT_ONLY
 #define POINT_INLINE __noinline__
-#else
-#define POINT_INLINE __forceinline__
-#endif
 // Coord/Scalar = double (every caller but phase-0 first light) or DS: first light passes the ray's DS p/d and the segment
 // and node DS values, so the per-step ds() conversions (FP64 adds, the remaining first-light FP64 work) are not redone.
 // pf(d[k]) is (float)d[k] = ds(d[k]).h either way; the values are identical.
@@ -581,13 +588,11 @@ __device__ POINT_INLINE void point_m2(PointM2 &s,const Coord*p,const Coord*d,con
 #endif
 
 
-#ifndef LUT_ONLY
 __device__ __forceinline__ float2 warm_sh_pair(const float *ptr,int64_t cell,int w,int k){
  const int64_t i=(cell*((FW+1)/2)+w/2)*KPAD+k;
  return ((const float2*)ptr)[i];
 }
 
-#endif // !LUT_ONLY
 
 #ifdef TROPO_MIE
 // Tropospheric aerosol Mie phase (tropo_mie.py, opt-in by state; without -DTROPO_MIE nothing below exists and every
@@ -597,9 +602,6 @@ __device__ __forceinline__ float2 warm_sh_pair(const float *ptr,int64_t cell,int
 #define TROPO_LUT (asca+FW)
 #if defined(GF_ON) && (!defined(STRATO) || STRATO_LUT_BINS!=TROPO_LUT_BINS)
 #error E_TROPO_MIE_GF_REQUIRES_STRATO_MIE_LUT_FINE
-#endif
-#if defined(LUT_ONLY)
-#error E_TROPO_MIE_UNSUPPORTED_GROUND_PATH
 #endif
 __device__ __forceinline__ float tropo_phase(float u,int w,const float*lut){
  float x=(clip(u,-1.f,1.f)+1.f)*(float)(TROPO_LUT_BINS/2);
@@ -737,9 +739,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
  const float*sun_h,const float*sun_col,const float*gm,const int64_t*goff,const float*gdir,const float*gval,
  float height,float aerosol_g,float mix,double albedo,
  const float*src,const double*boundary,double*moments,double*flux,float*query SINV_PARAM SH_PARAM STRATO_PARAM PROFILE_PARAM LPT_PARAM SECTION_PARAM SPLIT_PARAM){
-#ifndef LUT_ONLY
  constexpr int first=K_FIRST,phase=K_PHASE,with_boundary=K_BOUNDARY;
-#endif
 #ifdef SINV
 #ifdef SLIM_RAYS
  constexpr int sinv_mode=2;float *sinv_rec=query+16;   // the KSPLIT=3 consumer only ever reads column records
@@ -747,9 +747,6 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
  const int sinv_mode=(!first && phase!=2)?((const int*)query)[0]:0;float *sinv_rec=query+16;
 #endif
  const int64_t slim_base=((const int64_t*)query)[2];
-#endif
-#if defined(LUT_ONLY)
- __trap(); // E_SIMPSON_LANE_ATTEN: the Simpson prefix (task B) exists on the LANE_ATTEN path only; fused.Kernel refuses to compile it
 #endif
  int cell=blockIdx.x;
 #ifdef SPLIT_ACTIVE
@@ -778,7 +775,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
  unsigned long long total_begin=0;if(lane==0)total_begin=clock64();
 #endif
  extern __shared__ double shared[];
- int nm=phase==0?565*TW:0;
+ int nm=phase==0?NMOM*TW:0;
 #ifdef ACC_IN_GLOBAL
 #ifdef SPLIT_ACTIVE
  double *acc=(split_part==0?moments+(int64_t)cell*nm:split_scratch+((int64_t)(split_part-1)*cells+cell)*nm),*ground=shared;
@@ -788,21 +785,15 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
 #else
  double *acc=shared,*ground=acc+nm;
 #endif
- float *Y=(float*)(ground+TW),*rads=Y+nwarps*K,*err=rads+nwarps*4*TW,*cosdest=err+nwarps*4*TW;
+ float *Y=(float*)(ground+TW),*rads=Y+nwarps*YPAD,*err=rads+nwarps*4*TW,*cosdest=err+nwarps*4*TW;
  Sample *samples=(Sample*)(cosdest+nwarps*33);
-#ifndef LUT_ONLY
  float *ray_constants=(float*)(samples+nwarps)+warp*RAY_CONST_F;
-#endif
-#ifndef LUT_ONLY
  float *ground_phase=(float*)(samples+nwarps)
-#ifndef LUT_ONLY
   +nwarps*RAY_CONST_F
-#endif
 #if defined(GF_ON) && !defined(FL_SPLIT_ON) && K_PHASE!=2
   +warp*162; // GROUND_FUSED scratch: 32 phases + 65 int2 nodes (+1 float alignment pad)
 #else
   +warp*32;
-#endif
 #endif
 #ifdef PT_ACTIVE
 #ifdef SLIM_RAYS
@@ -811,17 +802,14 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
  typedef PointData PtBatch;
 #endif
  PtBatch *pts=(PtBatch*)((float*)(samples+nwarps)
-#ifndef LUT_ONLY
   +nwarps*RAY_CONST_F
-#endif
-#ifndef LUT_ONLY
   +nwarps*32
-#endif
   )+warp*PT_NB;
 #ifdef SLIM_RAYS
  pts=(PtBatch*)((((unsigned long long)(pts-warp*PT_NB))+15)&~15ull)+warp*PT_NB;   // 16-byte base; fused.py adds 16 B slack
 #endif
 #ifdef RS_ACTIVE
+ // 8-bit ranks over a window of 32*nwarps <= 256 rays: blocks of at most 256 threads (fused.Kernel block_size check).
  unsigned char *rs_key=(unsigned char*)(pts-warp*PT_NB+nwarps*PT_NB),*rs_perm=rs_key+256;
 #endif
 #endif
@@ -857,7 +845,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
 #ifdef FL_SPLIT_ON
   const double *p=starts+3*cell,*target=targets+9*cell;
   float B[9];for(int k=0;k<9;k++)B[k]=(float)target[k];
-  float *y=Y+warp*K,*rad=rads+warp*4*TW,*rc=err+warp*4*TW,*cd=cosdest+warp*33;
+  float *y=Y+warp*YPAD,*rad=rads+warp*4*TW,*rc=err+warp*4*TW,*cd=cosdest+warp*33;
   {
 #else
  const double *p=starts+3*cell,*target=targets+9*cell;
@@ -888,11 +876,10 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
 #else
   int64_t ray=round+warp;
 #endif
-  float *y=Y+warp*K,*rad=rads+warp*4*TW,*rc=err+warp*4*TW,*cd=cosdest+warp*33;
+  float *y=Y+warp*YPAD,*rad=rads+warp*4*TW,*rc=err+warp*4*TW,*cd=cosdest+warp*33;
   if(ray<end){
 #endif
    const double *d=dirs+3*ray;
-#ifndef LUT_ONLY
    // global_st, dl[3], pu[4], se[3], direct[4]; PATH_DS adds p/d as six DS values.
    float *dl=ray_constants+1,*pu=ray_constants+4,*se=ray_constants+8,*direct=ray_constants+11;
 #ifdef PATH_DS
@@ -920,17 +907,6 @@ for(int j=0;j<3;j++){double x=0;for(int k=0;k<3;k++)x+=target[3*k+j]*d[k];dl[j]=
    // pu is fixed for the ray: register copies instead of 16 shared loads per step in the corner loop (slimray is
    // LSU-issue-bound: LSU pipe 72 %); same values.
    const float pu_r[4]={pu[0],pu[1],pu[2],pu[3]};
-#endif
-#else
-
-float dl[3]={};float global_st=(float)sqrt(fmax(0.,1.-d[2]*d[2]));
-
-
-for(int j=0;j<3;j++){double x=0;for(int k=0;k<3;k++)x+=target[3*k+j]*d[k];dl[j]=(float)x;}
-
-   float pu[4]={1.f-dl[0]*dl[0],1.f-dl[1]*dl[1],1.f-dl[2]*dl[2],-dl[0]*dl[2]},direct[4];
-   float sun_dot=(dl[0]*B[6]+dl[1]*B[7])+dl[2]*B[8],se[3];for(int k=0;k<3;k++)se[k]=B[6+k]-dl[k]*sun_dot;
-   direct[0]=(pu[0]-se[0]*se[0])/2;direct[1]=(pu[1]-se[1]*se[1])/2;direct[2]=(pu[2]-se[2]*se[2])/2;direct[3]=(pu[3]-se[0]*se[2])/2;
 #endif
    SECTION_BEGIN()
 #if (!defined(FL_SPLIT_ON) || !K_FIRST) && !defined(SLIM_RAYS) && !(defined(GF_ON) && K_PHASE==2)
@@ -964,14 +940,12 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
    float scache[4][TW];
 #endif
    int tags[4]={-1,-1,-1,-1};
-#ifndef LUT_ONLY
    float tau_lane=0.f,tc_lane=0.f;
    // Simpson prefix state of lane w<TW (reference.py SimpsonPrefix): panel start (DS t, extinction) and the segment sum.
    DS sp_t={0.f,0.f};float sp_b=0.f,sp_acc=0.f;
-#endif
    Sample &s=samples[warp];
    float sunphase=hg((float)d[2],aerosol_g);
-#if (defined(STRATO) && !defined(LUT_ONLY))
+#ifdef STRATO
    float strato_sunphase=0.f;
    if(first && lane<TW)strato_sunphase=mie_phase((float)d[2],GW(lane),st_chi);
 #endif
@@ -984,7 +958,6 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
 #ifdef PATH_DS
     const DS seg_a=ds(a),seg_b=ds(b);
 #endif
-#ifndef LUT_ONLY
     // Simpson prefix: beta(a) is evaluated anew for every segment (never carried over a skipped b-a<=1e-8 segment).
 #ifdef PATH_DS
     sp_t=seg_a;
@@ -992,7 +965,6 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
     sp_t=ds(a);
 #endif
     sp_acc=0.f;if(lane<TW && !PROD_ON SINV_AND_SIMPSON)sp_b=beta_at(beta_p,beta_d,sp_t,BETA_ARG,GW(lane));
-#endif
 #ifdef PT_ACTIVE
     for(int step0=0;step0<nq;step0+=PT_NB){
      const int nb=min(PT_NB,nq-step0);
@@ -1006,9 +978,7 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
      if(lane<nb)point_m2(pts[lane],beta_p,beta_d,B,dl,seg_a,seg_b,low,bu,h,nh,chi,nc);
 #else
      if(lane<nb)point(pts[lane],beta_p,beta_d,B,dl,global_st,seg_a,seg_b,low,bu,bw,h,nh,chi,nc,height,sun_h,nsh,sun_col,nsx,first
-#ifndef LUT_ONLY
       ,profile_table,profile_mask,air_surface
-#endif
 #ifdef STRATO
       ,st_sun_col,st_center,st_sigma,st_norm
 #endif
@@ -1018,9 +988,7 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
      if(lane<nb)point_m2(pts[lane],p,d,B,dl,a,b,low,gu[step0+lane],h,nh,chi,nc);
 #else
      if(lane<nb)point(pts[lane],p,d,B,dl,global_st,a,b,low,gu[step0+lane],gw[step0+lane],h,nh,chi,nc,height,sun_h,nsh,sun_col,nsx,first
-#ifndef LUT_ONLY
       ,profile_table,profile_mask,air_surface
-#endif
 #ifdef STRATO
       ,st_sun_col,st_center,st_sigma,st_norm
 #endif
@@ -1064,18 +1032,14 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
 #if defined(PT_ACTIVE)
 #elif defined(PATH_DS)
      if(lane==0)point(s,beta_p,beta_d,B,dl,global_st,seg_a,seg_b,low,su,swu,h,nh,chi,nc,height,sun_h,nsh,sun_col,nsx,first
-#ifndef LUT_ONLY
       ,profile_table,profile_mask,air_surface
-#endif
 #ifdef STRATO
       ,st_sun_col,st_center,st_sigma,st_norm
 #endif
       );
 #else
      if(lane==0)point(s,p,d,B,dl,global_st,a,b,low,gu[step],gw[step],h,nh,chi,nc,height,sun_h,nsh,sun_col,nsx,first
-#ifndef LUT_ONLY
       ,profile_table,profile_mask,air_surface
-#endif
 #ifdef STRATO
       ,st_sun_col,st_center,st_sigma,st_norm
 #endif
@@ -1101,7 +1065,7 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
       if(lane<TW){s.c32[0][lane]=accw;s.st_c32[0][lane]=st_acc;}
       __syncwarp();
      }
-#elif !defined(LUT_ONLY)
+#else
      if(first){
       float accw=0.f;
       for(int corner=0;corner<4;corner++){int cc=s.cell[corner];
@@ -1126,40 +1090,15 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
           _Pragma("unroll") for(int q=0;q<8;q++)accw+=(swc*ph[q])*g[q];}
          for(;k<count;k++)accw+=(swc*ground_phase[k])*gq[k*FW];}
 #endif
-        if(false)
-        for(int k=0;k<count;k++){
-#ifdef TROPO_MIE
-#define BATCH_PHASE tropo_pair(s,gdir,j0+k,GW(lane),TROPO_LUT)
-#else
-#define BATCH_PHASE ground_phase[k]
-#endif
-         if(lane<TW)accw+=(s.sw[corner]*BATCH_PHASE)*gval[(j0+k)*FW+GW(lane)];
-#undef BATCH_PHASE
-        }
         __syncwarp();
        }
       }
       if(lane<TW)s.c32[0][lane]=accw;
       __syncwarp();
      }
-#else
-     if(first && lane==0){
-      // Ground phase geometry is independent of wavelength. The unused
-      // first-light Fourier cache holds the wavelength accumulators.
-      for(int w=0;w<TW;w++)s.c32[0][w]=0.f;
-      for(int corner=0;corner<4;corner++){int cc=s.cell[corner];
-       for(int64_t j=goff[cc];j<goff[cc+1];j++){
-        float m0=s.mu*gdir[3*j+2]+s.exd*gdir[3*j],m1=fabsf(s.eyd)*gdir[3*j+1];
-        float ph=(hg(clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;
-        // Preserve corner/direction addition order for every wavelength.
-        for(int w=0;w<TW;w++)s.c32[0][w]+=(s.sw[corner]*ph)*gval[j*FW+GW(w)];
-       }
-      }
-     }
 #endif
 #ifndef GF_ON
 #ifdef STRATO
-#if (defined(STRATO) && !defined(LUT_ONLY))
      if(first){
       int w=lane&15;float st_acc=0.f;
       const float pmu=s.mu,pexd=s.exd,paey=fabsf(s.eyd);
@@ -1188,27 +1127,15 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
       if(lane<TW)s.st_c32[0][lane]=st_acc;
       __syncwarp();
      }
-#else
-     if(first && lane==0){
-      for(int w=0;w<TW;w++)s.st_c32[0][w]=0.f;
-      for(int corner=0;corner<4;corner++){int cc=s.cell[corner];
-       for(int64_t j=goff[cc];j<goff[cc+1];j++){
-        float m0=s.mu*gdir[3*j+2]+s.exd*gdir[3*j],m1=fabsf(s.eyd)*gdir[3*j+1];
-        for(int w=0;w<TW;w++){float ph=(mie_phase(clip(m0+m1,-1,1),GW(w),st_chi)+mie_phase(clip(m0-m1,-1,1),GW(w),st_chi))/2.f;
-         s.st_c32[0][w]+=(s.sw[corner]*ph)*gval[j*FW+GW(w)];}
-       }
-      }
-     }
-#endif // STRATO && !LUT_ONLY
 #endif
 #endif // GF_ON
      SECTION_END_IF(1,first)
-#if defined(WARM_LANE_ON) || ((defined(STRATO) && !defined(LUT_ONLY)))
+#if defined(WARM_LANE_ON) || defined(STRATO)
      // Includes lane-0 STRATO/scalar ground writes before other lanes read.
      SECTION_SYNC(__syncwarp());
 #endif
      SECTION_BEGIN()
-#if defined(WARM_LANE_ON) || ((defined(STRATO) && !defined(LUT_ONLY)))
+#if defined(WARM_LANE_ON) || defined(STRATO)
      if(SR_ACT){int w=SR_W;
 #else
      if(lane==0)for(int w=0;w<TW;w++){
@@ -1231,11 +1158,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #endif
        for(int k=0;k<4;k++)s.val[w][k]=ray*(mix*(float)(3/(8*PI))*direct[k]+(1.f-mix)*(float)(1/(8*PI))*pu[k])+(beam*pu[k])/2.f;
 #ifdef STRATO
-#if (defined(STRATO) && !defined(LUT_ONLY))
        float sb=(s.st_prof*st_sca[GW(w)])*(sun*strato_sunphase+s.st_c32[0][w]);
-#else
-       float sb=(s.st_prof*st_sca[GW(w)])*(sun*mie_phase((float)d[2],GW(w),st_chi)+s.st_c32[0][w]);
-#endif
        for(int k=0;k<4;k++)s.val[w][k]+=(sb*pu[k])/2.f;
 #endif
       }
@@ -1273,7 +1196,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         pre_aero[corner]=SLIM_AERO_J(SR_J,corner)[SR_W];
         const int64_t pc=PT_CELL(corner);
         #pragma unroll
-        for(int k=0;k<4;k++)pre_rm[corner][k]=src[(pc*1132+k)*FW+GW(SR_W)];
+        for(int k=0;k<4;k++)pre_rm[corner][k]=src[(pc*SRC_ROWS_ST+k)*FW+GW(SR_W)];
        }
       }
       if(sinv_mode==2){const float *r=SINV_REC(SR_J);
@@ -1299,14 +1222,13 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #endif
        // Degree-major loads: consecutive active lanes read consecutive SHs.
        // Each lane still sums l=m..32 in precisely the reference order.
-       for(int l=0;l<=32;l++){
+       for(int l=0;l<=SH_L;l++){
         if(lane<=l){int k=ix(l,lane);float pref=y[k];
 #ifndef SKIP_ACTIVE
         #pragma unroll
 #endif
-#ifndef LUT_ONLY
 #ifdef SKIP_ACTIVE
-        if(sk_a){
+        if(SK_A){
         #pragma unroll
 #endif
         for(int w=0;w<TW;w+=2){
@@ -1317,17 +1239,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #ifdef SKIP_ACTIVE
         }
 #endif
-#else
-        for(int w=0;w<TW;w++)cache[corner][w]+=pref*src[((int64_t)cc*
-#ifdef STRATO
-         1132
-#else
-         571
-#endif
-         +10+k)*FW+GW(w)];
-#endif
-#ifdef STRATO
-#if (defined(STRATO) && !defined(LUT_ONLY))
+#if defined(STRATO) && !defined(SH_COMBINE)
 #ifdef SKIP_ACTIVE
         if(sk_s){
         #pragma unroll
@@ -1340,18 +1252,15 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #ifdef SKIP_ACTIVE
         }
 #endif
-#else
-        for(int w=0;w<TW;w++)scache[corner][w]+=pref*src[((int64_t)cc*1132+571+k)*FW+GW(w)];
-#endif
 #endif
        }}
        if(lane==0){
+#if SH_L==32
 #ifndef SKIP_ACTIVE
         #pragma unroll
 #endif
-#ifndef LUT_ONLY
 #ifdef SKIP_ACTIVE
-        if(sk_a){
+        if(SK_A){
         #pragma unroll
 #endif
         for(int w=0;w<TW;w+=2){
@@ -1362,17 +1271,9 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #ifdef SKIP_ACTIVE
         }
 #endif
-#else
-        for(int w=0;w<TW;w++){float v=0.f;v+=y[560]*src[((int64_t)cc*
-#ifdef STRATO
-         1132
-#else
-         571
-#endif
-         +570)*FW+GW(w)];s.c32[corner][w]=v;}
-#endif
-#ifdef STRATO
-#if (defined(STRATO) && !defined(LUT_ONLY))
+#if defined(STRATO) && defined(SH_COMBINE)
+        for(int w=0;w<TW;w++)s.st_c32[corner][w]=0.f;
+#elif defined(STRATO)
 #ifdef SKIP_ACTIVE
         if(sk_s){
         #pragma unroll
@@ -1385,14 +1286,16 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #ifdef SKIP_ACTIVE
         }
 #endif
-#else
-        for(int w=0;w<TW;w++){float v=0.f;v+=y[560]*src[((int64_t)cc*1132+1131)*FW+GW(w)];s.st_c32[corner][w]=v;}
+#endif
+#else // SH_L<32: no m=32 coefficient
+        for(int w=0;w<TW;w++)s.c32[corner][w]=0.f;
+#ifdef STRATO
+        for(int w=0;w<TW;w++)s.st_c32[corner][w]=0.f;
 #endif
 #endif
        }
        tags[corner]=cc;
       }
-#ifndef LUT_ONLY
       // Do not access cache[corner][lane]: retain compile-time wave indexes
       // so the Fourier cache can stay register promoted. Every lane executes
       // every shuffle; the selected owner keeps one reduced wavelength.
@@ -1400,7 +1303,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #ifdef STRATO
       float own_saero=0.f;
 #endif
-#if (defined(STRATO) && FW==15 && !defined(LUT_ONLY))
+#if defined(STRATO) && FW==15
       if(!first){
        const float cml=s.cm[lane];
 #define RS2_REDUCE(CACHE,C32,OUT) { float r[8]; const bool u16=(lane&16)!=0; \
@@ -1414,13 +1317,17 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         const float fin=r[0]+__shfl_xor_sync(0xffffffff,r[0],1); \
         OUT=__shfl_sync(0xffffffff,fin,(2*lane)&31); }
 #ifdef SKIP_ACTIVE
-       if(sk_a)
+       if(SK_A)
 #endif
        if(!NOSH_ON)RS2_REDUCE(cache,s.c32,own_aero)
 #ifdef SKIP_ACTIVE
        if(sk_s)
 #endif
+#ifdef SH_COMBINE
+       own_saero=0.f;
+#else
        RS2_REDUCE(scache,s.st_c32,own_saero)
+#endif
 #undef RS2_REDUCE
       }
 #ifdef SINV
@@ -1467,17 +1374,23 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #else
        float rm[4];for(int k=0;k<4;k++)rm[k]=first?gm[((int64_t)cc*4+k)*FW+GW(w)]:src[((int64_t)cc*
 #ifdef STRATO
-          1132
+          SRC_ROWS_ST
 #else
-          571
+          SRC_ROWS
 #endif
           +k)*FW+GW(w)];
 #endif
 #ifdef SLIM_PRELOAD
-       float density=first?s.prof[0]:pre_hr[corner/2];if(!first)aero*=ha[ir];
+       float density=first?s.prof[0]:pre_hr[corner/2];
+#ifndef SH_COMBINE
+       if(!first)aero*=ha[ir];
+#endif
        if(!first)saero*=pre_sd[corner/2];
 #else
-       float density=first?s.prof[0]:hr[ir];if(!first)aero*=ha[ir];
+       float density=first?s.prof[0]:hr[ir];
+#ifndef SH_COMBINE
+       if(!first)aero*=ha[ir];
+#endif
 #ifdef STRATO
        if(!first)saero*=st_density[ir];
 #endif
@@ -1485,9 +1398,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
        float tr=(rm[0]+rm[1])+rm[2],tensors[3];
        #pragma unroll
        for(int component=0;component<4;component++){
-#ifndef LUT_ONLY
         if(component==3 && phase==1)continue;
-#endif
 #ifdef SLIM_RAYS
         // component is unrolled; keep the original k=0,1,2,3 multiply/add order.
 #define SLIM_T(k) (component==0?t0##k:component==1?t1##k:component==2?t2##k:t3##k)
@@ -1545,62 +1456,11 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
       // Order shared consumers before lane-0 c32 copies / next corner, and
       // complete all val/log writes before the next point/attenuation phase.
       __syncwarp();
-#else
-      #pragma unroll
-      for(int w=0;w<TW;w++){
-       float aero=0;
-       if(!first){aero=s.cm[lane]*cache[corner][w];if(lane==0)aero+=s.cm[32]*s.c32[corner][w];
-        for(int stride=16;stride;stride>>=1)aero+=__shfl_down_sync(0xffffffff,aero,stride);
-       }
-       aero=__shfl_sync(0xffffffff,aero,0);
-#ifdef STRATO
-       float saero=0.f;
-       if(!first){saero=s.cm[lane]*scache[corner][w];if(lane==0)saero+=s.cm[32]*s.st_c32[corner][w];
-        for(int stride=16;stride;stride>>=1)saero+=__shfl_down_sync(0xffffffff,saero,stride);}
-       saero=__shfl_sync(0xffffffff,saero,0);
-#endif
-       float tensor=0.f;
-       // Four component owners each retain the entire wavelength loop. This
-       // avoids serializing all tensor arithmetic onto lane zero.
-#ifndef LUT_ONLY
-       if(lane<(phase==1?3:4)){
-#else
-       if(lane<4){
-#endif
-        float rm[4];for(int k=0;k<4;k++)rm[k]=first?gm[((int64_t)cc*4+k)*FW+GW(w)]:src[((int64_t)cc*
-#ifdef STRATO
-          1132
-#else
-          571
-#endif
-          +k)*FW+GW(w)];
-        float density=first?s.prof[0]:hr[ir];if(!first)aero*=ha[ir];
-        float tr=(rm[0]+rm[1])+rm[2],rot=0;
-        for(int k=0;k<4;k++)rot+=s.T[4*lane+k]*rm[k];
-        tensor=density*(mix*rot+((1.f-mix)/3.f*tr)*pu[lane]);
-        tensor+=(aero*pu[lane])/2.f;
-#ifdef STRATO
-        if(!first){saero*=st_density[ir];tensor+=(saero*pu[lane])/2.f;}
-#endif
-        s.val[w][lane]+=s.sw[corner]*tensor;
-       }
-       float t1=__shfl_sync(0xffffffff,tensor,1),t2=__shfl_sync(0xffffffff,tensor,2);
-       // K_FIRST=1 only; the !first branch never runs.
-       if(lane==0 && !first){float trace=(tensor+t1)+t2;if(!(trace>=TRACE_MIN)&&s.sw[corner]!=0.f)s.positive&=~(1u<<w);
-         s.logs[w]+=s.sw[corner]*logf(fmaxf(trace,TRACE_MIN));}
-      }
-#endif
      }
      SECTION_END(3)
      SECTION_SYNC(__syncwarp());
      SECTION_BEGIN()
-#ifndef LUT_ONLY
      if(SR_ACT && !PROD_ON){int w=SR_W;{
-#else
-     if(lane==0){
-     #pragma unroll
-     for(int w=0;w<TW;w++){
-#endif
 #ifdef WARM_LANE_ON
       const bool ok=lane_wg>0.f && lane_am>=TRACE_MIN;
       float lane_scale=ok?expf(lane_log-lane_wg*logf(lane_am/lane_wg)):1.f;
@@ -1611,7 +1471,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
        s.logs[w]=scale;
       }else s.logs[w]=1.f;
 #endif
-#ifndef LUT_ONLY
       // Simpson prefix to this node (task B (1)): panel [previous node or a, this node], node extinction from point()'s
       // profile, new midpoint evaluation; replaces the GL-weight prefix mid=(tau-tc)+dt/2, tau+=dt.
       SINV_SIMPSON {
@@ -1652,9 +1511,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
       #pragma unroll
       for(int k=0;k<4;k++){
        if(REC_ON)break;
-#ifndef LUT_ONLY
        if(k==3 && phase==1)continue;
-#endif
 #ifdef SLIM_RAYS
        sr_v[k]=(lane_val[k]*lane_scale)*lane_att;
 #else
@@ -1663,9 +1520,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
       }
 #else
       s.att[w]=s.ds*expf(-mid);
-#endif
-#else
-      s.att[w]=0.f; // unreachable: the kernel traps at entry without LANE_ATTEN (no Simpson prefix on the lane-0 path)
 #endif
      }}
 #ifdef SLIM_RAYS
@@ -1681,11 +1535,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
      SECTION_END(4)
 #ifndef WARM_LANE_ON
      SECTION_SYNC(__syncwarp());
-#ifndef LUT_ONLY
      if(lane<(phase==1?3:4)){
-#else
-     if(lane<4){
-#endif
       #pragma unroll
       for(int w=0;w<TW;w++){float value=s.val[w][lane]*s.logs[w];kah(rad[4*w+lane],rc[4*w+lane],value*s.att[w]);}
      }
@@ -1695,7 +1545,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #ifdef PT_ACTIVE
     }
 #endif
-#ifndef LUT_ONLY
     // Simpson end piece to b (beta(b) anew), then the segment sum into tau (Kahan), as reference.py SimpsonPrefix.finish.
 #ifdef PATH_DS
     if(lane<TW && !PROD_ON SINV_AND_SIMPSON){const DS te=seg_b;
@@ -1704,7 +1553,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #endif
     const float be=beta_at(beta_p,beta_d,te,BETA_ARG,GW(lane));
      sp_acc+=simpson_piece(beta_p,beta_d,sp_t,te,sp_b,be,BETA_ARG,GW(lane));kah(tau_lane,tc_lane,sp_acc);}
-#endif
    }
 #ifdef WARM_LANE_ON
    if(lane<TW){
@@ -1720,11 +1568,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
      od+=st_end_col[ray]*st_ext[GW(w)];
 #endif
      e*=expf(-od)*(float)hits[ray];
-#ifndef LUT_ONLY
      for(int k=0;k<(phase==1?3:4);k++)rad[4*w+k]+=(e*pu[k])/2.f;
-#else
-     for(int k=0;k<4;k++)rad[4*w+k]+=(e*pu[k])/2.f;
-#endif
     }
    }
    if(phase==2){SECTION_SYNC(__syncwarp());for(int k=lane;k<4*TW;k+=32)
@@ -1759,11 +1603,7 @@ query[ray*4*FW+k]=rad[k];
      for(int k=lane;k<nm;k+=32){int moment=k/TW,w=k%TW;float v;
       if(moment<4)v=__ldcg(rr+4*w+moment)*wt;
       else {int sk=moment-4;
-#ifndef LUT_ONLY
        int m=LM.m[sk];
-#else
-       int l=(int)((sqrtf(8.f*sk+1.f)-1.f)/2.f);while(ix(l+1,0)<=sk)l++;while(ix(l,0)>sk)l--;int m=sk-ix(l,0);
-#endif
        float tr=(__ldcg(rr+4*w)+__ldcg(rr+4*w+1))+__ldcg(rr+4*w+2);v=(tr*wt)*(y[sk]*cd[m]);}
       double a=r==cb?0.:mrow[k];a+=(double)v;mrow[k]=a;
      }
@@ -1779,11 +1619,9 @@ query[ray*4*FW+k]=rad[k];
  }
 #else
   }
-#ifndef LUT_ONLY
   // Phase 2 has no cross-warp data: warp-private buffers only need the warp
   // to finish reading rad/y before its next ray overwrites them.
   if(phase==2)SECTION_SYNC(__syncwarp()); else
-#endif
   SECTION_SYNC(__syncthreads());
   if(phase!=2 && !NOOUT_ON){
    SECTION_BEGIN()
@@ -1794,7 +1632,7 @@ query[ray*4*FW+k]=rad[k];
 #else
 #define ACC_SLOT acc[k]
 #endif
-#if !defined(LUT_ONLY) && !K_FIRST
+#if !K_FIRST
     // R4 ACC_F32SUM (precision track): the round's warp terms are summed in FP32, one FP64 add per round.
     float acc_part=0.f;
 #define ACC_ADD(v) acc_part+=(v)
@@ -1804,15 +1642,11 @@ query[ray*4*FW+k]=rad[k];
     for(int wp=0;wp<nwarps;wp++)if(round+wp<end){float *rr=rads+wp*4*TW;float wt=weights[RAY_AT(round+wp)],v;
      if(moment<4)v=rr[4*w+moment]*wt;
      else {int sk=moment-4;
-#ifndef LUT_ONLY
       int m=LM.m[sk];
-#else
-      int l=(int)((sqrtf(8.f*sk+1.f)-1.f)/2.f);while(ix(l+1,0)<=sk)l++;while(ix(l,0)>sk)l--;int m=sk-ix(l,0);
-#endif
-      float tr=(rr[4*w]+rr[4*w+1])+rr[4*w+2];v=(tr*wt)*(Y[wp*K+sk]*cosdest[wp*33+m]);}
+      float tr=(rr[4*w]+rr[4*w+1])+rr[4*w+2];v=(tr*wt)*(Y[wp*YPAD+sk]*cosdest[wp*33+m]);}
      ACC_ADD(v);
     }
-#if !defined(LUT_ONLY) && !K_FIRST
+#if !K_FIRST
     ACC_SLOT+=(double)acc_part;
 #endif
 #undef ACC_ADD
@@ -1828,18 +1662,13 @@ query[ray*4*FW+k]=rad[k];
    }
    SECTION_END(5)
   }
-#ifndef LUT_ONLY
   if(phase!=2)
-#endif
   SECTION_SYNC(__syncthreads());
  }
 #endif // FL_SPLIT_ON
 #ifndef ACC_IN_GLOBAL
- if(phase==0 && !NOOUT_ON)for(int k=tid;k<nm;k+=blockDim.x)
-#else
- if(false)for(int k=tid;k<nm;k+=blockDim.x)
+ if(phase==0 && !NOOUT_ON)for(int k=tid;k<nm;k+=blockDim.x)moments[(int64_t)cell*nm+k]=acc[k];
 #endif
-moments[(int64_t)cell*nm+k]=acc[k];
 #if   !defined(FL_SPLIT_ON)
 
 #ifdef SPLIT_ACTIVE
@@ -1876,12 +1705,12 @@ moments[(int64_t)cell*nm+k]=acc[k];
 #define FLP_THREADS 256
 #define FLP_RAYS 8
 #define FLP_WAVES ((TW+1)/2)
-#define FLP_MOMENTS ((565+127)/128)
+#define FLP_MOMENTS ((NMOM+127)/128)
 extern "C" __global__ void __launch_bounds__(FLP_THREADS) fl_project(int cells,long long ray_lo,const int64_t*cell_off,
  const double*targets,const double*dirs,const float*weights,const double*aa,const double*bb,const double*dd,
  const float*ray_rads,double albedo,double*moments,double*flux){
  const int cell=blockIdx.x;if(cell>=cells)return;
- const int tid=threadIdx.x,lane=tid&31,warp=tid>>5,nm=565*TW;
+ const int tid=threadIdx.x,lane=tid&31,warp=tid>>5,nm=NMOM*TW;
  const int mo=tid%128,wbase=(tid/128)*FLP_WAVES;
  __shared__ float y[FLP_RAYS][K],cd[FLP_RAYS][33];
  __shared__ float rad[FLP_RAYS][6*TW],wg[FLP_RAYS];
@@ -1908,15 +1737,11 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS) fl_project(int cells,l
   #pragma unroll
   for(int j=0;j<FLP_MOMENTS;j++){
    const int moment=mo+j*128,sk=moment-4;
-   if(moment<565){
+   if(moment<NMOM){
     float part[FLP_WAVES]={};
     int m=0;
     if(moment>=4){
-#ifndef LUT_ONLY
      m=LM.m[sk];
-#else
-     int l=(int)((sqrtf(8.f*sk+1.f)-1.f)/2.f);while(ix(l+1,0)<=sk)l++;while(ix(l,0)>sk)l--;m=sk-ix(l,0);
-#endif
     }
     for(int r=0;r<nr;r++){
      const float yc=moment<4?1.f:y[r][sk]*cd[r][m];
@@ -1932,7 +1757,7 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS) fl_project(int cells,l
   __syncthreads();
  }
  #pragma unroll
- for(int j=0;j<FLP_MOMENTS;j++)if(mo+j*128<565){
+ for(int j=0;j<FLP_MOMENTS;j++)if(mo+j*128<NMOM){
   #pragma unroll
   for(int q=0;q<FLP_WAVES;q++)if(wbase+q<TW)moments[(int64_t)cell*nm+(mo+j*128)*TW+wbase+q]=acc[j][q];
  }
@@ -1941,7 +1766,7 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS) fl_project(int cells,l
 
 #endif
 
-#if defined(SINV) && PROD_ON && defined(SH_L) && !defined(LUT_ONLY) && (defined(STRATO) && FW==15 && !defined(LUT_ONLY)) && FW==15 && !K_FIRST
+#if defined(SINV) && PROD_ON && defined(STRATO) && FW==15 && !K_FIRST
 #if SH_L<=16
 // VPROD (SOSFUSE2_KSPLIT=2): visitor-stream producer, compiled in the PROD module (same source,
 // same NVRTC options) and writing the same chunk-local own_aero records [slot = (point-base)*4+corner][w] as PROD
@@ -2084,7 +1909,7 @@ extern "C" __global__ void __launch_bounds__(128) sos_vprod(const int*blk,const 
 #endif
 #endif
 
-#if defined(SINV) && SLIM_ON && !defined(LUT_ONLY) && !K_FIRST && K_PHASE==0 && defined(ACC_IN_GLOBAL) &&  !defined(SLIM_RAYS) && !defined(SLIM_RAYDUMP)
+#if defined(SINV) && SLIM_ON && !K_FIRST && K_PHASE==0 && defined(ACC_IN_GLOBAL) &&  !defined(SLIM_RAYS) && !defined(SLIM_RAYDUMP)
 // A 64-moment x wavelength register tile over 32 contiguous rays. Each thread owns half
 // the wavelengths of one moment and reuses y*cd across them. The producer's ray sort is
 // irrelevant to storage (ray_rads and yb are indexed by original ray); projection uses
@@ -2152,3 +1977,4 @@ extern "C" __global__ void __launch_bounds__(SP_THREADS) sos_slim_proj(int cells
  }
 }
 #endif
+#endif // !LUT_ONLY

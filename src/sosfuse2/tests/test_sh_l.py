@@ -25,28 +25,21 @@ def test_default_source_is_current_kernel():
 
 @pytest.mark.parametrize('L', [16, 24, 32])
 @pytest.mark.parametrize('combine', [False, True])
-def test_rewrite_targets_present(L, combine):
-    # Every rewrite counts its targets (sh_layout._replace); the current kernel.cu matches all of them.
-    kernel_source(L, combine=combine)
-
-
-@pytest.mark.parametrize(
-    'L,combine,old,new',
-    [
-        # Reformatting the density factor the combined plane already carries (sh_layout.combined_coefficients) must
-        # not leave it in the kernel: the plane would be scaled by ha twice.
-        (16, True, 'if(!first)aero*=ha[ir];', 'if(!first) aero*=ha[ir];'),
-        (32, True, 'if(!first)aero*=ha[ir];', 'if(!first) aero*=ha[ir];'),
-        # A new source-row literal that the L<32 renumbering would rewrite unnoticed.
-        (16, False, '#define K 561', '#define K 561\n// row 1132'),
-        (24, True, 'if(m<32)', 'if (m<32)'),
-    ],
-)
-def test_rewrite_drift_is_an_error(L, combine, old, new):
+def test_kernel_source_only_defines(L, combine):
+    # SH order and combined plane are preprocessor symbols of kernel.cu; kernel_source only prepends them.
     code = (paths.PKG / 'kernel.cu').read_text()
-    assert old in code
-    with pytest.raises(RuntimeError, match='E_SH_LAYOUT_DRIFT'):
-        kernel_source(L, combine=combine, code=code.replace(old, new, 1))
+    head = (f'#define SH_L {L}\n' if L != 32 else '') + ('#define SH_COMBINE\n' if combine else '')
+    assert kernel_source(L, combine=combine) == head + code
+
+
+def test_no_layout_literals():
+    # Source rows, moments and SH counts follow SH_L (SRC_ROWS, SRC_ROWS_ST, NMOM, K, KPAD); an L32 literal would be
+    # wrong at L16/24 without any compile error.
+    import re
+
+    code = (paths.PKG / 'kernel.cu').read_text()
+    found = sorted({m.group(0) for m in re.finditer(r'\b(1132|1131|571|570|565|561|576)\b', code)})
+    assert found == []
 
 
 @pytest.mark.parametrize('L', [16, 24, 32])
@@ -82,8 +75,14 @@ def test_lower_source_syntax(tmp_path, L):
     for combine in (False, True):
         code = tmp_path / 'lower.cpp'
         code.write_text(kernel_source(L, combine=combine))
-        if L < 32:
-            assert 'y[560]' not in code.read_text()
+        if L < 32:  # no m=32 coefficient below L32: the y[560] loads are preprocessed out
+            pre = subprocess.run(
+                ['clang++', '-E', '-P', '-x', 'c++', '-std=c++17', *defines(15, flags, (0, 0, 1)), str(code)],
+                capture_output=True,
+                text=True,
+            )
+            assert pre.returncode == 0, pre.stderr
+            assert 'y[560]' not in pre.stdout
         for spec in ((1, 0, 0), (0, 0, 1), (0, 1, 0), (0, 2, 0)):
             result = subprocess.run(
                 [
@@ -94,7 +93,7 @@ def test_lower_source_syntax(tmp_path, L):
                     'c++',
                     '-include',
                     str(stub),
-                    *defines(15, flags + (['SH_COMBINE'] if combine else []), spec),
+                    *defines(15, flags, spec),
                     str(code),
                 ],
                 capture_output=True,
