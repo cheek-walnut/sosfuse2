@@ -45,6 +45,13 @@
 // integer counters (ray queue, cell and split completion) that hand out work; every sum keeps a fixed order.
 // NVRTC: math builtins available without headers
 typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long long int64_t; typedef int int32_t; typedef unsigned char uint8_t;
+// Stage-1 FASTMATH (fused.Kernel stage1): intrinsic exp/sin/cos for the whole unit. Defined before the first device
+// function so the math mode does not depend on where a function sits in this file.
+#ifdef SOSFUSE2_FASTMATH
+#define expf __expf
+#define sinf __sinf
+#define cosf __cosf
+#endif
 #ifndef FW
 #define FW 15
 #endif
@@ -353,11 +360,6 @@ struct Sample {
 #endif
  float val[TW][4],logs[TW];uint32_t positive;float c32[4][TW],att[TW];
 };
-#endif
-#ifdef SOSFUSE2_FASTMATH
-#define expf __expf
-#define sinf __sinf
-#define cosf __cosf
 #endif
 __device__ void sh_basis(double mu,int lane,float*y,const double*aa,const double*bb,const double*dd){
  mu=fmin(1.,fmax(-1.,mu));double st=sqrt(fmax(0.,1-mu*mu));
