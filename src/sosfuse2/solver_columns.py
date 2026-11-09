@@ -5,7 +5,6 @@ placeholders below never run there; they name the injected globals for static an
 
 import json
 import time
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -14,6 +13,8 @@ R: Any = None  # Earth radius, km (engine.R)
 Z: Any = None  # top of the atmosphere, km (engine.Z)
 probe: Any = None  # gl/frame/boundaries of this file in their own scope (engine.create)
 AER_PROFILE: Any = None  # aerosol profile of the state, bound after the definitions (engine.create)
+AER_HEIGHT: Any = None  # scale height of the state, bound after the definitions (engine.create)
+SOURCE_PATH: Any = None  # explicit source path injected by engine.definitions (exec has no __file__)
 
 
 def gl(n):
@@ -134,17 +135,15 @@ class SunGeometry:
         import hashlib
         from sosfuse2 import components, density
 
-        here = Path(
-            density.__file__
-        ).parent  # this file + both builders (prebuild: sun_parallel/ray_columns/column_parallel)
+        here = SOURCE_PATH.parent  # this file + both builders (prebuild: sun_parallel/ray_columns/column_parallel)
         files = (
-            Path(total_columns.__code__.co_filename),
+            SOURCE_PATH,
             *(
                 here / n
                 for n in ('density.py', 'tropo_profile.py', 'ray_columns.py', 'sun_parallel.py', 'column_parallel.py')
             ),
         )
-        height = globals().get('AER_HEIGHT')
+        height = AER_HEIGHT
         return json.dumps(
             dict(
                 table='sun_columns',

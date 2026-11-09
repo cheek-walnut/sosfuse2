@@ -27,8 +27,7 @@ def cache_key(kernel, bundle, c, kind):
     integrator, geometry_segments, probe boundaries/GL and engine source SHA256.
     Tau, aod and albedo are excluded. A changed array requires a fresh Bundle.
     """
-    from .stratosphere import columns
-    from .density import correct_columns
+    from .paths import PKG
 
     hashes = bundle.__dict__.setdefault('_column_array_hashes', {})
     names = ('starts', 'dirs', 'cell_off') + (('end_col',) if kind == 'density' else ())
@@ -36,16 +35,13 @@ def cache_key(kernel, bundle, c, kind):
         if name not in hashes:
             hashes[name] = array_hash(kernel.host(bundle.arrays[name]))
     optics = c['density_optics'] if kind == 'density' else None
-    old = optics['old'] if optics is not None else c['strato_old']
-    functions = (
-        correct_columns if optics is not None else columns,
-        old.geometry_segments,
-        old.probe.boundaries,
-        old.probe.gl,
+    files = (
+        PKG / ('density.py' if optics is not None else 'stratosphere.py'),
+        PKG / 'solver_columns.py',
+        PKG / 'solver_columns.py',
+        PKG / 'solver_columns.py',
     )
-    sources = {
-        str(i): hashlib.sha256(Path(f.__code__.co_filename).read_bytes()).hexdigest() for i, f in enumerate(functions)
-    }
+    sources = {str(i): hashlib.sha256(path.read_bytes()).hexdigest() for i, path in enumerate(files)}
     sources['joint_columns'] = hashlib.sha256(Path(__file__).with_name('ray_columns.py').read_bytes()).hexdigest()
     sources['engine'] = hashlib.sha256(
         (Path(__file__).resolve().parent / 'accepted/engine.py').read_bytes()

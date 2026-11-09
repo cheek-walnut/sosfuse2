@@ -46,6 +46,7 @@ numbers are quoted): BLOCK DATA PRFDTA :13587-13630, AERPRF :3900-3938, season d
 """
 
 import hashlib, json, math, types
+from dataclasses import dataclass
 import numpy as np
 
 KEY = 'troposphere_profile'
@@ -231,6 +232,50 @@ def profile(h, vector):
     return (ab * np.exp(-h * kb)) * (1.0 - s) + (af * np.exp(-(np.maximum(h, z0) - z) * kf)) * s
 
 
+@dataclass(eq=False)
+class TwoLayerProfile:
+    """Explicit profile parameters, pickled by module reference for column workers."""
+
+    vector: np.ndarray
+
+    def __call__(self, h):
+        return profile(h, self.vector)
+
+    def __eq__(self, other):
+        if not isinstance(other, TwoLayerProfile):
+            return NotImplemented
+        return np.array_equal(self.vector, other.vector)
+
+    def descriptor(self):
+        return dict(kind='two_layer', vector=np.asarray(self.vector).tolist())
+
+
+@dataclass
+class ExponentialProfile:
+    """Keep the column clamp and the solver's unclamped default separate."""
+
+    height: float
+    clamp: bool
+
+    def __call__(self, h):
+        if self.clamp:
+            return np.exp(-np.maximum(h, 0) / self.height)
+        return np.exp(-h / self.height)
+
+    def descriptor(self):
+        return dict(kind='exp', height=float(self.height))
+
+
+@dataclass
+class ProfileFolder:
+    tag: str
+
+    def __call__(self, cache):
+        out = cache / 'aerosol_profile' / self.tag
+        out.mkdir(parents=True, exist_ok=True)
+        return out
+
+
 def profile32(h, k32):
     """FP32 mirror of kernel.cu aerosol_two_layer() (h already clipped to [0,80] by the caller, as in point())."""
     h = np.asarray(h, 'f4')
@@ -326,7 +371,7 @@ def same_source(s, source, height):
 def column_function(s):
     """profile callable for geometry.aerosol_column (None = historical exponential expression)."""
     p = of(s)
-    return None if p is None else (lambda h, v=p['vector']: profile(h, v))
+    return None if p is None else TwoLayerProfile(p['vector'])
 
 
 def metadata(s):
@@ -348,17 +393,10 @@ def engine_hooks(state):
     p = build(state)
     if p is None:
         return None
-    vector = p['vector']
-
-    def folder(cache):
-        out = cache / 'aerosol_profile' / p['tag']
-        out.mkdir(parents=True, exist_ok=True)
-        return out
-
     return types.SimpleNamespace(
-        profile=lambda h: profile(h, vector),
+        profile=TwoLayerProfile(p['vector']),
         column=parameters(p['config'])['column'],
-        folder=folder,
-        vector=vector,
+        folder=ProfileFolder(p['tag']),
+        vector=p['vector'],
         tag=p['tag'],
     )

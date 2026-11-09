@@ -4,6 +4,7 @@ import ast, collections, ctypes, hashlib, json, math, os, resource, shutil, subp
 from pathlib import Path
 import numpy as np
 from .. import paths
+from ..tropo_profile import ExponentialProfile
 
 ROOT = paths.PKG  # package sources and assets
 HERE = Path(__file__).resolve().parent
@@ -36,6 +37,7 @@ def definitions(relative, names, scope):
     nodes = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names]
     if {n.name for n in nodes} != set(names):
         raise RuntimeError(f'E_ADAPTER_DRIFT: {relative}: missing definition')
+    scope['SOURCE_PATH'] = path  # exec scopes have no __file__; identity uses this explicit source input
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), scope)
     return types.SimpleNamespace(**scope)
 
@@ -246,11 +248,14 @@ def create(
         'solver_columns.py', ['profiles', 'geometry_segments', 'total_columns', 'SunGeometry', 'grids'], oldscope
     )
 
-    def exponential_profile(h, height=H):
-        return np.exp(-np.maximum(h, 0) / height)
-
-    oldscope['AER_PROFILE'] = exponential_profile if aerosol is None else aerosol.profile
+    oldscope['AER_PROFILE'] = ExponentialProfile(H, clamp=True) if aerosol is None else aerosol.profile
     oldscope['AER_HEIGHT'] = H
+    old.AER_HEIGHT = H
+    old.aerosol_descriptor = (
+        dict(kind='exp', height=float(H))
+        if aerosol is None
+        else dict(kind='two_layer', vector=np.asarray(aerosol.vector).tolist())
+    )
     # Functions share oldscope, so state-dependent profiles are used by every optical column.
     column = H * (-np.expm1(-Z / H)) if aerosol is None else aerosol.column
     old.NORMAL = dict(
@@ -287,7 +292,7 @@ def create(
     if aerosol is not None:
         scope['AER_PROFILE'] = aerosol.profile
     scope.setdefault(
-        'AER_PROFILE', lambda h, height=H: np.exp(-h / height)
+        'AER_PROFILE', ExponentialProfile(H, clamp=False)
     )  # the solver's own default has no clamp (kept as is)
     definitions('solver_core.py', ['basis_at', 'pack', 'Solver'], scope)
     AcceptedSolver = scope['Solver']

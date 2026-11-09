@@ -229,7 +229,6 @@ def sun_geometry(old, scale, folder, height, shared=None):
         # tropo_profile.py: the aerosol_profile tag hashes the profile config, not the code that evaluates it.
         files = sorted(
             {
-                old.total_columns.__code__.co_filename,
                 str(here.parent / 'solver_columns.py'),
                 str(here.parent / 'accepted/engine.py'),
                 str(here.with_name('sun_parallel.py')),

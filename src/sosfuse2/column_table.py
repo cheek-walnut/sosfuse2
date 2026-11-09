@@ -46,8 +46,13 @@ def descriptor(kind, **parameters):
 
 
 def aerosol(old):
+    explicit = getattr(old, 'aerosol_descriptor', None)
+    if explicit is not None:
+        return explicit
     scope = old.profiles.__globals__
     f = scope.get('AER_PROFILE')
+    if f is not None and hasattr(f, 'descriptor'):
+        return f.descriptor()
     if f is not None and f.__name__ == 'exponential_profile':
         # Per-state default from engine.create; name/defaults survive worker freeze/thaw.
         return descriptor('exp', height=float(f.__defaults__[0]))

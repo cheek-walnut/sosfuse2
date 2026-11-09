@@ -8,6 +8,8 @@ Run: python -m pytest -q src/sosfuse2/test_tropo_patches.py
 """
 
 import copy
+import pickle
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -138,6 +140,73 @@ def test_create_hooks_reach_geometry_kernel_and_scope(tmp_path):
         scope['Solver'].prepare_ground(None) is None and scope['HOST_ORIGINAL_GROUND'](None) == 'original'
     )  # deferred: no-op until the caller restores
     assert captured['kernel'] == ('kernel', 2)  # a non-native kernel takes no vector
+
+
+def profile_scope(state, cache):
+    captured = {}
+    with pytest.raises(Stop):
+        stopping_engine(captured).create(
+            state,
+            cache,
+            'selftest',
+            1,
+            kernel_factory=lambda *args: None,
+            sun_geometry=lambda *args: None,
+            aerosol=tp.engine_hooks(state),
+        )
+    return captured['scope']
+
+
+def test_two_layer_column_callables_freeze_and_pickle(tmp_path):
+    from sosfuse2 import column_parallel, column_table
+
+    state = copy.deepcopy(gm.normal_state())
+    state['troposphere_profile'] = dict(TWO_LAYER)
+    old = profile_scope(state, tmp_path)['b'].sh.old
+    p = np.array([[0.0, 0.0, old.R + 0.1]])
+    d = np.array([[0.0, 0.0, 1.0]])
+    h = np.array([-1.0, 0.0, 1.5, 3.0, 80.0])
+    for names in (['geometry_segments', 'probe'], ['profiles', 'probe']):
+        frozen = column_parallel.freeze(old, names)
+        worker = column_parallel.thaw(pickle.loads(pickle.dumps(frozen)))
+        if names[0] == 'profiles':
+            np.testing.assert_allclose(worker.profiles(h), old.profiles(h), rtol=1e-6, atol=0)
+            # Thawed namespaces lack the explicit descriptor: the callable's descriptor must still work.
+            assert column_table.aerosol(worker) == column_table.aerosol(old)
+        else:
+            actual = list(worker.geometry_segments(p, d, 24))
+            expected = list(old.geometry_segments(p, d, 24))
+            assert len(actual) == len(expected)
+            for segment, reference in zip(actual, expected):
+                for value, baseline in zip(segment, reference):
+                    np.testing.assert_allclose(value, baseline, rtol=1e-6, atol=0)
+    hooks = tp.engine_hooks(state)
+    restored = pickle.loads(pickle.dumps(hooks))
+    assert restored.profile == hooks.profile
+    assert restored.folder(tmp_path) == hooks.folder(tmp_path)
+    column = tp.column_function(SimpleNamespace(fuse_state=state))
+    np.testing.assert_allclose(pickle.loads(pickle.dumps(column))(h), hooks.profile(h), rtol=1e-6, atol=0)
+    assert column.descriptor() == column_table.aerosol(old)
+
+
+def test_profile_identities_keep_state_dependencies(tmp_path):
+    from sosfuse2 import column_table
+
+    states = [copy.deepcopy(gm.normal_state()) for _ in range(3)]
+    states[1]['parameters']['scale_height_km'] = 2.4
+    states[2]['troposphere_profile'] = dict(TWO_LAYER)
+    old = [profile_scope(state, tmp_path)['b'].sh.old for state in states]
+    assert old[0].SunGeometry.identity(1) != old[1].SunGeometry.identity(1)
+    assert column_table.aerosol(old[0]) != column_table.aerosol(old[2])
+    for o, state in zip(old, states):
+        assert o.AER_HEIGHT == state['parameters']['scale_height_km']
+        expected = column_table.aerosol(o)
+        # The explicit descriptor is sufficient, even without any function internals.
+        assert column_table.aerosol(SimpleNamespace(aerosol_descriptor=expected)) == expected
+        del o.aerosol_descriptor
+        assert column_table.aerosol(o) == expected
+    # Retain the legacy scope-only default, including its 1.2 km fallback.
+    assert column_table.aerosol(SimpleNamespace(profiles=lambda h: h)) == dict(kind='exp', height=1.2)
 
 
 def test_native_kernel_transport_passes_the_vector_only_when_set():

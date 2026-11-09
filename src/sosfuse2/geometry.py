@@ -536,7 +536,7 @@ def aerosol_column(arrays, height, chunk=50_000, workers=None, profile=None):
         spec = (
             ct.descriptor('exp', height=float(height))
             if profile is None
-            else ct.descriptor('two_layer', vector=np.asarray(profile.__defaults__[0]).tolist())
+            else profile.descriptor()
         )
         dirs = arrays['dirs']
         co = arrays['cell_off']
