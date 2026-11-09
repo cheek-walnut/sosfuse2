@@ -121,10 +121,11 @@ def total_columns(aerosol, p, d, n):
 
 class SunGeometry:
     @staticmethod
-    def identity(scale, aerosol_height):
-        """Everything the table depends on besides its folder (which still separates states). A file without this
-        identity, or with another one, is rebuilt: an unkeyed 3-column table from before B2 once reached the
-        5-column solver (2026-11-04 judge run). sun_parallel.prebuild writes and checks the same string."""
+    def identity(scale, aerosol_height, descriptor):
+        """Everything the table depends on. A file without this identity, or with another one, is rebuilt: an unkeyed
+        3-column table from before B2 once reached the 5-column solver (2026-11-04 judge run). descriptor is the
+        aerosol profile record (kind and parameters), so two profiles with one scale height never share a table even in
+        one folder. sun_parallel.prebuild writes and checks the same string."""
         import hashlib
 
         from sosfuse2 import components, density
@@ -141,12 +142,13 @@ class SunGeometry:
         return json.dumps(
             dict(
                 table='sun_columns',
-                version=2,
+                version=3,
                 components=list(components.COMPONENTS),
                 R=float(R),
                 Z=float(Z),
                 scale=int(scale),
                 aerosol_height=None if height is None else float(height),
+                aerosol=descriptor,
                 no2_asset_sha256=density.no2_asset()[2],
                 sources={f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in files},
             ),
@@ -159,10 +161,10 @@ class SunGeometry:
         with np.load(path) as z:
             return str(z['identity']) if 'identity' in z.files else None
 
-    def __init__(self, scale, folder, *, aerosol, aerosol_height):
+    def __init__(self, scale, folder, *, aerosol, aerosol_height, descriptor):
         path = folder / 'sun_columns.npz'
         t = time.perf_counter()
-        ident = self.identity(scale, aerosol_height)
+        ident = self.identity(scale, aerosol_height, descriptor)
         if path.exists():
             with np.load(path) as z:  # identity and arrays from one open: a concurrent replace cannot pair them wrongly
                 stored = str(z['identity']) if 'identity' in z.files else None

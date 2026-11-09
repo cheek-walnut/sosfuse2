@@ -213,7 +213,7 @@ def cached(folder, key, build, compressed=False):
 
 
 def sun_geometry(old, scale, folder, height, shared=None):
-    # The SunGeometry file carries an identity (code, components, height, scale; solver_columns.SunGeometry.identity) and a
+    # The SunGeometry file carries an identity (code, components, aerosol profile, scale; solver_columns.SunGeometry.identity) and a
     # mismatch rebuilds it, so the folders below are for reuse, not safety: they keep states from replacing one file in turn
     # when a caller reuses a prepare folder for a different state; scale 1 keeps its old folder.
     # shared = the job's geometry cache: one table per (table source, aerosol profile, scale, height) for every state

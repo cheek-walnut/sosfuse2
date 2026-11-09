@@ -190,17 +190,20 @@ class Kernel:
 
 
 class SunGeometryBinder:
-    """Bind only the aerosol inputs while retaining the table identity helpers."""
+    """Bind only the aerosol inputs (profile, scale height, descriptor) while retaining the table identity helpers."""
 
-    def __init__(self, aerosol, aerosol_height):
+    def __init__(self, aerosol, aerosol_height, descriptor):
         self.aerosol = aerosol
         self.aerosol_height = aerosol_height
+        self.descriptor = descriptor
 
     def __call__(self, scale, folder):
-        return solver_columns.SunGeometry(scale, folder, aerosol=self.aerosol, aerosol_height=self.aerosol_height)
+        return solver_columns.SunGeometry(
+            scale, folder, aerosol=self.aerosol, aerosol_height=self.aerosol_height, descriptor=self.descriptor
+        )
 
     def identity(self, scale):
-        return solver_columns.SunGeometry.identity(scale, self.aerosol_height)
+        return solver_columns.SunGeometry.identity(scale, self.aerosol_height, self.descriptor)
 
     stored_identity = staticmethod(solver_columns.SunGeometry.stored_identity)
 
@@ -376,6 +379,11 @@ def create(
     obs = OBS if observer_km is None else observer_km
     spectral = json.loads(SPECTRA.read_text()) if spec is None else spec
     profile = ExponentialProfile(H, clamp=True) if aerosol is None else aerosol.profile
+    descriptor = (
+        dict(kind='exp', height=float(H))
+        if aerosol is None
+        else dict(kind='two_layer', vector=np.asarray(aerosol.vector).tolist())
+    )
     probe = types.SimpleNamespace(
         gl=solver_columns.gl, frame=solver_columns.frame, boundaries=solver_columns.boundaries
     )
@@ -392,7 +400,8 @@ def create(
         geometry_segments=partial(solver_columns.geometry_segments, profile),
         total_columns=partial(solver_columns.total_columns, profile),
         coefficients=partial(solver_optics.coefficients, spectral),
-        SunGeometry=SunGeometryBinder(profile, H),
+        SunGeometry=SunGeometryBinder(profile, H, descriptor),
+        aerosol_descriptor=descriptor,
     )
     from sosfuse2 import density, components, minor_absorbers
 
@@ -400,11 +409,6 @@ def create(
     amounts = components.optics_state(state, optical)
     if not components.reference_active() and 'no2' not in spectral:
         spectral.update(minor_absorbers.representative(None, spectral['wavelength_nm'], o4=amounts['o4']))
-    old.aerosol_descriptor = (
-        dict(kind='exp', height=float(H))
-        if aerosol is None
-        else dict(kind='two_layer', vector=np.asarray(aerosol.vector).tolist())
-    )
     column = H * (-np.expm1(-Z / H)) if aerosol is None else aerosol.column
     old.NORMAL = dict(
         aer=params['aod550'] / column,

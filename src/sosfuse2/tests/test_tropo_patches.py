@@ -8,6 +8,7 @@ Run: python -m pytest -q src/sosfuse2/test_tropo_patches.py
 """
 
 import copy
+import json
 import pickle
 from types import SimpleNamespace
 
@@ -180,7 +181,11 @@ def test_profile_identities_keep_state_dependencies(tmp_path, monkeypatch):
     states[1]['parameters']['scale_height_km'] = 2.4
     states[2]['troposphere_profile'] = dict(TWO_LAYER)
     old = [profile_scope(state, tmp_path, monkeypatch).b.sh.old for state in states]
-    assert old[0].SunGeometry.identity(1) != old[1].SunGeometry.identity(1)
+    identities = [json.loads(o.SunGeometry.identity(1)) for o in old]
+    assert [i['aerosol'] for i in identities] == [column_table.aerosol(o) for o in old]
+    assert len({json.dumps(i, sort_keys=True) for i in identities}) == 3
+    # the default and the two-layer state share the scale height: only the descriptor separates their tables
+    assert identities[0]['aerosol_height'] == identities[2]['aerosol_height']
     assert column_table.aerosol(old[0]) != column_table.aerosol(old[2])
     for o, state in zip(old, states):
         assert o.AER_HEIGHT == state['parameters']['scale_height_km']
