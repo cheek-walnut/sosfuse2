@@ -36,9 +36,10 @@ the following kernels during an evaluation.
 | `sos_fused` slimray (SLIM + SLIM_RAYS) | the consumer: rebuilds attenuation from the column records, reads the four corner source rows and the aerosol record, accumulates the four Rayleigh tensor components and the aerosol Legendre moments | two ray steps per warp (half-warp `lane>>4`), wavelength `lane&15` (15 active lanes and one pad) |
 | `sos_slim_proj` | projects the accumulated radiance onto the source basis | 32-ray tiles of 64 moments |
 
-There are no global atomics, and the current kernel accumulates in a fixed order in both modes;
-`SOSFUSE2_DETERMINISTIC=1` is the mode in which the package guarantees bit-stable repeats. `sos_fused` carries
-`__launch_bounds__(256,2)`. In 1.0.x, the slimray variant compiled to 127 registers with 128-thread blocks and 18–19 KB of
+There are no floating-point atomics (the only atomics are integer counters that hand out rays and mark finished cells),
+and the current kernel accumulates in a fixed order in both modes;
+`SOSFUSE2_DETERMINISTIC=1` is the mode in which the package guarantees bit-stable repeats. The first-light phase-0
+variant of `sos_fused` carries `__launch_bounds__(256,2)`. In 1.0.x, the slimray variant compiled to 127 registers with 128-thread blocks and 18–19 KB of
 shared memory, limiting it to 4 blocks per SM, or 16 warps and 33 % of maximum occupancy.
 After 1.1.0 added NO₂ and O₄, it compiles to 141 registers, limiting it to 3 blocks per SM and 25 % occupancy, while
 shared memory would still allow 5.

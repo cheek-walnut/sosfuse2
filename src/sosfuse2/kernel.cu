@@ -41,7 +41,8 @@
 #define SINV_AND_SIMPSON
 #endif
 // NVRTC, CUDA 12. FW is specialized to 1 or 15; no fast-math or implicit FMA.
-// One destination cell (and optional spectral tile)/block, one ray/warp. No global atomics.
+// One destination cell (and optional spectral tile)/block, one ray/warp. No floating-point atomics: the only atomics are
+// integer counters (ray queue, cell and split completion) that hand out work; every sum keeps a fixed order.
 // NVRTC: math builtins available without headers
 typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long long int64_t; typedef int int32_t; typedef unsigned char uint8_t;
 #ifndef FW
@@ -584,7 +585,7 @@ __device__ __forceinline__ float2 warm_sh_pair(const float *ptr,int64_t cell,int
  return ((const float2*)ptr)[i];
 }
 
-#endif // SH_AUX_PAIR
+#endif // !LUT_ONLY
 
 #ifdef TROPO_MIE
 // Tropospheric aerosol Mie phase (tropo_mie.py, opt-in by state; without -DTROPO_MIE nothing below exists and every
@@ -1101,9 +1102,6 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
 #elif !defined(LUT_ONLY)
      if(first){
       float accw=0.f;
-#if defined(LUT_ONLY)
-      if(lane==0)for(int w=0;w<TW;w++)s.c32[0][w]=0.f;
-#endif
       for(int corner=0;corner<4;corner++){int cc=s.cell[corner];
        for(int64_t j0=goff[cc];j0<goff[cc+1];j0+=32){
         int64_t j=j0+lane;
@@ -1112,7 +1110,6 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
 clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         __syncwarp();
         int count=(int)((goff[cc+1]-j0)<32?(goff[cc+1]-j0):32);
-#ifndef LUT_ONLY
 #ifdef TROPO_MIE
         // Mie: the per-direction phase depends on the wavelength, so lane w evaluates it itself (ground_phase unused).
         if(lane<TW){const float swc=s.sw[corner];const float *gq=gval+j0*FW+GW(lane);int k=0;
@@ -1128,41 +1125,16 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
          for(;k<count;k++)accw+=(swc*ground_phase[k])*gq[k*FW];}
 #endif
         if(false)
-#endif
         for(int k=0;k<count;k++){
 #ifdef TROPO_MIE
 #define BATCH_PHASE tropo_pair(s,gdir,j0+k,GW(lane),TROPO_LUT)
 #else
 #define BATCH_PHASE ground_phase[k]
 #endif
-#ifndef LUT_ONLY
          if(lane<TW)accw+=(s.sw[corner]*BATCH_PHASE)*gval[(j0+k)*FW+GW(lane)];
-#else
-         if(lane==0)for(int w=0;w<TW;w++)s.c32[0][w]+=(s.sw[corner]*BATCH_PHASE)*gval[(j0+k)*FW+GW(w)];
-#endif
 #undef BATCH_PHASE
         }
         __syncwarp();
-       }
-      }
-#ifndef LUT_ONLY
-      if(lane<TW)s.c32[0][lane]=accw;
-#endif
-      __syncwarp();
-     }
-#elif !defined(LUT_ONLY)
-     if(first){
-      // Lane w owns wavelength w (TW<=31); lane 31 evaluates the paired phase
-      // once per ground direction. Per-wavelength corner/direction order and
-      // every product are unchanged; numerical equivalence is checked by the gates.
-      float accw=0.f;
-      for(int corner=0;corner<4;corner++){int cc=s.cell[corner];
-       for(int64_t j=goff[cc];j<goff[cc+1];j++){
-        float ph=0.f;
-        if(lane==31){float m0=s.mu*gdir[3*j+2]+s.exd*gdir[3*j],m1=fabsf(s.eyd)*gdir[3*j+1];
-         ph=(hg(clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
-        ph=__shfl_sync(0xffffffff,ph,31);
-        if(lane<TW)accw+=(s.sw[corner]*ph)*gval[j*FW+GW(lane)];
        }
       }
       if(lane<TW)s.c32[0][lane]=accw;
@@ -1188,7 +1160,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #if (defined(STRATO) && !defined(LUT_ONLY))
      if(first){
       int w=lane&15;float st_acc=0.f;
-#if (defined(STRATO) && !defined(LUT_ONLY))
       const float pmu=s.mu,pexd=s.exd,paey=fabsf(s.eyd);
 #define GP_LUT(JJ,D0,D1,D2) if(w<TW){float m0=pmu*(D2)+pexd*(D0),m1=paey*(D1); \
         float u=lane<16?clip(m0+m1,-1,1):clip(m0-m1,-1,1); \
@@ -1212,22 +1183,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
        }
       }
 #undef GP_LUT
-#else
-      for(int corner=0;corner<4;corner++){int cc=s.cell[corner];
-       for(int64_t j=goff[cc];j<goff[cc+1];j++){
-        float paired=0.f;
-        if(w<TW){
-         float m0=s.mu*gdir[3*j+2]+s.exd*gdir[3*j],m1=fabsf(s.eyd)*gdir[3*j+1];
-         float u=lane<16?clip(m0+m1,-1,1):clip(m0-m1,-1,1);
-         paired=mie_phase(u,GW(w),st_chi);
-        }
-        // All 32 lanes participate, including padding lanes 15 and 31.
-        float minus=__shfl_down_sync(0xffffffff,paired,16);
-        if(lane<TW){float ph=(paired+minus)/2.f;
-         st_acc+=(s.sw[corner]*ph)*gval[j*FW+GW(lane)];}
-       }
-      }
-#endif // GROUND_PREFETCH
       if(lane<TW)s.st_c32[0][lane]=st_acc;
       __syncwarp();
      }
@@ -1242,7 +1197,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
        }
       }
      }
-#endif // STRATO_LANE_GROUND
+#endif // STRATO && !LUT_ONLY
 #endif
 #endif // GF_ON
      SECTION_END_IF(1,first)
@@ -1348,7 +1303,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         #pragma unroll
 #endif
 #ifndef LUT_ONLY
-        #ifndef LUT_ONLY
 #ifdef SKIP_ACTIVE
         if(sk_a){
         #pragma unroll
@@ -1362,9 +1316,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         }
 #endif
 #else
-        for(int w=0;w<TW;w++)cache[corner][w]+=pref*src_sh[((int64_t)cc*FW+GW(w))*KPAD+k];
-#endif
-#else
         for(int w=0;w<TW;w++)cache[corner][w]+=pref*src[((int64_t)cc*
 #ifdef STRATO
          1132
@@ -1375,7 +1326,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #endif
 #ifdef STRATO
 #if (defined(STRATO) && !defined(LUT_ONLY))
-#ifndef LUT_ONLY
 #ifdef SKIP_ACTIVE
         if(sk_s){
         #pragma unroll
@@ -1389,9 +1339,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         }
 #endif
 #else
-        for(int w=0;w<TW;w++)scache[corner][w]+=pref*src_sh[((int64_t)(nh*nc+cc)*FW+GW(w))*KPAD+k];
-#endif
-#else
         for(int w=0;w<TW;w++)scache[corner][w]+=pref*src[((int64_t)cc*1132+571+k)*FW+GW(w)];
 #endif
 #endif
@@ -1401,7 +1348,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         #pragma unroll
 #endif
 #ifndef LUT_ONLY
-        #ifndef LUT_ONLY
 #ifdef SKIP_ACTIVE
         if(sk_a){
         #pragma unroll
@@ -1415,9 +1361,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         }
 #endif
 #else
-        for(int w=0;w<TW;w++){float v=0.f;v+=y[560]*src_sh[((int64_t)cc*FW+GW(w))*KPAD+560];s.c32[corner][w]=v;}
-#endif
-#else
         for(int w=0;w<TW;w++){float v=0.f;v+=y[560]*src[((int64_t)cc*
 #ifdef STRATO
          1132
@@ -1428,7 +1371,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #endif
 #ifdef STRATO
 #if (defined(STRATO) && !defined(LUT_ONLY))
-#ifndef LUT_ONLY
 #ifdef SKIP_ACTIVE
         if(sk_s){
         #pragma unroll
@@ -1440,9 +1382,6 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         }
 #ifdef SKIP_ACTIVE
         }
-#endif
-#else
-        for(int w=0;w<TW;w++){float v=0.f;v+=y[560]*src_sh[((int64_t)(nh*nc+cc)*FW+GW(w))*KPAD+560];s.st_c32[corner][w]=v;}
 #endif
 #else
         for(int w=0;w<TW;w++){float v=0.f;v+=y[560]*src[((int64_t)cc*1132+1131)*FW+GW(w)];s.st_c32[corner][w]=v;}
@@ -1508,7 +1447,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #endif
        }
       }
-#endif // TRANSPORT_RS2
+#endif // STRATO && FW==15 (RS2_REDUCE)
 #ifndef WARM_LANE_ON
       // K_FIRST=1 only; the !first branch never runs.
       bool bad_trace=false;
