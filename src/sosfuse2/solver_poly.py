@@ -1,7 +1,4 @@
-"""Solver definitions loaded into per-call scopes by accepted.engine.definitions.
-
-The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by accepted.engine.create). The imports and
-placeholders below never run there; they name the injected globals for static analysis (ruff, pyright)."""
+"""Four-point Lagrange interpolation polynomials over the zenith-angle grid (CPU reference engine)."""
 
 import numpy as np
 

@@ -21,7 +21,7 @@ class JointColumnsTests(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         with mock.patch.dict(os.environ, {'SOSFUSE2_SUN_WORKERS': '1', 'SOSFUSE2_GROUND_WORKERS': '1'}):
             cls.s, cls.scope, _ = geometry.create(Path(cls.tmp.name), 'selftest', [550.0], 'numpy')
-        cls.old = cls.scope['b'].sh.old
+        cls.old = cls.scope.b.sh.old
         cls.optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
         cls.profile = stratosphere.profile_config({})
 

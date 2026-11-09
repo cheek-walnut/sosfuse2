@@ -135,7 +135,7 @@ def captured_queries(s, hs, part, ee, aa, dummy):
     from .geometry_contract import identity
 
     common, signature = identity(s)
-    b = s.query.__func__.__globals__['b']
+    b = s.ctx.b
     key = dict(
         kind='query01',
         common=common,

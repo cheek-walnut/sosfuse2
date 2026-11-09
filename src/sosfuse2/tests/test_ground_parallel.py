@@ -35,13 +35,13 @@ def fail_cell(task):
 def accepted(s, scope, kind, optics=None, profile=None, suncol=None, method=None):
     # method: host_cache.prepare_ground passes density.sun_method() (③ 0(b)); this GL24 reference is the default only.
     assert method in (None, 'gl'), method
-    old = scope['b'].sh.old
+    old = scope.b.sh.old
     rows = []
     for cell in range(s.geo.ns):
         ih, ic = divmod(cell, len(s.geo.chi))
         r = 6371.0 + s.geo.h[ih]
         ch = s.geo.chi[ic]
-        loc, w = scope['b'].sh.incoming(r, ch, 1)
+        loc, w = scope.b.sh.incoming(r, ch, 1)
         p, up, ex = old.probe.frame(np.array(r), ch)
         ey = np.cross(up, ex)
         d = loc[:, 0, None] * ex + loc[:, 1, None] * ey + loc[:, 2, None] * up
@@ -74,7 +74,7 @@ class GroundTests(unittest.TestCase):
         s.geo.chi = np.deg2rad([80.0, 93.0])
         s.geo.ns = 4
         cls.s = s
-        cls.old = cls.scope['b'].sh.old
+        cls.old = cls.scope.b.sh.old
         cls.optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
         cls.profile = st.profile_config({})
         cls.suncol = np.zeros(s.geo.sun.col.shape[:2])

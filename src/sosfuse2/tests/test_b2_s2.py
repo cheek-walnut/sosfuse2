@@ -12,8 +12,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sosfuse2 import components as C, density as D, generate_minor_absorbers as G
-from sosfuse2 import minor_absorbers as M, rayleigh as R, spectral as SP, testing
+from sosfuse2 import components as C
+from sosfuse2 import density as D
+from sosfuse2 import generate_minor_absorbers as G
+from sosfuse2 import minor_absorbers as M
+from sosfuse2 import rayleigh as R
+from sosfuse2 import spectral as SP
+from sosfuse2 import testing
 
 
 @pytest.fixture
@@ -24,7 +29,9 @@ def asset(tmp_path, monkeypatch):
 
 
 def coeff(state, wl=(450.0, 550.0, 577.0), sigma=None):
-    from sosfuse2.accepted.engine import definitions
+    from functools import partial
+
+    from sosfuse2.solver_optics import coefficients
 
     wl = np.array(wl, dtype='f8')
     opt = D.build(state)
@@ -37,7 +44,7 @@ def coeff(state, wl=(450.0, 550.0, 577.0), sigma=None):
     params = dict(
         aer=0.1, ang=1.3, ozone_DU=280.0, **C.optics_state(state, opt), no2_H_f_km=opt['meta']['no2']['H_f_km']
     )
-    fn = definitions('solver_optics.py', ['coefficients'], dict(np=np, SPEC=spec)).coefficients
+    fn = partial(coefficients, spec)
     return fn(wl, params), opt
 
 
@@ -315,7 +322,7 @@ def test_optics_signature_resolved_defaults(asset, monkeypatch):
 
 
 def test_identity_q16_sources_and_loss(asset, tmp_path):
-    from sosfuse2 import table_q, table_fast
+    from sosfuse2 import table_fast, table_q
 
     physical = C.physics()
     amounts = C.optics_state({})
@@ -452,6 +459,7 @@ def test_ksplit_fallback_strict_and_wait(monkeypatch, capsys):
 
 def test_lut_launch_only():
     import ast
+
     from sosfuse2 import fused, kernel_config, ksplit
 
     # Kernel's methods live in fused.py and, for the split transport, ksplit.py (KsplitMixin).
@@ -506,8 +514,10 @@ def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
     import sys
     import tempfile
     import time
-    from sosfuse2 import geometry, column_table, run_gpu_state_v3 as v3
-    from sosfuse2 import pipeline_execution as pe, paths, host_cache
+
+    from sosfuse2 import column_table, geometry, host_cache, paths
+    from sosfuse2 import pipeline_execution as pe
+    from sosfuse2 import run_gpu_state_v3 as v3
 
     monkeypatch.setenv('SOSFUSE2_HOST_CACHE', '1')
     monkeypatch.setenv('SOSFUSE2_SUN_WORKERS', '1')

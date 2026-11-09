@@ -9,7 +9,6 @@ import json
 import multiprocessing
 import os
 import time
-import types
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from types import SimpleNamespace as NS
@@ -19,6 +18,7 @@ from .geometry import PackedCache as SerialPackedCache, ResidentGeometry
 
 ENV = 'SOSFUSE2_GEOMETRY_WORKERS'
 _GEOMETRY = None
+_SOURCE_DRIFT = None
 
 
 def workers():
@@ -33,38 +33,38 @@ def workers():
 
 
 def freeze(g):
-    b = g.scope['b']
+    b = g.scope.b
     old = b.sh.old
-    # incoming/ring_edges only need sh.old.probe.gl/frame, not the Solver,
-    # exec-defined SunGeometry class, or the rest of the engine namespace.
-    scope = dict(b.legacy.incoming.__globals__)
-    scope['sh'] = NS(old=NS(probe=NS(gl=old.probe.gl, frame=old.probe.frame)))
-    for name in ('incoming', 'ring_edges'):
-        f = getattr(b.legacy, name)
-        scope[name] = types.FunctionType(f.__code__, scope, f.__name__, f.__defaults__)
     return cp.freeze(
         NS(
-            incoming=scope['incoming'],
+            incoming=b.legacy.incoming,
             frame=old.probe.frame,
             boundaries=old.probe.boundaries,
             total_columns=old.total_columns,
             gl=old.probe.gl,
             profiles=old.profiles,
-            basis_at=g.scope['basis_at'],
+            aerosol_descriptor=old.aerosol_descriptor,
+            basis_at=g.scope.basis_at,
         ),
-        ('incoming', 'frame', 'boundaries', 'total_columns', 'gl', 'profiles', 'basis_at'),
+        ('incoming', 'frame', 'boundaries', 'total_columns', 'gl', 'profiles', 'basis_at', 'aerosol_descriptor'),
     )
 
 
-def _init(frozen, geo, legacy, optics, profile):
-    global _GEOMETRY
+def _init(frozen, geo, legacy, optics, profile, sources):
+    global _GEOMETRY, _SOURCE_DRIFT
+    _SOURCE_DRIFT = cp.source_drift(sources)
+    if _SOURCE_DRIFT is not None:
+        return
     f = cp.thaw(frozen)
     old = NS(
-        probe=NS(frame=f.frame, boundaries=f.boundaries, gl=f.gl), total_columns=f.total_columns, profiles=f.profiles
+        probe=NS(frame=f.frame, boundaries=f.boundaries, gl=f.gl),
+        total_columns=f.total_columns,
+        profiles=f.profiles,
+        aerosol_descriptor=f.aerosol_descriptor,
     )
     g = ResidentGeometry.__new__(ResidentGeometry)
     g.s = NS(geo=geo, density_optics=optics, strato=dict(profile=profile))
-    g.scope = dict(b=NS(legacy=NS(incoming=f.incoming), sh=NS(old=old)), basis_at=f.basis_at)
+    g.scope = NS(b=NS(legacy=NS(incoming=f.incoming), sh=NS(old=old)), basis_at=f.basis_at)
     g.legacy = legacy
     g.groups = {}
     g.stats = dict(cells=0, rays=0, samples=0, legacy_cells_read=0)
@@ -72,6 +72,7 @@ def _init(frozen, geo, legacy, optics, profile):
 
 
 def _run(i):
+    cp.check_source(_SOURCE_DRIFT)
     before = dict(_GEOMETRY.stats)
     host, meta = _GEOMETRY.cached_cell(i)
     return (
@@ -123,7 +124,7 @@ class PackedCache(SerialPackedCache):
                 count,
                 mp_context=multiprocessing.get_context('spawn'),
                 initializer=_init,
-                initargs=(frozen, geo, g.legacy, optics, profile),
+                initargs=(frozen, geo, g.legacy, optics, profile, cp.SOURCE_HASHES),
             ) as pool:
                 pending = deque()
                 next_cell = None
@@ -153,7 +154,12 @@ class PackedCache(SerialPackedCache):
                     for _, future in pending:
                         future.cancel()
         except Exception as exc:
-            _event('fallback', count, completed, type(exc).__name__ + ': ' + str(exc), started)
+            reason = (
+                'E_COLUMN_WORKER_SOURCE_DRIFT'
+                if str(exc).startswith('E_COLUMN_WORKER_SOURCE_DRIFT:')
+                else type(exc).__name__ + ': ' + str(exc)
+            )
+            _event('fallback', count, completed, reason, started)
             # Original writer resumes after the committed prefix and overwrites
             # any uncommitted bytes, including a partially written failed cell.
             return super().build(ncell, cell_arrays, progress)

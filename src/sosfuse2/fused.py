@@ -120,8 +120,8 @@ def sh_aux_pair(src, xp=np, L=32):
 
 
 def load_engine():
-    """A fresh, private copy of the accepted engine loader (callers patch its namespace; never the shared import).
-    The module name keeps the package context so the loader's relative import of sosfuse2.paths resolves."""
+    """A fresh, private copy of the accepted engine module (callers patch its namespace; never the shared import).
+    The module name keeps the package context so its relative imports resolve; the solver modules stay shared."""
     spec = importlib.util.spec_from_file_location('sosfuse2.accepted.engine_readonly', paths.ACCEPTED / 'engine.py')
     engine = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(engine)
@@ -241,10 +241,10 @@ class Kernel(KsplitMixin):
                 from .stratosphere import attach
                 from .density import attach as attach_density
 
-                density = attach_density(s, s.query.__func__.__globals__)
+                density = attach_density(s, s.ctx)
                 if density is not None:
                     self.check_profile(density, 'setup')
-                optics = attach(s, s.query.__func__.__globals__)
+                optics = attach(s, s.ctx)
                 if optics is not None:
                     self.flags = tuple(sorted(set(self.flags) | {'STRATO'}))
                 elif 'STRATO' in self.flags:
@@ -1374,7 +1374,7 @@ class Solver:
         from .stratosphere import attach
 
         if not prepared:
-            attach(accepted, accepted.query.__func__.__globals__)
+            attach(accepted, accepted.ctx)
         self.s = accepted
         self.geometry = geometry
         self.kernel = accepted.kernel

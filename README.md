@@ -242,8 +242,8 @@ src/sosfuse2/
   spectral.py, air_wavelength.py          spectra, colour weights
   pipeline*.py, run_gpu_state_v3.py       state runner, production queue, provenance (v4)
   gate.py, gate/                          numeric gates, fixtures, fixed references
-  accepted/                               per-call engine loader (engine.py)
-  solver_*.py                             editable solver and preview definitions
+  accepted/                               CPU reference engine: per-state context factory (engine.py)
+  solver_*.py                             CPU solver modules; solver_render.py holds the preview definitions
   host/, native/sh_cpu.cpp                host helpers, CPU spherical-harmonics kernel
   assets/, configs/, fixtures/            data (see assets/README.md), kernel flag sets, test records
   tests/, testing.py                      the packaged tests (pytest --pyargs sosfuse2) and their support module
@@ -251,10 +251,11 @@ docs/                                     MODEL.md, VALIDATION.md (+ validation/
                                           PERFORMANCE.md, CHECKS.md, KNOWN_FAILURES.md, PROVENANCE_V3.md
 ```
 
-The solver definitions live in the editable `src/sosfuse2/solver_*.py` files. `accepted/engine.py` selects definitions and
-executes them in a fresh scope for each state; it stays at that location as the engine loader. Only the top-level
-`def`/`class` nodes are executed; the imports and placeholders at the head of each file name the injected globals for
-static analysis and never run. Optical coefficients are
+The CPU solver functions live in the importable `src/sosfuse2/solver_*.py` modules. `accepted/engine.py` creates an
+`EngineContext` for each state and binds only the inputs each function reads. `create()` returns `(solver, context,
+settings)`; use context attributes such as `context.b` and `context.Solver`. Read-only scope indexing is deprecated
+and retained for one release. Render helpers still use their separate definition loader.
+Optical coefficients are
 kept apart from the column and geometry producers, so coefficient edits do not invalidate geometry caches.
 `run_gpu_state_v3.create_configured` and `tropo_profile.engine_hooks` pass the production grid, spectrum, sun geometry,
 deferred ground preparation and two-layer aerosol profile to `create()` through keyword-only hooks; no source text is

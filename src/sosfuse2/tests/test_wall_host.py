@@ -1,11 +1,8 @@
 """r11 host port: three planner/control tests plus exact NOPREFIX geometry parity."""
 
-import ast
 import itertools
 import os
-from pathlib import Path
 import sys
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -15,22 +12,9 @@ from sosfuse2 import stratosphere, device_profile
 
 class WallHost(unittest.TestCase):
     def test_noprefix_real_geometry_bytes(self):
-        from sosfuse2 import paths
+        from sosfuse2.tests.test_b2_components import old_solver
 
-        root = paths.PKG  # promoted definitions, same per-call globals
-
-        def functions(path, names, namespace):
-            tree = ast.parse(path.read_text())
-            tree.body = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
-            exec(compile(tree, str(path), 'exec'), namespace)
-            return SimpleNamespace(**namespace)
-
-        probe = functions(root / 'solver_columns.py', {'boundaries', 'gl'}, dict(np=np, R=6371.0, Z=80.0))
-        old = functions(
-            root / 'solver_columns.py',
-            {'geometry_segments', 'profiles'},
-            dict(np=np, probe=probe, R=6371.0, AER_PROFILE=lambda h: np.exp(-np.maximum(h, 0) / 1.2)),
-        )
+        old = old_solver()
         profile = stratosphere.profile_config({})
         rng = np.random.default_rng(17)
         for height, n in itertools.product((0.0, 0.1, 10.0, 21.0, 25.0, 40.0, 79.0), (24, 32)):

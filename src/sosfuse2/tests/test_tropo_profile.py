@@ -339,7 +339,7 @@ def host(out):
     st = copy.deepcopy(base)
     st['troposphere_profile'] = good
     s, scope, _ = create(out / 'host_integral', 'selftest', (550.0,), 'numpy', 128, state=st)
-    old = scope['b'].sh.old
+    old = scope.b.sh.old
     aer = old.NORMAL['aer']
     c = s.aerosol_profile['config']
     z, hw = c['bl_top_km'], c['bl_transition_km'] / 2
@@ -368,14 +368,14 @@ def host(out):
         sw['troposphere_profile'] = dict(good, bl_transition_km=width)
         _, scope_w, _ = create(out / f'host_integral_w{width}', 'selftest', (550.0,), 'numpy', 128, state=sw)
         by_width[str(width)] = [
-            round(r['solver_rel'], 6) for r in columns(scope_w['b'].sh.old, scope_w['b'].sh.NORMAL['aer'])
+            round(r['solver_rel'], 6) for r in columns(scope_w.b.sh.old, scope_w.b.sh.NORMAL['aer'])
         ]
     integ = dict(
         cases=integrals,
         patched_sos_sky_profiles_rel=abs(patched / st['parameters']['aod550'] - 1),
         normal_aer=aer,
         solver_columns=columns(old, aer),
-        solver_columns_exp12=columns(scope_exp['b'].sh.old, scope_exp['b'].sh.NORMAL['aer']),
+        solver_columns_exp12=columns(scope_exp.b.sh.old, scope_exp.b.sh.NORMAL['aer']),
         solver_rel_by_transition_width=dict(by_width, zenith_deg=[0, 60, 80, 85]),
         note='solver_columns: GL-24 per segment across the default 1 km blend (no shell at bl_top); reported, not '
         'gated. exp12 = the same quadrature on the exponential 1.2 km profile',
@@ -606,7 +606,7 @@ def probe(tree, state_file, folder):
 
     # 1. NumPy reference (selftest grid, 3 wavelengths)
     s, scope, _ = gm.create(folder / 'np', 'selftest', WL, 'numpy', 128, state=state)
-    aer = scope['b'].sh.NORMAL['aer']
+    aer = scope.b.sh.NORMAL['aer']
     for k in ('ext', 'asca', 'ha', 'hr', 'gm', 'gval', 'gdir', 'goff'):
         A['np_' + k] = getattr(s, k)
     A['np_sun_col'] = s.geo.sun.col
@@ -651,7 +651,7 @@ def probe(tree, state_file, folder):
     for k in ('ext', 'asca', 'ha', 'gm', 'gval'):
         A['cc_' + k] = getattr(s2, k)
     A['cc_sun_col'] = s2.geo.sun.col
-    physical('cc_', s2, scope2['b'].sh.NORMAL['aer'])
+    physical('cc_', s2, scope2.b.sh.NORMAL['aer'])
     sig, hashes = signed_contract(state, cfg, 'numpy', True, 'depolarizing')
     K['settings'] = cfg
     K['code_hashes'] = hashes
@@ -665,7 +665,7 @@ def probe(tree, state_file, folder):
     A['cpp_ha'] = s3.ha
     A['cpp_sun_col'] = s3.geo.sun.col
     A['cpp_gm'] = s3.gm
-    physical('cpp_', s3, scope3['b'].sh.NORMAL['aer'])
+    physical('cpp_', s3, scope3.b.sh.NORMAL['aer'])
     src = rng.normal(0, 1e-4, (s3.geo.ns, 571, 2 * s3.W)).astype('f4')
     src[:, :4] = abs(src[:, :4])
     src[:, 10:] *= np.repeat(np.asarray(s3.asca, 'f4'), 2)[None, None, :]  # lanes v = 2w+lane

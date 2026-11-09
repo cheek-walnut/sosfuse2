@@ -1,17 +1,8 @@
-"""Solver definitions loaded into per-call scopes by accepted.engine.definitions.
-
-The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by accepted.engine.create). The imports and
-placeholders below never run there; they name the injected globals for static analysis (ruff, pyright)."""
+"""Solver, ray packing and cell construction of the CPU reference engine; state is read from the engine context."""
 
 import time
-from typing import Any
 
 import numpy as np
-
-b: Any = None  # namespace: sh, R, legacy, peak, DIRS, HS (engine.create)
-C: Any = None  # 3/(16 pi), Rayleigh phase normalisation (engine.create)
-AER_G: Any = None  # aerosol asymmetry parameter of the state (engine.create)
-AER_PROFILE: Any = None  # aerosol profile of the state (engine.create)
 
 
 def basis_at(q):
@@ -29,19 +20,30 @@ def basis_at(q):
     return np.stack([ex, np.cross(up, ex), up], -1)
 
 
-def pack(p, d, h, ch, sun, n):
+def pack(ctx, p, d, h, ch, sun, n):
     rows = []
     pts = []
     bases = []
     lits = []
-    for active, q, r, ds, prefix in b.sh.old.geometry_segments(p, d, n):
-        base, ah, ac, mu, cp = b.sh.spatial_lookup(q, r, d[active, None, :], h, ch)
+    for active, q, r, ds, prefix in ctx.b.sh.old.geometry_segments(p, d, n):
+        base, ah, ac, mu, cp = ctx.b.sh.spatial_lookup(q, r, d[active, None, :], h, ch)
         sc, lit = sun.lookup(q, r)
         rho = np.linalg.norm(q[..., :2], axis=-1)
         cx = np.divide(q[..., 0], rho, out=np.ones_like(rho), where=rho > 1e-12)
         sx = np.divide(q[..., 1], rho, out=np.zeros_like(rho), where=rho > 1e-12)
         z = np.stack(
-            [ah, ac, mu, cp, ds, r - b.R, *[prefix[..., k] for k in range(5)], *[sc[..., k] for k in range(5)], cx, sx],
+            [
+                ah,
+                ac,
+                mu,
+                cp,
+                ds,
+                r - ctx.b.R,
+                *[prefix[..., k] for k in range(5)],
+                *[sc[..., k] for k in range(5)],
+                cx,
+                sx,
+            ],
             -1,
         )
         rows.append(np.repeat(active, ds.shape[1]))
@@ -73,24 +75,26 @@ def pack(p, d, h, ch, sun, n):
 
 
 class Solver:
-    def __init__(self, g, kernel, wavelengths, mode=0, delta=0.03):
+    def __init__(self, ctx, g, kernel, wavelengths, mode=0, delta=0.03):
+        self.ctx = ctx
         self.geo, self.kernel, self.mode, self.delta = g, kernel, mode, delta
         self.folder = g.folder
         self.wl = np.asarray(wavelengths, float)
         self.W = len(self.wl)
         self.V = 2 * self.W
         self.active = np.ones(self.V, 'i4')
-        self.ext = np.ascontiguousarray(b.sh.old.coefficients(self.wl, b.sh.NORMAL))
-        self.asca = np.ascontiguousarray(self.ext[1] * b.sh.NORMAL['ssa'])
+        self.ext = np.ascontiguousarray(self.ctx.b.sh.old.coefficients(self.wl, self.ctx.b.sh.NORMAL))
+        self.asca = np.ascontiguousarray(self.ext[1] * self.ctx.b.sh.NORMAL['ssa'])
         self.hr = np.exp(-g.h / 8)
-        self.ha = AER_PROFILE(g.h)
-        self.solar = np.interp(self.wl, b.sh.old.SPEC['wavelength_nm'], b.sh.old.SPEC['solar'])
+        self.ha = self.ctx.AER_PROFILE(g.h)
+        self.solar = np.interp(self.wl, self.ctx.b.sh.old.SPEC['wavelength_nm'], self.ctx.b.sh.old.SPEC['solar'])
         self.levels = np.array([l for l in range(33) for m in range(l + 1)])
         self.rf = (self.levels[:6] == 0) + 0.1 * (self.levels[:6] == 2)
-        self.af = AER_G**self.levels
+        self.af = self.ctx.AER_G**self.levels
         self.dummy = np.empty(0, 'f4')
         t = time.perf_counter()
-        self.prepare_ground()
+        if self.ctx.prepare_ground:
+            self.prepare_ground()
         self.prepare_seconds = time.perf_counter() - t
         self.timings = dict(transport_seconds=0.0, projection_seconds=0.0, ground_seconds=0.0)
 
@@ -102,24 +106,24 @@ class Solver:
         self.gm = np.zeros((g.ns, 4, self.W), 'f4')
         for cell in range(g.ns):
             ih, ic = divmod(cell, len(g.chi))
-            loc, w = b.sh.incoming(b.R + g.h[ih], g.chi[ic], 1)
-            p, up, ex = b.sh.old.probe.frame(np.array(b.R + g.h[ih]), g.chi[ic])
+            loc, w = self.ctx.b.sh.incoming(self.ctx.b.R + g.h[ih], g.chi[ic], 1)
+            p, up, ex = self.ctx.b.sh.old.probe.frame(np.array(self.ctx.b.R + g.h[ih]), g.chi[ic])
             ey = np.cross(up, ex)
             d = loc[:, 0, None] * ex + loc[:, 1, None] * ey + loc[:, 2, None] * up
             p = np.broadcast_to(p, d.shape)
-            end = b.sh.old.probe.boundaries(p, d)[:, -1]
+            end = self.ctx.b.sh.old.probe.boundaries(p, d)[:, -1]
             q = p + end[:, None] * d
             r = np.linalg.norm(q, axis=-1)
-            col = b.sh.old.total_columns(p, d, 24)
-            sc, lit = g.sun.lookup(q, np.maximum(b.R, r))
+            col = self.ctx.b.sh.old.total_columns(p, d, 24)
+            sc, lit = g.sun.lookup(q, np.maximum(self.ctx.b.R, r))
             ch = np.arccos(np.clip(q[:, 2] / r, -1, 1))
             value = (
-                b.sh.NORMAL['albedo']
+                self.ctx.b.sh.NORMAL['albedo']
                 / np.pi
                 * np.maximum(0, np.cos(ch))[:, None]
                 * np.exp(-(sc + col) @ self.ext)
                 * lit[:, None]
-                * (r < b.R + 1e-5)[:, None]
+                * (r < self.ctx.b.R + 1e-5)[:, None]
                 * w[:, None]
             )
             take = np.any(value > 0, axis=1)
@@ -135,7 +139,7 @@ class Solver:
                 ],
                 -1,
             )
-            self.gm[cell] = (factor.T @ value) * (2 * C * self.ext[0])[None, :]
+            self.gm[cell] = (factor.T @ value) * (2 * self.ctx.C * self.ext[0])[None, :]
         self.goff = np.array(off, 'i8')
         self.gdir = np.ascontiguousarray(np.concatenate(ds), 'f4')
         self.gval = np.ascontiguousarray(np.concatenate(vs), 'f4')
@@ -161,7 +165,9 @@ class Solver:
             z, L = self.radiance(i, field)
             I = L[..., :3].sum(-1)
             out[i] = (
-                b.sh.NORMAL['albedo'] / np.pi * np.einsum('n,nwl->wl', z['weight'] * np.maximum(0, z['loc'][:, 2]), I)
+                self.ctx.b.sh.NORMAL['albedo']
+                / np.pi
+                * np.einsum('n,nwl->wl', z['weight'] * np.maximum(0, z['loc'][:, 2]), I)
             )
         self.timings['ground_seconds'] += time.perf_counter() - t
         return out
@@ -183,7 +189,7 @@ class Solver:
             Y = self.kernel.basis(glob, 32)
             moment = Y.T @ (I.reshape(len(I), self.V) * z['weight'][:, None])
             matrix = np.einsum('n,nwlp->pwl', z['weight'], L).reshape(4, self.V)
-            out[i, :4] = matrix * np.repeat(2 * C * self.ext[0], 2)[None, :]
+            out[i, :4] = matrix * np.repeat(2 * self.ctx.C * self.ext[0], 2)[None, :]
             out[i, 4:10] = moment[:6] * self.rf[:, None] * np.repeat(self.ext[0], 2)[None, :]
             out[i, 10:] = moment * self.af[:, None] * np.repeat(self.asca, 2)[None, :]
             inactive = self.active == 0
@@ -191,7 +197,7 @@ class Solver:
             self.timings['projection_seconds'] += time.perf_counter() - tt
             if time.perf_counter() - last > 30:
                 print(
-                    f'FULL STREAM {self.geo.name} cell={i}/{self.geo.ns} seconds={time.perf_counter() - t:.1f} RSS={b.peak() / 1e9:.3f}GB',
+                    f'FULL STREAM {self.geo.name} cell={i}/{self.geo.ns} seconds={time.perf_counter() - t:.1f} RSS={self.ctx.b.peak() / 1e9:.3f}GB',
                     flush=True,
                 )
                 last = time.perf_counter()
@@ -201,7 +207,7 @@ class Solver:
         ee, aa = np.broadcast_arrays(el, az)
         shape = ee.shape
         e, z = np.deg2rad(ee.ravel()), np.deg2rad(aa.ravel())
-        p, up, ex = b.sh.old.probe.frame(np.array(b.R + b.sh.OBS), np.deg2rad(90 - h))
+        p, up, ex = self.ctx.b.sh.old.probe.frame(np.array(self.ctx.b.R + self.ctx.b.sh.OBS), np.deg2rad(90 - h))
         ey = np.cross(up, ex)
         d = np.sin(e)[:, None] * up + np.cos(e)[:, None] * (np.cos(z)[:, None] * ex + np.sin(z)[:, None] * ey)
         out = np.empty((len(d), self.W, 2))
@@ -218,27 +224,32 @@ class Solver:
     def boxes(self, field, first=False):
         u, w = np.polynomial.legendre.leggauss(4)
         ww = (w[:, None] * w[None, :] / 4).ravel()
-        el = np.array([e + de for _, e, z in b.DIRS for de in u for dz in u])
-        az = np.array([z + dz for _, e, z in b.DIRS for de in u for dz in u])
+        el = np.array([e + de for _, e, z in self.ctx.b.DIRS for de in u for dz in u])
+        az = np.array([z + dz for _, e, z in self.ctx.b.DIRS for de in u for dz in u])
         return np.stack(
-            [np.einsum('dnwl,n->dwl', self.query(h, el, az, field, first).reshape(7, 16, self.W, 2), ww) for h in b.HS]
+            [
+                np.einsum('dnwl,n->dwl', self.query(h, el, az, field, first).reshape(7, 16, self.W, 2), ww)
+                for h in self.ctx.b.HS
+            ]
         )
 
 
 def build(self, i, s):
     t = time.perf_counter()
     ih, ic = divmod(i, len(self.chi))
-    loc, w = b.legacy.incoming(b.R + self.h[ih], self.chi[ic], self.cfg['nmu'], self.cfg['nphi'], 4.0, True)
+    loc, w = self.ctx.b.legacy.incoming(
+        self.ctx.b.R + self.h[ih], self.chi[ic], self.cfg['nmu'], self.cfg['nphi'], 4.0, True
+    )
     self.meta['solid_angle_max_relative'] = max(self.meta['solid_angle_max_relative'], abs(w.sum() / (4 * np.pi) - 1))
-    p, up, ex = b.sh.old.probe.frame(np.array(b.R + self.h[ih]), self.chi[ic])
+    p, up, ex = self.ctx.b.sh.old.probe.frame(np.array(self.ctx.b.R + self.h[ih]), self.chi[ic])
     ey = np.cross(up, ex)
     d = loc[:, 0, None] * ex + loc[:, 1, None] * ey + loc[:, 2, None] * up
     p = np.broadcast_to(p, d.shape)
-    end = b.sh.old.probe.boundaries(p, d)[:, -1]
+    end = self.ctx.b.sh.old.probe.boundaries(p, d)[:, -1]
     qe = p + end[:, None] * d
     re = np.linalg.norm(qe, axis=-1)
-    col = b.sh.old.total_columns(p, d, 24)
-    tr = np.exp(-col @ s.ext) * (re < b.R + 1e-05)[:, None]
+    col = self.ctx.b.sh.old.total_columns(p, d, 24)
+    tr = np.exp(-col @ s.ext) * (re < self.ctx.b.R + 1e-05)[:, None]
     ec = np.arccos(np.clip(qe[:, 2] / re, -1, 1))
     j = np.clip(np.searchsorted(self.chi, ec, side='right') - 1, 0, len(self.chi) - 2)
     frac = np.clip((ec - self.chi[j]) / (self.chi[j + 1] - self.chi[j]), 0, 1)
@@ -271,7 +282,7 @@ def build(self, i, s):
         end_index=j.astype('i4'),
         end_fraction=frac,
         end_columns=col,
-        hits_ground=re < b.R + 1e-05,
+        hits_ground=re < self.ctx.b.R + 1e-05,
         wavelengths=s.wl.copy(),
         delta=np.array(s.delta),
     )

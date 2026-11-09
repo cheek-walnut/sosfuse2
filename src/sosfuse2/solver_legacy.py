@@ -1,14 +1,8 @@
-"""Solver definitions loaded into per-call scopes by accepted.engine.definitions.
-
-The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by accepted.engine.create). The imports and
-placeholders below never run there; they name the injected globals for static analysis (ruff, pyright)."""
-
-from typing import Any
+"""Ring-edge quadrature of the incoming directions (CPU reference engine)."""
 
 import numpy as np
 
-R: Any = None  # Earth radius, km (engine.R)
-sh: Any = None  # namespace of solver_sky.incoming/spatial_lookup (engine.create)
+from .solver_columns import R, frame, gl
 
 
 def ring_edges(r, chi, phi, heights, prepared=None):
@@ -20,7 +14,7 @@ def ring_edges(r, chi, phi, heights, prepared=None):
     These are real endpoints of illumination in each density layer.
     """
     if prepared is None:
-        p, up, ex = sh.old.probe.frame(np.array(r), np.array(chi))
+        p, up, ex = frame(np.array(r), np.array(chi))
         ey = np.cross(up, ex)
         levels = [-np.sqrt(max(0, (R + h) ** 2 - R**2)) for h in heights]
     else:
@@ -66,7 +60,7 @@ def ring_edges(r, chi, phi, heights, prepared=None):
 def incoming(r, chi, nmu, nphi, a=4.0, rings=True):
     mg = -np.sqrt(max(0, 1 - (R / r) ** 2))
     sa = np.sinh(a)
-    u, wu = sh.old.probe.gl(nmu)
+    u, wu = gl(nmu)
     mus = []
     phis = []
     weights = []
@@ -75,7 +69,7 @@ def incoming(r, chi, nmu, nphi, a=4.0, rings=True):
     rp = r * sinchi
     prepared = None
     if rings:
-        p, up, ex = sh.old.probe.frame(np.array(r), np.array(chi))
+        p, up, ex = frame(np.array(r), np.array(chi))
         ey = np.cross(up, ex)
         levels = [-np.sqrt(max(0, (R + h) ** 2 - R**2)) for h in (0.0, 1.2, 8.0, 25.0, 40.0, 80.0)]
         prepared = (p, up, ex, ey, levels)

@@ -295,7 +295,7 @@ def probe(state, cfg, geometry_cache, folder):
     records = []
     with recording(records):
         s, scope = rv.create_configured(folder, cfg, chunk, 'numpy', geo_state, 128, geometry_cache=geometry_cache)
-    return SimpleNamespace(s=s, scope=scope, records=records, old=scope['b'].sh.old)
+    return SimpleNamespace(s=s, scope=scope, records=records, old=scope.b.sh.old)
 
 
 def geometry_layer(s, root, layers, kernel):

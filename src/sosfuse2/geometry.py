@@ -23,7 +23,7 @@ def normal_state():
 def pack(p, d, n, s, scope, weights=None, ground=True):
     p = np.broadcast_to(p, d.shape).copy()
     d = np.ascontiguousarray(d, 'f8')
-    old = scope['b'].sh.old
+    old = scope.b.sh.old
     edges = old.probe.boundaries(p, d)
     end = edges[:, -1]
     dot = np.sum(p * d, -1)
@@ -38,7 +38,7 @@ def pack(p, d, n, s, scope, weights=None, ground=True):
     qa = p[:, None, :] + edges[:, :-1, None] * d[:, None, :]
     qb = p[:, None, :] + edges[:, 1:, None] * d[:, None, :]
     lower = np.sum(qa * qa, axis=-1) <= np.sum(qb * qb, axis=-1)
-    B = scope['basis_at'](p)
+    B = scope.basis_at(p)
     qe = p + end[:, None] * d
     re = np.linalg.norm(qe, axis=-1)
     ch = np.arccos(np.clip(qe[:, 2] / re, -1, 1))
@@ -106,7 +106,7 @@ def _create(output, grid, wavelengths, backend, block_size, state):
     )
     s = initial
     if len(wavelengths) > 1:
-        s = scope['Solver'](initial.geo, initial.kernel, wavelengths, 1, 0.03)
+        s = scope.Solver(initial.geo, initial.kernel, wavelengths, 1, 0.03)
     s.active[1::2] = 0
     s.fuse_state = state
     tropo_profile.attach(s)
@@ -297,7 +297,7 @@ class TransientGeometry:
         if cell not in self.groups:
             with stage('geometry_cell_build'):
                 s = self.s
-                b = self.scope['b']
+                b = self.scope.b
                 ih, ic = divmod(cell, len(s.geo.chi))
                 r = 6371.0 + s.geo.h[ih]
                 ch = s.geo.chi[ic]

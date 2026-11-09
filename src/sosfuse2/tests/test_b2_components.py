@@ -1,14 +1,13 @@
 """S1 independent columns, slot separation, zero-coefficient regression and interface rules."""
 
-from sosfuse2 import paths
 import copy
 import json
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-from sosfuse2 import column_table as ct, density, reference, ray_columns, spectral
+from sosfuse2 import column_table as ct
+from sosfuse2 import density, paths, ray_columns, reference, spectral
 from sosfuse2.components import COMPONENTS, NCOMP, SINV_F, physics
 
 
@@ -31,16 +30,7 @@ def atmosphere(table=False, step=0.5):
 
 
 def old_solver():
-    from sosfuse2.accepted.engine import definitions
-
-    scope = dict(np=np, R=6371.0, Z=80.0)
-    probe = definitions('solver_columns.py', ['boundaries', 'gl'], dict(scope))
-
-    def exponential_profile(h, height=1.2):
-        return np.exp(-np.maximum(h, 0) / height)
-
-    scope.update(probe=probe, AER_HEIGHT=1.2, AER_PROFILE=exponential_profile)
-    return definitions('solver_columns.py', ['profiles', 'geometry_segments', 'total_columns'], scope)
+    return sun_scope()
 
 
 def independent(f, p, d, end, knots):
@@ -77,7 +67,7 @@ def functions(o):
 
 def test_fixed_component_and_kernel_layout():
     from sosfuse2.fused import Kernel
-    from sosfuse2.geometry_contract import TRAIL, PACKED_LAYOUT_VERSION, HEIGHT_DEPENDENT_END_COLUMNS
+    from sosfuse2.geometry_contract import HEIGHT_DEPENDENT_END_COLUMNS, PACKED_LAYOUT_VERSION, TRAIL
 
     cu = (paths.PKG / 'kernel.cu').read_text()
     assert COMPONENTS == ('air', 'tropo_aerosol', 'o3', 'no2', 'o4')
@@ -215,6 +205,7 @@ def test_stratosphere_separate_from_minor_slots():
 
 def test_prepared_endpoint_without_solver_module():
     import pickle
+
     from sosfuse2.pipeline_execution import PreparedSegments
 
     old = old_solver()
@@ -229,10 +220,12 @@ def test_prepared_endpoint_without_solver_module():
 
 
 def test_zero_minor_coefficients_keep_legacy_values():
-    from sosfuse2.accepted.engine import definitions
+    from functools import partial
+
+    from sosfuse2.solver_optics import coefficients
 
     p = paths.ASSETS / 'spectra.json'
-    f = definitions('solver_optics.py', ['coefficients'], dict(np=np, SPEC=json.loads(p.read_text()))).coefficients
+    f = partial(coefficients, json.loads(p.read_text()))
     params = dict(aer=0.1, ang=1.3, ozone_DU=280.0)
     w = np.array([400.0, 550.0, 700.0])
     from sosfuse2.components import _s1_reference
@@ -281,7 +274,7 @@ def test_column_keys_depend_on_shapes_not_amounts():
 def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
     """A product without physics reads as the legacy identity on its own; combining it
     with current physics is E_PHYSICS_MIXED; an identity this code does not know is E_PHYSICS_CONTRACT."""
-    from sosfuse2.components import LEGACY, check_same, identity, optics_state, canonical_state
+    from sosfuse2.components import LEGACY, canonical_state, check_same, identity, optics_state
 
     b = spectral.block(dict(spectral_mode='band'), np.array([550.0]), False)
     assert b['physics'] == physics()
@@ -325,8 +318,9 @@ def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
         with pytest.raises(ValueError, match='E_PHYSICS_CONTRACT'):
             spectral.check_meta_contract(dict(contract='v4', physics=unknown[1], **sig))
     # q16: the header records the identity (legacy for a table without physics or without meta.json)
-    from sosfuse2 import table_q, table_fast
     from types import SimpleNamespace
+
+    from sosfuse2 import table_fast, table_q
 
     def q16(name, meta):
         folder = tmp_path / name
@@ -395,23 +389,33 @@ def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
 
 
 def sun_scope(height=1.2):
-    """The accepted sun-table definitions in their own scope (as accepted.engine.create loads them)."""
-    import math, time
-    from sosfuse2.accepted.engine import definitions, R, Z, ROOT
+    """Module callables bound only to the selected aerosol profile."""
+    from functools import partial
+    from types import SimpleNamespace
 
-    common = dict(np=np, math=math, time=time, json=json, Path=Path, R=R, Z=Z, ROOT=ROOT)
-    probe = definitions('solver_columns.py', ['gl', 'frame', 'boundaries'], dict(common))
+    from sosfuse2 import solver_columns as columns
+    from sosfuse2.accepted.engine import SunGeometryBinder
+    from sosfuse2.tropo_profile import ExponentialProfile
 
-    def exponential_profile(h, height=height):
-        return np.exp(-np.maximum(h, 0) / height)
-
-    scope = dict(common, probe=probe, AER_PROFILE=exponential_profile, AER_HEIGHT=height)
-    return definitions('solver_columns.py', ['profiles', 'geometry_segments', 'total_columns', 'SunGeometry'], scope)
+    aerosol = ExponentialProfile(height, clamp=True)
+    return SimpleNamespace(
+        R=columns.R,
+        Z=columns.Z,
+        probe=SimpleNamespace(gl=columns.gl, frame=columns.frame, boundaries=columns.boundaries),
+        profiles=partial(columns.profiles, aerosol),
+        geometry_segments=partial(columns.geometry_segments, aerosol),
+        total_columns=partial(columns.total_columns, aerosol),
+        SunGeometry=SunGeometryBinder(aerosol, height),
+        AER_HEIGHT=height,
+        AER_PROFILE=aerosol,
+        aerosol_descriptor=aerosol.descriptor(),
+    )
 
 
 def test_sun_table_identity_rebuilds_stale_and_reuses_current(tmp_path, monkeypatch):
     """2026-11-04 judge run: an unkeyed 3-column sun_columns.npz from before B2 reached the 5-column solver."""
     import warnings
+
     from sosfuse2 import sun_parallel
 
     monkeypatch.setenv('SOSFUSE2_SUN_WORKERS', '1')

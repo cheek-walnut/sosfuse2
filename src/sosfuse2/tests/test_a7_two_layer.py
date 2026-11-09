@@ -146,7 +146,7 @@ def main(work, v1_source):
     s, scope = solvers[3.0]
     host, _ = G.PackedCache(G.TwoLayerGeometry(s, scope, cache).cache / 'packed').open()
     t = time.perf_counter()
-    c_pack = G.aerosol_column_pack_route(host, scope['b'].sh.old)
+    c_pack = G.aerosol_column_pack_route(host, scope.b.sh.old)
     t_pack = time.perf_counter() - t
     t = time.perf_counter()
     c1 = G.aerosol_column(host, 3.0, workers=1)

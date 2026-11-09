@@ -676,7 +676,7 @@ def attach(s, scope, defer_ground=False):
     optics = build(s.fuse_state)
     if optics is None:
         return None
-    old = scope['b'].sh.old
+    old = scope.b.sh.old
     sun = s.geo.sun
     optics['old'] = old
     s.ext[0] *= optics['scale']

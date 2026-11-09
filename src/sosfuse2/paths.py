@@ -31,7 +31,7 @@ def resource_root():
 PKG = resource_root()
 ASSETS = PKG / 'assets'
 FIXTURES = PKG / 'fixtures'
-ACCEPTED = PKG / 'accepted'  # loader location, retained for fused.load_engine
+ACCEPTED = PKG / 'accepted'  # context factory location; fused.load_engine retains isolated engine module copies
 NATIVE = PKG / 'native'
 CONFIGS = PKG / 'configs'
 GATE = PKG / 'gate'

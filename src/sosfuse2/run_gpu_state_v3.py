@@ -339,10 +339,9 @@ def grid_metadata(cfg, h=None):
     import numpy as np
 
     if h is None:
-        from sosfuse2.fused import load_engine
+        from sosfuse2.solver_columns import grids
 
-        old = load_engine().definitions('solver_columns.py', ['grids'], dict(np=np))
-        h = old.grids(1)[0] if cfg['nr'] != 4 else np.array([0.0, 0.1, 8.0, 80.0])
+        h = grids(1)[0] if cfg['nr'] != 4 else np.array([0.0, 0.1, 8.0, 80.0])
         if cfg['h_refine'] == 'mid':
             h = np.sort(np.r_[h, (h[:-1] + h[1:]) / 2])
         elif cfg['h_refine'] == 'below13mid_above13thirds':
@@ -439,14 +438,14 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
         prepare_ground=not fast_host,
         aerosol=tropo_profile.engine_hooks(state),
     )
-    s = initial if len(wavelengths) == 1 else scope['Solver'](initial.geo, initial.kernel, wavelengths, 1, 0.03)
+    s = initial if len(wavelengths) == 1 else scope.Solver(initial.geo, initial.kernel, wavelengths, 1, 0.03)
     s.levels = s.levels[: s.kernel.K]
     s.af = s.af[: s.kernel.K]
     s.active[1::2] = 0
     s.fuse_state = state
     tropo_profile.attach(s)
     if fast_host:
-        scope['Solver'].prepare_ground = scope.pop('HOST_ORIGINAL_GROUND')
+        scope.prepare_ground = True
         from sosfuse2.density import build
 
         if build(state) is None:
@@ -558,7 +557,7 @@ def enable_spectral_previews(module):
 
 def package_hashes():
     """Provenance v4 code hashes (docs/PROVENANCE_V3.md): package-relative keys ('sosfuse2/...') over the
-    production modules (paths.PRODUCTION_MODULES, a fixed list), the CUDA kernel, the per-call loader (v3 never
+    production modules (paths.PRODUCTION_MODULES, a fixed list), the CUDA kernel, the engine module (v3 never
     hashed them), the host helpers, the native CPU kernel source and the data assets the engine reads. Sorted keys; every
     entry is a fixed name and a missing file is E_PACKAGE_FILE_MISSING, not a gap. package_version/package_commit are
     recorded beside the `contract` field but are NOT signature inputs: the same bytes sign the same in-tree and
@@ -578,7 +577,7 @@ def package_hashes():
     return {paths.rel(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
 
 
-# Fixed provenance inputs beside the production modules: the per-call loader, the host helpers and
+# Fixed provenance inputs beside the production modules: the engine module, the host helpers and
 # the data the engine reads. Adding a file here changes every v4 signature (intended); a listed file that is missing is an error.
 ACCEPTED_SOURCES = ('__init__.py', 'engine.py')
 HOST_MODULES = ('__init__.py', 'host_cores.py', 'pack_state.py')

@@ -726,7 +726,7 @@ def test_h_caches_A_B_A_cold_warm(tmp_path, env, monkeypatch):
     sa = external(321, q=qa)
     sb = external(321, q=qb)
     s, scope, _ = create(tmp_path / 'solver', sa)
-    old = scope['b'].sh.old
+    old = scope.b.sh.old
     tg = geometry.TransientGeometry(s, scope)
     cells = [tg.cell(i) for i in (0, 9)]
     starts = np.stack([np.asarray(g['p'], 'f8').reshape(-1, 3)[0] for g in cells])  # one start per cell

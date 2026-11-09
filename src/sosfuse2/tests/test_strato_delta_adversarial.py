@@ -241,7 +241,7 @@ class Delta(unittest.TestCase):
 
         s, scope, _ = create(OUT / 'fp32_geometry', 'selftest', [550.0], state=state(1e-6))
         Solver(s, TransientGeometry(s, scope))
-        old = scope['b'].sh.old
+        old = scope.b.sh.old
         p, up, ex = old.probe.frame(np.array(6371.1), np.deg2rad(87.0))
         ey = np.cross(up, ex)
         el, az = np.meshgrid(

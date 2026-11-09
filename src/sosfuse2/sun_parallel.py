@@ -9,6 +9,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
+from . import column_parallel as cp
 from .column_parallel import default_workers, event_fields, freeze, thaw
 
 ENV = 'SOSFUSE2_SUN_WORKERS'
@@ -28,7 +29,10 @@ def workers():
     raise ValueError('E_SUN_WORKERS: expected positive integer')
 
 
-def _init(frozen, h, x, radius, n, optics, method='gl'):
+def _init(frozen, h, x, radius, n, optics, method, sources):
+    _STATE['source_drift'] = cp.source_drift(sources)
+    if _STATE['source_drift'] is not None:
+        return
     _STATE.update(old=thaw(frozen), h=h, x=x, radius=radius, n=n, optics=optics, method=method)
 
 
@@ -52,6 +56,7 @@ def _row(old, h, x, radius, n, base, optics, method='gl'):
 
 
 def _run(task):
+    cp.check_source(_STATE["source_drift"])
     i, base = task
     w = _STATE
     return i, _row(w['old'], w['h'][i], w['x'], w['radius'], w['n'], base, w['optics'], w['method'])
@@ -79,7 +84,7 @@ def rows(old, h, x, radius, n, base=None, optics=None, method=None):
                 min(count, len(h)),
                 mp_context=multiprocessing.get_context('spawn'),
                 initializer=_init,
-                initargs=(frozen, h, x, radius, n, parameter, method),
+                initargs=(frozen, h, x, radius, n, parameter, method, cp.SOURCE_HASHES),
             ) as pool:
                 tasks = ((i, None if base is None else base[i]) for i in range(len(h)))
                 for i, value in pool.map(_run, tasks):

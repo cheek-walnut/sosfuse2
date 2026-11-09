@@ -301,7 +301,7 @@ class TransportContract(unittest.TestCase):
         cfg['parameters'].update(stratosphere_tau550=0.03)
         cls.s, cls.scope, _ = create(OUT / 'geometry', 'selftest', [550.0], state=cfg)
         cls.solver = Solver(cls.s, TransientGeometry(cls.s, cls.scope))
-        cls.old = cls.scope['b'].sh.old
+        cls.old = cls.scope.b.sh.old
         cls.c = cls.s.kernel.setup(cls.s, cls.s.geo.query_n)
 
     def pack(self, sun=2.0, el=20.0, az=0.0, altitude=0.1):

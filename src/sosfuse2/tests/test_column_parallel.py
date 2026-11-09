@@ -14,11 +14,12 @@ import contextlib
 import io
 import json
 import os
-from pathlib import Path
-from types import SimpleNamespace
 import sys
 import tempfile
 import unittest
+from functools import partial
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -32,15 +33,12 @@ except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
 
-REAL_SEGMENTS = None  # old.geometry_segments, read by flaky_segments in the workers (shipped with it by freeze)
-
-
-def flaky_segments(p, d, n):
+def flaky_segments(segments, p, d, n):
     """The accepted segments, except a worker fails on the bundle's short last chunk (404,496 = 197 x 2048 + 1040):
     the other tasks complete and write their rows first, so the serial rerun starts from a partly written array."""
     if len(d) < 2048:
         raise RuntimeError('E_TEST_WORKER_FAILURE')
-    return REAL_SEGMENTS(p, d, n)
+    return segments(p, d, n)
 
 
 @unittest.skipIf(tp.DATA is None, 'packed full-grid geometry cache not found (set SADDLE_DATA_ROOT)')
@@ -48,8 +46,8 @@ class ColumnParallelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from sosfuse2 import geometry as gm
-        from sosfuse2.fused import Kernel
         from sosfuse2 import run_gpu_state_v3 as rv
+        from sosfuse2.fused import Kernel
         from sosfuse2.stratosphere import profile_config
 
         options = plan_queue.parser().parse_args(['--states', str(tp.LUT2), '--geometry-cache', '.', '--out', 'x'])
@@ -81,7 +79,8 @@ class ColumnParallelTests(unittest.TestCase):
 
     def run_kind(self, kind, workers):
         """(array, column_parallel events) of one cold build through the production method."""
-        from sosfuse2 import geometry as gm, host_cache
+        from sosfuse2 import geometry as gm
+        from sosfuse2 import host_cache
 
         bundle = gm.Bundle.__new__(gm.Bundle)
         bundle.arrays = self.arrays
@@ -119,11 +118,12 @@ class ColumnParallelTests(unittest.TestCase):
             self.assertTrue(np.isfinite(a).all())
 
     def test_worker_failure_falls_back_to_serial_bytes(self):
-        global REAL_SEGMENTS
-        REAL_SEGMENTS = self.p.old.geometry_segments
         freeze = column_parallel.freeze
         flaky = lambda namespace, names: freeze(
-            SimpleNamespace(geometry_segments=flaky_segments, probe=namespace.probe), names
+            SimpleNamespace(
+                geometry_segments=partial(flaky_segments, namespace.geometry_segments), probe=namespace.probe
+            ),
+            names,
         )
         for kind in ('strato', 'density', 'endpoint'):
             a, _ = self.run_kind(kind, 1)
@@ -133,6 +133,56 @@ class ColumnParallelTests(unittest.TestCase):
                 [(e['result'], e['reason']) for e in events], [('fallback', 'E_TEST_WORKER_FAILURE')], kind
             )
             assert_equivalent(a, b)
+
+
+def spawn_columns(tmp_path, monkeypatch, *, two_layer=False, drift=False):
+    from sosfuse2 import density
+    from sosfuse2.geometry import normal_state
+    from sosfuse2.tests.test_solver_promotion import context_solver
+
+    state = normal_state()
+    if two_layer:
+        state['troposphere_profile'] = {'status': 'enabled', 'model': 'two_layer'}
+    _, ctx, _ = context_solver(tmp_path, state=state)
+    old = ctx.b.sh.old
+    optics = density.build(state)
+    starts = np.array([[0.0, 0.0, old.R + 0.1]])
+    mu = np.linspace(-0.2, 1.0, 12)
+    dirs = np.column_stack([np.sqrt(1 - mu * mu), np.zeros(len(mu)), mu])
+    p = np.broadcast_to(starts, dirs.shape)
+    base = old.total_columns(p, dirs, 24)
+    serial = density.correct_columns(p, dirs, base, old, optics, 24)
+    out = base.copy()
+    monkeypatch.setenv('SOSFUSE2_COLUMN_METHOD', 'gl24')
+    monkeypatch.setattr(column_parallel, 'MIN_RAYS', 1)
+    monkeypatch.setattr(column_parallel, 'CHUNK', 4)
+    monkeypatch.setattr(column_parallel, 'TASK_CHUNKS', 1)
+    if drift:
+        monkeypatch.setattr(
+            column_parallel, 'SOURCE_HASHES', dict(column_parallel.SOURCE_HASHES, **{'solver_columns.py': 'drift'})
+        )
+    log = io.StringIO()
+    with contextlib.redirect_stdout(log):
+        success = column_parallel.parallel_columns(
+            out, 'density', starts, np.array([0, len(dirs)]), dirs, old, optics, count=2
+        )
+    if not success:
+        out[:] = density.correct_columns(p, dirs, out, old, optics, 24)
+    events = [json.loads(line) for line in log.getvalue().splitlines() if '"column_parallel"' in line]
+    np.testing.assert_allclose(out, serial, rtol=1e-6, atol=0)
+    return success, events
+
+
+def test_column_spawn_default_and_two_layer(tmp_path, monkeypatch):
+    for two_layer in (False, True):
+        success, events = spawn_columns(tmp_path / str(two_layer), monkeypatch, two_layer=two_layer)
+        assert success and [(e['result'], e['reason']) for e in events] == [('parallel', None)]
+
+
+def test_worker_source_drift_keeps_parent_reason_and_serial_result(tmp_path, monkeypatch):
+    success, events = spawn_columns(tmp_path, monkeypatch, drift=True)
+    assert not success
+    assert [(e['result'], e['reason']) for e in events] == [('fallback', 'E_COLUMN_WORKER_SOURCE_DRIFT')]
 
 
 if __name__ == '__main__':

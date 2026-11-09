@@ -83,7 +83,7 @@ def code_identity():
     from sosfuse2.run_gpu_state_v3 import package_hashes
 
     # One manifest for both provenance versions v3/v4: the v4 package_hashes() set (fixed lists: production modules,
-    # kernel, accepted sources + loader, host helpers, native kernel, data assets) minus gate.py itself, plus the gate's own
+    # kernel, accepted engine sources, host helpers, native kernel, data assets) minus gate.py itself, plus the gate's own
     # fixtures/configs and the ozone profile asset under its logical key. A missing listed file is E_PACKAGE_FILE_MISSING.
     try:
         hashes = package_hashes()

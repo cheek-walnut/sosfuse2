@@ -107,7 +107,7 @@ class SunMethodTests(unittest.TestCase):
         with mock.patch.dict(os.environ, SERIAL), mock.patch.object(host_cache, 'ROOT', cls.root / 'hc'):
             os.environ.pop(density.SUN_METHOD_ENV, None)
             s, cls.scope, _ = geometry.create(cls.root / 'prepare', 'selftest', [550.0], 'numpy')
-        cls.old = cls.scope['b'].sh.old
+        cls.old = cls.scope.b.sh.old
         s.geo.h = np.array([0.0, 0.1, 25.0])
         s.geo.chi = np.deg2rad([0.0, 80.0, 93.0])
         s.geo.ns = 9

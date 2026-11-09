@@ -4,22 +4,21 @@ and the host-cache endpoint02 build, host_cache.endpoint_columns).
 Numerical equivalence with the serial loop is checked at rtol 1e-6: the same 2048-ray chunks (fused.py build loops), the same
 per-chunk call (stratosphere.columns / density.correct_columns) on equal input bytes, and each chunk's result is
 placed at its own index; no sum crosses a chunk.  Workers are spawned processes (no GIL; never a fork of a parent
-that may hold CUDA or threads).  The accepted solver functions (old.geometry_segments and the probe it calls) are
-exec-defined in dict scopes and cannot be pickled by reference, so they are shipped as
-marshalled code objects plus the globals their code names (freeze/thaw below); the bytecode is the parent's own.
+that may hold CUDA or threads).  Module functions and minimal state bindings travel by pickle.
+Workers check the source hashes recorded when the parent imports this module before running any task.
 
 The process count is SOSFUSE2_COLUMN_WORKERS; unset = all usable CPUs (default_workers), 1 = the serial loop.
 pipeline.py exports max(--threads, usable CPUs // concurrent states) unless the variable is set (pipeline.prep_workers).  The worker count enters no cache key: column_cache.cache_key hashes stratosphere.py, density.py, the
 accepted sources and the engine; host_cache keys hash host_cache.py (which calls this module), not this file.  test_column_parallel.py checks shape, dtype and numerical tolerance.
 """
 
-import builtins
+import hashlib
 import json
-import marshal
 import os
 import pickle
 import time
 import types
+from pathlib import Path
 
 import numpy as np
 
@@ -45,73 +44,42 @@ def workers():
     return count
 
 
-# ---- shipping exec-defined functions -------------------------------------------------------------------------
-
-
-def _names(code):
-    out = set(code.co_names)
-    for const in code.co_consts:
-        if isinstance(const, types.CodeType):
-            out |= _names(const)
-    return out
-
-
-class _Freezer:
-    """Function -> (marshalled code, name, defaults, scope id); a scope keeps only the globals some code names."""
-
-    def __init__(self):
-        self.scopes = {}
-
-    def value(self, v):
-        if isinstance(v, types.ModuleType):
-            return ('module', v.__name__)
-        if isinstance(v, types.FunctionType):
-            return self.function(v)
-        if isinstance(v, types.SimpleNamespace):
-            return ('namespace', {k: self.value(x) for k, x in vars(v).items() if not k.startswith('__')})
-        pickle.dumps(v)  # unsupported values fail here, before any worker starts
-        return ('value', v)
-
-    def function(self, f):
-        if f.__closure__:
-            raise TypeError('E_COLUMN_PARALLEL_FREEZE: closure in ' + f.__name__)
-        sid = id(f.__globals__)
-        scope = self.scopes.setdefault(sid, {})
-        for name in _names(f.__code__):
-            if name in f.__globals__ and name not in scope and not name.startswith('__'):
-                scope[name] = None  # reserve first: recursive functions share the scope
-                scope[name] = self.value(f.__globals__[name])
-        return ('function', marshal.dumps(f.__code__), f.__name__, f.__defaults__, f.__kwdefaults__, sid)
-
-
 def freeze(namespace, names):
-    freezer = _Freezer()
-    parts = {name: freezer.value(getattr(namespace, name)) for name in names}
-    return dict(scopes=freezer.scopes, parts=parts)
+    """Serialize only the selected bindings, without the engine context."""
+    try:
+        return pickle.dumps(types.SimpleNamespace(**{name: getattr(namespace, name) for name in names}))
+    except Exception as exc:
+        raise TypeError('E_COLUMN_PARALLEL_FREEZE: ' + str(exc)) from exc
 
 
 def thaw(frozen):
-    import importlib
+    return pickle.loads(frozen)
 
-    scopes = {sid: {'__builtins__': builtins} for sid in frozen['scopes']}
 
-    def build(item):
-        tag = item[0]
-        if tag == 'module':
-            return importlib.import_module(item[1])
-        if tag == 'namespace':
-            return types.SimpleNamespace(**{k: build(x) for k, x in item[1].items()})
-        if tag == 'function':
-            _, code, name, defaults, kwdefaults, sid = item
-            f = types.FunctionType(marshal.loads(code), scopes[sid], name, defaults)
-            f.__kwdefaults__ = kwdefaults
-            return f
-        return item[1]
+def source_hashes():
+    """Hashes of module definitions used by spawned workers."""
+    here = Path(__file__).parent
+    return {
+        name: hashlib.sha256((here / name).read_bytes()).hexdigest()
+        for name in ('solver_columns.py', 'solver_sky.py', 'solver_legacy.py', 'solver_core.py')
+    }
 
-    for sid, entries in frozen['scopes'].items():
-        for name, item in entries.items():
-            scopes[sid][name] = build(item)
-    return types.SimpleNamespace(**{k: build(x) for k, x in frozen['parts'].items()})
+
+SOURCE_HASHES = source_hashes()
+
+
+def source_drift(expected):
+    """Return a diagnostic instead of raising inside a pool initializer."""
+    try:
+        actual = source_hashes()
+    except OSError as exc:
+        return Path(exc.filename).name if exc.filename else type(exc).__name__
+    return next((name for name, digest in expected.items() if actual.get(name) != digest), None)
+
+
+def check_source(drift):
+    if drift is not None:
+        raise RuntimeError('E_COLUMN_WORKER_SOURCE_DRIFT: ' + drift)
 
 
 # ---- worker side ---------------------------------------------------------------------------------------------
@@ -119,15 +87,19 @@ def thaw(frozen):
 _WORKER = {}
 
 
-def _init(frozen, kind, starts, cell_off, parameter):
+def _init(frozen, kind, starts, cell_off, parameter, sources):
+    _WORKER["source_drift"] = source_drift(sources)
+    if _WORKER["source_drift"] is not None:
+        return
     _WORKER.update(old=thaw(frozen), kind=kind, starts=starts, cell_off=cell_off, parameter=parameter)
 
 
 def _run(task):
     """The serial loop body for every 2048-ray chunk of [start, end)."""
-    from .stratosphere import columns
     from .density import correct_columns
+    from .stratosphere import columns
 
+    check_source(_WORKER["source_drift"])
     start, end, dirs, base = task
     w = _WORKER
     old, starts, co, parameter = w['old'], w['starts'], w['cell_off'], w['parameter']
@@ -212,7 +184,7 @@ def parallel_columns(out, kind, starts, cell_off, dirs, old, parameter, count=No
             min(count, tasks),
             mp_context=multiprocessing.get_context('spawn'),
             initializer=_init,
-            initargs=(frozen, kind, starts, cell_off, parameter),
+            initargs=(frozen, kind, starts, cell_off, parameter, SOURCE_HASHES),
         ) as pool:
             queue = iter(range(0, rays, span))
             pending = set()

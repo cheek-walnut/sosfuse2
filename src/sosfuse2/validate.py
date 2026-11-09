@@ -364,7 +364,7 @@ def full_queries_values(output, backend, block_size):
         s.geo.pack = fuse_pack
         actual[name] = np.stack([s.query(h, el, az, field, first)[..., 0] for h in hs])
         s.kernel = cpu
-        s.geo.pack = lambda p, d, n: scope['pack'](p, d, s.geo.h, s.geo.chi, s.geo.sun, n)
+        s.geo.pack = lambda p, d, n: scope.pack(p, d, s.geo.h, s.geo.chi, s.geo.sun, n)
         expected[name] = np.stack([s.query(h, el, az, field, first)[..., 0] for h in hs])
     s.kernel = kernel
     s.geo.pack = fuse_pack
@@ -444,7 +444,7 @@ def spectral_values(output, field, block_size):
         s.geo.pack = pack_fused
         actual[first] = s.query(-6, el, az, full, first)[..., 0]
         s.kernel = cpu
-        s.geo.pack = lambda p, d, n: scope['pack'](p, d, s.geo.h, s.geo.chi, s.geo.sun, n)
+        s.geo.pack = lambda p, d, n: scope.pack(p, d, s.geo.h, s.geo.chi, s.geo.sun, n)
         expected[first] = s.query(-6, el, az, full, first)[..., 0]
     return dict(actual=actual, cpu=expected, settings=settings, wavelength_nm=wavelengths, el=el, az=az, hs=-6.0)
 

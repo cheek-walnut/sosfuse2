@@ -65,8 +65,8 @@ addopts = "-p no:cacheprovider"
 line-length = 120
 # pre-commit passes file names; force-exclude keeps the excluded paths out anyway.
 force-exclude = true
-# docs/ holds records. The solver_*.py definition files declare their loader-injected globals as placeholders
-# (never executed by the loader), so they are checked like every other module.
+# docs/ holds records. solver_render.py declares the globals its loader injects as placeholders (never executed by
+# the loader), so it is checked like every other module.
 extend-exclude = ["docs"]
 
 [tool.ruff.format]

@@ -37,23 +37,16 @@ class Captured(Exception):
 
 def grids(tmp_path, cfg, creator=v3.create_configured):
     engine = fused.load_engine()
-    original = engine.definitions
+    from sosfuse2 import solver_core
 
-    def definitions(relative, names, scope):
-        result = original(relative, names, scope)
-        if relative == 'solver_core.py' and 'Solver' in names:
+    class StopSolver:
+        def __init__(self, ctx, geo, *args):
+            raise Captured(geo)
 
-            class StopSolver:
-                def __init__(self, geo, *args):
-                    raise Captured(geo)
-
-            scope['Solver'] = StopSolver
-        return result
-
-    engine.definitions = definitions
     state = geometry.normal_state()
     with (
         patch.object(fused, 'load_engine', return_value=engine),
+        patch.object(solver_core, 'Solver', StopSolver),
         patch.object(geometry, 'Kernel', return_value=None),
         patch.object(host_cache, 'sun_geometry', return_value=None),
         patch.dict('os.environ', SOSFUSE2_HOST_CACHE='0'),
@@ -91,8 +84,9 @@ def test_reject_incompatible_pairs(tmp_path):
 
 
 def test_actual_grids_match_original_harness_and_nr20(tmp_path):
-    old = fused.load_engine().definitions('solver_columns.py', ['grids'], dict(np=np))
-    h, chi = old.grids(1)
+    from sosfuse2.solver_columns import grids as column_grids
+
+    h, chi = column_grids(1)
     # Frozen pre-port harness V14 rule (SPEC.md height definition), preserving operation order and float64 bytes.
     expected = np.sort(
         np.r_[

@@ -25,28 +25,20 @@ class Stop(Exception):
     pass
 
 
-def stopping_engine(captured):
-    """A fresh engine whose Solver records (geo, kernel, scope) and stops before any optical preparation."""
-    engine = load_engine()
-    original = engine.definitions
+def stopping_engine(captured, monkeypatch):
+    """Capture context and geometry at the module Solver boundary."""
+    from sosfuse2 import solver_core
 
-    def definitions(relative, names, scope):
-        result = original(relative, names, scope)
-        if relative == 'solver_core.py' and 'Solver' in names:
+    class StopSolver:
+        def __init__(self, ctx, geo, kernel, *args):
+            captured.update(geo=geo, kernel=kernel, scope=ctx)
+            raise Stop
 
-            class StopSolver:
-                def __init__(self, geo, kernel, *args):
-                    captured.update(geo=geo, kernel=kernel, scope=scope)
-                    raise Stop
+        def prepare_ground(self):
+            return 'original'
 
-                def prepare_ground(self):
-                    return 'original'
-
-            scope['Solver'] = StopSolver
-        return result
-
-    engine.definitions = definitions
-    return engine
+    monkeypatch.setattr(solver_core, 'Solver', StopSolver)
+    return load_engine()
 
 
 def test_engine_hooks_absent_disabled_enabled():
@@ -63,34 +55,31 @@ def test_engine_hooks_absent_disabled_enabled():
     np.testing.assert_allclose(hooks.profile(h), tp.profile(h, hooks.vector), rtol=0, atol=0)
 
 
-def test_create_defaults_match_the_module_constants(tmp_path):
+def test_create_defaults_match_the_module_constants(tmp_path, monkeypatch):
     captured = {}
-    engine = stopping_engine(captured)
+    engine = stopping_engine(captured, monkeypatch)
     state = copy.deepcopy(gm.normal_state())
     H = state['parameters']['scale_height_km']
     with pytest.raises(Stop):
         engine.create(state, tmp_path, 'selftest', 2, 550.0, kernel_factory=lambda t, H, g: ('kernel', t, H, g))
     geo, scope = captured['geo'], captured['scope']
-    assert scope['b'].sh.OBS == engine.OBS and scope['OBS'] == engine.OBS if 'OBS' in scope else True
+    assert scope.b.sh.OBS == engine.OBS
     assert (
         geo.cfg == dict(nmu=1, nphi=2, path_n=4) and len(geo.h) == 4 and len(geo.chi) == 10
     )  # selftest grid untouched
     assert geo.folder == tmp_path and type(geo.sun).__name__ == 'SunGeometry'  # no aerosol folder, accepted sun
-    old = scope['b'].sh.old
+    old = scope.b.sh.old
     np.testing.assert_allclose(
         old.NORMAL['aer'], state['parameters']['aod550'] / (H * (-np.expm1(-80.0 / H))), rtol=1e-15
     )
     # Two defaults, kept distinct on purpose: the column profile clamps h at 0, the solver's ha profile does not.
-    assert (
-        old.profiles.__globals__['AER_PROFILE'](np.array([-1.0])) == 1.0
-        and scope['AER_PROFILE'](np.array([-1.0])) > 1.0
-    )
-    assert 'HOST_ORIGINAL_GROUND' not in scope and captured['kernel'][0] == 'kernel'
+    assert old.AER_PROFILE(np.array([-1.0])) == 1.0 and scope.AER_PROFILE(np.array([-1.0])) > 1.0
+    assert scope.prepare_ground and captured['kernel'][0] == 'kernel'
 
 
-def test_create_hooks_reach_geometry_kernel_and_scope(tmp_path):
+def test_create_hooks_reach_geometry_kernel_and_scope(tmp_path, monkeypatch):
     captured = {}
-    engine = stopping_engine(captured)
+    engine = stopping_engine(captured, monkeypatch)
     state = copy.deepcopy(gm.normal_state())
     state['troposphere_profile'] = dict(TWO_LAYER)
     hooks = tp.engine_hooks(state)
@@ -130,22 +119,17 @@ def test_create_hooks_reach_geometry_kernel_and_scope(tmp_path):
         and seen['sun_cache'] == tmp_path / 'aerosol_profile' / hooks.tag
         and geo.sun == ('sun', state['parameters']['scale_height_km'])
     )
-    assert scope['b'].sh.OBS == 0.8 and scope['AER_PROFILE'] is hooks.profile
-    old = scope['b'].sh.old
-    assert (
-        old.profiles.__globals__['AER_PROFILE'] is hooks.profile
-        and old.NORMAL['aer'] == state['parameters']['aod550'] / hooks.column
-    )
-    assert (
-        scope['Solver'].prepare_ground(None) is None and scope['HOST_ORIGINAL_GROUND'](None) == 'original'
-    )  # deferred: no-op until the caller restores
+    assert scope.b.sh.OBS == 0.8 and scope.AER_PROFILE is hooks.profile
+    old = scope.b.sh.old
+    assert old.AER_PROFILE is hooks.profile and old.NORMAL['aer'] == state['parameters']['aod550'] / hooks.column
+    assert scope.prepare_ground is False
     assert captured['kernel'] == ('kernel', 2)  # a non-native kernel takes no vector
 
 
-def profile_scope(state, cache):
+def profile_scope(state, cache, monkeypatch):
     captured = {}
     with pytest.raises(Stop):
-        stopping_engine(captured).create(
+        stopping_engine(captured, monkeypatch).create(
             state,
             cache,
             'selftest',
@@ -157,21 +141,21 @@ def profile_scope(state, cache):
     return captured['scope']
 
 
-def test_two_layer_column_callables_freeze_and_pickle(tmp_path):
+def test_two_layer_column_callables_freeze_and_pickle(tmp_path, monkeypatch):
     from sosfuse2 import column_parallel, column_table
 
     state = copy.deepcopy(gm.normal_state())
     state['troposphere_profile'] = dict(TWO_LAYER)
-    old = profile_scope(state, tmp_path)['b'].sh.old
+    old = profile_scope(state, tmp_path, monkeypatch).b.sh.old
     p = np.array([[0.0, 0.0, old.R + 0.1]])
     d = np.array([[0.0, 0.0, 1.0]])
     h = np.array([-1.0, 0.0, 1.5, 3.0, 80.0])
     for names in (['geometry_segments', 'probe'], ['profiles', 'probe']):
-        frozen = column_parallel.freeze(old, names)
+        frozen = column_parallel.freeze(old, [*names, "aerosol_descriptor"])
         worker = column_parallel.thaw(pickle.loads(pickle.dumps(frozen)))
         if names[0] == 'profiles':
             np.testing.assert_allclose(worker.profiles(h), old.profiles(h), rtol=1e-6, atol=0)
-            # Thawed namespaces lack the explicit descriptor: the callable's descriptor must still work.
+            # The selected descriptor travels with the worker bindings.
             assert column_table.aerosol(worker) == column_table.aerosol(old)
         else:
             actual = list(worker.geometry_segments(p, d, 24))
@@ -189,13 +173,13 @@ def test_two_layer_column_callables_freeze_and_pickle(tmp_path):
     assert column.descriptor() == column_table.aerosol(old)
 
 
-def test_profile_identities_keep_state_dependencies(tmp_path):
+def test_profile_identities_keep_state_dependencies(tmp_path, monkeypatch):
     from sosfuse2 import column_table
 
     states = [copy.deepcopy(gm.normal_state()) for _ in range(3)]
     states[1]['parameters']['scale_height_km'] = 2.4
     states[2]['troposphere_profile'] = dict(TWO_LAYER)
-    old = [profile_scope(state, tmp_path)['b'].sh.old for state in states]
+    old = [profile_scope(state, tmp_path, monkeypatch).b.sh.old for state in states]
     assert old[0].SunGeometry.identity(1) != old[1].SunGeometry.identity(1)
     assert column_table.aerosol(old[0]) != column_table.aerosol(old[2])
     for o, state in zip(old, states):
@@ -204,9 +188,10 @@ def test_profile_identities_keep_state_dependencies(tmp_path):
         # The explicit descriptor is sufficient, even without any function internals.
         assert column_table.aerosol(SimpleNamespace(aerosol_descriptor=expected)) == expected
         del o.aerosol_descriptor
-        assert column_table.aerosol(o) == expected
-    # Retain the legacy scope-only default, including its 1.2 km fallback.
-    assert column_table.aerosol(SimpleNamespace(profiles=lambda h: h)) == dict(kind='exp', height=1.2)
+        with pytest.raises(ValueError, match='E_COLUMN_AER_DESCRIPTOR:'):
+            column_table.aerosol(o)
+    with pytest.raises(ValueError, match='E_COLUMN_AER_DESCRIPTOR:'):
+        column_table.aerosol(SimpleNamespace(profiles=lambda h: h))
 
 
 def test_native_kernel_transport_passes_the_vector_only_when_set():

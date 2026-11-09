@@ -1,14 +1,17 @@
-"""Per-call solver scopes; definition bodies live in editable solver_*.py sources."""
+"""CPU reference engine with an explicit context for each state."""
 
-import ast, collections, ctypes, hashlib, json, math, os, resource, shutil, subprocess, sys, tempfile, time, types
+import collections, ctypes, hashlib, json, os, resource, shutil, subprocess, sys, tempfile, types, warnings
 from pathlib import Path
+from collections.abc import Mapping
+from functools import partial
 import numpy as np
-from .. import paths
+from .. import paths, solver_columns, solver_optics, solver_sky, solver_legacy, solver_poly, solver_core
 from ..tropo_profile import ExponentialProfile
 
 ROOT = paths.PKG  # package sources and assets
 HERE = Path(__file__).resolve().parent
-R, Z, OBS = 6371.0, 80.0, 0.1
+R, Z = solver_columns.R, solver_columns.Z
+OBS = 0.1
 THREAD_KEYS = (
     'OMP_NUM_THREADS',
     'OPENBLAS_NUM_THREADS',
@@ -28,18 +31,6 @@ SOURCE_FILES = [
     'assets/spectra.json',
 ]
 SPECTRA = ROOT / 'assets/spectra.json'
-
-
-def definitions(relative, names, scope):
-    path = ROOT / relative
-    text = path.read_text()
-    tree = ast.parse(text)
-    nodes = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names]
-    if {n.name for n in nodes} != set(names):
-        raise RuntimeError(f'E_ADAPTER_DRIFT: {relative}: missing definition')
-    scope['SOURCE_PATH'] = path  # exec scopes have no __file__; identity uses this explicit source input
-    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), scope)
-    return types.SimpleNamespace(**scope)
 
 
 def cell_folder(cache, h, chi, cfg):
@@ -198,6 +189,158 @@ class Kernel:
         return out
 
 
+class SunGeometryBinder:
+    """Bind only the aerosol inputs while retaining the table identity helpers."""
+
+    def __init__(self, aerosol, aerosol_height):
+        self.aerosol = aerosol
+        self.aerosol_height = aerosol_height
+
+    def __call__(self, scale, folder):
+        return solver_columns.SunGeometry(scale, folder, aerosol=self.aerosol, aerosol_height=self.aerosol_height)
+
+    def identity(self, scale):
+        return solver_columns.SunGeometry.identity(scale, self.aerosol_height)
+
+    stored_identity = staticmethod(solver_columns.SunGeometry.stored_identity)
+
+
+class EngineContext(Mapping):
+    """Per-state bindings; read-only scope indexing is retained for one release."""
+
+    _keys = ('b', 'Solver', 'basis_at', 'pack', 'C', 'AER_PROFILE', 'AER_HEIGHT', 'AER_G', 'R', 'Z')
+    R, Z = R, Z
+    basis_at = staticmethod(solver_core.basis_at)
+
+    def __init__(self, b, height, g, profile, prepare_ground):
+        self.b = b
+        self.C = 3 / (16 * np.pi)
+        self.AER_HEIGHT, self.AER_G, self.AER_PROFILE = height, g, profile
+        self.prepare_ground = prepare_ground
+
+    def Solver(self, g, kernel, wavelengths, mode=0, delta=0.03):
+        return solver_core.Solver(self, g, kernel, wavelengths, mode, delta)
+
+    def pack(self, p, d, h, ch, sun, n):
+        return solver_core.pack(self, p, d, h, ch, sun, n)
+
+    @staticmethod
+    def _deprecated():
+        warnings.warn(
+            "sosfuse2 engine scope indexing is deprecated: use the context attributes (scope.b, scope.Solver, …)",
+            DeprecationWarning,
+            stacklevel=3,  # the caller of the mapping method
+        )
+
+    def __bool__(self):
+        return True  # a scope is always truthy; len() would warn
+
+    def __getitem__(self, key):
+        self._deprecated()
+        if key not in self._keys:
+            raise KeyError(key)
+        return getattr(self, key)
+
+    def __iter__(self):
+        self._deprecated()
+        return iter(self._keys)
+
+    def __len__(self):
+        self._deprecated()
+        return len(self._keys)
+
+    def __contains__(self, key):
+        self._deprecated()
+        return key in self._keys
+
+    def get(self, key, default=None):
+        self._deprecated()
+        return getattr(self, key) if key in self._keys else default
+
+    def keys(self):
+        self._deprecated()
+        return collections.abc.KeysView(self)
+
+    def items(self):
+        self._deprecated()
+        return collections.abc.ItemsView(self)
+
+    def values(self):
+        self._deprecated()
+        return collections.abc.ValuesView(self)
+
+    def _readonly(self, *args, **kwargs):
+        raise TypeError('E_ENGINE_SCOPE_READONLY: use context attributes')
+
+    __setitem__ = __delitem__ = pop = popitem = update = clear = setdefault = _readonly
+
+
+class Geometry:
+    build = solver_core.build
+
+    def __init__(self, ctx, state_id, h, ch, cache, cfg, sun, mode):
+        self.ctx = ctx
+        nmu, nphi, path_n = cfg["nmu"], cfg["nphi"], cfg["path_n"]
+        self.name = state_id
+        self.h, self.chi = h, ch
+        self.ns = len(h) * len(ch)
+        self.folder = cache
+        self.cache = cell_folder(cache, h, ch, dict(nmu=nmu, nphi=nphi, path_n=path_n))
+        self.cfg = dict(nmu=nmu, nphi=nphi, path_n=path_n)
+        self.compact = False
+        self.poly, self.left = solver_poly.chi_poly(ch)
+        self.sun = sun
+        self.query_n = 24 if mode == 'full' else 6
+        self.ram = collections.OrderedDict()
+        self.ram_bytes = 0
+        self.ram_limit = 64 * 1024**2
+        self.meta = dict(
+            cells=self.ns,
+            nr=len(h),
+            nchi=len(ch),
+            incoming_rays=0,
+            points=0,
+            geometry_seconds=0.0,
+            first_seconds=0.0,
+            fold_seconds=0.0,
+            compression_seconds=0.0,
+            io_seconds=0.0,
+            largest_block_bytes=0,
+            largest_basis_bytes=0,
+            solid_angle_max_relative=0.0,
+            cache_bytes=0,
+        )
+
+    def pack(self, p, d, n):
+        return self.ctx.pack(p, d, self.h, self.chi, self.sun, n)
+
+    def cell(self, i, s):
+        if i in self.ram:
+            z = self.ram.pop(i)
+            self.ram[i] = z
+            return z
+        path = self.cache / f'cell_{i:05d}.npz'
+        if path.exists():
+            with np.load(path) as f:
+                z = {k: f[k] for k in f.files}
+        else:
+            z = self.build(i, s)
+            if shutil.disk_usage(self.folder).free < 1_000_000_000:
+                raise RuntimeError('E_DISK_LOW: <1 GB free; checkpoint retained')
+            tmp = path.with_suffix('.tmp')
+            with tmp.open('wb') as f:
+                np.savez_compressed(f, **z)
+            os.replace(tmp, path)
+        size = sum(v.nbytes for v in z.values())
+        while self.ram and self.ram_bytes + size > self.ram_limit:
+            _, v = self.ram.popitem(last=False)
+            self.ram_bytes -= sum(q.nbytes for q in v.values())
+        if size <= self.ram_limit:
+            self.ram[i] = z
+            self.ram_bytes += size
+        return z
+
+
 def create(
     state,
     cache,
@@ -213,9 +356,9 @@ def create(
     prepare_ground=True,
     aerosol=None,
 ):
-    """One solver in a private scope. The keyword-only hooks (1.2.0) are the former text patches of run_gpu_state_v3 and
-    tropo_profile made explicit; every default reproduces the call without the hook, so the module's own callers (research
-    CLIs, selftests) see no change:
+    """Create a solver, its private context, and the selected settings.
+
+    Keyword-only hooks provide the state inputs used by the imported solver modules:
       observer_km     observer height in km (module OBS when None); read by the column, sky and settings records.
       kernel_factory  callable(threads, H, g) -> transport kernel; the native Kernel above when None.
       grid            callable(mode, h, chi, nmu, nphi, path_n) -> same tuple, applied after the mode's grid is chosen and
@@ -223,40 +366,45 @@ def create(
       spec            the spectral table dict (assets/spectra.json when None). create() completes it in place (NO2 defaults),
                       so pass a fresh dict per call.
       sun_geometry    callable(old, cache, H) -> sun geometry; old.SunGeometry(1, cache) when None.
-      prepare_ground  False defers the ground preparation: Solver.prepare_ground is replaced by a no-op on the solver class of
-                      this scope and the original is kept as scope['HOST_ORIGINAL_GROUND']; the caller restores it after
-                      every Solver it builds in this scope (run_gpu_state_v3.create_configured).
+      prepare_ground  False defers ground preparation for solvers created through this context. Set
+                      context.prepare_ground to True to prepare subsequent solvers, or call solver.prepare_ground().
       aerosol         None (exponential profile) or a namespace with profile(h), column (aod normalisation), folder(cache)
                       (sun-cache folder per profile) and vector (two-layer parameters for the native kernel): tropo_profile.engine_hooks."""
     params = state['parameters']
     H = params['scale_height_km']
     gg = params['g']
     obs = OBS if observer_km is None else observer_km
-    common = dict(np=np, math=math, time=time, json=json, Path=Path, R=R, Z=Z, ROOT=ROOT)
-    probe = definitions('solver_columns.py', ['gl', 'frame', 'boundaries'], dict(common))
-    oldscope = dict(common, probe=probe, OBS=obs, SPEC=json.loads(SPECTRA.read_text()) if spec is None else spec)
+    spectral = json.loads(SPECTRA.read_text()) if spec is None else spec
+    profile = ExponentialProfile(H, clamp=True) if aerosol is None else aerosol.profile
+    probe = types.SimpleNamespace(
+        gl=solver_columns.gl, frame=solver_columns.frame, boundaries=solver_columns.boundaries
+    )
+    old = types.SimpleNamespace(
+        R=R,
+        Z=Z,
+        OBS=obs,
+        SPEC=spectral,
+        AER_PROFILE=profile,
+        AER_HEIGHT=H,
+        probe=probe,
+        grids=solver_columns.grids,
+        profiles=partial(solver_columns.profiles, profile),
+        geometry_segments=partial(solver_columns.geometry_segments, profile),
+        total_columns=partial(solver_columns.total_columns, profile),
+        coefficients=partial(solver_optics.coefficients, spectral),
+        SunGeometry=SunGeometryBinder(profile, H),
+    )
     from sosfuse2 import density, components, minor_absorbers
 
     optical = density.build(state)
     amounts = components.optics_state(state, optical)
-    if not components.reference_active() and 'no2' not in oldscope['SPEC']:
-        oldscope['SPEC'].update(
-            minor_absorbers.representative(None, oldscope['SPEC']['wavelength_nm'], o4=amounts['o4'])
-        )
-    definitions('solver_optics.py', ['coefficients'], oldscope)
-    old = definitions(
-        'solver_columns.py', ['profiles', 'geometry_segments', 'total_columns', 'SunGeometry', 'grids'], oldscope
-    )
-
-    oldscope['AER_PROFILE'] = ExponentialProfile(H, clamp=True) if aerosol is None else aerosol.profile
-    oldscope['AER_HEIGHT'] = H
-    old.AER_HEIGHT = H
+    if not components.reference_active() and 'no2' not in spectral:
+        spectral.update(minor_absorbers.representative(None, spectral['wavelength_nm'], o4=amounts['o4']))
     old.aerosol_descriptor = (
         dict(kind='exp', height=float(H))
         if aerosol is None
         else dict(kind='two_layer', vector=np.asarray(aerosol.vector).tolist())
     )
-    # Functions share oldscope, so state-dependent profiles are used by every optical column.
     column = H * (-np.expm1(-Z / H)) if aerosol is None else aerosol.column
     old.NORMAL = dict(
         aer=params['aod550'] / column,
@@ -268,9 +416,10 @@ def create(
         **amounts,
         no2_H_f_km=optical['meta']['no2']['H_f_km'],
     )
-    shscope = dict(common, old=old, ctypes=ctypes, NORMAL=old.NORMAL, OBS=obs)
-    sh = definitions('solver_sky.py', ['incoming', 'spatial_lookup'], shscope)
-    legacy = definitions('solver_legacy.py', ['ring_edges', 'incoming'], dict(common, sh=sh))
+    sh = types.SimpleNamespace(
+        old=old, NORMAL=old.NORMAL, OBS=obs, incoming=solver_sky.incoming, spatial_lookup=solver_sky.spatial_lookup
+    )
+    legacy = types.SimpleNamespace(ring_edges=solver_legacy.ring_edges, incoming=solver_legacy.incoming)
     b = types.SimpleNamespace(
         sh=sh,
         R=R,
@@ -287,19 +436,9 @@ def create(
         ],
         HS=(2, -3, -6, -9, -12),
     )
-    polys = definitions('solver_poly.py', ['chi_poly'], dict(common))
-    scope = dict(common, b=b, C=3 / (16 * np.pi), AER_HEIGHT=H, AER_G=gg)
-    if aerosol is not None:
-        scope['AER_PROFILE'] = aerosol.profile
-    scope.setdefault(
-        'AER_PROFILE', ExponentialProfile(H, clamp=False)
-    )  # the solver's own default has no clamp (kept as is)
-    definitions('solver_core.py', ['basis_at', 'pack', 'Solver'], scope)
-    AcceptedSolver = scope['Solver']
-    if not prepare_ground:
-        scope['HOST_ORIGINAL_GROUND'] = AcceptedSolver.prepare_ground
-        AcceptedSolver.prepare_ground = lambda self: None
-    definitions('solver_core.py', ['build'], scope)
+    ctx = EngineContext(
+        b, H, gg, ExponentialProfile(H, clamp=False) if aerosol is None else aerosol.profile, prepare_ground
+    )
     if mode == 'full':
         h, ch = old.grids(1)
         nmu, nphi, path_n = 12, 64, 12
@@ -317,80 +456,19 @@ def create(
         h, ch, nmu, nphi, path_n = grid(mode, h, ch, nmu, nphi, path_n)
     sun_cache = cache if aerosol is None or aerosol.folder is None else aerosol.folder(cache)
 
-    class Geometry:
-        build = scope['build']
-
-        def __init__(self):
-            self.name = state['id']
-            self.h, self.chi = h, ch
-            self.ns = len(h) * len(ch)
-            self.folder = cache
-            self.cache = cell_folder(cache, h, ch, dict(nmu=nmu, nphi=nphi, path_n=path_n))
-            self.cfg = dict(nmu=nmu, nphi=nphi, path_n=path_n)
-            self.compact = False
-            self.poly, self.left = polys.chi_poly(ch)
-            self.sun = old.SunGeometry(1, sun_cache) if sun_geometry is None else sun_geometry(old, sun_cache, H)
-            self.query_n = 24 if mode == 'full' else 6
-            self.ram = collections.OrderedDict()
-            self.ram_bytes = 0
-            self.ram_limit = 64 * 1024**2
-            self.meta = dict(
-                cells=self.ns,
-                nr=len(h),
-                nchi=len(ch),
-                incoming_rays=0,
-                points=0,
-                geometry_seconds=0.0,
-                first_seconds=0.0,
-                fold_seconds=0.0,
-                compression_seconds=0.0,
-                io_seconds=0.0,
-                largest_block_bytes=0,
-                largest_basis_bytes=0,
-                solid_angle_max_relative=0.0,
-                cache_bytes=0,
-            )
-
-        def pack(self, p, d, n):
-            return scope['pack'](p, d, self.h, self.chi, self.sun, n)
-
-        def cell(self, i, s):
-            if i in self.ram:
-                z = self.ram.pop(i)
-                self.ram[i] = z
-                return z
-            path = self.cache / f'cell_{i:05d}.npz'
-            if path.exists():
-                with np.load(path) as f:
-                    z = {k: f[k] for k in f.files}
-            else:
-                z = self.build(i, s)
-                if shutil.disk_usage(cache).free < 1_000_000_000:
-                    raise RuntimeError('E_DISK_LOW: <1 GB free; checkpoint retained')
-                tmp = path.with_suffix('.tmp')
-                with tmp.open('wb') as f:
-                    np.savez_compressed(f, **z)
-                os.replace(tmp, path)
-            size = sum(v.nbytes for v in z.values())
-            while self.ram and self.ram_bytes + size > self.ram_limit:
-                _, v = self.ram.popitem(last=False)
-                self.ram_bytes -= sum(q.nbytes for q in v.values())
-            if size <= self.ram_limit:
-                self.ram[i] = z
-                self.ram_bytes += size
-            return z
-
     kernel = (Kernel if kernel_factory is None else kernel_factory)(threads, H, gg)
     if (
         aerosol is not None and aerosol.vector is not None and isinstance(kernel, Kernel)
     ):  # only the native kernel takes the vector; fused.Kernel reads the profile in setup()
         kernel.aerosol_vector = np.ascontiguousarray(aerosol.vector, 'f8')
-    geo = Geometry()
-    solver = AcceptedSolver(geo, kernel, [wavelength], 1, 0.03)
+    cache.mkdir(parents=True, exist_ok=True)
+    sun = old.SunGeometry(1, sun_cache) if sun_geometry is None else sun_geometry(old, sun_cache, H)
+    geo = Geometry(ctx, state["id"], h, ch, cache, dict(nmu=nmu, nphi=nphi, path_n=path_n), sun, mode)
+    solver = ctx.Solver(geo, kernel, [wavelength], 1, 0.03)
     solver.active[1::2] = 0
     return (
         solver,
-        scope,
+        ctx,
         dict(
             nr=len(h),
             chi_step_deg=0.5 if mode == 'full' else 1 if mode == 'reduced' else None,

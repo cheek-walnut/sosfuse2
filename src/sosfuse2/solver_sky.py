@@ -1,15 +1,8 @@
-"""Solver definitions loaded into per-call scopes by accepted.engine.definitions.
-
-The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by accepted.engine.create). The imports and
-placeholders below never run there; they name the injected globals for static analysis (ruff, pyright)."""
-
-from typing import Any
+"""Incoming-direction quadrature and spatial lookup of the CPU reference engine."""
 
 import numpy as np
 
-R: Any = None  # Earth radius, km (engine.R)
-Z: Any = None  # top of the atmosphere, km (engine.Z)
-old: Any = None  # namespace of the solver_columns definitions (engine.create)
+from .solver_columns import R, Z, gl
 
 
 def incoming(r, chi, qscale):
@@ -17,7 +10,7 @@ def incoming(r, chi, qscale):
     a = 4.0
     sa = np.sinh(a)
     nphi = 32 * qscale
-    u, wu = old.probe.gl(3 * qscale)
+    u, wu = gl(3 * qscale)
     allmu = []
     allphi = []
     allw = []

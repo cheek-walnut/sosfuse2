@@ -37,7 +37,7 @@ def zero_bytes(current, baseline):
 
 
 def query_geometry(s, hs, el, az):
-    p, up, ex = s.query.__func__.__globals__['b'].sh.old.probe.frame(np.array(6371.1), np.deg2rad(90 - hs))
+    p, up, ex = s.ctx.b.sh.old.probe.frame(np.array(6371.1), np.deg2rad(90 - hs))
     ey = np.cross(up, ex)
     e, z = np.deg2rad([el, az])
     d = np.sin(e) * up + np.cos(e) * (np.cos(z) * ex + np.sin(z) * ey)
@@ -124,7 +124,7 @@ def thin_case(out):
 def additivity(s, scope, g=None):
     # 96 distinct physical rays; same extinction, only component scattering
     # switched. Every output element has its own FP32 ULP/relative bound.
-    old = scope['b'].sh.old
+    old = scope.b.sh.old
     p, up, ex = old.probe.frame(np.array(6371.1), np.deg2rad(88.0))
     ey = np.cross(up, ex)
     el, az = np.meshgrid(np.linspace(2, 89, 8), np.linspace(0, 180, 12), indexing='ij')
@@ -191,7 +191,7 @@ def energy():
 
 
 def profile_grid(scope):
-    h = scope['b'].sh.old.grids(1)[0]
+    h = scope.b.sh.old.grids(1)[0]
     state = copy.deepcopy(normal_state())
     state['stratosphere']['status'] = 'enabled'
     state['parameters']['stratosphere_tau550'] = 0.003

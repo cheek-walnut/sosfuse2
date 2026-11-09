@@ -12,7 +12,6 @@ Run: python -B -m sosfuse2.tests.test_r17_port
 """
 
 from sosfuse2 import paths
-import ast
 import contextlib
 import copy
 import hashlib
@@ -40,13 +39,6 @@ HERE = paths.PKG  # the package directory (kernel, configs, assets)
 from sosfuse2 import column_cache, fused, paths, stratosphere
 
 
-def functions(path, names, namespace):
-    tree = ast.parse(path.read_text())
-    tree.body = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
-    exec(compile(tree, str(path), 'exec'), namespace)
-    return SimpleNamespace(**namespace)
-
-
 def phase_events(text):
     out = []
     for line in text.splitlines():
@@ -65,12 +57,9 @@ class ColumnCacheFirstUse(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix='r17-colcache-'))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        probe = functions(paths.PKG / 'solver_columns.py', {'boundaries', 'gl'}, dict(np=np, R=6371.0, Z=80.0))
-        self.old = functions(
-            paths.PKG / 'solver_columns.py',
-            {'geometry_segments', 'profiles'},
-            dict(np=np, probe=probe, R=6371.0, AER_PROFILE=lambda h: np.exp(-np.maximum(h, 0) / 1.2)),
-        )
+        from sosfuse2.tests.test_b2_components import old_solver
+
+        self.old = old_solver()
         rng = np.random.default_rng(23)
         d = rng.normal(size=(200, 3))
         d /= np.linalg.norm(d, axis=1)[:, None]

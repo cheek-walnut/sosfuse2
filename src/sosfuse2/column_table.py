@@ -49,21 +49,7 @@ def aerosol(old):
     explicit = getattr(old, 'aerosol_descriptor', None)
     if explicit is not None:
         return explicit
-    scope = old.profiles.__globals__
-    f = scope.get('AER_PROFILE')
-    if f is not None and hasattr(f, 'descriptor'):
-        return f.descriptor()
-    if f is not None and f.__name__ == 'exponential_profile':
-        # Per-state default from engine.create; name/defaults survive worker freeze/thaw.
-        return descriptor('exp', height=float(f.__defaults__[0]))
-    if f is not None:
-        # The engine's explicit two-layer profile closure contains its vector.
-        cells = dict(zip(f.__code__.co_freevars, (c.cell_contents for c in f.__closure__ or ())))
-        vector = cells.get('vector')
-        if vector is None:
-            raise ValueError('E_COLUMN_AER_PROFILE: missing two-layer vector')
-        return descriptor('two_layer', vector=np.asarray(vector).tolist())
-    return descriptor('exp', height=float(scope.get('AER_HEIGHT', 1.2)))
+    raise ValueError('E_COLUMN_AER_DESCRIPTOR: missing aerosol_descriptor')
 
 
 def molecular(optics, k):

@@ -115,8 +115,8 @@ class IncomingTests(unittest.TestCase):
             mock.patch.dict(os.environ, {'SOSFUSE2_SUN_WORKERS': '1', 'SOSFUSE2_GROUND_WORKERS': '1'}),
         ):
             _, scope, _ = geometry.create(Path(tmp), 'selftest', [550.0], 'numpy')
-        legacy = scope['b'].legacy
-        env = dict(np=np, R=6371.0, sh=scope['b'].sh)
+        legacy = scope.b.legacy
+        env = dict(np=np, R=6371.0, sh=scope.b.sh)
         env['ring_edges'] = types.FunctionType(accepted_ring_edges.__code__, env)
         oracle = types.FunctionType(accepted.__code__, env, argdefs=accepted.__defaults__)
         for height in (0.0, 0.001, 1.2, 10.0, 25.0, 40.0, 79.9):

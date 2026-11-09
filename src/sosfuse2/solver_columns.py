@@ -1,20 +1,13 @@
-"""Solver definitions loaded into per-call scopes by accepted.engine.definitions.
-
-The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by accepted.engine.create). The imports and
-placeholders below never run there; they name the injected globals for static analysis (ruff, pyright)."""
+"""Column integration and the sun-column table of the CPU reference engine; the aerosol profile is an argument."""
 
 import json
 import time
-from typing import Any
+from pathlib import Path
 
 import numpy as np
 
-R: Any = None  # Earth radius, km (engine.R)
-Z: Any = None  # top of the atmosphere, km (engine.Z)
-probe: Any = None  # gl/frame/boundaries of this file in their own scope (engine.create)
-AER_PROFILE: Any = None  # aerosol profile of the state, bound after the definitions (engine.create)
-AER_HEIGHT: Any = None  # scale height of the state, bound after the definitions (engine.create)
-SOURCE_PATH: Any = None  # explicit source path injected by engine.definitions (exec has no __file__)
+R = 6371.0
+Z = 80.0
 
 
 def gl(n):
@@ -53,13 +46,13 @@ def boundaries(p, d):
     return np.sort(np.stack([np.zeros_like(end), tangent, *roots, end], -1), axis=-1)
 
 
-def profiles(h):
+def profiles(aerosol, h):
     from sosfuse2.density import no2_profile
 
     return np.stack(
         [
             np.exp(-np.maximum(h, 0) / 8),
-            AER_PROFILE(h),
+            aerosol(h),
             np.maximum(0, 1 - np.abs(h - 25) / 15),
             no2_profile(h),
             np.exp(-np.maximum(h, 0) / 4),
@@ -85,8 +78,8 @@ def grids(scale):
     return h, np.deg2rad(chi)
 
 
-def geometry_segments(p, d, n):
-    edges = probe.boundaries(p, d)
+def geometry_segments(aerosol, p, d, n):
+    edges = boundaries(p, d)
     end = edges[:, -1]
     b = np.sum(p * d, -1)
     pp = np.sum(p * p, -1)
@@ -97,7 +90,7 @@ def geometry_segments(p, d, n):
             root = -b + sign * np.sqrt(np.maximum(disc, 0))
             more.append(np.where((disc > 0) & (root > 0) & (root < end), root, end))
     edges = np.sort(np.column_stack([edges, *more]), axis=-1)
-    u, wu = probe.gl(n)
+    u, wu = gl(n)
     tau = np.zeros((len(d), 5))
     for k in range(edges.shape[1] - 1):
         active = np.flatnonzero(edges[:, k + 1] - edges[:, k] > 1e-8)
@@ -113,37 +106,38 @@ def geometry_segments(p, d, n):
         q = pa[:, None, :] + t[..., None] * da[:, None, :]
         r = np.sqrt(np.sum(q * q, -1))
         h = r - R
-        dt = profiles(h) * ds[..., None]
+        dt = profiles(aerosol, h) * ds[..., None]
         prefix = tau[active, None, :] + np.cumsum(dt, axis=1) - dt / 2
         tau[active] += dt.sum(axis=1)
         yield active, q, r, ds, prefix
 
 
-def total_columns(p, d, n):
+def total_columns(aerosol, p, d, n):
     out = np.zeros((len(d), 5))
-    for active, q, r, ds, prefix in geometry_segments(p, d, n):
-        out[active] += np.sum(profiles(r - R) * ds[..., None], axis=1)
+    for active, q, r, ds, prefix in geometry_segments(aerosol, p, d, n):
+        out[active] += np.sum(profiles(aerosol, r - R) * ds[..., None], axis=1)
     return out
 
 
 class SunGeometry:
     @staticmethod
-    def identity(scale):
+    def identity(scale, aerosol_height):
         """Everything the table depends on besides its folder (which still separates states). A file without this
         identity, or with another one, is rebuilt: an unkeyed 3-column table from before B2 once reached the
         5-column solver (2026-11-04 judge run). sun_parallel.prebuild writes and checks the same string."""
         import hashlib
+
         from sosfuse2 import components, density
 
-        here = SOURCE_PATH.parent  # this file + both builders (prebuild: sun_parallel/ray_columns/column_parallel)
+        here = Path(__file__).parent  # this file + both builders (prebuild: sun_parallel/ray_columns/column_parallel)
         files = (
-            SOURCE_PATH,
+            Path(__file__),
             *(
                 here / n
                 for n in ('density.py', 'tropo_profile.py', 'ray_columns.py', 'sun_parallel.py', 'column_parallel.py')
             ),
         )
-        height = AER_HEIGHT
+        height = aerosol_height
         return json.dumps(
             dict(
                 table='sun_columns',
@@ -165,10 +159,10 @@ class SunGeometry:
         with np.load(path) as z:
             return str(z['identity']) if 'identity' in z.files else None
 
-    def __init__(self, scale, folder):
+    def __init__(self, scale, folder, *, aerosol, aerosol_height):
         path = folder / 'sun_columns.npz'
         t = time.perf_counter()
-        ident = self.identity(scale)
+        ident = self.identity(scale, aerosol_height)
         if path.exists():
             with np.load(path) as z:  # identity and arrays from one open: a concurrent replace cannot pair them wrongly
                 stored = str(z['identity']) if 'identity' in z.files else None
@@ -192,9 +186,10 @@ class SunGeometry:
             mu[0] = mg + 1e-9
             p = np.column_stack([np.zeros(len(mu)), np.zeros(len(mu)), np.full(len(mu), r)])
             d = np.column_stack([np.sqrt(np.maximum(1 - mu * mu, 0)), np.zeros(len(mu)), mu])
-            col[i] = total_columns(p, d, 32 * scale)
+            col[i] = total_columns(aerosol, p, d, 32 * scale)
         self.col = col
-        import os, tempfile  # tmp + replace: a reader never sees a half-written table (also when a stale one is replaced)
+        import os  # tmp + replace: a reader never sees a half-written table (also when a stale one is replaced)
+        import tempfile
 
         fd, name = tempfile.mkstemp(prefix='sun_columns.', suffix='.tmp', dir=folder)
         try:

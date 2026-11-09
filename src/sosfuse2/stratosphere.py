@@ -405,7 +405,7 @@ def attach(s, scope):
     from .sh_layout import count
 
     optics['meta']['source_stride'] = 10 + 2 * count(getattr(s.kernel, 'L', 32))
-    old = scope['b'].sh.old
+    old = scope.b.sh.old
     profile = optics['profile']
     suncol, geom = _ground_geometry(s, scope, old, profile)
     # Recompute first-ground values with additional sun->ground and ground->cell

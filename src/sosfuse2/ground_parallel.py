@@ -8,9 +8,11 @@ import types
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 from .column_parallel import default_workers, event_fields, freeze, thaw
+from . import column_parallel as cp
 
 ENV = 'SOSFUSE2_GROUND_WORKERS'
 _STATE = None
+_SOURCE_DRIFT = None
 
 
 def workers():
@@ -27,11 +29,8 @@ def workers():
 
 
 def _functions(scope, sun):
-    old = scope['b'].sh.old
-    incoming = scope['b'].sh.incoming
-    # incoming's exec scope contains the entire solver. Ship only the GL dependency.
-    globals_ = dict(incoming.__globals__, old=types.SimpleNamespace(probe=types.SimpleNamespace(gl=old.probe.gl)))
-    incoming = types.FunctionType(incoming.__code__, globals_, incoming.__name__, incoming.__defaults__)
+    old = scope.b.sh.old
+    incoming = scope.b.sh.incoming
     return types.SimpleNamespace(
         incoming=incoming,
         frame=old.probe.frame,
@@ -44,14 +43,18 @@ def _functions(scope, sun):
     )
 
 
-def _init(frozen, data, kind):
-    global _STATE
+def _init(frozen, data, kind, sources):
+    global _STATE, _SOURCE_DRIFT
+    _SOURCE_DRIFT = cp.source_drift(sources)
+    if _SOURCE_DRIFT is not None:
+        return
     f = thaw(frozen)
     f.probe = types.SimpleNamespace(boundaries=f.boundaries, gl=f.gl)
     _STATE = (f, data, kind)
 
 
 def _run(task):
+    cp.check_source(_SOURCE_DRIFT)
     return _cell(*_STATE, task)
 
 
@@ -108,7 +111,7 @@ def _map(f, data, kind, tasks):
                 min(count, len(tasks)),
                 mp_context=multiprocessing.get_context('spawn'),
                 initializer=_init,
-                initargs=(frozen, data, kind),
+                initargs=(frozen, data, kind, cp.SOURCE_HASHES),
             ) as pool:
                 out = list(pool.map(_run, tasks))
         except Exception as exc:
@@ -146,7 +149,7 @@ def cells(s, scope, kind, optics=None, profile=None, suncol=None, method=None):
     g = s.geo
     sun = types.SimpleNamespace(h=g.sun.h, x=g.sun.x, col=g.sun.col)
     optics = None if optics is None else {k: v for k, v in optics.items() if k != 'old'}
-    data = (g.h, g.chi, 6371.0 if kind == 'strato' else scope['b'].R, sun, optics, profile, suncol, method)
+    data = (g.h, g.chi, 6371.0 if kind == 'strato' else scope.b.R, sun, optics, profile, suncol, method)
     return _map(_functions(scope, g.sun), data, kind, list(range(g.ns)))
 
 

@@ -377,7 +377,7 @@ def prepare_ground(s, scope, optics, method=None):
     from .density import sun_method
 
     method = sun_method() if method is None else method
-    b = scope['b']
+    b = scope.b
     old = b.sh.old
     g = s.geo
     folder, key = context(s, optics)
@@ -471,7 +471,7 @@ def prepare_ground(s, scope, optics, method=None):
             [(1 - loc[:, 0] ** 2) / 2, (1 - loc[:, 1] ** 2) / 2, (1 - loc[:, 2] ** 2) / 2, -loc[:, 0] * loc[:, 2] / 2],
             -1,
         )
-        s.gm[cell] = (factor.T @ value) * (2 * scope['C'] * s.ext[0])[None, :]
+        s.gm[cell] = (factor.T @ value) * (2 * scope.C * s.ext[0])[None, :]
     s.goff = np.array(off, 'i8')
     s.gdir = np.ascontiguousarray(np.concatenate(ds), 'f4')
     s.gval = np.ascontiguousarray(np.concatenate(vs), 'f4')

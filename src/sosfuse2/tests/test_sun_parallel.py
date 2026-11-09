@@ -32,7 +32,7 @@ class SunParallelTests(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         with mock.patch.dict(os.environ, {sp.ENV: '1'}):
             _, scope, _ = geometry.create(Path(cls.tmp.name) / 'prepare', 'selftest', [550.0], 'numpy')
-        cls.old = scope['b'].sh.old
+        cls.old = scope.b.sh.old
         cls.h = np.array([0.0, 0.1, 13.0, 40.0, 80.0])
         cls.x = np.linspace(0, 1, 21)
         cls.optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
