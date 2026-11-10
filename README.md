@@ -2,49 +2,17 @@
 
 Radiance tables of the clear twilight sky for a spherical-shell atmosphere. The solver iterates successive orders of
 scattering to convergence on a height and angle grid, accelerated with Anderson mixing, and includes polarised Rayleigh
-scattering, a tropospheric aerosol layer, an optional stratospheric sulfate layer, absorption by ozone, NO₂ and O₄, and a
-Lambertian ground. One solve gives the sky at every solar elevation of a table, by default +6° to −18°. The package ships
-a NumPy reference implementation, an optional CUDA kernel compiled at run time through CuPy and NVRTC, numeric gates that
-compare against fixed references within tolerances, and a provenance record that signs every table with the hashes of the
-code and data that produced it.
+scattering, a tropospheric aerosol layer, a stratospheric sulfate layer (on in the bundled v2 states), absorption by
+ozone, NO₂ and O₄, and a Lambertian ground. One solve gives the sky at every solar elevation of a table, by default +6°
+to −18°. The package ships a NumPy reference implementation, an optional CUDA kernel compiled at run time through CuPy
+and NVRTC, numeric gates that compare against fixed references within tolerances, and a provenance record that signs
+every table with the hashes of the code and data that produced it.
 
 This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, and 1.3.0 is
-the current release. 1.2.0 replaced the source-text adapters of the engine loader with keyword-only hooks, moved the
-packaged tests into `sosfuse2/tests`, reformatted the Python sources to one statement per line and rewrote the documents;
-1.2.1 added `docs/PERFORMANCE.md`; 1.2.2 added the L4 stall measurement of the release kernel to that page and changed
-nothing else. Up to 1.2.2 the physics is that of 1.1.0: the tables carry new `code_hashes` since 1.2.0, and a comparison
-of 1.2.0 with 1.1.1 found no difference in the prepared arrays or the final tables. That comparison does not extend to
-1.2.3, whose default tables differ because the stratospheric layer is now on.
-
-1.2.3 enables the background stratospheric layer in all 64 bundled `states_v2.json` states. The physics code, sampled
-optical depths and 21 km layer centre are unchanged; `states_v1.json` retains its previous default. Runs using the
-default v2 states now include the layer when `--stratosphere` is omitted.
-
-The changed `states_v2.json` asset hash changes every new table's provenance signature, including runs using another
-state file, because the bundled asset is always hashed. Existing tables remain readable; signatures and saved-source
-reuse must still satisfy the provenance checks described in `docs/PROVENANCE_V3.md`. To reproduce the earlier off state,
-copy the state file, set each desired state's `stratosphere.status` to `disabled`, and pass that copy via `--states`;
-the CLI has no `--stratosphere off` option.
-
-1.3.0 reorganises the CPU reference engine and the kernel source and keeps the physics of 1.2.3. After the upgrade the
-sun-table, column, geometry and host caches are rebuilt once on first use, and provenance hashes differ from 1.2.3: the
-hashed source files changed and the sun-table identity is now version 3. The code generated from `kernel.cu` differs
-from 1.2.3 in one place. Under `SOSFUSE2_FASTMATH` the two `expf` calls of the two-layer aerosol profile now use the
-intrinsic, as the rest of the kernel already did, so tables of two-layer aerosol states built with that flag change in
-the last bits.
-
-The CPU solver files (`solver_*.py`) are now ordinary imported modules, so an edit to one takes effect only after the
-process restarts. `accepted.engine.create()` still returns `(solver, context, settings)`, and the second value is an
-`EngineContext` where it used to be a scope dict: read its attributes, such as `context.b` and `context.Solver`.
-Indexing it by one of the ten former keys still works in 1.3.0 and raises a `DeprecationWarning`. `engine.definitions`
-and the `HOST_ORIGINAL_GROUND` key are gone, code that reached into the solver functions through `__globals__`,
-`__code__` or `__closure__` no longer works, and `column_table.aerosol` requires an explicit profile descriptor
-(`E_COLUMN_AER_DESCRIPTOR`).
-
-`pipeline --threads 0` now stops with `E_PIPELINE_CPU_BUDGET`, and a non-positive `table_fast` batch stops with `E_TABLE_BATCH`.
-When the central region of a preview is black, its exposure is taken from the lit pixels of the whole image.
-
-The 1.2.0 comparison, and every configuration a release was verified on, is recorded under *Tested configurations*.
+the current release. `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the
+configurations the releases were verified on. The change that matters most for default output is in 1.2.3: the bundled
+`states_v2.json` states now include the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option. The
+changelog explains how to reproduce the earlier output.
 
 ![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their
 ratio](docs/validation/mystic_vs_engine.png)
@@ -79,6 +47,12 @@ solar zenith angles 93°–99°. Of 108 values of u′, v′ and Y, 66 reproduce
 and 42 are left unresolved by the Monte Carlo noise. `docs/VALIDATION.md` gives the set-up, the tables, the size of the
 1.1.0 changes, the sensitivity to the fixed choices listed below, and a qualitative check of the stratospheric aerosol
 input against measured zenith polarisation (Ugolnikov et al. 2004).
+
+The default tables differ from the compared ones in their stratospheric layer. In both MYSTIC comparisons the layer is
+centred at 19 km (τ550 0.0037 in the first state, 0.0022 in the second), and the polarisation check reads the input of the
+first state. The default layer of the bundled states is centred at 21 km with τ550 0.002–0.006 and is not compared with
+MYSTIC. The numeric gates in `docs/CHECKS.md` show that a change leaves the tables within tolerance of fixed references,
+which guards against regressions across refactors and other hardware; they do not measure physical accuracy.
 
 ## Limitations
 
