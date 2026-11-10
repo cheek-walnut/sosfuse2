@@ -23,6 +23,9 @@ resuming an output saved by 1.3.0 stops with `E_OUTPUT_IDENTITY` (use a fresh wo
   only `--host`: `--static` and `--paths` are removed (the kernel text and the three-wavelength grid they relied on are
   gone), and it stops with `E_NO_CHECK` when no check is requested. The persistent-service test skips with
   `E_SOCKET_PATH_TOO_LONG` when `TMPDIR` is too long for its socket.
+- Tests without the IPRT inputs: a test session used to refuse the download in every case, so a fresh installation saw
+  the tests that need the `usstd76` density asset fail with `E_IPRT_OFFLINE`. The session now fetches the two files
+  first unless `SOSFUSE2_OFFLINE` is set, and when they cannot be had those tests skip with that reason.
 
 ## 1.3.0
 

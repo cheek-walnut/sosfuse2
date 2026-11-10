@@ -15,12 +15,12 @@ CUDA-only modules (`test_C_registers`, the `gate` CUDA paths) skip as well, and 
 not packaged, skips 9 cases. Setting `SOSFUSE2_SKY_SOS_ROOT` to a checkout that lacks a record is a failure rather than a
 skip.
 
-The IPRT inputs are downloaded once into the work root, `SOSFUSE2_WORK_ROOT` or else `$XDG_CACHE_HOME/sosfuse2`, and the
-density asset is regenerated with platform-independent arithmetic (`density.ASSET_SHA256`). `SOSFUSE2_OFFLINE=1` refuses
-the download and prints the URLs to fetch by hand. An unreachable server is retried 3 times before the run stops with
-`E_IPRT_DOWNLOAD`, naming the file, the URL and the cause. With `SOSFUSE2_OFFLINE=1` and an empty work root, the tests
-that depend on the `usstd76` density asset, about 23 cases, fail with `E_IPRT_OFFLINE` rather than skip. Download the two
-files once with `python -B -c "from sosfuse2 import iprt; iprt.inputs()"` or leave `SOSFUSE2_OFFLINE` unset.
+The test session fetches the two IPRT inputs into the work root, `SOSFUSE2_WORK_ROOT` or else
+`$XDG_CACHE_HOME/sosfuse2`, when they are not there yet, and the density asset is regenerated with platform-independent
+arithmetic (`density.ASSET_SHA256`). An unreachable server is retried 3 times (`E_IPRT_DOWNLOAD`). With
+`SOSFUSE2_OFFLINE=1`, or when the download fails, the session runs without them: the tests that depend on the `usstd76`
+density asset, about 54 cases, skip with `E_IPRT_OFFLINE` and the command that fetches the files,
+`python -B -c "from sosfuse2 import iprt; iprt.inputs()"`. A test that fails for another reason is still a failure.
 
 The check in a fresh virtual environment outside the source tree also runs one reduced NumPy solve, which takes a few
 minutes, after the one-time O₄ preparation from the README
