@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sosfuse2"
-version = "1.2.3"
+version = "1.3.0"
 description = "Successive-orders-of-scattering twilight sky radiance tables (NumPy reference, optional CUDA via CuPy)"
 readme = "README.md"
 # PEP 639 expression for the whole distribution: code MIT; project data CC0; CIE colour tables via Mitsuba/colour-science
@@ -13,7 +13,7 @@ license = "MIT AND CC0-1.0 AND BSD-3-Clause AND CC-BY-SA-4.0 AND CC-BY-4.0"
 # Both files land in the wheel's licence directory; the sdist always carries them (hatchling).
 license-files = ["LICENSE", "THIRD_PARTY.md"]
 # Measured floor: the production bakes run on Python 3.12.3 (development GPU host) and the tests on 3.14 (Mac). 3.11 is a follow-up
-# (the accepted-source loader parses whole files, so older grammars need a check; sky-sos research records).
+# (older Python versions still need a compatibility check).
 requires-python = ">=3.12"
 dependencies = [
   "numpy>=2.0",
@@ -54,7 +54,7 @@ exclude = [
   "**/__pycache__",
   "**/*.pyc",
   "**/.DS_Store",
-  "**/.owner",      # session-ownership stamp written by the editing hooks (untracked)
+  "**/.owner",      # local untracked stamp files
 ]
 
 [tool.pytest.ini_options]

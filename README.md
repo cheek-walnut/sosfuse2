@@ -8,7 +8,7 @@ a NumPy reference implementation, an optional CUDA kernel compiled at run time t
 compare against fixed references within tolerances, and a provenance record that signs every table with the hashes of the
 code and data that produced it.
 
-This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 are published together, and 1.2.3 is
+This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, and 1.3.0 is
 the current release. 1.2.0 replaced the source-text adapters of the engine loader with keyword-only hooks, moved the
 packaged tests into `sosfuse2/tests`, reformatted the Python sources to one statement per line and rewrote the documents;
 1.2.1 added `docs/PERFORMANCE.md`; 1.2.2 added the L4 stall measurement of the release kernel to that page and changed
@@ -26,7 +26,25 @@ reuse must still satisfy the provenance checks described in `docs/PROVENANCE_V3.
 copy the state file, set each desired state's `stratosphere.status` to `disabled`, and pass that copy via `--states`;
 the CLI has no `--stratosphere off` option.
 
-That comparison, and every configuration the release was verified on, is recorded under *Tested configurations*.
+1.3.0 reorganises the CPU reference engine and the kernel source and keeps the physics of 1.2.3. After the upgrade the
+sun-table, column, geometry and host caches are rebuilt once on first use, and provenance hashes differ from 1.2.3: the
+hashed source files changed and the sun-table identity is now version 3. The code generated from `kernel.cu` differs
+from 1.2.3 in one place. Under `SOSFUSE2_FASTMATH` the two `expf` calls of the two-layer aerosol profile now use the
+intrinsic, as the rest of the kernel already did, so tables of two-layer aerosol states built with that flag change in
+the last bits.
+
+The CPU solver files (`solver_*.py`) are now ordinary imported modules, so an edit to one takes effect only after the
+process restarts. `accepted.engine.create()` still returns `(solver, context, settings)`, and the second value is an
+`EngineContext` where it used to be a scope dict: read its attributes, such as `context.b` and `context.Solver`.
+Indexing it by one of the ten former keys still works in 1.3.0 and raises a `DeprecationWarning`. `engine.definitions`
+and the `HOST_ORIGINAL_GROUND` key are gone, code that reached into the solver functions through `__globals__`,
+`__code__` or `__closure__` no longer works, and `column_table.aerosol` requires an explicit profile descriptor
+(`E_COLUMN_AER_DESCRIPTOR`).
+
+`pipeline --threads 0` now stops with `E_PIPELINE_CPU_BUDGET`, and a non-positive `table_fast` batch stops with `E_TABLE_BATCH`.
+When the central region of a preview is black, its exposure is taken from the lit pixels of the whole image.
+
+The 1.2.0 comparison, and every configuration a release was verified on, is recorded under *Tested configurations*.
 
 ![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their
 ratio](docs/validation/mystic_vs_engine.png)
@@ -50,7 +68,8 @@ kernels sit from the hardware limits, what was tried, and the question about the
 
 On the same optical input, the engine and MYSTIC (libRadtran 2.0.6) agree to within 2.2 % per wavelength at solar zenith
 angles 93° and 96°, where the MYSTIC standard error is below 1 %. At 99° the ratios spread over 0.958–1.063, consistent
-with the 2.0–2.4 % MYSTIC error; the largest deviation is 2.7 standard errors. The colour differences are |Δu′| ≤ 0.0012
+with the 2.0–2.4 % MYSTIC error; at 99° the largest difference is 2.53 MYSTIC standard errors, and
+at 93° the 587.17 nm cell reaches 3.03. The colour differences are |Δu′| ≤ 0.0012
 and |Δv′| ≤ 0.00014, at most 1.7 standard errors. The MYSTIC build reproduces the 120 cells of the spherical Rayleigh
 benchmark of Korkin et al. (2020) to 0.27 %. This comparison covers one state, one direction and three solar elevations.
 It used a table baked with the research build, with the 1.0.0 physics and the legacy spectral inputs rather than the
@@ -180,7 +199,7 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
 `docs/CHECKS.md` describes three tiers and exactly what runs where.
 
 1. Any machine without a GPU, which is also the public CI: `python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2`
-   from the installed package. The expected outcome is `0 failed` and 5 `xfailed`. Tests that need the research records
+   from the installed package. The expected outcome is `0 failed` and 4 `xfailed`. Tests that need the research records
    skip unless `SOSFUSE2_SKY_SOS_ROOT` points at that checkout, and tests that need `clang++` skip when it is absent. The
    tests use a synthetic O₄ table in an isolated temporary root and download no HITRAN data; reproduction from the
    original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied.
@@ -188,7 +207,7 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
    `gate --stage --out <dir>` runs the repeat checks.
 3. A CUDA machine with the research checkout: `gate --gf --out <dir>`.
 
-Five test cases fail in the research baseline the package was split from and are marked `xfail(strict=True)`. Their ids,
+Four test cases fail in the research baseline the package was split from and are marked `xfail(strict=True)`. Their ids,
 causes and the rule for retiring them are in `docs/KNOWN_FAILURES.md`. Because the marker is strict, a case that starts
 passing turns the run red until its entry is removed, so the failures stay visible.
 
@@ -196,6 +215,13 @@ passing turns the run red until its entry is removed, so the failures stay visib
 
 1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply to them unchanged. The changed default v2 states in
 1.2.3 are covered by the separate installed-sdist checks below.
+
+Configurations verified for 1.3.0. The development GPU host was unavailable, so the GPU gates ran on an L4:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `eda` (the one the reference table was made with): `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from the RTX 3080: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 529 passed, 87 skipped, 3 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 19 cases skip for the missing compiler, among them D15, which leaves 3 of the 4 known failures; cached IPRT inputs and synthetic O₄ test data, offline |
 
 Configurations verified for 1.2.3:
 
@@ -254,9 +280,9 @@ docs/                                     MODEL.md, VALIDATION.md (+ validation/
 The CPU solver functions live in the importable `src/sosfuse2/solver_*.py` modules. `accepted/engine.py` creates an
 `EngineContext` for each state and binds only the inputs each function reads. `create()` returns `(solver, context,
 settings)`; use context attributes such as `context.b` and `context.Solver`. Read-only scope indexing is deprecated
-and retained for one release. Render helpers still use their separate definition loader.
-Optical coefficients are
-kept apart from the column and geometry producers, so coefficient edits do not invalidate geometry caches.
+and retained for one release. `solver_render.py` is still read through its own loader in `host/pack_state.py`.
+Optical coefficients are kept apart from the column and geometry producers, so coefficient edits do not invalidate
+geometry caches.
 `run_gpu_state_v3.create_configured` and `tropo_profile.engine_hooks` pass the production grid, spectrum, sun geometry,
 deferred ground preparation and two-layer aerosol profile to `create()` through keyword-only hooks; no source text is
 rewritten.
