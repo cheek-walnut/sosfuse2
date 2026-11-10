@@ -6,8 +6,10 @@ variable set but the record missing the test FAILS (a wrong root or a moved reco
 Both unittest and pytest honour unittest.SkipTest, so the same helper serves the dual-mode harnesses.
 """
 
+import contextlib
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -94,6 +96,24 @@ def sky_sos_optional(*relative):
 def scratch(prefix):
     """Fresh output folder for a harness run; under $TMPDIR, never inside the package (the research tree's old in-package scratchpad)."""
     return Path(tempfile.mkdtemp(prefix=prefix + '-', dir=scratch_parent()))
+
+
+@contextlib.contextmanager
+def socket_root(prefix, name='socket'):
+    """Temporary folder that can hold the Unix socket `name`; unittest.SkipTest when $TMPDIR is too long for one.
+
+    The persistent queue listens on `<root>/socket`, and sockaddr_un.sun_path holds 104 bytes on macOS and 108 on Linux
+    (terminator included). A longer path fails in bind() with `AF_UNIX path too long`; docs/CHECKS.md says to keep TMPDIR short.
+    Skipping with the measured length says so up front and keeps the failure out of the result of a host that cannot run it.
+    """
+    limit = 104 if sys.platform == 'darwin' else 108
+    with tempfile.TemporaryDirectory(prefix=prefix) as directory:
+        need = len(os.fsencode(str(Path(directory) / name))) + 1
+        if need > limit:
+            raise unittest.SkipTest(
+                f'E_SOCKET_PATH_TOO_LONG: {need} bytes needed, {limit} allowed; shorten TMPDIR (docs/CHECKS.md)'
+            )
+        yield directory
 
 
 def scratch_parent():

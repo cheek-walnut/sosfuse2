@@ -12,9 +12,9 @@ from sosfuse2 import stratosphere, device_profile
 
 class WallHost(unittest.TestCase):
     def test_noprefix_real_geometry_bytes(self):
-        from sosfuse2.tests.test_b2_components import old_solver
+        from sosfuse2.testing import sun_scope
 
-        old = old_solver()
+        old = sun_scope()
         profile = stratosphere.profile_config({})
         rng = np.random.default_rng(17)
         for height, n in itertools.product((0.0, 0.1, 10.0, 21.0, 25.0, 40.0, 79.0), (24, 32)):

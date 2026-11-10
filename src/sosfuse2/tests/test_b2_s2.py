@@ -512,7 +512,6 @@ def test_lut_launch_only():
 def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
     import subprocess
     import sys
-    import tempfile
     import time
 
     from sosfuse2 import column_table, geometry, host_cache, paths
@@ -555,7 +554,7 @@ def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
     assert attach_keys[0] == attach_keys[1] == attach_keys[2]
     # Exercise the actual IPC/service lifecycle in A -> B -> A order. The
     # service reuses its context but must install each state's fresh constants.
-    with tempfile.TemporaryDirectory(prefix='s2-service-') as directory, (tmp_path / 'service.log').open('w') as log:
+    with testing.socket_root('s2-service-') as directory, (tmp_path / 'service.log').open('w') as log:
         root = Path(directory)
         monkeypatch.setenv('SOS_PERSISTENT_ROOT', str(root))
         monkeypatch.setenv('SOS_PERSISTENT_KEY', os.urandom(32).hex())
