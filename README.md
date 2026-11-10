@@ -148,6 +148,11 @@ The following matters for production queues and gates rather than for a first so
   fallback into an `E_KSPLIT_MEMORY` error, and `1` permits it. A fallback is recorded once as `KSPLIT_FALLBACK` in the
   phase log and the pipeline summary, and the table metadata records `ksplit_effective`. On a 10 GB card the
   full-resolution gate state falls back, with a minimum peak of 7.06 GB against a budget of 6.74 GB.
+- `plan_queue` stops with `E_PLAN_CPU_BUDGET` when GPUs x workers per GPU x column workers exceed `pipeline.cpu_budget()`.
+  That bounds what the plan asks for; `pipeline.py` can still widen a state's column pool, so it is not a CPU quota.
+  The plan also lists the `ground_aerosol01` host cache that follows `ground`, with an unmeasured cost.
+- `tables_from_sources` holds `<out>/.worker.lock`, the lock that `run_gpu_state_v3` takes for the same output, while it
+  builds a state. It skips a state that a worker owns, and a worker that starts meanwhile stops with `E_OUTPUT_BUSY`.
 - Pipeline logs go to a separate `logs/<run>/` directory per invocation, referenced from `pipeline_summary.json`, so cold
   and warm runs keep both traces. Benchmark stage timers go to `timings-<run>.json`, with the file name recorded in
   `benchmark.json`.

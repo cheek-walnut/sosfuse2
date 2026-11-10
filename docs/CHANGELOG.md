@@ -3,6 +3,25 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## Unreleased
+
+`plan_queue` and `tables_from_sources` are among the hashed production sources, so provenance hashes differ from 1.3.0, and
+resuming an output saved by 1.3.0 stops with `E_OUTPUT_IDENTITY` (use a fresh work root).
+
+- `plan_queue` counts every GPU against the CPU budget: GPUs x workers per GPU x column workers above
+  `pipeline.cpu_budget()` now stops with `E_PLAN_CPU_BUDGET`, where only workers x column workers was compared. A plan
+  that asked for more than the host has, for example two GPUs with four workers and two column workers on eight cores,
+  is now refused.
+- The plan lists the `ground_aerosol01` host cache with the key the producer builds and an unmeasured cost. Its extra
+  unmeasured item can change which state represents a group and the order and GPU assignment of the states.
+- `tables_from_sources` takes `<out>/.worker.lock` for each state and looks again for a finished table and pack once it
+  holds the lock. A batch and a worker can no longer write the same output; the one that comes second skips, or stops
+  with `E_OUTPUT_BUSY`.
+- Tests: the joint-walk case is pinned to `SOSFUSE2_COLUMN_METHOD=gl24` and is no longer a known failure (the default
+  table method differs from the 24-point walk by up to 7.5e-4 on rays that start on a shell and run horizontally, and is
+  within 3.3e-5 of the exact method there), so the expected outcome is 3 `xfailed`. `test_tropo_profile --static` is
+  removed, and the persistent-service test skips with `E_SOCKET_PATH_TOO_LONG` when `TMPDIR` is too long for its socket.
+
 ## 1.3.0
 
 1.3.0 reorganises the CPU reference engine and the kernel source and keeps the physics of 1.2.3. After the upgrade the

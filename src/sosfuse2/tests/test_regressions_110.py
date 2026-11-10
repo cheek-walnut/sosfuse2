@@ -593,10 +593,7 @@ def test_multispectral_sources_replay_and_batch_preview(tmp_path, monkeypatch, c
 @pytest.mark.parametrize(
     'platform,flags', [('darwin', ['-dynamiclib']), ('linux', ['-shared', '-fPIC', '-nostdinc++'])]
 )
-@pytest.mark.parametrize('harness', ['density', 'tropo'])
-def test_host_harness_link_flags(tmp_path, monkeypatch, platform, flags, harness):
-    from sosfuse2.tests import test_tropo_profile
-
+def test_host_harness_link_flags(tmp_path, monkeypatch, platform, flags):
     commands = []
 
     class StopCompile(Exception):
@@ -609,10 +606,7 @@ def test_host_harness_link_flags(tmp_path, monkeypatch, platform, flags, harness
     monkeypatch.setattr(sys, 'platform', platform)
     monkeypatch.setattr(subprocess, 'run', capture)
     with pytest.raises(StopCompile):
-        if harness == 'density':
-            test_density_order.compile_native(tmp_path)
-        else:
-            test_tropo_profile.host_point(tmp_path, '')
+        test_density_order.compile_native(tmp_path)
     for flag in ('-dynamiclib', '-shared', '-fPIC', '-nostdinc++'):
         assert (flag in commands[0]) == (flag in flags)
 
@@ -830,3 +824,79 @@ def test_spectral_archive_uses_argument_arrays_and_checks_git(tmp_path, monkeypa
     assert calls[0][2] == {'stdout': subprocess.PIPE}
     assert calls[1][1] == ['tar', '-x', '-C', str(out / 'legacy_tree')]
     assert calls[1][2]['check'] is True and 'shell' not in calls[1][2]
+
+
+def _batch_roots(tmp_path, names):
+    states = tmp_path / 'states.json'
+    states.write_text(json.dumps({'states': [dict(id=name, runnable=True) for name in names]}))
+    for name in names:
+        source = tmp_path / 'tmp' / name / 'source.npz'
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b'not an npz')
+        (tmp_path / 'out' / name).mkdir(parents=True)
+    return ['batch', '--work-roots', str(tmp_path), '--states', str(states)]
+
+
+def test_batch_skips_worker_owned_output(tmp_path, monkeypatch, capsys):
+    import fcntl
+    from sosfuse2 import tables_from_sources as batch
+
+    argv = _batch_roots(tmp_path, ['owned'])
+    monkeypatch.setattr(batch, 'process', lambda *args: pytest.fail('process() ran on an output a worker owns'))
+    monkeypatch.setattr(sys, 'argv', argv)
+    with (tmp_path / 'out' / 'owned' / '.worker.lock').open('a') as worker:
+        fcntl.flock(worker, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert batch.main() == 0
+    assert 'SKIP ' + tmp_path.name + '/owned: a worker owns the output' in capsys.readouterr().out
+
+
+def test_batch_holds_worker_lock_through_process(tmp_path, monkeypatch):
+    import fcntl
+    from sosfuse2 import tables_from_sources as batch
+
+    argv = _batch_roots(tmp_path, ['fine', 'broken'])
+    seen = {}
+
+    def process(root, ident, source, state, args, log):
+        with (root / 'out' / ident / '.worker.lock').open('a') as probe:
+            try:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                seen[ident] = 'free'
+            except BlockingIOError:
+                seen[ident] = 'held'
+        if ident == 'broken':
+            raise ValueError('invalid')
+        return 'done'
+
+    monkeypatch.setattr(batch, 'process', process)
+    monkeypatch.setattr(sys, 'argv', argv)
+    assert batch.main() == 1
+    assert seen == {'fine': 'held', 'broken': 'held'}
+    for ident in seen:  # released after a normal and after a failed run
+        with (tmp_path / 'out' / ident / '.worker.lock').open('a') as probe:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_batch_rechecks_completed_outputs_after_lock(tmp_path, monkeypatch, capsys):
+    import fcntl
+    from sosfuse2 import tables_from_sources as batch
+
+    argv = _batch_roots(tmp_path, ['late', 'half'])
+    ran = []
+    real_flock = fcntl.flock
+
+    def flock(handle, operation):
+        real_flock(handle, operation)
+        path = Path(handle.name)
+        if path.name == '.worker.lock':  # the other writer finishes between the first look and the lock
+            (path.parent / 'table.npz').write_bytes(b'x')
+            if path.parent.name == 'late':
+                (tmp_path / 'pack').mkdir(exist_ok=True)
+                (tmp_path / 'pack' / 'late.tar.zst').write_bytes(b'x')
+
+    monkeypatch.setattr(fcntl, 'flock', flock)
+    monkeypatch.setattr(batch, 'process', lambda root, ident, *args: ran.append(ident) or 'done')
+    monkeypatch.setattr(sys, 'argv', argv)
+    assert batch.main() == 0
+    assert ran == ['half']  # a table without its pack is still unfinished work
+    assert 'SKIP ' + tmp_path.name + '/late: finished while waiting for the locks' in capsys.readouterr().out

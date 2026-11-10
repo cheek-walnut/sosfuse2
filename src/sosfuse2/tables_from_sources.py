@@ -204,11 +204,22 @@ def main():
             except BlockingIOError:
                 log(f'SKIP {root.name}/{ident}: locked by another batch')
                 continue
-            try:
-                log(f'TABLES {root.name}/{ident} {process(root, ident, source, states[ident], a, log)}')
-            except (ValueError, RuntimeError) as e:
-                failed = True
-                log(f'FAIL {root.name}/{ident}: {e}')
+            # run_gpu_state_v3 owns out/<id> through .worker.lock, and the live_workers() sample above is taken once and
+            # not on every host, so the batch takes the same lock for the whole of process() and looks again once it holds it.
+            with (out / '.worker.lock').open('a') as owner:
+                try:
+                    fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    log(f'SKIP {root.name}/{ident}: a worker owns the output (.worker.lock)')
+                    continue
+                if (out / 'table.npz').is_file() and (root / 'pack' / f'{ident}.tar.zst').is_file():
+                    log(f'SKIP {root.name}/{ident}: finished while waiting for the locks')
+                    continue
+                try:
+                    log(f'TABLES {root.name}/{ident} {process(root, ident, source, states[ident], a, log)}')
+                except (ValueError, RuntimeError) as e:
+                    failed = True
+                    log(f'FAIL {root.name}/{ident}: {e}')
     return 1 if failed else 0
 
 

@@ -159,10 +159,12 @@ def resources(a, n_states):
             '(%d cores - %d free) // (%d GPUs x %d states): every concurrent state may run a cold build at once'
             % (cores, pipeline.CORES_LEFT_FREE, a.gpus, workers)
         )
-    if workers * threads > pipeline.cpu_budget():
+    # Every GPU's command starts its own W states with T column workers each (see commands()), so the requested parallelism
+    # is G x W x T. This bounds what the plan asks for; pipeline.py may still widen a state's column pool to B // W.
+    if a.gpus * workers * threads > pipeline.cpu_budget():
         raise ValueError(
-            'E_PLAN_CPU_BUDGET: workers x column workers exceeds this host (pipeline.cpu_budget %d)'
-            % pipeline.cpu_budget()
+            'E_PLAN_CPU_BUDGET: %d GPUs x %d workers x %d column workers = %d exceeds this host (pipeline.cpu_budget %d)'
+            % (a.gpus, workers, threads, a.gpus * workers * threads, pipeline.cpu_budget())
         )
     return dict(
         cores=cores,
@@ -231,21 +233,32 @@ class _Skip(Exception):
 @contextlib.contextmanager
 def recording(records):
     """host_cache.cached records (kind, token, folder) instead of reading or writing; sun02 is computed in memory
-    (its corrected sun columns enter the attach key), ground and endpoint02 are skipped."""
+    (its corrected sun columns enter the attach key), ground and endpoint02 are skipped.  prepare_ground asks for
+    'ground_aerosol01' right after 'ground', so that record is added here with the key the producer builds."""
     from sosfuse2 import host_cache
 
     cached, ground = host_cache.cached, host_cache.prepare_ground
+    asked = {}
 
     def record(folder, key, build, compressed=False):
         records.append(dict(kind=key['kind'], token=host_cache.digest(key), folder=str(folder)))
         if key['kind'] == 'sun02':
             return build()
+        if key['kind'] == 'ground':
+            asked.update(folder=folder, key=key)
         raise _Skip(key['kind'])
 
     def skip_ground(s, scope, optics, method=None):  # method: density.attach's sun_method (③ 0(b))
+        asked.clear()
         try:
             return ground(s, scope, optics, method)
         except _Skip:
+            if asked:
+                # host_cache.prepare_ground copies the ground key before it adds sun_method, then adds the aerosol identity.
+                key = dict(asked['key'])
+                key.pop('sun_method', None)
+                key.update(kind='ground_aerosol01', aerosol=host_cache.aerosol_identity(s))
+                records.append(dict(kind='ground_aerosol01', token=host_cache.digest(key), folder=str(asked['folder'])))
             return None
 
     host_cache.cached, host_cache.prepare_ground = record, skip_ground
@@ -480,7 +493,10 @@ def collect(a, cfg, states, columns, attach_root):
                 for rec in p.records:
                     path = Path(rec['folder']) / (rec['token'] + '.hcache')
                     name = dict(sun02='host_sun02_seconds', ground='host_ground_seconds').get(rec['kind'])
-                    cost = costs[name] if name else rate('density_column_seconds_per_ray', g['bundles']['main'].rays)
+                    if rec['kind'] == 'ground_aerosol01':
+                        cost = None  # candidate rays only, not measured; it follows 'ground' in the producer
+                    else:
+                        cost = costs[name] if name else rate('density_column_seconds_per_ray', g['bundles']['main'].rays)
                     item(
                         'host:' + rec['token'],
                         kind='host_' + rec['kind'],

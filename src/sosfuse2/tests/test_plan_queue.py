@@ -326,5 +326,99 @@ def test_missing_geometry_cache_is_reported(tmp_path, monkeypatch):
     assert not cache.exists()  # Planning reports the work; it never builds the cache.
 
 
+def test_resources_counts_every_gpu_against_the_cpu_budget(monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(pipeline, 'cpu_budget', lambda: 8)
+
+    def resources(gpus, workers, threads):
+        return plan_queue.resources(SimpleNamespace(gpus=gpus, workers_per_gpu=workers, column_workers=threads), 8)
+
+    with pytest.raises(ValueError, match=r'E_PLAN_CPU_BUDGET: 2 GPUs x 4 workers x 2 column workers = 16 exceeds .* 8'):
+        resources(2, 4, 2)
+    assert resources(2, 2, 2)['column_workers'] == 2  # 2 x 2 x 2 = 8 is the budget itself
+    assert resources(1, 4, 2)['workers'] == 4
+    with pytest.raises(ValueError, match='E_PLAN_CPU_BUDGET'):
+        resources(1, 5, 2)  # one GPU: the check is the old one
+    auto = plan_queue.resources(SimpleNamespace(gpus=2, workers_per_gpu=None, column_workers=None), 8)
+    assert 2 * auto['workers'] * auto['column_workers'] <= 8  # the automatic choice never trips its own check
+
+
+def test_planner_records_the_ground_keys_the_producer_asks_for(tmp_path, monkeypatch):
+    import numpy as np
+    import pytest
+    from sosfuse2 import density, geometry, host_cache
+
+    s, scope, _ = geometry.create(tmp_path, 'selftest', [550.0], 'numpy')
+    optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
+    real_cached = host_cache.cached
+
+    class Stop(Exception):
+        pass
+
+    def produced(method):
+        asked = []
+
+        def capture(folder, key, build, compressed=False):
+            asked.append((str(folder), key['kind'], host_cache.digest(key)))
+            if len(asked) == 1:
+                return dict(loc=np.zeros((0, 3)), candidate=np.zeros(0, bool))
+            raise Stop
+
+        monkeypatch.setattr(host_cache, 'cached', capture)
+        with pytest.raises(Stop):
+            host_cache.prepare_ground(s, scope, optics, method)
+        monkeypatch.setattr(host_cache, 'cached', real_cached)
+        return asked
+
+    def planned(method):
+        records = []
+        with plan_queue.recording(records):
+            host_cache.prepare_ground(s, scope, optics, method)
+        return [(r['folder'], r['kind'], r['token']) for r in records]
+
+    for method in ('gl', 'exact'):
+        assert planned(method) == produced(method)
+    gl, exact = planned('gl'), planned('exact')
+    assert gl[0][2] != exact[0][2] and gl[1][2] == exact[1][2]  # ground keys on sun_method, the aerosol column does not
+
+
+def test_ground_aerosol_record_has_unknown_cost_without_packed_geometry(tmp_path, monkeypatch):
+    import numpy as np
+    from types import SimpleNamespace
+    from sosfuse2 import density
+    from sosfuse2.geometry import normal_state
+
+    state = normal_state()
+    state['runnable'] = True
+    states = tmp_path / 'states.json'
+    states.write_text(json.dumps(dict(states=[state])))
+    optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
+    token = 'a' * 64
+
+    def probe(state, cfg, geometry_cache, folder):
+        geo = SimpleNamespace(
+            h=np.arange(cfg['nr'], dtype=float),
+            chi=np.linspace(0, np.pi, cfg['nchi']),
+            cfg={k: cfg[k] for k in ('nmu', 'nphi', 'path_n')},
+            ns=cfg['nr'] * cfg['nchi'],
+        )
+        s = SimpleNamespace(
+            geo=geo, kernel=SimpleNamespace(height=1.2, profile_n=1), fuse_state=state, density_optics=optics
+        )
+        records = [dict(kind='ground_aerosol01', token=token, folder=str(tmp_path / 'host'))]
+        return SimpleNamespace(s=s, scope={}, records=records, old=None)
+
+    monkeypatch.setattr(plan_queue, 'probe', probe)
+    args = plan_queue.parser().parse_args(
+        ['--states', str(states), '--geometry-cache', str(tmp_path / 'empty_geometry'), '--out', str(tmp_path / 'plan.json')]
+    )
+    plan = plan_queue.plan_queue(args)
+    item = plan['items']['host:' + token]
+    assert item['kind'] == 'host_ground_aerosol01' and item['hit'] is False
+    assert item['cost_seconds'] is None and item['file'] == str(tmp_path / 'host' / (token + '.hcache'))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -90,7 +90,9 @@ with `--reference <table.npz>`; the SHA check `E_GATE_MANIFEST_SHA` still applie
 `test_v14_runner`, the kernel_ab evidence packs and others) run in this tier as well. This tier lies outside the public CI;
 it is the deployment check of the consumer, sky-sos. `SADDLE_DATA_ROOT`, which is optional, names a research input root
 holding the packed full-grid geometry cache and the rig logs that `test_plan_queue` and `test_column_parallel` read.
-Without it, and without the same data under `SOSFUSE2_SKY_SOS_ROOT`, those tests skip.
+Without it, and without the same data under `SOSFUSE2_SKY_SOS_ROOT`, those tests skip. The cases for the plan's CPU
+budget and host-cache records (in `test_plan_queue`) and for the batch writer's locks (in `test_regressions_110`) need
+no such data.
 
 ## Contributing hooks
 
