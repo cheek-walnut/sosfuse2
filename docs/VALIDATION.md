@@ -78,8 +78,10 @@ At SZA 93 and 96 the ratio of every cell lies within 2.2 % of 1, with a standard
 ratios range over 0.958–1.063 with a standard error of 2.0–2.4 % per cell. The largest colour differences are Δu′ = −0.0005 ±
 0.0003 at SZA 96 and +0.0012 ± 0.0008 at SZA 99, both 1.6 times their standard error. Δu′ changes sign over the three angles
 (−, −, +), and Δv′ stays within one standard error at all three, so at the stated precision we detect no systematic
-difference. For SZA 99 the largest cell deviation |ratio − 1| / SE is 2.69; one of the 30 cells exceeds 2 and none exceeds 3,
-where 30 independent normal deviates would give 1.4 cells above 2.
+difference. For SZA 99 the largest cell difference |engine − MYSTIC| / SE is 2.53 (the data file gives it as |ratio − 1| / ratio_se);
+one of the 30 cells exceeds 2 and none exceeds 3, where 30 independent normal deviates would give 1.4 cells above 2. At
+SZA 93 the 587.17 nm cell reaches 3.03. Over all 90 cells five exceed 2 and one exceeds 3, where independent normal
+deviates would give 4.1 and 0.24.
 
 At SZA 99 the per-cell target changed from 2 % to 2.5 %. The estimated top-up for 2 % was 6.05 CPU-hours, whereas 2.5 %
 needed an estimated 3.64 CPU-hours. The first pass reached 2 % in none of the 30 cells, with relative standard errors of

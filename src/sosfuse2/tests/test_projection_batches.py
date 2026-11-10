@@ -4,8 +4,6 @@ The production function bodies are compiled unchanged. The independent oracle su
 per-ray float contributions in NumPy FP64, without production batch boundaries.
 """
 
-from pathlib import Path
-import sys
 
 import numpy as np
 import unittest

@@ -3,7 +3,7 @@
 iprt.fetch retries a failed download 3 times and then raises E_IPRT_DOWNLOAD with the file, URL and cause;
 density.load_asset lets that reason through instead of replacing it with a bare E_DENSITY_ASSET;
 density.asset_path refuses a packaged usstd76_profile.json whose digest is not the pinned one (E_DENSITY_ASSET_SHA256).
-Run: python -m pytest -q src/sosfuse2/test_iprt_density_asset.py
+Run: python -m pytest -q src/sosfuse2/tests/test_iprt_density_asset.py
 """
 
 import hashlib

@@ -1,7 +1,7 @@
 """One final numerical validation checkpoint; accepted reference is read-only.
 
 E6 (selftest, full_35, spectral_15) and G-H pass against the record RECORD (HEAD NumPy, decision DECISION, 2026-10-22). The old references stay computed as information only (historical_delta, never in pass_):
-the old CPU-engine fixture LEGACY (also rig/run_state.py and bootstrap_v3.sh:85, unchanged) and the original sos_full CPU
+the old CPU-engine fixture LEGACY and the original sos_full CPU
 transport (original_kernel). Task B's Simpson prefix moved fused results away from both by design.
 """
 
@@ -271,9 +271,9 @@ def reduced_values(output, backend, block_size):
 
 def legacy_identity(settings):
     """The old fixture's identity bound to today's state and settings (now informational: it attests the historical delta)."""
-    meta = json.loads(LEGACY_META.read_text())
     if not legacy_available():
-        return None, meta  # informational delta unavailable outside sky-sos
+        return None, None  # informational delta unavailable without the legacy fixture
+    meta = json.loads(LEGACY_META.read_text())
     # The fixture records historical code provenance, not a requirement that
     # today's scheduler/bootstrap have identical bytes. Pin the measured data
     # and bind its original identity to today's state and numerical settings.
@@ -415,7 +415,7 @@ def full_queries(output, backend, block_size):
         record=ident,
         historical_delta=dict(
             blocking=False,
-            reference='original sos_full CPU transport via rig adapter (original_kernel)',
+            reference='original sos_full CPU transport via accepted.engine (original_kernel)',
             max_relative={n: relative(actual[n], cpu[n]) for n in actual},
             worst={n: worst(actual[n], cpu[n]) for n in actual},
         ),
@@ -487,7 +487,7 @@ def spectral(output, field, block_size):
                 pass_=within(error),
                 historical_delta=dict(
                     blocking=False,
-                    reference='original sos_full CPU transport via rig adapter (original_kernel)',
+                    reference='original sos_full CPU transport via accepted.engine (original_kernel)',
                     max_relative=relative(actual, cpu),
                     worst=worst(actual, cpu),
                 ),

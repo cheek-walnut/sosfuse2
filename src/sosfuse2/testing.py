@@ -135,3 +135,27 @@ def synthetic_o4(root):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, indent=1, allow_nan=False) + '\n')
     return path
+
+
+def sun_scope(height=1.2):
+    """Module callables bound only to the selected aerosol profile."""
+    from functools import partial
+    from types import SimpleNamespace
+
+    from sosfuse2 import solver_columns as columns
+    from sosfuse2.accepted.engine import SunGeometryBinder
+    from sosfuse2.tropo_profile import ExponentialProfile
+
+    aerosol = ExponentialProfile(height, clamp=True)
+    return SimpleNamespace(
+        R=columns.R,
+        Z=columns.Z,
+        probe=SimpleNamespace(gl=columns.gl, frame=columns.frame, boundaries=columns.boundaries),
+        profiles=partial(columns.profiles, aerosol),
+        geometry_segments=partial(columns.geometry_segments, aerosol),
+        total_columns=partial(columns.total_columns, aerosol),
+        SunGeometry=SunGeometryBinder(aerosol, height, aerosol.descriptor()),
+        AER_HEIGHT=height,
+        AER_PROFILE=aerosol,
+        aerosol_descriptor=aerosol.descriptor(),
+    )

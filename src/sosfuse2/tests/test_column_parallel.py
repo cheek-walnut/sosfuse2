@@ -7,7 +7,7 @@ The production methods fused.Kernel.strato_end_columns / density_end_columns run
 The test asserts that the parallel path really ran (its PHASE event), not a serial fallback; a second test injects a
 worker exception and checks that the serial rerun gives the serial values within rtol 1e-6.
 
-Run: python -B -m sosfuse2.tests.test_column_parallel
+Run: python -B -m pytest -q --pyargs sosfuse2.tests.test_column_parallel
 """
 
 import contextlib

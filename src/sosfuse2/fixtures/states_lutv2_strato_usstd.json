@@ -2,7 +2,7 @@
  "version": "usstd76-lutv2-strato-1",
  "derived_from": "configB + dual strato + v1 normal templates (orchestrator 2026-10-03)",
  "decision": "user 2026-10-02 06:20: production profile = US Standard 1976 (density_profile=usstd76, ozone_profile=usstd76, rayleigh_column=usstd); stratosphere off; all other numerics unchanged. docs/REPRODUCTION_USSTD.md | exception: these 6 dual test states enable the stratospheric layer (opt-in). | config B (22 km, sigma 5) overnight states, orchestrator 2026-10-02 23:2x KST",
- "physics": "polarized Rayleigh (US Standard 1976 density shape, column tau550 0.0993) + depolarizing HG + ozone (usstd76 shape, state ozone_du preserved) + Lambert; stratospheric gaussian layer ENABLED for these dual test states (center 22 km, sigma 5 km, g 0.63, ssa 1.0)",
+ "physics": "polarized Rayleigh (US Standard 1976 density shape, column tau550 0.0993) + depolarizing HG + ozone (usstd76 shape, state ozone_du preserved) + Lambert; stratospheric gaussian layer ENABLED for these dual test states (dual states: center 21 km, sigma 3 km; config B states: center 22 km, sigma 5 km; g 0.63, ssa 1.0)",
  "density": {
   "density_profile": "usstd76",
   "ozone_profile": "usstd76",

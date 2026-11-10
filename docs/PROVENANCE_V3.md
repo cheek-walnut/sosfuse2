@@ -22,7 +22,7 @@ records are v3, and tables baked from the `sosfuse2` package are v4
 | v3 (`code_hashes` key) | v4 key | note |
 |---|---|---|
 | `scripts/sosfuse2/<module>.py` (every `*.py`, tests included: 141 keys) | `sosfuse2/<module>.py` for the fixed list `paths.PRODUCTION_MODULES` | tests and `testing.py` are not provenance inputs in v4 |
-| — (not hashed) | `sosfuse2/accepted/<file>.py` (`run_gpu_state_v3.ACCEPTED_SOURCES`, 2) | the engine module and package initializer; promoted `solver_*.py` files are in `PRODUCTION_MODULES` |
+| — (not hashed) | `sosfuse2/accepted/<file>.py` (`run_gpu_state_v3.ACCEPTED_SOURCES`, 2) | the engine module and package initializer; the `solver_*.py` modules are in `PRODUCTION_MODULES` |
 | — | `sosfuse2/host/{__init__,host_cores,pack_state}.py`, `sosfuse2/native/sh_cpu.cpp` | host helpers and the CPU kernel source |
 | `scripts/sosfuse2/kernel.cu` | `sosfuse2/kernel.cu` | |
 | `scripts/sosfuse2/assets/<data>` (when the block used it) | `sosfuse2/assets/<data>` for `DATA_ASSETS`, always | v3 hashed the fine spectral assets only when the spectral block used them |

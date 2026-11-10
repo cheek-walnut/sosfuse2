@@ -119,8 +119,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ## 3. Eric Bruneton, *Precomputed Atmospheric Scattering* — 48-band spectra
 
 `src/sosfuse2/assets/spectra.json` holds the solar irradiance and ozone cross sections on the 48 wavelengths of
-`atmosphere/demo/demo.cc`, and records the source URL and the SHA-256 of the fetched source. The frozen accepted solver
-sources (`accepted/`) read it as their spectral input, as do the legacy spectral mode and the reduced single-wavelength
+`atmosphere/demo/demo.cc`, and records the source URL and the SHA-256 of the fetched source. The CPU engine
+(`accepted/engine.py`) reads it as its spectral input, as do the legacy spectral mode and the reduced single-wavelength
 path; the default full-grid tables use the TSIS-1 HSRS and IUP Bremen assets of §4 and §5 instead. We transcribed the
 numbers from the C++ source into JSON with units. The demo's own documentation attributes the solar values to ASTM G173
 and the ozone values to the Bremen cross-section data base.

@@ -20,6 +20,7 @@ not paths in this package.
 | `rgb_weights.npy` | 15-bin RGB weights derived from the CIE tables below | this project | CC0 1.0 (project contribution); derived from the CIE tables, see THIRD_PARTY.md §1–2 |
 | `kernel_C2_strato_base.cu`, `kernel_strato_off_baseline.cu` | frozen kernel snapshots used by the static kernel tests | this project | MIT (code) |
 | `spectra.json` | 48-band solar irradiance and ozone cross sections | Eric Bruneton, *precomputed_atmospheric_scattering* `demo.cc` | BSD-3-Clause, see THIRD_PARTY.md |
+| `no2_afglus_profile.json` | AFGL US Standard NO₂ vertical profile | AFGL atmospheric constituent profiles | U.S. Government work; THIRD_PARTY.md §13 |
 | `no2_vandaele1998_fine.json` | 220 K NO₂, 0.1 nm cell means | Vandaele et al. 1998, BIRA-IASB dataset DOI 10.18758/6b80spv8 | CC BY 4.0; THIRD_PARTY.md §11 |
 | `spectra_fine.json`, `spectra_fine_temperature.json` | 0.1 nm solar irradiance and ozone cross sections (several temperatures) | TSIS-1 HSRS v2 (LASP) and Serdyuchenko & Gorshelev 2014 ozone cross sections (IUP Bremen), resampled by this project; `sources` key inside the files | publishers' citation terms, redistribution not confirmed with them (THIRD_PARTY.md §4–5) |
 | `cie1931_5nm_local.json`, `cmf_1nm.json` | CIE 1931 2° colour matching functions, 5 nm and 1 nm | CIE standard data, copy shipped by Mitsuba 3.9.1 | CIE: CC BY-SA 4.0; Mitsuba copy: BSD-3-Clause (THIRD_PARTY.md §1) |

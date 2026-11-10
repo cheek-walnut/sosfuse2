@@ -6,6 +6,7 @@ claim is made. Requires clang++ and NumPy, works on macOS/Linux. Values are
 normal FP32 in the supplied optical fixture; CPU FTZ/CUDA expf are not tested.
 """
 
+from sosfuse2 import paths
 import argparse
 import ctypes
 import hashlib
@@ -174,7 +175,7 @@ def metrics(got, reference):
 def run(out):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    root = Path(__file__).parent
+    root = paths.PKG
     asset = root / 'assets/strato_sulfate_rg0.08_sg1.6_n1.43.json'
     data = json.loads(asset.read_text())
     wl = np.array(data['wavelengths_nm'])

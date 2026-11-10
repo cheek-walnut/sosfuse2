@@ -5,6 +5,7 @@ import json
 
 import numpy as np
 import pytest
+from sosfuse2.testing import sun_scope
 
 from sosfuse2 import column_table as ct
 from sosfuse2 import density, paths, ray_columns, reference, spectral
@@ -386,30 +387,6 @@ def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
     assert table_fast.load_source(
         tmp_path / 'source_new.npz', s, [550.0], settings={}, backend='numpy', full_settings=True
     ).shape == (1,)
-
-
-def sun_scope(height=1.2):
-    """Module callables bound only to the selected aerosol profile."""
-    from functools import partial
-    from types import SimpleNamespace
-
-    from sosfuse2 import solver_columns as columns
-    from sosfuse2.accepted.engine import SunGeometryBinder
-    from sosfuse2.tropo_profile import ExponentialProfile
-
-    aerosol = ExponentialProfile(height, clamp=True)
-    return SimpleNamespace(
-        R=columns.R,
-        Z=columns.Z,
-        probe=SimpleNamespace(gl=columns.gl, frame=columns.frame, boundaries=columns.boundaries),
-        profiles=partial(columns.profiles, aerosol),
-        geometry_segments=partial(columns.geometry_segments, aerosol),
-        total_columns=partial(columns.total_columns, aerosol),
-        SunGeometry=SunGeometryBinder(aerosol, height, aerosol.descriptor()),
-        AER_HEIGHT=height,
-        AER_PROFILE=aerosol,
-        aerosol_descriptor=aerosol.descriptor(),
-    )
 
 
 def test_sun_table_identity_rebuilds_stale_and_reuses_current(tmp_path, monkeypatch):

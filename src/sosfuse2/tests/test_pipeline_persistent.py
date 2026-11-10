@@ -1,5 +1,5 @@
 """Five integration cases; PERSISTENT_TEST_BACKEND and PERSISTENT_TEST_DEADLINE select execution.
-Run with a NumPy/Pillow/zstandard Python: python -B -m sosfuse2.tests.test_pipeline_persistent
+Run with a NumPy/Pillow Python: python -B -m sosfuse2.tests.test_pipeline_persistent
 """
 
 from sosfuse2 import paths
@@ -16,8 +16,9 @@ import time
 import unittest
 
 HERE = paths.PKG  # the package directory (kernel, configs, assets)
-for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
-    os.environ[key] = '1'
+if __name__ == '__main__':
+    for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
+        os.environ[key] = '1'
 import numpy as np
 from sosfuse2.numerical_checks import assert_equivalent
 from sosfuse2 import paths, testing
@@ -32,6 +33,8 @@ def child_environment():
     if BACKEND not in ('numpy', 'cupy'):
         raise ValueError('E_TEST_BACKEND')
     env = paths.child_env()  # child pipelines import sosfuse2 in-tree too
+    for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
+        env[key] = '1'
     if BACKEND == 'cupy':
         config = json.loads((HERE / 'configs/C3.json').read_text())
         env.update(
@@ -41,7 +44,7 @@ def child_environment():
 
 
 def interleave_env():
-    """On the development GPU host (RTX 3080 10 GB), KSPLIT reserves 5.2 GB per state (1c870ff..b974ea0), so a second state waits in
+    """On the development GPU host (RTX 3080 10 GB), KSPLIT reserves 5.2 GB per state, so a second state waits in
     vram_wait and the service runs one state at a time. The interleaving case tests the scheduler, so it runs with KSPLIT off
     there; larger cards keep the default KSPLIT and still check interleaving with it."""
     from sosfuse2 import device_profile

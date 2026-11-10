@@ -1,5 +1,5 @@
 # Commit gate. Only fatal ruff rules (syntax errors, undefined names) block; the default ruff set is report-only.
-# ruff excludes (frozen accepted sources, docs) live in pyproject.toml [tool.ruff] (force-exclude = true).
+# ruff excludes (docs) live in pyproject.toml [tool.ruff] (force-exclude = true).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.1

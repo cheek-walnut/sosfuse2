@@ -10,9 +10,9 @@ import numpy as np
 from sosfuse2 import density, geometry, ray_columns, stratosphere, testing
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.numerical_checks import assert_equivalent
 except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+    from numerical_checks import assert_equivalent
 
 
 class JointColumnsTests(unittest.TestCase):
@@ -55,7 +55,7 @@ class JointColumnsTests(unittest.TestCase):
 
     @testing.known_failure(
         'LEGACY_JOINT_WALK',
-        'joint walk vs 3-pass integration differ on grazing rays (10/147 elements, max rel 1.28e-6 > rtol 1e-6); cause uninvestigated',
+        'first assertion passes; packed end_columns vs joint walk differs at rtol 1e-6 (48/245 elements, max abs 0.196); cause uninvestigated',
     )
     def test_pack_reuses_edges_and_keeps_legacy_bytes(self):
         p, d = self.rays()

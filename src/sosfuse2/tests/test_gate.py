@@ -1,5 +1,5 @@
 """gate.py without a GPU: synthetic fixture runs (--reuse) against a temporary gate home.
-Run: python -m pytest -q src/sosfuse2/test_gate.py"""
+Run: python -m pytest -q src/sosfuse2/tests/test_gate.py"""
 
 import json
 import shutil

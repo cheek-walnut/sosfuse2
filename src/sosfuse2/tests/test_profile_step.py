@@ -17,12 +17,9 @@ import copy
 import hashlib
 import json
 import math
-import os
 import platform
 import re
 import subprocess
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -33,9 +30,9 @@ from sosfuse2 import column_table, density, fused, geometry, host_cache, referen
 from sosfuse2.arithmetic import F  # noqa: E402
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.numerical_checks import within_tol
 except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+    from numerical_checks import within_tol
 
 R = 6371.0
 STEPS = ((0.5, 161), (0.25, 321), (0.125, 641))

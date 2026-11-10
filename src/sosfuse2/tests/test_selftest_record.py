@@ -1,11 +1,10 @@
 """E6/G-H record path: pass is judged against fixtures/selftest_ref_simpson.npz (1e-5), the old
 references only appear as historical_delta, and the old CPU-engine fixture stays as it was.
-Run: python -m pytest -q src/sosfuse2/test_selftest_record.py"""
+Run: python -m pytest -q src/sosfuse2/tests/test_selftest_record.py"""
 
 import copy
 import hashlib
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -15,9 +14,9 @@ HERE = Path(__file__).resolve().parent
 from sosfuse2 import gate, testing, validate as v  # noqa: E402
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.numerical_checks import within_tol
 except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+    from numerical_checks import within_tol
 
 # Only the cases that read the old CPU-engine fixture need the sky-sos checkout; the pinned-record check below always runs.
 needs_legacy = pytest.mark.skipif(

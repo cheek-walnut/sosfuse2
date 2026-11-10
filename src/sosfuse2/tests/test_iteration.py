@@ -30,7 +30,7 @@ def checks():
     contraction[:, :, 0] = 0
     forcing = np.linspace(0.01, 0.2, ns * 571 * waves, dtype='f4').reshape(ns, 571, waves)
     expected = forcing / (1 - contraction)
-    solver = Solver(SimpleNamespace(W=waves, geo=SimpleNamespace(ns=ns), kernel=DummyKernel()), None)
+    solver = Solver(SimpleNamespace(W=waves, geo=SimpleNamespace(ns=ns), kernel=DummyKernel()), None, prepared=True)
     solver.apply = lambda field: forcing + contraction * field
     solver.boxes = lambda field: np.broadcast_to(field[0, 0], (5, 7, waves)).copy()
     field, stats = solver.solve(max_eval=16, tolerance=0.005)
@@ -44,7 +44,7 @@ def checks():
         for row in stats['history'][first_done + 1 :]
     )
     try:
-        unconverged = Solver(SimpleNamespace(W=waves, geo=SimpleNamespace(ns=ns), kernel=DummyKernel()), None)
+        unconverged = Solver(SimpleNamespace(W=waves, geo=SimpleNamespace(ns=ns), kernel=DummyKernel()), None, prepared=True)
         unconverged.apply = lambda field: field + forcing
         unconverged.boxes = solver.boxes
         unconverged.solve(max_eval=2, tolerance=0.005)
@@ -61,3 +61,7 @@ def checks():
         nonconvergence_reported=bool(failure_reported),
         scope='known diagonal affine fixed point, mixed wavelength convergence, nonconvergence signal; no physical-grid or CUDA convergence claim',
     )
+
+
+def test_checks():
+    assert checks()['pass_']

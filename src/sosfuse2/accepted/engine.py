@@ -12,14 +12,6 @@ ROOT = paths.PKG  # package sources and assets
 HERE = Path(__file__).resolve().parent
 R, Z = solver_columns.R, solver_columns.Z
 OBS = 0.1
-THREAD_KEYS = (
-    'OMP_NUM_THREADS',
-    'OPENBLAS_NUM_THREADS',
-    'VECLIB_MAXIMUM_THREADS',
-    'MKL_NUM_THREADS',
-    'NUMEXPR_NUM_THREADS',
-    'BLIS_NUM_THREADS',
-)
 SOURCE_FILES = [
     'solver_columns.py',
     'solver_optics.py',
@@ -28,6 +20,7 @@ SOURCE_FILES = [
     'solver_poly.py',
     'solver_core.py',
     'solver_render.py',
+    'tropo_profile.py',
     'assets/spectra.json',
 ]
 SPECTRA = ROOT / 'assets/spectra.json'

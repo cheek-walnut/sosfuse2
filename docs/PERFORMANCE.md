@@ -234,10 +234,10 @@ instruction count suggests, so the table above quotes GPU totals.
 A full-resolution state on a CUDA machine:
 
 ```sh
-python -B -m sosfuse2.run_gpu_state_v3 --id L19s3_tau0p01_aod0p4_g0p65 --backend cupy --work-root ./work
+python -B -m sosfuse2.run_gpu_state_v3 --id clear_34 --backend cupy --work-root ./work
 ```
 
-The state id is the G-F product state of `gate/fixtures.json`; any id from `assets/states_v2.json` works the same way.
+The state id is bundled in `assets/states_v2.json`; other ids from that file work the same way.
 `meta.json` under `work/out/<id>/` records `elapsed_seconds`, `source_seconds`, `query_seconds` and, under
 `kernel.launch.by_kind`, the launch count and GPU seconds of every kernel variant, measured with CUDA events. The
 tolerance checks of `docs/CHECKS.md` tier 2 run the same kernels on the reduced fixtures. For profiling, run the same

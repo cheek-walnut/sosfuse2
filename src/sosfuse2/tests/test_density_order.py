@@ -225,6 +225,10 @@ def run(out):
     return report
 
 
+def test_run(tmp_path):
+    assert run(tmp_path)['pass_']
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--out', type=Path, required=True)

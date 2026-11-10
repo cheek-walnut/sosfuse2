@@ -5,7 +5,7 @@
  "kernel_flags": [],
  "single_launch": false,
  "use": "states with the stratospheric layer off (STRATO not automatic); C3.json stays the flag set for STRATO states",
- "definition": "Default transport; physical state, FW and role select the existing production paths.",
+ "definition": "Default transport; physical state, FW and role select the existing production paths. The included and excluded sections below record historical flag behavior; retired flags now warn and are ignored (kernel_config.resolve_config).",
  "included": {
   "C2 twelve": "GROUND_PHASE_BATCH LANE_ATTEN LANE_GROUND LM_LUT PHASE1_TRACE3 PHASE2_NOBARRIER POINT_NOINLINE RAY_CONST_SHARED SH_AUX SH_AUX_PAIR SPECIALIZE TRANSPORT_WAVE_LANES: rig off queue cfg=C2 rc=0 (leased-rig run of 2026-10-03, research record)",
   "ACC_GLOBAL": "needs SPECIALIZE, untiled only (kernel.cu:82-87, fused.py:136-138); active in first-light phase 0 (kernel.cu:88-91)",

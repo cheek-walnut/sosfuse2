@@ -2,7 +2,7 @@
 
 Priority: SOSFUSE2_PACKAGE_COMMIT, then the installer's direct_url.json (only when the distribution's sosfuse2/__init__.py is
 THIS package), then the git checkout whose src/sosfuse2 is this package; otherwise None, never an error.
-Run: python -m pytest -q src/sosfuse2/test_package_info.py
+Run: python -m pytest -q src/sosfuse2/tests/test_package_info.py
 """
 
 import importlib.metadata

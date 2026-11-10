@@ -18,7 +18,7 @@ The engine normalization becomes NORMAL['aer'] = aod550/COLUMN (COLUMN = 1). par
 required state key but no longer shapes the aerosol (it remains the Kernel 'height' scalar that every path overrides).
 One parameter vector P = [bl_top-w/2, 1/w, a_bl, k_bl, a_ft, k_ft, bl_top] (k = 1/H, 0 for uniform), evaluated as
     x = clip((h-P0)*P1, 0, 1); s = x*x*(3-2*x); p = (P2*exp(-h*P3))*(1-s) + (P4*exp(-(max(h,P0)-P6)*P5))*s
-(max(h,P0) only keeps the free-troposphere exponent finite where s = 0) by: sos_sky.profiles / b2_driver Solver.ha /
+(max(h,P0) only keeps the free-troposphere exponent finite where s = 0) by: solver_columns.profiles / solver_core.Solver.ha /
 NORMAL (through accepted/engine.py create(aerosol=engine_hooks(state)), see engine_hooks below), geometry.aerosol_column,
 native/sh_cpu.cpp full_transport (aerosol_height < 0, parameters after asc[0..W)), kernel.cu -DAEROSOL_2L (parameters after
 sun_h[0..nsh)) and reference.sample (FP32 mirror of the kernel line).
@@ -35,7 +35,7 @@ numbers are quoted): BLOCK DATA PRFDTA :13587-13630, AERPRF :3900-3938, season d
                          3..10 km, :13628-13630); VIS > 23 km -> 1/V interpolation between FAWI23 and FAWI50 at 3-4 km (:3936),
                          FAWI50 above 4 km (:3938; identical to FAWI23 there). The 2 km anchor is the boundary-layer value
                          HZ2K(3,.) interpolated in 1/V (:3914-3920): 0.0621 for every VIS <= 23 km. MODEL 3 (midlatitude winter,
-                         Lee 2003 lee_2003_purple.txt:444) selects fall/winter (:1068); levels are joined exponentially (EXPINT
+                         Lee 2003 reference atmosphere) selects fall/winter (:1068); levels are joined exponentially (EXPINT
                          :4057). V <= 23 km: 2-10 km integral 0.0797, log least squares H 1.85 km. The Lee comparison states (aod
                          .2 / .4 ~ V 23 / 10 km by a development estimate, itself a 'hypothesis') are
                          in this class, so it is the default; a state with V > 23 km (aod below about .2) should carry its own
@@ -70,7 +70,7 @@ DEFAULTS = dict(
     ft_aod550=0.0797,
     ft_scale_height_km=1.85,
 )
-TOP_KM = 80.0  # rig/engine.py Z (atmosphere top); the kernel clips sample heights to [0, 80]
+TOP_KM = 80.0  # solver_columns.Z (atmosphere top); the kernel clips sample heights to [0, 80]
 FLAG = 'AEROSOL_2L'
 
 # lowtran7.f BLOCK DATA PRFDTA (:13619-13630): 0.55 um extinction, km^-1.
@@ -116,7 +116,7 @@ LEGACY_BLOCKS = ('troposphere_profile', 'troposphere_phase')
 
 
 def reject_legacy(state, runner):
-    """Entry points that build the solver with rig/engine.py create() (or its sosfast/sosfuse relatives) directly know
+    """Legacy entry points that build the solver without the state configuration hooks know
     neither block and would compute the exponential/HG troposphere silently. They call this on the state they read:
     a block that is not exactly {"status": "disabled", ...} raises E_LEGACY_UNSUPPORTED_BLOCK (absent key = fine)."""
     for key in LEGACY_BLOCKS:

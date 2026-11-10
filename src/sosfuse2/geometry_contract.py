@@ -66,6 +66,7 @@ UPSTREAM = (
     'solver_columns.py',
     'solver_legacy.py',
     'solver_core.py',
+    'tropo_profile.py',
     'ray_columns.py',
     'density.py',
     'components.py',

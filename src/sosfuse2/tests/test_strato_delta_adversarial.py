@@ -20,8 +20,9 @@ import unittest
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
-for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'MKL_NUM_THREADS'):
-    os.environ[key] = '2'
+if __name__ == '__main__':
+    for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'MKL_NUM_THREADS'):
+        os.environ[key] = '2'
 MODULE = paths.PKG  # the package directory (kernel, configs, assets)
 import numpy as np
 from sosfuse2 import paths, stratosphere as st, testing
@@ -30,9 +31,9 @@ from sosfuse2.fused import Kernel, Solver
 from sosfuse2.geometry import create, TransientGeometry
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.numerical_checks import assert_equivalent
 except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+    from numerical_checks import assert_equivalent
 
 # The CLI harness (main --out) replaces this; under pytest/unittest collection the cases write into the test scratch instead of
 # failing with OUT=None (harness semantics unchanged).

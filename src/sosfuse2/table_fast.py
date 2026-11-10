@@ -145,6 +145,8 @@ def make_table(s, source, hs, el, az, group=32, batch=25, log=print):
     """Return (table[len(hs),nr,nc,W] float32, per-batch seconds)."""
     from sosfuse2.timers import stage
 
+    if batch < 1:
+        raise ValueError('E_TABLE_BATCH: batch must be positive')
     kernel = s.kernel
     xp = kernel.xp
     source = np.ascontiguousarray(source, 'f4')
@@ -419,6 +421,8 @@ def main():
     )
     p.add_argument('--batch', type=int, default=25)
     a = p.parse_args()
+    if a.batch < 1:
+        p.error('E_TABLE_BATCH: batch must be positive')
     state = next((s for s in json.loads(a.states.read_text())['states'] if s['id'] == a.id), None)
     if state is None:
         p.error(f'E_STATE_ID: no state {a.id!r} in {a.states}')

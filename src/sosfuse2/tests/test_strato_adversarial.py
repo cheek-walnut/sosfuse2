@@ -17,15 +17,16 @@ import unittest
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
-for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'MKL_NUM_THREADS'):
-    os.environ[key] = '4'
+if __name__ == '__main__':
+    for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'MKL_NUM_THREADS'):
+        os.environ[key] = '4'
 import numpy as np
 from sosfuse2 import stratosphere as st, mie, reference, testing
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.numerical_checks import assert_equivalent
 except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+    from numerical_checks import assert_equivalent
 
 OUT = testing.scratch_parent() / 'strato/astra'
 
@@ -440,10 +441,9 @@ class TransportContract(unittest.TestCase):
         for key, value in arrays.items():
             np.testing.assert_array_equal(getattr(self.s, key), value)
 
-    @testing.known_failure(
-        'A18',
-        'E_SPECTRAL_UNRESOLVED: profile_mean block without a state q identity; assertion predates the P2 A-prime default, uninvestigated',
-    )
+    # The 2048-row chunk loop and its sidecar belong to the gl24 column method; the default table-v1 method fills the
+    # columns from the table and never reaches them.
+    @patch.dict(os.environ, {'SOSFUSE2_COLUMN_METHOD': 'gl24'})
     def test_A18_bounded_endpoint_sidecar_and_profile_identity(self):
         from types import SimpleNamespace
 
@@ -872,7 +872,7 @@ class AggregateArtifacts(unittest.TestCase):
         import csv
 
         color = _strato_colors(self)
-        from PIL import Image, ImageCms
+        from PIL import Image
 
         folder = Path(os.environ.get('SOSFUSE2_STRATO_COLOR_ARTIFACT', str(OUT.parent / 'colors')))
         if not (folder / 'color_summary.json').exists():

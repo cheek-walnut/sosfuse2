@@ -1,4 +1,5 @@
-"""Compile A/C specializations and query CUDA driver occupancy; no transport run.
+"""Query CUDA driver occupancy for one supported configuration; no transport run.
+The historical A/C labels use retired flags and therefore measure the same configuration.
 CLI harness: python -m sosfuse2.tests.test_C_registers --out <dir>  (CUDA driver + CuPy; not a pytest module)."""
 
 import argparse, ctypes, json, sys

@@ -71,6 +71,7 @@ def host_tests():
     else:
         raise AssertionError('thermal stop ignored')
     print('HOST PASS', flush=True)
+    return dict(pass_=True)
 
 
 def benchmark(out, repeats=3, all_cells=False, seed=None):
@@ -187,6 +188,10 @@ def benchmark(out, repeats=3, all_cells=False, seed=None):
         )
     (out / 'warp_work.json').write_text(json.dumps(hist, indent=2) + '\n')
     return records
+
+
+def test_host_tests():
+    assert host_tests()['pass_']
 
 
 if __name__ == '__main__':

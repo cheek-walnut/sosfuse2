@@ -1,5 +1,5 @@
 """sosfuse2.cache_store, the sky-sos rig/bake/bake_run.py cache_new and the cold paths, without network: a fake rclone
-(local folder as the store) records every call. Run: python -m pytest -q src/sosfuse2/test_cache_store.py"""
+(local folder as the store) records every call. Run: python -m pytest -q src/sosfuse2/tests/test_cache_store.py"""
 
 import errno
 import importlib.util

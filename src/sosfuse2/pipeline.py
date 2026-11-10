@@ -231,6 +231,8 @@ def validate(a):
     ids = a.ids.split(',')
     if not ids or any(not SAFE_ID.fullmatch(i) for i in ids) or len(set(ids)) != len(ids):
         raise ValueError('E_PIPELINE_IDS: nonempty, unique safe IDs required')
+    if not 1 <= a.threads <= (os.cpu_count() or 1):
+        raise ValueError('E_PIPELINE_CPU_BUDGET: invalid per-child threads')
     a.workers = auto_workers(len(ids), a.threads, a.backend, a.persistent) if a.workers == 'auto' else int(a.workers)
     if a.workers < 1 or not 1 <= a.threads <= (os.cpu_count() or 1) or a.workers * a.threads > cpu_budget():
         raise ValueError(

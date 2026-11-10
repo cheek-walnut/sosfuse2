@@ -91,3 +91,7 @@ def checks(output):
         subthreshold_interval_preserved=bool(gap_ok),
         scope='host cache roundtrip/global CSR assembly/prefix boundary checks using array transfer shim; no CUDA claim',
     )
+
+
+def test_checks(tmp_path):
+    assert checks(tmp_path)['pass_']

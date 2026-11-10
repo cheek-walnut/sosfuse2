@@ -17,7 +17,6 @@ import copy
 import hashlib
 import importlib.util
 import io
-import itertools
 import json
 import os
 from pathlib import Path
@@ -57,9 +56,9 @@ class ColumnCacheFirstUse(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix='r17-colcache-'))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        from sosfuse2.tests.test_b2_components import old_solver
+        from sosfuse2.testing import sun_scope
 
-        self.old = old_solver()
+        self.old = sun_scope()
         rng = np.random.default_rng(23)
         d = rng.normal(size=(200, 3))
         d /= np.linalg.norm(d, axis=1)[:, None]
@@ -194,7 +193,7 @@ class Nphi(unittest.TestCase):
         from sosfuse2 import geometry as gm
         from sosfuse2.strato_states import build
 
-        # accepted/engine.py (frozen rig/engine.py) keeps 64 (it is in the geometry signature, geometry_contract.UPSTREAM);
+        # accepted/engine.py keeps 64 (it is in the geometry signature, geometry_contract.UPSTREAM);
         # the v3 adapter replaces its grid counts with settings_for (run_gpu_state_v3.py create_configured, the create() grid hook).
         engine = (paths.ACCEPTED / 'engine.py').read_text()
         self.assertRegex(engine, r"if mode == 'full':\s*h, ch = old\.grids\(1\)\s*nmu, nphi, path_n = 12, 64, 12")

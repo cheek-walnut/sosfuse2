@@ -6,7 +6,7 @@ Syntax and unsupported flag conflicts are checked; numerical tolerance is the
 requirement. Historical token identity is not a requirement.
 """
 
-from sosfuse2 import paths
+from sosfuse2 import paths, testing
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import itertools
@@ -140,6 +140,11 @@ def run(out, jobs=8, baseline=None):
     for row in [r for r in rows + errors if not r['pass_']][:5]:
         print(json.dumps(row, indent=2))
     return report
+
+
+def test_run(tmp_path):
+    testing.require_tool('clang++')
+    assert run(tmp_path, jobs=2)['pass_']
 
 
 if __name__ == '__main__':

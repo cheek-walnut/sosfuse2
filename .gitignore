@@ -19,8 +19,3 @@ build/
 # local work trees and scratch (never part of the package)
 .worktrees/
 scratchpad/
-# session tooling output
-.owner
-codex_output*
-codex_session*.log
-ESCALATION*.md

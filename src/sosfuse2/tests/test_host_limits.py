@@ -3,7 +3,7 @@
 HOME points at a temporary folder; sys.platform and physical_ram_gb are faked so the Linux rig rule is reached
 on the Mac. eda is recognised by ~/tools/gpu_guard (current, 2026-10-21) or the older ~/gpu_guard.
 
-Run: PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider src/sosfuse2/test_host_limits.py
+Run: PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider src/sosfuse2/tests/test_host_limits.py
 """
 
 import sys

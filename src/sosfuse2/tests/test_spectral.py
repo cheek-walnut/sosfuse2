@@ -13,7 +13,7 @@
 usage: python -B -m sosfuse2.tests.test_spectral [--runs --out <dir> --jobs 4]
 """
 
-import argparse, json, os, subprocess, sys, tempfile
+import argparse, json, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -27,9 +27,9 @@ from sosfuse2 import run_gpu_state_v3 as V3
 ROOT = testing.sky_sos_root()  # sky-sos checkout (None stand-alone): the legacy-tree runs and the builder rerun need it
 CUR = paths.SRC  # 'current tree' marker for run(): the installed package
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.numerical_checks import within_tol
 except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+    from numerical_checks import within_tol
 LEGACY_BASELINE = '6a5c3f5'
 TREE_FILES = ('scripts', 'rig', 'results/sos_full/a2_driver.py', 'results/sos_full/b2_driver.py', 'assets')
 FAILS = []

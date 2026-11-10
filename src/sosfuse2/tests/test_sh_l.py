@@ -1,9 +1,7 @@
 """SH truncation invariants, storage and translation-unit compatibility."""
 
 from sosfuse2 import paths
-from pathlib import Path
 import subprocess
-import sys
 import numpy as np
 import pytest
 from sosfuse2 import testing
@@ -13,9 +11,9 @@ from sosfuse2.fused import sh_aux, sh_aux_pair
 from sosfuse2.strato_parallel import strato_sh_aux
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.numerical_checks import within_tol
 except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+    from numerical_checks import within_tol
 
 
 def test_default_source_is_current_kernel():

@@ -1,6 +1,6 @@
 """Task B (1) Simpson optical-depth prefix (2026-10-22): reference.py, Mac, < 1 min.
 
-Run: python -m pytest -q -s src/sosfuse2/test_simpson_prefix.py   (-s prints the E4 closure numbers)
+Run: python -m pytest -q -s src/sosfuse2/tests/test_simpson_prefix.py   (-s prints the E4 closure numbers)
 
 The prefix under test is reference.SimpsonPrefix driven exactly as transport() drives it (begin / node(sample()) / finish) with the
 production sample() and profile_at(); nothing is replaced by a synthetic beta. Truth is an independent FP64 integral of the same
@@ -17,8 +17,6 @@ profile model (test-local, every panel split at the profile knots it crosses, Ga
 
 import json
 import math
-import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -28,9 +26,9 @@ from sosfuse2 import tropo_profile, density  # noqa: E402
 from sosfuse2.arithmetic import F, split, kahan  # noqa: E402
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.numerical_checks import within_tol
 except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+    from numerical_checks import within_tol
 
 RE = 6371.0
 from sosfuse2 import testing  # noqa: E402

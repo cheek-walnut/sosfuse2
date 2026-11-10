@@ -114,6 +114,12 @@ def central(rgb):
     region = rgb[round(0.25 * h) : round(0.55 * h), round(0.40 * w) : round(0.60 * w)]
     lum = region @ Y
     key = float(np.median(lum))
+    if key <= 0:
+        positive = rgb[(rgb @ Y) > 0]
+        if not len(positive):
+            raise ValueError('E_PREVIEW_LUMINANCE: positive luminance required')
+        region = positive
+        key = float(np.median(region @ Y))
     representative = np.median(region.reshape(-1, 3), axis=0)
     representative *= key / max(float(representative @ Y), 1e-30)
     lo, hi = 0.0, 10.0 / key

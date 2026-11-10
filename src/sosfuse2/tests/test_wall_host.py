@@ -1,4 +1,4 @@
-"""r11 host port: three planner/control tests plus exact NOPREFIX geometry parity."""
+"""r11 host port: exact NOPREFIX geometry parity."""
 
 import itertools
 import os
