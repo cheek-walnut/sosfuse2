@@ -178,7 +178,8 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
 `docs/CHECKS.md` describes three tiers and exactly what runs where.
 
 1. Any machine without a GPU, which is also the public CI: `python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2`
-   from the installed package. The expected outcome is `0 failed` and 3 `xfailed`. Tests that need the research records
+   from the installed package. The expected outcome is `0 failed` and 3 `xfailed`, or 2 where `clang++` is
+   absent and one of the three skips. Tests that need the research records
    skip unless `SOSFUSE2_SKY_SOS_ROOT` points at that checkout, and tests that need `clang++` skip when it is absent. The
    tests use a synthetic O₄ table in an isolated temporary root and download no HITRAN data; reproduction from the
    original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied.

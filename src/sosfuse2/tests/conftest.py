@@ -2,7 +2,8 @@
 
 The two IPRT inputs are not redistributed. The session fetches them into the work root once, unless SOSFUSE2_OFFLINE is
 set, and then runs offline. When they cannot be had, a test that stops with E_IPRT_OFFLINE is reported as skipped with
-that reason, like a test whose compiler is missing; a test that fails for any other reason stays a failure.
+that reason, like a test whose compiler is missing; a test that fails for any other reason stays a failure, also when it
+handled an E_IPRT_OFFLINE on the way (only the raised error and its explicit `raise ... from` causes are read).
 """
 
 import os
@@ -11,6 +12,7 @@ import shutil
 import pytest
 
 IPRT_MISSING = []  # names of the IPRT inputs the session work root lacks; filled once by synthetic_minor_work
+FETCH_FAILURE = []  # the E_IPRT_DOWNLOAD or E_IPRT_SHA256 message of the session's own fetch, if it failed
 
 
 def _chain(error):
@@ -18,7 +20,7 @@ def _chain(error):
     while error is not None and id(error) not in seen:
         seen.add(id(error))
         yield error
-        error = error.__cause__ or error.__context__
+        error = error.__cause__
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -29,8 +31,10 @@ def synthetic_minor_work(tmp_path_factory):
     if os.environ.get('SOSFUSE2_OFFLINE', '') in ('', '0'):
         try:
             iprt.inputs()
-        except RuntimeError:  # E_IPRT_DOWNLOAD or E_IPRT_SHA256: the tests that need the inputs skip below
-            pass
+        except RuntimeError as e:  # the tests that need the inputs skip below and carry this reason
+            if not str(e).startswith(('E_IPRT_DOWNLOAD:', 'E_IPRT_SHA256:')):
+                raise
+            FETCH_FAILURE[:] = [str(e)]
     root = tmp_path_factory.mktemp('synthetic-optics')
     if (original / 'iprt').is_dir():
         shutil.copytree(original / 'iprt', root / 'iprt')
@@ -57,5 +61,7 @@ def pytest_runtest_makereport(item, call):
         f'E_IPRT_OFFLINE: {", ".join(IPRT_MISSING)} not in the work root; fetch with '
         '`python -B -c "from sosfuse2 import iprt; iprt.inputs()"`'
     )
+    if FETCH_FAILURE:
+        reason += '; the fetch of this session failed: ' + FETCH_FAILURE[0][:300]
     report.outcome = 'skipped'
     report.longrepr = (str(item.path), (item.location[1] or 0) + 1, 'Skipped: ' + reason)

@@ -6,8 +6,9 @@
 The former --static and --paths modes are retired. --static looked for kernel.cu text that the kernel no longer contains
 (`prof[1]` is now `aerosol_two_layer(h,aer2)`) and took its baseline from the `main` branch of the sky-sos checkout, so
 its result moved with that branch. --paths probed with three wavelengths, which the kernel no longer accepts (it
-specializes to 1 or 15), and its byte comparison against that same baseline no longer holds. Kernel text and point()
-are covered by test_kernel_static and test_tropo_mie, the profile on the engine paths by test_tropo_patches.
+specializes to 1 or 15), and its byte comparison against that same baseline no longer holds. Nothing replaces the
+host-built point() check of the -DAEROSOL_2L branch that --static carried: test_kernel_static and test_tropo_mie build
+the kernel without that flag. test_tropo_patches covers how an enabled block reaches the CPU engine.
 usage: python -B -m sosfuse2.tests.test_tropo_profile --host --out <dir>
 """
 

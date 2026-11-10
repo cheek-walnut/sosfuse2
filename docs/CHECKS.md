@@ -52,7 +52,8 @@ The kernel syntax and preprocess tests need a C++ compiler, `clang++` or `clang`
 `E_TOOL_MISSING` through `sosfuse2.testing.require_tool`, 19 cases on a compiler-less host. The kernel itself is compiled by NVRTC at run time and does not need clang.
 
 Three cases are known failures from the research baseline and are marked `xfail(strict=True)`; their ids, causes and the
-retirement rule are in `docs/KNOWN_FAILURES.md`. The expected tier-1 outcome is `0 failed` and 3 `xfailed`, and an
+retirement rule are in `docs/KNOWN_FAILURES.md`. The expected tier-1 outcome is `0 failed` and 3 `xfailed` (2 without
+`clang++`, where one of the three skips), and an
 `XPASS` of a strict entry means that the entry must be retired. The +1 ULP tests of the trace interpolation, on-grid
 samples and the atan2 last bit, are ordinary tests on every platform.
 

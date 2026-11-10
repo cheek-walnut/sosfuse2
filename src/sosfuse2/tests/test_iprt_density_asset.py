@@ -99,6 +99,12 @@ def test_session_without_inputs_skips_only_the_offline_stop(tmp_path):
         '        iprt.inputs()\n'
         '    except RuntimeError as e:\n'
         "        raise ValueError('wrapped') from e\n"
+        'def test_handled_then_fails():\n'
+        '    from sosfuse2 import iprt\n'
+        '    try:\n'
+        '        iprt.inputs()\n'
+        '    except RuntimeError:\n'
+        "        raise AssertionError('E_OTHER: after a handled stop')\n"
         'def test_other_failure():\n'
         "    raise RuntimeError('E_OTHER: not the inputs')\n"
         'def test_expects_the_stop():\n'
@@ -118,8 +124,8 @@ def test_session_without_inputs_skips_only_the_offline_stop(tmp_path):
         timeout=300,
     )
     assert run.returncode == 1, run.stdout + run.stderr
-    assert '1 failed, 1 passed, 2 skipped' in run.stdout, run.stdout
+    assert '2 failed, 1 passed, 2 skipped' in run.stdout, run.stdout
     skipped = [line for line in run.stdout.splitlines() if line.startswith('SKIPPED')]
     assert len(skipped) == 2, run.stdout
     assert all('E_IPRT_OFFLINE: ' in line and 'not in the work root' in line for line in skipped), run.stdout
-    assert 'test_other_failure' in run.stdout and 'E_OTHER' in run.stdout
+    assert 'test_other_failure' in run.stdout and 'test_handled_then_fails' in run.stdout and 'E_OTHER' in run.stdout

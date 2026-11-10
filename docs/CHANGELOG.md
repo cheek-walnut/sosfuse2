@@ -21,7 +21,8 @@ resuming an output saved by 1.3.0 stops with `E_OUTPUT_IDENTITY` (use a fresh wo
   table method differs from the 24-point walk by up to 7.5e-4 on rays that start on a shell and run horizontally, and is
   within 3.3e-5 of the exact method there), so the expected outcome is 3 `xfailed`. `test_tropo_profile` keeps
   only `--host`: `--static` and `--paths` are removed (the kernel text and the three-wavelength grid they relied on are
-  gone), and it stops with `E_NO_CHECK` when no check is requested. The persistent-service test skips with
+  gone), and it stops with `E_NO_CHECK` when no check is requested. The host-built check of the two-layer aerosol branch
+  of `point()` that `--static` carried has no replacement. The persistent-service test skips with
   `E_SOCKET_PATH_TOO_LONG` when `TMPDIR` is too long for its socket.
 - Tests without the IPRT inputs: a test session used to refuse the download in every case, so a fresh installation saw
   the tests that need the `usstd76` density asset fail with `E_IPRT_OFFLINE`. The session now fetches the two files
