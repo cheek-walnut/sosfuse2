@@ -8,7 +8,7 @@ to −18°. The package ships a NumPy reference implementation, an optional CUDA
 and NVRTC, numeric gates that compare against fixed references within tolerances, and a provenance record that signs
 every table with the hashes of the code and data that produced it.
 
-This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, and 1.3.0 is
+This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, and 1.3.1 is
 the current release. `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the
 configurations the releases were verified on. The change that matters most for default output is in 1.2.3: the bundled
 `states_v2.json` states now include the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option. The
@@ -195,6 +195,14 @@ passing turns the run red until its entry is removed, so the failures stay visib
 
 1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply to them unchanged. The changed default v2 states in
 1.2.3 are covered by the separate installed-sdist checks below.
+
+Configurations verified for 1.3.1. The kernel, the solver and the gate are those of 1.3.0, so the GPU row of 1.3.0
+applies to 1.3.1 and the gates were not run again:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 535 passed, 87 skipped, 2 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 19 cases skip for the missing compiler, among them D15, which leaves 2 of the 3 known failures; case by case against 1.3.0 on the same host, the only changed outcome is the joint-walk case, from xfailed to passed; cached IPRT inputs and synthetic O₄ test data, offline |
+| macOS arm64 | 3.14 | NumPy | tests run from the source tree with an empty work root and `SOSFUSE2_OFFLINE=1`: 504 passed, 117 skipped, 3 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=900` and a short `TMPDIR`; the tests that need the IPRT inputs skip with `E_IPRT_OFFLINE` |
 
 Configurations verified for 1.3.0:
 

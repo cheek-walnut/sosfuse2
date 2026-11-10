@@ -3,10 +3,11 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
-## Unreleased
+## 1.3.1
 
-`plan_queue` and `tables_from_sources` are among the hashed production sources, so provenance hashes differ from 1.3.0, and
-resuming an output saved by 1.3.0 stops with `E_OUTPUT_IDENTITY` (use a fresh work root).
+1.3.1 changes the planner and the batch writer and leaves the kernel and the solver as they are in 1.3.0. `plan_queue`
+and `tables_from_sources` are among the hashed production sources, so provenance hashes differ from 1.3.0, and resuming
+an output saved by 1.3.0 stops with `E_OUTPUT_IDENTITY` (use a fresh work root).
 
 - `plan_queue` counts every GPU against the CPU budget: GPUs x workers per GPU x column workers above
   `pipeline.cpu_budget()` now stops with `E_PLAN_CPU_BUDGET`, where only workers x column workers was compared. A plan
