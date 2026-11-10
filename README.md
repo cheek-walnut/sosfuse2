@@ -216,7 +216,7 @@ passing turns the run red until its entry is removed, so the failures stay visib
 1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply to them unchanged. The changed default v2 states in
 1.2.3 are covered by the separate installed-sdist checks below.
 
-Configurations verified for 1.3.0. The development GPU host was unavailable, so the GPU gates ran on an L4:
+Configurations verified for 1.3.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
