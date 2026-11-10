@@ -1,54 +1,24 @@
 #!/usr/bin/env python3
-"""Two-layer tropospheric aerosol (tropo_profile.py, kernel.cu -DAEROSOL_2L, rig/sh_cpu.cpp): Mac checks.
+"""Two-layer tropospheric aerosol (tropo_profile.py, kernel.cu -DAEROSOL_2L): Mac checks.
 
-  --host      block validation codes; profile integral = aod550 (closed form, and through the patched sos_sky.profiles).
-  --paths     subprocess probes (in parallel) of the small CPU paths: NumPy reference (selftest grid), create_configured
-              host arrays, aerosol_column, the C++ engine (rig/sh_cpu.cpp, tiny grid, built in <out>):
-                identity    no block and status "disabled": this tree == merge-base tree (git archive), bytes and cache keys
-                equivalence a two-layer block equal to exp(-h/1.2) in exact arithmetic, on a state whose scale_height_km is
-                            the decoy 3.0, vs the exp 1.2 state; the exp 3.0 state is the control (what a missed path gives)
-                default     the default block computed on every small path, compared with exp 1.2
-The former --static mode (kernel.cu token identity against the merge-base, and point() built for the host) is retired:
-its baseline was `git merge-base HEAD main`, which is this tree itself once the change is on main, and its kernel path was
-the pre-split `scripts/sosfuse2/kernel.cu`. Kernel text and point() are covered by test_kernel_static and test_tropo_mie.
-usage: python -B -m sosfuse2.tests.test_tropo_profile --host --paths --out <dir> [--jobs 6]
+  --host      block validation codes; profile integral = aod550 (closed form, and through the patched sos_sky.profiles);
+              the legacy entry points of the sky-sos checkout refuse a state that carries the block.
+The former --static and --paths modes are retired. --static looked for kernel.cu text that the kernel no longer contains
+(`prof[1]` is now `aerosol_two_layer(h,aer2)`) and took its baseline from the `main` branch of the sky-sos checkout, so
+its result moved with that branch. --paths probed with three wavelengths, which the kernel no longer accepts (it
+specializes to 1 or 15), and its byte comparison against that same baseline no longer holds. Kernel text and point()
+are covered by test_kernel_static and test_tropo_mie, the profile on the engine paths by test_tropo_patches.
+usage: python -B -m sosfuse2.tests.test_tropo_profile --host --out <dir>
 """
 
-from sosfuse2 import paths
-import argparse, copy, hashlib, json, math, os, shutil, subprocess, sys, tarfile, io, time
+import argparse, copy, json, math, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-HERE = paths.PKG  # the package directory (kernel, configs, assets)
 from sosfuse2 import testing as T
 
-ROOT = (
-    T.sky_sos_root()
-)  # sky-sos checkout: this harness compares against its git baseline tree and legacy rig/ entry points (pre-S4 layout)
-TREE_FILES = (
-    'scripts',
-    'rig/engine.py',
-    'rig/sh_cpu.cpp',
-    'rig/states_v1.json',
-    'rig/docker/geometry_cpu.py',
-    'rig/pack_state.py',
-    'results/sos_full/a2_driver.py',
-    'results/sos_full/b2_driver.py',
-    'assets',
-)
-WL = (450.0, 550.0, 650.0)
-CELLS = (0, 7, 12, 25, 39)
-
-
-def base_ref():
-    if ROOT is None:
-        return 'main'
-    try:
-        return subprocess.check_output(['git', '-C', str(ROOT), 'merge-base', 'HEAD', 'main'], text=True).strip()[:12]
-    except (OSError, subprocess.CalledProcessError):
-        return 'main'
-
+ROOT = T.sky_sos_root()  # sky-sos checkout: this harness reads its two-layer states and runs its legacy entry points
 
 # ---- host: validation and integrals ------------------------------------------------------------------------------
 
@@ -243,7 +213,9 @@ def host(out):
 
 # Entry points that call a create() which ignores troposphere_profile / troposphere_phase (rig/engine.py and its
 # sosfast/sosfuse relatives): each must refuse such a state (E_LEGACY_UNSUPPORTED_BLOCK) before computing anything.
-LEGACY_READERS = ('rig/run_state.py', 'rig/run_state_v2.py', 'rig/run_state_v3.py')  # read_state(path, id)
+# rig/run_state_v2.py and rig/run_state_v3.py import the rig/engine.py that left that checkout, so they cannot run at all;
+# their source is still checked for the guard call below.
+LEGACY_READERS = ('rig/run_state.py',)  # read_state(path, id)
 LEGACY_CLIS = (
     'scripts/sosfuse/run_gpu_state.py',
     'scripts/sosfuse/run_gpu_state_v2.py',
@@ -251,6 +223,7 @@ LEGACY_CLIS = (
 )
 LEGACY_GUARDED = (
     LEGACY_READERS
+    + ('rig/run_state_v2.py', 'rig/run_state_v3.py')
     + LEGACY_CLIS
     + ('scripts/sosfuse/run_fuse.py', 'rig/docker/geometry_cpu.py', 'results/column_parallel_20261007/measure.py')
 )
@@ -339,346 +312,22 @@ def legacy(out):
     )
 
 
-# ---- paths: subprocess probes -------------------------------------------------------------------------------------
-
-
-def extract_base(out):
-    folder = out / f'tree_{base_ref()}'
-    if not (folder / 'scripts/sosfuse2/kernel.cu').exists():
-        data = subprocess.check_output(['git', '-C', str(ROOT), 'archive', base_ref(), *TREE_FILES])
-        with tarfile.open(fileobj=io.BytesIO(data)) as t:
-            t.extractall(folder, filter='data')
-    return folder
-
-
-def build_native(tree, folder):
-    """rig/engine.py compile_kernel's command for <tree>/rig/sh_cpu.cpp, output in <folder> (never the tree's rig/build)."""
-    compiler = shutil.which('g++') or shutil.which('clang++')
-    target = folder / 'kernel_t2.so'
-    if not target.exists():
-        subprocess.run(
-            [
-                compiler,
-                '-std=c++17',
-                '-O3',
-                '-march=native',
-                '-fPIC',
-                '-shared',
-                '-pthread',
-                '-DRIG_THREADS=2',
-                str(Path(tree) / 'rig/sh_cpu.cpp'),
-                '-o',
-                str(target),
-            ],
-            check=True,
-        )
-    return target
-
-
-def digest(a):
-    import numpy as np
-
-    a = np.ascontiguousarray(a)
-    return hashlib.sha256(a.tobytes() + str((a.dtype.str, a.shape)).encode()).hexdigest()[:16]
-
-
-def probe(tree, state_file, folder):
-    """Subprocess body: sosfuse2/engine from <tree>; outputs to <folder>/arrays.npz and keys.json."""
-    sys.path[:0] = [str(Path(tree) / 'scripts'), str(Path(tree) / 'rig'), str(Path(tree) / 'rig/docker')]
-    import numpy as np
-    from types import SimpleNamespace
-    from sosfuse2 import reference, geometry as gm, geometry_contract as gc
-    from sosfuse2.fused import load_engine
-    from sosfuse2.run_gpu_state_v3 import create_configured, settings_for, signed_contract
-
-    try:
-        from sosfuse2 import tropo_profile as tp
-    except ImportError:
-        tp = None
-    folder = Path(folder)
-    folder.mkdir(parents=True, exist_ok=True)
-    state = json.loads(Path(state_file).read_text())
-    A = {}
-    P = {}
-    K = {}
-    rng = np.random.default_rng(20261007)
-    # A: raw arrays (numerical equivalence). P: physical arrays (equivalence): radiances, ground terms, and aerosol
-    # extinction/optical depth (the exponential and two-layer paths factor NORMAL['aer'] x profile differently).
-
-    def physical(prefix, s_, aer):
-        P[prefix + 'beta'] = np.outer(s_.ha, s_.ext[1])
-        P[prefix + 'tau_sun'] = s_.geo.sun.col[..., 1] * aer
-        P[prefix + 'gm'] = s_.gm
-        P[prefix + 'gval'] = s_.gval
-
-    # 1. NumPy reference (selftest grid, 3 wavelengths)
-    s, scope, _ = gm.create(folder / 'np', 'selftest', WL, 'numpy', 128, state=state)
-    aer = scope.b.sh.NORMAL['aer']
-    for k in ('ext', 'asca', 'ha', 'hr', 'gm', 'gval', 'gdir', 'goff'):
-        A['np_' + k] = getattr(s, k)
-    A['np_sun_col'] = s.geo.sun.col
-    A['np_normal_aer'] = np.array(aer)
-    physical('np_', s, aer)
-    geo = gm.TransientGeometry(s, scope)
-    groups = []
-    field = rng.normal(0, 1e-4, (s.geo.ns, 571, s.W)).astype('f4')
-    field[:, :4] = abs(field[:, :4])
-    # Aerosol SH rows are per unit profile value, as Solver.apply builds them (moments x asca): scale by asca so a
-    # two-layer state and its exponential twin carry the same physical source.
-    field[:, 10:] *= np.asarray(s.asca, 'f4')[None, None, :]
-    for i in CELLS:
-        g = geo.cell(i)
-        groups.append(g)
-        c = s.kernel.setup(s, g['nq'])
-        for first in (True, False):
-            v, Y = reference.transport(g, c, field, first, return_basis=True)
-            m, f = reference.project(g, v, c, Y)
-            for name, x in (('ray', v), ('mom', m), ('flux', f)):
-                A[f'np_c{i}_{int(first)}_{name}'] = P[f'np_c{i}_{int(first)}_{name}'] = x
-        A[f'np_c{i}_endcol'] = g['end_columns']
-        P[f'np_c{i}_tau_end'] = g['end_columns'][:, 1] * aer
-    K['flags'] = list(s.kernel.flags)
-    K['constants'] = sorted(c)
-    bundle = gm.Bundle(groups, np)
-    host = {k: np.asarray(v) for k, v in bundle.arrays.items()}
-    A['col_aerosol_column'] = (
-        gm.aerosol_column(host, s.kernel.height)
-        if tp is None
-        else gm.aerosol_column(host, s.kernel.height, profile=tp.column_function(s))
-    )
-    P['col_tau'] = A['col_aerosol_column'] * aer
-    K['identity'] = {str(v): gm.identity(s, v)[1] for v in (1, 2, 3)}
-    K['contract_identity'] = gc.identity(s)[1]
-    K['identity_content'] = {str(v): {k: x for k, x in gm.identity(s, v)[0].items() if k != 'files'} for v in (1, 2, 3)}
-    K['identity_files'] = {str(v): gm.identity(s, v)[0]['files'] for v in (1, 2, 3)}
-    K['column_path'] = gm.TwoLayerGeometry.column_path(SimpleNamespace(cache=Path('X'), s=s), s.kernel.height).name
-    # 2. create_configured (production solver constructor, reduced settings, host cache on)
-    cfg = settings_for(SimpleNamespace(reduced=True, settings_json=None))
-    s2, scope2 = create_configured(folder / 'cc', cfg, np.array([550.0]), 'numpy', state, geometry_cache=folder / 'geo')
-    for k in ('ext', 'asca', 'ha', 'gm', 'gval'):
-        A['cc_' + k] = getattr(s2, k)
-    A['cc_sun_col'] = s2.geo.sun.col
-    physical('cc_', s2, scope2.b.sh.NORMAL['aer'])
-    sig, hashes = signed_contract(state, cfg, 'numpy', True, 'depolarizing')
-    K['settings'] = cfg
-    K['code_hashes'] = hashes
-    K['signature'] = sig
-    # 3. C++ engine (rig/sh_cpu.cpp), tiny grid
-    engine = load_engine()
-    lib = build_native(tree, folder)
-    engine.compile_kernel = lambda threads, force=False, lib=lib: lib
-    create = engine.create if tp is None else (lambda *a, **k: engine.create(*a, aerosol=tp.engine_hooks(state), **k))
-    s3, scope3, _ = create(state, folder / 'cpp', 'selftest', 2, 550.0)
-    A['cpp_ha'] = s3.ha
-    A['cpp_sun_col'] = s3.geo.sun.col
-    A['cpp_gm'] = s3.gm
-    physical('cpp_', s3, scope3.b.sh.NORMAL['aer'])
-    src = rng.normal(0, 1e-4, (s3.geo.ns, 571, 2 * s3.W)).astype('f4')
-    src[:, :4] = abs(src[:, :4])
-    src[:, 10:] *= np.repeat(np.asarray(s3.asca, 'f4'), 2)[None, None, :]  # lanes v = 2w+lane
-    for i in range(0, s3.geo.ns, 7):
-        z, L = s3.radiance(i, src)
-        A[f'cpp_c{i}_first'] = P[f'cpp_c{i}_first'] = z['first']
-        A[f'cpp_c{i}_rad'] = P[f'cpp_c{i}_rad'] = L
-    np.savez(folder / 'arrays.npz', **{'raw__' + k: v for k, v in A.items()}, **{'phys__' + k: v for k, v in P.items()})
-    K['digests'] = {k: digest(v) for k, v in A.items()}
-    (folder / 'keys.json').write_text(json.dumps(K, indent=1, sort_keys=True, default=str) + '\n')
-
-
-def equivalent_block(aod, H, z=2.0, w=1.0):
-    """Two-layer parameters that equal aod*exp(-h/H)/(H(1-exp(-80/H))) in exact arithmetic: both components are that
-    exponential, so the smoothstep blend is the identity, and ft_aod550 = aod*c*integral of s*exp(-h/H)."""
-    from sosfuse2.tropo_profile import basis_integrals
-
-    c = 1 / (H * (-math.expm1(-80.0 / H)))
-    _, jf = basis_integrals(z, w, 1 / H, 1 / H)
-    return dict(
-        status='enabled',
-        model='two_layer',
-        bl_top_km=z,
-        bl_transition_km=w,
-        bl_shape='exponential',
-        bl_scale_height_km=H,
-        ft_aod550=aod * c * math.exp(-z / H) * jf,
-        ft_scale_height_km=H,
-    )
-
-
-def paths(out, jobs):
-    import numpy as np
-    from sosfuse2.geometry import normal_state
-
-    base_tree = extract_base(out)
-    normal = copy.deepcopy(normal_state())
-    cases = {
-        'base_absent': (base_tree, normal),
-        'absent': (ROOT, normal),
-        'disabled': (ROOT, dict(normal, troposphere_profile=dict(status='disabled'))),
-        'equivalent': (
-            ROOT,
-            dict(
-                normal,
-                parameters=dict(normal['parameters'], scale_height_km=3.0),
-                troposphere_profile=equivalent_block(normal['parameters']['aod550'], 1.2),
-            ),
-        ),
-        'decoy_exp3': (ROOT, dict(normal, parameters=dict(normal['parameters'], scale_height_km=3.0))),
-        'default': (ROOT, dict(normal, troposphere_profile=dict(status='enabled', model='two_layer'))),
-    }
-
-    def run(name):
-        tree, state = cases[name]
-        folder = out / 'paths' / name
-        if folder.exists():
-            shutil.rmtree(folder)
-        folder.mkdir(parents=True)
-        sf = folder / 'state.json'
-        sf.write_text(json.dumps(state))
-        t = time.monotonic()
-        r = subprocess.run(
-            [sys.executable, '-B', str(Path(__file__).resolve()), '--probe', str(tree), str(sf), str(folder)],
-            capture_output=True,
-            text=True,
-            env=dict(os.environ, OMP_NUM_THREADS='1'),
-        )
-        print(f'PROBE {name} rc={r.returncode} {time.monotonic() - t:.1f}s', flush=True)
-        if r.returncode:
-            raise RuntimeError(f'probe {name} failed: {r.stderr[-2000:]}')
-        return name
-
-    with ThreadPoolExecutor(jobs) as pool:
-        list(pool.map(run, cases))
-
-    def load(n):
-        with np.load(out / 'paths' / n / 'arrays.npz') as z:
-            phys = {k[6:]: z[k] for k in z.files if k.startswith('phys__')}
-        return phys, json.loads((out / 'paths' / n / 'keys.json').read_text())
-
-    (ba, bk), (na, nk), (da, dk) = load('base_absent'), load('absent'), load('disabled')
-    from sosfuse2.numerical_checks import within_tol
-
-    def raw(n):
-        with np.load(out / 'paths' / n / 'arrays.npz') as z:
-            return {k: z[k] for k in z.files if k.startswith('raw__')}
-
-    br, nr, dr = raw('base_absent'), raw('absent'), raw('disabled')
-    ident = dict(
-        arrays=len(br),
-        absent_outside_tol=[k for k in br if k not in nr or not within_tol(nr[k], br[k])],
-        disabled_outside_tol=[k for k in br if k not in dr or not within_tol(dr[k], br[k])],
-        array_keys_equal=set(br) == set(nr) == set(dr),
-    )
-    for key in ('identity_content', 'contract_identity', 'column_path', 'settings', 'flags', 'constants'):
-        ident[key] = bk[key] == nk[key] == dk[key]
-    # v2/v3 (layers=1 and the two-layer class without geometry_contract) hash scripts/sosfuse2/geometry.py itself; v1 and the
-    # production common-layer identity (v4) do not.
-    ident['identity_signatures'] = dict(base=bk['identity'], new=nk['identity'])
-    ident['identity_files_changed'] = sorted(
-        {
-            f
-            for v in bk['identity_files']
-            for f in bk['identity_files'][v]
-            if bk['identity_files'][v][f] != nk['identity_files'][v].get(f)
-        }
-    )
-    changed = sorted(
-        k for k in set(bk['code_hashes']) & set(nk['code_hashes']) if bk['code_hashes'][k] != nk['code_hashes'][k]
-    )
-    ident.update(
-        code_hashes_changed=changed,
-        code_hashes_added=sorted(set(nk['code_hashes']) - set(bk['code_hashes'])),
-        code_hashes_removed=sorted(set(bk['code_hashes']) - set(nk['code_hashes'])),
-        signature_base=bk['signature'][:16],
-        signature_new=nk['signature'][:16],
-        keys_base=dict(identity=bk['identity'], contract=bk['contract_identity'], column=bk['column_path']),
-    )
-    ident['pass_'] = (
-        ident['array_keys_equal']
-        and not ident['absent_outside_tol']
-        and not ident['disabled_outside_tol']
-        and all(
-            ident[k] for k in ('identity_content', 'contract_identity', 'column_path', 'settings', 'flags', 'constants')
-        )
-        and not ident['code_hashes_removed']
-        and set(ident['identity_files_changed']) <= {'scripts/sosfuse2/geometry.py'}
-        and bk['identity']['1'] == nk['identity']['1']
-    )
-    ident['absent_outside_tol'] = ident['absent_outside_tol'] or 'all equal'
-    ident['disabled_outside_tol'] = ident['disabled_outside_tol'] or 'all equal'
-    (ea, ek), (xa, xk), (fa, fk) = load('equivalent'), load('decoy_exp3'), load('default')
-
-    def rel(a, b):
-        a = np.asarray(a, 'f8')
-        b = np.asarray(b, 'f8')
-        scale = max(float(np.max(abs(b))), 1e-300)
-        return float(np.max(abs(a - b))) / scale
-
-    groups = {
-        'numpy reference (rays, moments, flux, end tau)': 'np_c',
-        'numpy solver (beta, sun tau, ground)': 'np_',
-        'create_configured (beta, sun tau, ground)': 'cc_',
-        'aerosol_column (tau)': 'col_',
-        'C++ engine (first light, radiance, ground)': 'cpp_',
-    }
-    equiv = {}
-    for label, prefix in groups.items():
-        names = [k for k in na if k.startswith(prefix) and (prefix != 'np_' or not k.startswith('np_c'))]
-        e = max(rel(ea[k], na[k]) for k in names)
-        x = max(rel(xa[k], na[k]) for k in names)
-        f = max(rel(fa[k], na[k]) for k in names)
-        equiv[label] = dict(
-            arrays=len(names),
-            equivalent_vs_exp12=e,
-            decoy_exp3_vs_exp12=x,
-            default_vs_exp12=f,
-            pass_=e <= 1e-4 * x and x > 1e-3 and f > 1e-3 and all(np.isfinite(fa[k]).all() for k in names),
-        )
-    equiv['flags'] = dict(equivalent=ek['flags'], default=fk['flags'], absent=nk['flags'])
-    equiv['column_path'] = dict(default=fk['column_path'], equivalent=ek['column_path'], absent=nk['column_path'])
-    equiv['pass_'] = (
-        all(v['pass_'] for v in equiv.values() if isinstance(v, dict) and 'pass_' in v)
-        and 'AEROSOL_2L' in fk['flags']
-        and 'AEROSOL_2L' not in nk['flags']
-        and fk['column_path'].startswith('A2L_')
-        and nk['column_path'].startswith('H_')
-    )
-    return dict(
-        pass_=ident['pass_'] and equiv['pass_'],
-        identity=ident,
-        equivalence=equiv,
-        rule='identity: every array within tolerance and keys equal; equivalence: |two-layer==exp1.2 - exp1.2| <= 1e-4 x |exp3 - exp1.2|',
-        grids='NumPy selftest grid (4 heights x 10 chi, nmu 1, nphi 2, path 4) cells '
-        + str(CELLS)
-        + '; create_configured reduced '
-        'settings; C++ engine tiny grid (h 0/.1/8/80 km); 3 wavelengths 450/550/650 nm (C++ 550 only)',
-    )
-
-
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out', type=Path)
-    p.add_argument('--jobs', type=int, default=6)
-    for k in ('host', 'paths'):
-        p.add_argument('--' + k, action='store_true')
-    p.add_argument('--probe', nargs=3, help=argparse.SUPPRESS)
+    p.add_argument('--host', action='store_true')
     a = p.parse_args()
-    if a.probe:
-        return probe(*a.probe)
+    if not a.host or a.out is None:
+        p.error('E_NO_CHECK: pass --host and --out <dir>')
     if ROOT is None:
         raise SystemExit(
-            f'E_SKY_SOS_ROOT: this harness needs the sky-sos checkout ({T.ENV}) for its git baseline and legacy entry points'
+            f'E_SKY_SOS_ROOT: this harness needs the sky-sos checkout ({T.ENV}) for its states and legacy entry points'
         )
     a.out.mkdir(parents=True, exist_ok=True)
     rep = {}
-    with ThreadPoolExecutor(1) as pool:  # paths = subprocesses only; host runs here meanwhile
-        background = pool.submit(paths, a.out, a.jobs) if a.paths else None
-        for k, fn in (('host', host),):
-            if getattr(a, k):
-                t = time.monotonic()
-                rep[k] = fn(a.out)
-                print(f'{k.upper()} done {time.monotonic() - t:.1f}s pass={rep[k]["pass_"]}', flush=True)
-        if background is not None:
-            rep['paths'] = background.result()
+    t = time.monotonic()
+    rep['host'] = host(a.out)
+    print(f'HOST done {time.monotonic() - t:.1f}s pass={rep["host"]["pass_"]}', flush=True)
     rep['pass_'] = all(v.get('pass_') is True for v in rep.values())
     (a.out / 'tropo_profile_tests.json').write_text(json.dumps(rep, indent=1, default=str) + '\n')
     print(json.dumps({k: (v.get('pass_') if isinstance(v, dict) else v) for k, v in rep.items()}))

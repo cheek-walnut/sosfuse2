@@ -19,8 +19,10 @@ resuming an output saved by 1.3.0 stops with `E_OUTPUT_IDENTITY` (use a fresh wo
   with `E_OUTPUT_BUSY`.
 - Tests: the joint-walk case is pinned to `SOSFUSE2_COLUMN_METHOD=gl24` and is no longer a known failure (the default
   table method differs from the 24-point walk by up to 7.5e-4 on rays that start on a shell and run horizontally, and is
-  within 3.3e-5 of the exact method there), so the expected outcome is 3 `xfailed`. `test_tropo_profile --static` is
-  removed, and the persistent-service test skips with `E_SOCKET_PATH_TOO_LONG` when `TMPDIR` is too long for its socket.
+  within 3.3e-5 of the exact method there), so the expected outcome is 3 `xfailed`. `test_tropo_profile` keeps
+  only `--host`: `--static` and `--paths` are removed (the kernel text and the three-wavelength grid they relied on are
+  gone), and it stops with `E_NO_CHECK` when no check is requested. The persistent-service test skips with
+  `E_SOCKET_PATH_TOO_LONG` when `TMPDIR` is too long for its socket.
 
 ## 1.3.0
 
