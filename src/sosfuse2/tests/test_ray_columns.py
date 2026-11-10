@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 import numpy as np
-from sosfuse2 import density, geometry, ray_columns, stratosphere, testing
+from sosfuse2 import density, geometry, ray_columns, stratosphere
 
 try:
     from sosfuse2.numerical_checks import assert_equivalent
@@ -53,10 +53,10 @@ class JointColumnsTests(unittest.TestCase):
                 )
                 self.assert_close(c, stratosphere.columns(p, d, self.old, self.profile, n))
 
-    @testing.known_failure(
-        'LEGACY_JOINT_WALK',
-        'first assertion passes; packed end_columns vs joint walk differs at rtol 1e-6 (48/245 elements, max abs 0.196); cause uninvestigated',
-    )
+    # pack() takes the main-ray columns from column_table unless the method is gl24 (the default is table-v1), and the
+    # table method differs from the 24-point walk by up to 7.5e-4 on rays that start on a shell and run horizontally,
+    # where the walk is the less accurate one. This case compares the two walks, so it pins the walk.
+    @mock.patch.dict(os.environ, {'SOSFUSE2_COLUMN_METHOD': 'gl24'})
     def test_pack_reuses_edges_and_keeps_legacy_bytes(self):
         p, d = self.rays()
         packed = geometry.pack(p, d, 24, self.s, self.scope)

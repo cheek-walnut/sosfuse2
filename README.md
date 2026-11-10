@@ -173,7 +173,7 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
 `docs/CHECKS.md` describes three tiers and exactly what runs where.
 
 1. Any machine without a GPU, which is also the public CI: `python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2`
-   from the installed package. The expected outcome is `0 failed` and 4 `xfailed`. Tests that need the research records
+   from the installed package. The expected outcome is `0 failed` and 3 `xfailed`. Tests that need the research records
    skip unless `SOSFUSE2_SKY_SOS_ROOT` points at that checkout, and tests that need `clang++` skip when it is absent. The
    tests use a synthetic O₄ table in an isolated temporary root and download no HITRAN data; reproduction from the
    original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied.
@@ -181,7 +181,7 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
    `gate --stage --out <dir>` runs the repeat checks.
 3. A CUDA machine with the research checkout: `gate --gf --out <dir>`.
 
-Four test cases fail in the research baseline the package was split from and are marked `xfail(strict=True)`. Their ids,
+Three test cases fail in the research baseline the package was split from and are marked `xfail(strict=True)`. Their ids,
 causes and the rule for retiring them are in `docs/KNOWN_FAILURES.md`. Because the marker is strict, a case that starts
 passing turns the run red until its entry is removed, so the failures stay visible.
 

@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """Two-layer tropospheric aerosol (tropo_profile.py, kernel.cu -DAEROSOL_2L, rig/sh_cpu.cpp): Mac checks.
 
-  --static    clang++ -E -P token identity of kernel.cu with AEROSOL_2L off (merge-base vs this tree) over the production
-              flag sets and launched specializations; AEROSOL_2L on preprocesses and passes the stubbed syntax check;
-              point() compiled for the host with -DAEROSOL_2L: s.prof[1] vs reference.sample (FP32 mirror).
   --host      block validation codes; profile integral = aod550 (closed form, and through the patched sos_sky.profiles).
   --paths     subprocess probes (in parallel) of the small CPU paths: NumPy reference (selftest grid), create_configured
               host arrays, aerosol_column, the C++ engine (rig/sh_cpu.cpp, tiny grid, built in <out>):
@@ -11,11 +8,14 @@
                 equivalence a two-layer block equal to exp(-h/1.2) in exact arithmetic, on a state whose scale_height_km is
                             the decoy 3.0, vs the exp 1.2 state; the exp 3.0 state is the control (what a missed path gives)
                 default     the default block computed on every small path, compared with exp 1.2
-usage: python -B -m sosfuse2.tests.test_tropo_profile --static --host --paths --out <dir> [--jobs 6]
+The former --static mode (kernel.cu token identity against the merge-base, and point() built for the host) is retired:
+its baseline was `git merge-base HEAD main`, which is this tree itself once the change is on main, and its kernel path was
+the pre-split `scripts/sosfuse2/kernel.cu`. Kernel text and point() are covered by test_kernel_static and test_tropo_mie.
+usage: python -B -m sosfuse2.tests.test_tropo_profile --host --paths --out <dir> [--jobs 6]
 """
 
 from sosfuse2 import paths
-import argparse, copy, hashlib, itertools, json, math, os, re, shutil, subprocess, sys, tarfile, io, time
+import argparse, copy, hashlib, json, math, os, shutil, subprocess, sys, tarfile, io, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -48,199 +48,6 @@ def base_ref():
         return subprocess.check_output(['git', '-C', str(ROOT), 'merge-base', 'HEAD', 'main'], text=True).strip()[:12]
     except (OSError, subprocess.CalledProcessError):
         return 'main'
-
-
-# ---- static: kernel tokens and the host-compiled point() --------------------------------------------------------
-
-
-def static(out):
-    from sosfuse2.tests.test_tropo_mie import C3, C2OFF, SPECS, SYNTAX_STUB_EXTRA, tokens, defines, preprocess
-    from sosfuse2.tests.test_kernel_static import STUB
-
-    base = out / f'kernel_{base_ref()}.cu'
-    base.write_text(
-        subprocess.check_output(['git', '-C', str(ROOT), 'show', f'{base_ref()}:scripts/sosfuse2/kernel.cu'], text=True)
-    )
-    new = HERE / 'kernel.cu'
-    sets = {
-        'C3_strato': C3 + ('STRATO', 'PROFILE'),
-        'C3_strato_raylimit': C3 + ('STRATO', 'PROFILE', 'LAUNCH_RAY_LIMIT'),
-        'C2off': C2OFF + ('PROFILE',),
-        'C3_strato_mie': C3 + ('STRATO', 'PROFILE', 'TROPO_MIE'),
-    }
-    jobs = [
-        (n, f, sp)
-        for (n, f), sp in itertools.product(sets.items(), SPECS)
-        if n != 'C3_strato_raylimit' or sp == (1, 0, 0)
-    ]
-    stub = out / 'cuda_stub.h'
-    stub.write_text(STUB + SYNTAX_STUB_EXTRA)
-
-    def one(job):
-        name, flags, spec = job
-        ra, a, _ = preprocess(base, flags, spec)
-        rb, b, _ = preprocess(new, flags, spec)
-        ron, on, eon = preprocess(new, flags + ('AEROSOL_2L',), spec)
-        syn = subprocess.run(
-            [
-                'clang++',
-                '-std=c++17',
-                '-ffp-contract=off',
-                '-fsyntax-only',
-                '-x',
-                'c++',
-                '-include',
-                str(stub),
-                *defines(flags + ('AEROSOL_2L',), spec),
-                str(new),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        return dict(
-            set=name,
-            spec=list(spec),
-            off_tokens_identical=ra == 0 and rb == 0 and tokens(a) == tokens(b),
-            on_rc=ron,
-            on_override='s.prof[1]=aerosol_two_layer(s.h,sun_h+nsh)' in on.replace(' ', ''),
-            on_syntax_rc=syn.returncode,
-            on_error=(eon + syn.stderr).strip()[-300:],
-        )
-
-    with ThreadPoolExecutor(4) as pool:
-        rows = list(pool.map(one, jobs))
-    lut = ('STRATO', 'STRATO_MIE_LUT', 'STRATO_MIE_LUT_FINE')
-    ra, a, _ = preprocess(base, lut, None)
-    rb, b, _ = preprocess(new, lut, None)
-    rows.append(
-        dict(
-            set='strato_lut_build',
-            spec=None,
-            off_tokens_identical=ra == 0 and rb == 0 and tokens(a) == tokens(b),
-            on_rc=0,
-            on_override=True,
-            on_syntax_rc=0,
-            on_error='',
-        )
-    )
-    host = host_point(out, STUB)
-    ok = all(
-        r['off_tokens_identical'] and r['on_rc'] == 0 and r['on_override'] and r['on_syntax_rc'] == 0 for r in rows
-    )
-    return dict(
-        pass_=ok and host['pass_'],
-        baseline=f'git show {base_ref()}:scripts/sosfuse2/kernel.cu',
-        kernels=rows,
-        host_point=host,
-        scope='clang preprocessing + stubbed host syntax; point() host build for numerics; NVRTC/CUDA is tested on GPU hosts',
-    )
-
-
-def host_point(out, STUB):
-    """kernel.cu point() built for the host with -DAEROSOL_2L vs reference.sample on a two-layer selftest state."""
-    import ctypes, numpy as np
-    from sosfuse2 import reference, tropo_profile as tp
-    from sosfuse2.geometry import create, TransientGeometry, normal_state
-
-    kernel = (HERE / 'kernel.cu').resolve()
-    cpp = out / 'aer2_host.cpp'
-    lib = out / 'aer2_host.dylib'
-    # <math.h> first: the stub's later expf/sqrtf/... prototypes then keep C linkage and link against libm.
-    cpp.write_text(
-        '#include <math.h>\n'
-        + STUB
-        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { double shared[50000]; }\n'
-        + f'#include "{kernel}"\n'
-        + '''
-extern "C" void sample_c(const double*p,const double*d,const float*B,const float*dl,double a,double b,int lower,double gu,double gw,
- const float*h,int nh,const float*chi,int nc,float height,const float*sun_h,int nsh,const float*sun_col,int nsx,float*out){
- Sample s{};point(s,p,d,B,dl,0.f,a,b,lower,gu,gw,h,nh,chi,nc,height,sun_h,nsh,sun_col,nsx,false);out[0]=s.h;out[1]=s.prof[1];}
-'''
-    )
-    link = (
-        ['-dynamiclib'] if sys.platform == 'darwin' else ['-shared', '-fPIC', '-nostdinc++']
-    )  # glibc: libstdc++'s <math.h> pulls in int64_t=long, which clashes with kernel.cu's NVRTC typedef (long long); the C header does not
-    subprocess.run(
-        [
-            'clang++',
-            '-std=c++17',
-            '-O2',
-            '-ffp-contract=off',
-            '-DFW=1',
-            '-DAEROSOL_2L',
-            *link,
-            str(cpp),
-            '-o',
-            str(lib),
-        ],
-        check=True,
-    )
-    native = ctypes.CDLL(str(lib))
-    P = ctypes.c_void_p
-    I = ctypes.c_int
-    D = ctypes.c_double
-    F = ctypes.c_float
-    native.sample_c.argtypes = [P, P, P, P, D, D, I, D, D, P, I, P, I, F, P, I, P, I, P]
-    state = copy.deepcopy(normal_state())
-    state['troposphere_profile'] = dict(status='enabled', model='two_layer')
-    s, scope, _ = create(out / 'host_point', 'selftest', (550.0,), 'numpy', 128, state=state)
-    g = TransientGeometry(s, scope).cell(12)
-    c = s.kernel.setup(s, g['nq'])
-    sun_h = np.ascontiguousarray(np.r_[c['sun_h'], c['aer2']], 'f4')
-    maxabs = maxrel = 0.0
-    n = 0
-    hmax = 0.0
-    for seg in range(g['edges'].shape[1] - 1):
-        for step in range(len(c['u'])):
-            q = reference.sample(g, seg, step, c)
-            for row in np.flatnonzero(q['valid']):
-                arrays = [
-                    np.ascontiguousarray(g[k][row], t)
-                    for k, t in (('p', 'f8'), ('d', 'f8'), ('target', 'f4'), ('dloc', 'f4'))
-                ]
-                o = np.empty(2, 'f4')
-                native.sample_c(
-                    *[v.ctypes.data for v in arrays],
-                    g['edges'][row, seg],
-                    g['edges'][row, seg + 1],
-                    int(g['lower'][row, seg]),
-                    c['u'][step],
-                    c['wu'][step],
-                    c['h'].ctypes.data,
-                    len(c['h']),
-                    c['chi'].ctypes.data,
-                    len(c['chi']),
-                    float(c['height']),
-                    sun_h.ctypes.data,
-                    len(c['sun_h']),
-                    c['sun_col'].ctypes.data,
-                    c['sun_col'].shape[1],
-                    o.ctypes.data,
-                )
-                hmax = max(hmax, float(abs(o[0] - q['h'][row])))
-                ref = float(q['prof'][row, 1])
-                maxabs = max(maxabs, abs(float(o[1]) - ref))
-                maxrel = max(maxrel, abs(float(o[1]) / ref - 1))
-                n += 1
-    f64 = float(
-        np.max(
-            abs(
-                tp.profile32(np.linspace(0, 80, 4001), c['aer2'])
-                / tp.profile(np.linspace(0, 80, 4001), s.aerosol_profile['vector'])
-                - 1
-            )
-        )
-    )
-    return dict(
-        samples=n,
-        height_max_abs=hmax,
-        prof1_max_abs=maxabs,
-        prof1_max_rel=maxrel,
-        fp32_mirror_vs_fp64_max_rel=f64,
-        flags=list(s.kernel.flags),
-        pass_=n > 0 and hmax <= 1e-5 and maxrel <= 1e-6 and 'AEROSOL_2L' in s.kernel.flags,
-        rule='host point() prof[1] within 1e-6 relative of the FP32 NumPy mirror (libm expf vs NumPy exp), s.h within 1e-5 km',
-    )
 
 
 # ---- host: validation and integrals ------------------------------------------------------------------------------
@@ -851,7 +658,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out', type=Path)
     p.add_argument('--jobs', type=int, default=6)
-    for k in ('static', 'host', 'paths'):
+    for k in ('host', 'paths'):
         p.add_argument('--' + k, action='store_true')
     p.add_argument('--probe', nargs=3, help=argparse.SUPPRESS)
     a = p.parse_args()
@@ -863,9 +670,9 @@ def main():
         )
     a.out.mkdir(parents=True, exist_ok=True)
     rep = {}
-    with ThreadPoolExecutor(1) as pool:  # paths = subprocesses only; static/host run here meanwhile
+    with ThreadPoolExecutor(1) as pool:  # paths = subprocesses only; host runs here meanwhile
         background = pool.submit(paths, a.out, a.jobs) if a.paths else None
-        for k, fn in (('static', static), ('host', host)):
+        for k, fn in (('host', host),):
             if getattr(a, k):
                 t = time.monotonic()
                 rep[k] = fn(a.out)
