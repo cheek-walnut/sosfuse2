@@ -33,10 +33,35 @@ def render_functions():
     return scope
 
 
+def preview_band_widths(meta, wl):
+    """Band widths (nm) of a table for the preview weights: the resolved bin_edges_nm of meta['settings']['spectral'],
+    else equal widths over 360-830 nm (legacy tables, whose edges are linspace). Edges that do not bracket the table
+    wavelengths raise E_PREVIEW_EDGES."""
+    block = (meta.get('settings') or {}).get('spectral') or {}
+    edges = block.get('bin_edges_nm')
+    if edges is None:
+        return np.full(len(wl), 470 / len(wl))
+    edges = np.asarray(edges, float)
+    if edges.shape != (len(wl) + 1,) or np.any(wl < edges[:-1]) or np.any(wl >= edges[1:]):
+        raise RuntimeError(f'E_PREVIEW_EDGES: {len(edges)} edges do not bracket {len(wl)} table wavelengths')
+    return np.diff(edges)
+
+
+def preview_weights(wl, widths, base_weights):
+    """RGB weights for a table with band centres `wl` and widths `widths` (nm) from the 15 equal-band set (31.33 nm bands
+    over 360-830 nm): interpolated to the centres and scaled by width/31.33, so a band contributes in proportion to the
+    wavelength range it covers. Up to 1.3.1 the scale was 15/len(wl), which for the BM45 product edges (35 bands of
+    11.75 nm, 10 of 5.875 nm) gave the narrow bands 1.78x and the wide ones 0.89x their share (G about +30 %)."""
+    base = 360 + (np.arange(15) + 0.5) * 470 / 15
+    interp = np.column_stack([np.interp(wl, base, base_weights[:, k]) for k in range(3)])
+    return interp * (np.asarray(widths) / (470 / 15))[:, None]
+
+
 def previews(out):
     from sosfuse2.spectral import check_meta_contract
 
-    check_meta_contract(json.loads((out / 'meta.json').read_text()))
+    meta = json.loads((out / 'meta.json').read_text())
+    check_meta_contract(meta)
     funcs = render_functions()
     weights = np.load(ROOT / 'assets/rgb_weights.npy')
     with np.load(out / 'table.npz') as f:
@@ -48,9 +73,7 @@ def previews(out):
     elif len(wl) == 1:
         rgb = np.repeat(table, 3, axis=-1)  # validation preview is explicitly monochrome
     elif len(wl) > 0:
-        base = 360 + (np.arange(15) + 0.5) * 470 / 15
-        weights = np.column_stack([np.interp(wl, base, weights[:, k]) for k in range(3)]) * 15 / len(wl)
-        rgb = table @ weights
+        rgb = table @ preview_weights(wl, preview_band_widths(meta, wl), weights)
     else:
         raise RuntimeError('E_PREVIEW_SPECTRUM: unsupported bin count')
     for h in (-3, -6):

@@ -295,7 +295,8 @@ $$
 The integral is evaluated exactly for the observer function and the solar spectrum taken as piecewise linear between
 their nodes. The colour-matching functions are the CIE 1931 data (CIE 2019a), and V′ is the CIE 1951 scotopic function
 (CIE 2019b). The preview images written with each table (`preview_m03.png`, `preview_m06.png`) use a separate 15-band RGB
-weight set, interpolated to the band centres.
+weight set, interpolated to the band centres and scaled by each band's width (`bin_edges_nm`) over the 31.33 nm width
+of the 15 reference bands.
 
 ## Processes not modelled
 

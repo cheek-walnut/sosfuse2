@@ -533,16 +533,17 @@ def enable_spectral_previews(module):
     def previews(out):
         from .spectral import check_meta_contract
 
-        check_meta_contract(json.loads((out / 'meta.json').read_text()))
+        meta = json.loads((out / 'meta.json').read_text())
+        check_meta_contract(meta)
         with np.load(out / 'table.npz') as f:
             table = f['radiance']
             wl = f['wavelength_nm']
             hs = f['solar_elevation_deg']
         if len(wl) in (1, 15):
             return original(out)
-        base = 360 + (np.arange(15) + 0.5) * 470 / 15
-        weights = np.load(paths.ASSETS / 'rgb_weights.npy')
-        weights = np.column_stack([np.interp(wl, base, weights[:, k]) for k in range(3)]) * 15 / len(wl)
+        weights = module.preview_weights(
+            wl, module.preview_band_widths(meta, wl), np.load(paths.ASSETS / 'rgb_weights.npy')
+        )
         rgb = table @ weights
         funcs = module.render_functions()
         for h in (-3, -6):
