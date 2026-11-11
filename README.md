@@ -8,7 +8,7 @@ to −18°. The package ships a NumPy reference implementation, an optional CUDA
 and NVRTC, numeric gates that compare against fixed references within tolerances, and a provenance record that signs
 every table with the hashes of the code and data that produced it.
 
-This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, and 1.3.1 is
+This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, and 1.3.2 is
 the current release. `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the
 configurations the releases were verified on. The change that matters most for default output is in 1.2.3: the bundled
 `states_v2.json` states now include the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option. The
@@ -56,6 +56,13 @@ which guards against regressions across refactors and other hardware; they do no
 
 ## Limitations
 
+- The default density row, exp(−h / 8 km), holds more air above 20 km than the US Standard Atmosphere 1976 at the same
+  column (1.2 times at 20 km, 1.7 times at 30 km), and deep twilight comes out too bright. Against measured zenith and
+  all-sky twilight brightness (Koomen et al. 1952; Patat et al. 2006), tables of the bundled states are 1.4 to 2.1 times
+  the measurements between solar elevations of −6° and −12°, the ratio growing as the Sun goes down. For two states that
+  both reproduce the purple light of Lee and Hernández-Andrés (2003), the default row gives 1.6 to 2.1 times and
+  `density_profile: usstd76`, `ozone_profile: usstd76`, `rayleigh_column: usstd` give 0.65 to 1.04 times. The default
+  is kept; for deep twilight, set those three options in the state's `density` block, as `states_v1_usstd.json` does.
 - NO₂ uses a fixed AFGL profile shape and 220 K cross sections, with a default column of 0.207 DU (`parameters.no2_du`).
   Real columns vary with location, season and time of day, and the model has no photochemistry. In MYSTIC runs at ten
   twilight pixels, replacing the fixed 220 K (NO₂) and 233 K (ozone) cross sections with per-layer temperatures changed
@@ -195,6 +202,13 @@ passing turns the run red until its entry is removed, so the failures stay visib
 
 1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply to them unchanged. The changed default v2 states in
 1.2.3 are covered by the separate installed-sdist checks below.
+
+Configurations verified for 1.3.2. The kernel, the solver and the gate are those of 1.3.0, so the GPU row of 1.3.0
+applies to 1.3.2 and the gates were not run again:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| macOS arm64 | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 565 passed, 65 skipped, 3 xfailed, 0 failed, with the default `PERSISTENT_TEST_DEADLINE` and a short `TMPDIR` |
 
 Configurations verified for 1.3.1. The kernel, the solver and the gate are those of 1.3.0, so the GPU row of 1.3.0
 applies to 1.3.1 and the gates were not run again:

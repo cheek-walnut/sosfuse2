@@ -3,6 +3,31 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.3.2
+
+1.3.2 fixes the preview images and the metadata of the legacy batch path and leaves the kernel, the solver and
+`table.npz` as they are in 1.3.1. `run_gpu_state_v3`, `host/pack_state` and `tables_from_sources` are hashed production
+sources, so provenance hashes differ from 1.3.1, and resuming an output saved by 1.3.1 stops with `E_OUTPUT_IDENTITY`
+(use a fresh work root).
+
+- The preview images of tables off the 15-band grid weight each band by its width from `bin_edges_nm`. They scaled
+  every band by 15/len(wl), so on the 45-band product grid, which splits ten of its 11.75 nm bands into 5.875 nm halves,
+  the narrow bands counted 1.78 times and the wide ones 0.89 times their share and G came out about 30 % high. Against
+  a direct CIE 1931 integral of a product table, the preview chromaticity moves from 0.044–0.047 to 0.004–0.005 in xy;
+  the change between the old and new previews is ΔE76 13–16 (median). Tables without a spectral block keep the old
+  weights.
+- `tables_from_sources` and `table_fast` record the computed stratosphere for sources on the legacy wavelength grid
+  (no spectral block, the legacy wavelengths), which they rebuild with the legacy solver. They wrote
+  `unsupported_parameters: ["stratosphere_tau550"]` with the requested `stratosphere.status` and no
+  `parameters_computed` or `stratosphere_computed`.
+- The `--geometry-only` prefetch attaches the stratospheric geometry through the same private overlay as a worker, so a
+  prefetch and a worker of one key no longer write the same `<key>.tmp.npz` in a shared `STRATO_ATTACH_CACHE`. The
+  prefetch writes no `attach_cache` PHASE record; the worker's record then reads as a hit.
+- `test_pipeline_persistent` waits 2400 s by default (`PERSISTENT_TEST_DEADLINE`, was 60 s), the value the public CI
+  already set.
+- README *Limitations* states that the default exp(−h / 8 km) density row is 1.4 to 2.1 times too bright against
+  measured twilight between −6° and −12° and how to select the US Standard Atmosphere rows. The default is unchanged.
+
 ## 1.3.1
 
 1.3.1 changes the planner and the batch writer and leaves the kernel and the solver as they are in 1.3.0. `plan_queue`

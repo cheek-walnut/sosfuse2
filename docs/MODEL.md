@@ -71,7 +71,8 @@ The gate fixtures and `states_v1_usstd.json` use the second row. Its optical dep
 below 80 km in the tabulated Rayleigh optical depth at 450 nm of the IPRT phase E atmosphere (IPRT project: Emde et al.
 2015), so the Rayleigh spectrum is the Bodhaine law anchored at that 450 nm value. With the same anchors, the λ⁻⁴ law of
 1.0.0 gave 0.1085 and 0.0993 at 550 nm for the two rows. The states in `states_v1.json` and `states_v2.json` carry no
-density block and take the default row.
+density block and take the default row. Below −6° solar elevation the default row is 1.4 to 2.1 times too bright
+against measured twilight brightness and the second row is not; README *Limitations* gives the comparison.
 
 ### Ozone
 

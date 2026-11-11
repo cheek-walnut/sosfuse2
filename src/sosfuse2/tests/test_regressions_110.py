@@ -900,3 +900,34 @@ def test_batch_rechecks_completed_outputs_after_lock(tmp_path, monkeypatch, caps
     assert batch.main() == 0
     assert ran == ['half']  # a table without its pack is still unfinished work
     assert 'SKIP ' + tmp_path.name + '/late: finished while waiting for the locks' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('computed', [True, False])
+def test_legacy_batch_records_computed_stratosphere(tmp_path, monkeypatch, computed):
+    """A source on the legacy wavelength grid (restored_settings -> None) records the stratosphere the legacy solver
+    built, not 'unsupported'."""
+    from sosfuse2 import components, paths, table_fast as tf, tables_from_sources as batch
+    from sosfuse2.host import pack_state as pm
+
+    state = json.loads((paths.ASSETS / 'states_v2.json').read_text())['states'][0]
+    assert state['stratosphere']['status'] == 'enabled'
+    optics = (
+        dict(meta=dict(stratosphere_tau550=0.004, optics_table='test', optics_sha256='f' * 64)) if computed else None
+    )
+    wl, hs, el, az = tf.axes(True)
+    source = tmp_path / 'source.npz'
+    source.write_bytes(b'legacy')
+    monkeypatch.setattr(components, 'production_only', lambda: None)
+    monkeypatch.setattr(tf, 'restored_settings', lambda *args: None)
+    monkeypatch.setattr(batch, 'signature_of', lambda *args: ('sig', {}))
+    monkeypatch.setattr(tf, 'build_solver', lambda *args: (SimpleNamespace(strato=optics), {}, {'legacy': True}))
+    monkeypatch.setattr(tf, 'load_source', lambda *args, **kw: None)
+    monkeypatch.setattr(tf, 'make_table', lambda *args: (np.zeros((len(hs), len(el), len(az), len(wl)), 'f4'), 0.0))
+    monkeypatch.setattr(tf, 'save_table', lambda *args: None)
+    monkeypatch.setattr(pm, 'pack_state', lambda *args, **kw: None)
+    args = SimpleNamespace(reduced=True, backend='numpy', group=1, batch=1, threads=1)
+    assert batch.process(tmp_path, 'legacy', source, state, args, lambda message: None).startswith('done ')
+    meta = json.loads((tmp_path / 'out/legacy/meta.json').read_text())
+    assert meta['unsupported_parameters'] == []
+    assert meta['stratosphere']['status'] == ('enabled' if computed else 'disabled')
+    assert meta['parameters_computed']['stratosphere_tau550'] == (0.004 if computed else 0.0)

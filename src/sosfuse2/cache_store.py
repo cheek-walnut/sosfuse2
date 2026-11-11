@@ -42,9 +42,8 @@ under .v3-leases.lock and built under <sig>.lock (run_gpu_state_v3.py, 470-473),
 folder (run_gpu_state_v3.py); aerosol columns, host sidecars and sun tables take per-file locks and publish by
 os.replace (geometry_cpu.py, host_cache.py, 183-188); attach files are computed in a private overlay and
 renamed in (run_gpu_state_v3.py); columns are read and written under a per-key lock (column_cache.py),
-first-use markers stay in each job's work root. flock needs a local file system (keep the mirror on a local disk). Not
-covered: writers outside pipeline.py, e.g. the geometry-only prefetch (run_gpu_state_v3.py calls attach() outside
-the overlay, so _ground_geometry's fixed '<key>.tmp.npz' name could collide in a shared attach folder).
+first-use markers stay in each job's work root; the geometry-only prefetch attaches through the same overlay.
+flock needs a local file system (keep the mirror on a local disk).
 Failures: CacheStoreError or row codes with stable E_CACHE_* names; rclone output is cut to its tail with URLs and
 token-like values removed."""
 

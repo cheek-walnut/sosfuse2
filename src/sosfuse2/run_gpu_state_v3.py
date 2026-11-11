@@ -67,7 +67,7 @@ def attach_lock_name(state):
 
 
 @contextlib.contextmanager
-def attach_cache_event(name, index, state):
+def attach_cache_event(name, index, state, record=True):
     """Per-state PHASE record: hit, miss, unused (no stratosphere) or disabled.
     stratosphere._ground_geometry writes '<key>.tmp.npz' with a fixed name, so two writers of one key
     must never share a folder. Each call therefore runs against a private overlay folder (hard links
@@ -76,13 +76,16 @@ def attach_cache_event(name, index, state):
     The attach_lock_name group lock only avoids duplicate work: it is taken while the group has not
     published its key yet ('<group>.done' absent), so the first state computes and the rest wait and
     then hit. Once published, states of the group run in parallel and never wait.
-    The caller appends (solver,scope); hit = this state's own key file was already published."""
+    The caller appends (solver,scope); hit = this state's own key file was already published.
+    record=False keeps the overlay and publish but writes no PHASE record (the geometry-only prefetch, whose
+    attach work the worker's own attach_cache record then sees as a hit; pipeline and gate count those records)."""
     root = os.environ.get('STRATO_ATTACH_CACHE', '').strip()
     t = time.monotonic()
     made = []
     if not root:
         yield made
-        phase(name, 'attach_cache', chunk=index, result='disabled', seconds=time.monotonic() - t)
+        if record:
+            phase(name, 'attach_cache', chunk=index, result='disabled', seconds=time.monotonic() - t)
         return
     import tempfile
 
@@ -92,6 +95,8 @@ def attach_cache_event(name, index, state):
     published = lambda: {n for n in os.listdir(folder) if re.fullmatch('attach_geometry_[0-9a-f]{24}[.]npz', n)}
     if group is None:
         yield made
+        if not record:
+            return
         phase(
             name,
             'attach_cache',
@@ -139,6 +144,8 @@ def attach_cache_event(name, index, state):
                     (folder / (group + '.done')).touch()
     finally:
         shutil.rmtree(private, ignore_errors=True)
+    if not record:
+        return
     phase(
         name,
         'attach_cache',
@@ -789,15 +796,21 @@ def geometry_only(a):
     started = time.monotonic()
     try:
         phase(name, 'geometry_start', geometry_only=True)
-        # Geometry columns depend on height/grid/quadrature, not wavelength count.
-        s, scope = create_configured(
-            output / 'prepare',
-            cfg,
-            np.array([cfg['wavelengths_nm'][0]]),
-            'numpy',
-            state,
-            geometry_cache=a.geometry_cache,
-        )
+        # Geometry columns depend on height/grid/quadrature, not wavelength count. The stratosphere attach runs in
+        # the same private overlay as a worker's (attach_cache_event), so a prefetch and a worker of one key never
+        # write the same '<key>.tmp.npz' in a shared STRATO_ATTACH_CACHE.
+        with attach_cache_event(name, 0, state, record=False) as made:
+            made.append(
+                create_configured(
+                    output / 'prepare',
+                    cfg,
+                    np.array([cfg['wavelengths_nm'][0]]),
+                    'numpy',
+                    state,
+                    geometry_cache=a.geometry_cache,
+                )
+            )
+        s, scope = made[0]
         leased = register_geometry(s, scope, a.geometry_cache, a.geometry_layers)
         with (a.geometry_cache / (leased.stats['signature'] + '.lock')).open('a') as builder:
             fcntl.flock(builder, fcntl.LOCK_EX)

@@ -47,10 +47,14 @@ the CIE data sets against the CIE site. Where no DOI exists the entry names the 
 
 ## Twilight measurements
 
+- Koomen, M. J., Lock, C., Packer, D. M., Scolnik, R., Tousey, R., Hulburt, E. O. (1952). Measurements of the brightness
+  of the twilight sky. Journal of the Optical Society of America, 42(5), 353. https://doi.org/10.1364/JOSA.42.000353
 - Lee, R. L., Jr., Hernández-Andrés, J. (2003). Measuring and modeling twilight's purple light. Applied Optics, 42(3),
   445–457. https://doi.org/10.1364/AO.42.000445
 - Lee, R. L., Jr. (2026). Distributions of purple-light colors and spectra in clear twilights. Applied Optics, 65(9),
   C58–C65. https://doi.org/10.1364/AO.580943
+- Patat, F., Ugolnikov, O. S., Postylyakov, O. V. (2006). UBVRI twilight sky brightness at ESO-Paranal. Astronomy &
+  Astrophysics, 455(1), 385–393. https://doi.org/10.1051/0004-6361:20064992
 - Ugolnikov, O. S., Maslov, I. A. (2018a). Investigations of the background stratospheric aerosol using multicolor
   wide-angle measurements of the twilight glow background. Cosmic Research, 56(2), 85–93.
   https://doi.org/10.1134/S0010952518020119 (preprint arXiv:1607.02597, 2016)

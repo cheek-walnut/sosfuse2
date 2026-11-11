@@ -149,7 +149,7 @@ class PersistentTests(unittest.TestCase):
                         raise AssertionError('no GPU work before death injection deadline')
                 code = proc.wait(
                     timeout=max(
-                        0.01, float(os.environ.get('PERSISTENT_TEST_DEADLINE', '60')) - (time.monotonic() - start)
+                        0.01, float(os.environ.get('PERSISTENT_TEST_DEADLINE', '2400')) - (time.monotonic() - start)
                     )
                 )
             except BaseException:

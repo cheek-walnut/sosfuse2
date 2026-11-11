@@ -437,6 +437,9 @@ def main():
         t = time.monotonic()
         table, seconds = make_table(s, source, hs, el, az, a.group, a.batch, lambda m: print(m, flush=True))
         total = time.monotonic() - t
+        from .stratosphere import computed_metadata
+
+        optical_meta = computed_metadata(state, getattr(s, 'strato', None))
     else:
         wl, hs, el, az = restored_axes(settings)
         table, seconds, create_seconds, total, optical_meta = restored_table(

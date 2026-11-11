@@ -2,7 +2,7 @@
 
 CPU only, no table. ① equal widths reproduce the 1.3.1 15/len(wl) scale (to rounding); ② on the BM45 product edges
 (35 bands of 11.75 nm, 10 of 5.875 nm) smooth spectra give the 15-band RGB within 2 %, while the 1.3.1 count scale was
-off by about 30 % in G (measured 2026-11-11: flat 1.306, lambda^-4 1.375); ③ bin edges come from meta settings, tables
+off by about 30 % in G (flat 1.306, lambda^-4 1.375); ③ bin edges come from meta settings, tables
 without a spectral block fall back to equal widths, edges that do not bracket the wavelengths are E_PREVIEW_EDGES.
 """
 

@@ -40,11 +40,10 @@ On macOS, the persistent queue (`pipeline --persistent`, `test_r17_port`, `test_
 socket under the run's temporary root, and macOS limits that path to 104 bytes. Keep `TMPDIR` and `SOSFUSE2_TEST_SCRATCH`
 short; the default `/var/folders/...` is fine, whereas a 108-byte `TMPDIR` failed with `E_PERSISTENT_SERVICE_START` in a
 fresh virtual environment outside the source tree. The five `test_pipeline_persistent` cases wait
-`PERSISTENT_TEST_DEADLINE` seconds, 60 by default, for a 4-state NumPy reduced queue to start. A busy laptop and a
-12-core host both exceeded 60 s in fresh virtual environments outside the source tree with `TimeoutExpired` errors,
-and on the latter host the setup queue alone took 462 s and the five cases 838 s in total, so 300 s is not enough either.
-The public CI sets `PERSISTENT_TEST_DEADLINE=2400`, and the
-CUDA G-A gate of tier 2 runs the same cases with 900 s.
+`PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, for a 4-state NumPy reduced queue to finish. The default was
+60 s up to 1.3.1, which a busy laptop and a 12-core host both exceeded in fresh virtual environments outside the source
+tree with `TimeoutExpired` errors; on the latter host the setup queue alone took 462 s and the five cases 838 s in total.
+The public CI also sets `PERSISTENT_TEST_DEADLINE=2400`, and the CUDA G-A gate of tier 2 runs the same cases with 900 s.
 
 The kernel syntax and preprocess tests need a C++ compiler, `clang++` or `clang` on `PATH`: `test_ground_fused`,
 `test_sh_l`, `test_kernel_config`, `test_section_clocks_adversarial`, `test_profile_step`, `test_strato_adversarial` A20,
