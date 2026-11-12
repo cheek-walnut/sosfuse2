@@ -53,7 +53,8 @@ the second), and the polarisation check reads the input of the first state. The 
 centred at 21 km with τ550 0.002–0.006. A third comparison uses 1.2.3 tables of eight bundled states with the three US
 Standard Atmosphere options listed under *Limitations*, at six pixels and solar zenith angles 93° and 96°. At 93° the
 luminance agrees with MYSTIC to within 0.8 % in all 48 combinations of state and pixel, with MYSTIC 0.18 % to 0.35 %
-brighter in the mean at elevations up to 20.25°. At 96° the 95 % interval of the luminance difference excludes 0 in 2 of
+brighter in the mean at elevations up to 20.25°, and a grid of 0.25° in solar zenith angle instead of 0.5° removes part of
+this difference. At 96° the 95 % interval of the luminance difference excludes 0 in 2 of
 48 combinations, as many as chance would give. `docs/VALIDATION.md` also reports two checks of deeper twilight, down to
 a solar elevation of −18°: second-order scattering against a direct quadrature, and a Rayleigh atmosphere against
 SASKTRAN2. In the IPRT spherical test case E1, at solar zenith angles 93° and 96°, the default quadrature does not meet

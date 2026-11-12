@@ -3,6 +3,20 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.3.4
+
+1.3.4 changes documentation only; the code, the assets and the tables are those of 1.3.2.
+
+- `docs/VALIDATION.md` adds two sections: *Grids in solar zenith angle and in height*, which changes the grid in solar
+  zenith angle from 0.5° to 0.25° and the number of height nodes from 44 to 39 and 20, and recomputes the comparison with
+  MYSTIC for the new grid in solar zenith angle; and *Error of the band approximation*, which compares the 45-band tables
+  with `point` tables of 4, 2, 1 and 0.5 nm spacing in one bundled state.
+- *Convergence of the path quadrature and of the Legendre order* adds the comparison of order 24 with order 16 for the
+  eight bundled states of the MYSTIC comparison. The statement that the cause of the difference from MYSTIC at SZA 93°
+  was not found is replaced by what the new grid measurements explain, and *Open checks* is updated, with a new item on
+  the height grid in deep twilight.
+- README *Validation* adds that the grid of 0.25° in solar zenith angle removes part of the difference from MYSTIC.
+
 ## 1.3.3
 
 1.3.3 changes documentation only; the code, the assets and the tables are those of 1.3.2.
