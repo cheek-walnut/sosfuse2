@@ -3,6 +3,24 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.3.3
+
+1.3.3 changes documentation only; the code, the assets and the tables are those of 1.3.2.
+
+- `docs/VALIDATION.md` adds seven sections: eight bundled states against MYSTIC at six pixels and solar zenith angles
+  93° and 96°; the convergence of the path quadrature and of the Legendre order; the IPRT spherical test case E1, whose
+  limits the default quadrature does not meet on the layered profile of the case; second-order scattering against a
+  direct quadrature at solar elevations −6° to −18°; a Rayleigh atmosphere against SASKTRAN2 at −9° to −18°; measured
+  twilight brightness (Koomen et al. 1952; Patat et al. 2006); and the timing of the purple light (Lee and
+  Hernández-Andrés 2003). The introduction and *Open checks* follow.
+- README *Validation* summarises the comparison of the bundled states and no longer says that their stratospheric layer
+  is not compared with MYSTIC.
+- README *Limitations* corrects the statement on measured twilight brightness. The range of 1.4 to 2.1 times holds for
+  the Maryland and Paranal measurements, and Sacramento Peak gives 2.9 to 3.2 times. The two states that reproduce the
+  purple light differ in the density profile and in the stratospheric optical depth and share the ozone profile and the
+  Rayleigh column. The clause on the ratio growing as the Sun goes down is removed.
+- `docs/REFERENCES.md` adds Ramon et al. (2019).
+
 ## 1.3.2
 
 1.3.2 fixes the preview images and the metadata of the legacy batch path and leaves the kernel, the solver and

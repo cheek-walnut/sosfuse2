@@ -38,6 +38,9 @@ the CIE data sets against the CIE site. Where no DOI exists the entry names the 
 - Min, Q., Duan, M. (2004). A successive order of scattering model for solving vector radiative transfer in the
   atmosphere. Journal of Quantitative Spectroscopy and Radiative Transfer, 87(3–4), 243–259.
   https://doi.org/10.1016/j.jqsrt.2003.12.019
+- Ramon, D., Steinmetz, F., Jolivet, D., Compiègne, M., Frouin, R. (2019). Modeling polarized radiative transfer in the
+  ocean-atmosphere system with the GPU-accelerated SMART-G Monte Carlo code. Journal of Quantitative Spectroscopy and
+  Radiative Transfer, 222–223, 89–107. https://doi.org/10.1016/j.jqsrt.2018.10.017
 - Rozanov, V. V., Rozanov, A. V., Kokhanovsky, A. A., Burrows, J. P. (2014). Radiative transfer through terrestrial
   atmosphere and ocean: Software package SCIATRAN. Journal of Quantitative Spectroscopy and Radiative Transfer, 133,
   13–71. https://doi.org/10.1016/j.jqsrt.2013.07.004

@@ -8,7 +8,7 @@ to −18°. The package ships a NumPy reference implementation, an optional CUDA
 and NVRTC, numeric gates that compare against fixed references within tolerances, and a provenance record that signs
 every table with the hashes of the code and data that produced it.
 
-This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, and 1.3.2 is
+This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, and 1.3.3 is
 the current release. `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the
 configurations the releases were verified on. The change that matters most for default output is in 1.2.3: the bundled
 `states_v2.json` states now include the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option. The
@@ -48,21 +48,31 @@ and 42 are left unresolved by the Monte Carlo noise. `docs/VALIDATION.md` gives 
 1.1.0 changes, the sensitivity to the fixed choices listed below, and a qualitative check of the stratospheric aerosol
 input against measured zenith polarisation (Ugolnikov et al. 2004).
 
-The default tables differ from the compared ones in their stratospheric layer. In both MYSTIC comparisons the layer is
-centred at 19 km (τ550 0.0037 in the first state, 0.0022 in the second), and the polarisation check reads the input of the
-first state. The default layer of the bundled states is centred at 21 km with τ550 0.002–0.006 and is not compared with
-MYSTIC. The numeric gates in `docs/CHECKS.md` show that a change leaves the tables within tolerance of fixed references,
-which guards against regressions across refactors and other hardware; they do not measure physical accuracy.
+In those two MYSTIC comparisons the stratospheric layer is centred at 19 km (τ550 0.0037 in the first state, 0.0022 in
+the second), and the polarisation check reads the input of the first state. The default layer of the bundled states is
+centred at 21 km with τ550 0.002–0.006. A third comparison uses 1.2.3 tables of eight bundled states with the three US
+Standard Atmosphere options listed under *Limitations*, at six pixels and solar zenith angles 93° and 96°. At 93° the
+luminance agrees with MYSTIC to within 0.8 % in all 48 combinations of state and pixel, with MYSTIC 0.18 % to 0.35 %
+brighter in the mean at elevations up to 20.25°. At 96° the 95 % interval of the luminance difference excludes 0 in 2 of
+48 combinations, as many as chance would give. `docs/VALIDATION.md` also reports two checks of deeper twilight, down to
+a solar elevation of −18°: second-order scattering against a direct quadrature, and a Rayleigh atmosphere against
+SASKTRAN2. In the IPRT spherical test case E1, at solar zenith angles 93° and 96°, the default quadrature does not meet
+the error limits we had set, which we attribute to the layered profile of the case. The numeric gates in
+`docs/CHECKS.md` show that a change leaves the tables within tolerance of fixed references, which guards against
+regressions across refactors and other hardware; they do not measure physical accuracy.
 
 ## Limitations
 
 - The default density row, exp(−h / 8 km), holds more air above 20 km than the US Standard Atmosphere 1976 at the same
   column (1.2 times at 20 km, 1.7 times at 30 km), and deep twilight comes out too bright. Against measured zenith and
-  all-sky twilight brightness (Koomen et al. 1952; Patat et al. 2006), tables of the bundled states are 1.4 to 2.1 times
-  the measurements between solar elevations of −6° and −12°, the ratio growing as the Sun goes down. For two states that
-  both reproduce the purple light of Lee and Hernández-Andrés (2003), the default row gives 1.6 to 2.1 times and
-  `density_profile: usstd76`, `ozone_profile: usstd76`, `rayleigh_column: usstd` give 0.65 to 1.04 times. The default
-  is kept; for deep twilight, set those three options in the state's `density` block, as `states_v1_usstd.json` does.
+  all-sky twilight brightness (Koomen et al. 1952; Patat et al. 2006), a table of a bundled state is 1.4 to 2.1 times
+  the measurements in Maryland and at Paranal between solar elevations of −6° and −12°, and 2.9 to 3.2 times those at
+  Sacramento Peak. Two variants of one state both reproduce the purple light of Lee and Hernández-Andrés (2003), and
+  both use `ozone_profile: usstd76` and `rayleigh_column: usstd`. The variant with the exponential density profile and a
+  stratospheric τ550 of 0.006 gives 1.6 to 2.1 times the Maryland and Paranal measurements, and the variant with
+  `density_profile: usstd76` and τ550 0.0037 gives 0.65 to 1.04 times. The default is kept; for deep twilight, set
+  `density_profile: usstd76`, `ozone_profile: usstd76` and `rayleigh_column: usstd` in the state's `density` block, as
+  `states_v1_usstd.json` does.
 - NO₂ uses a fixed AFGL profile shape and 220 K cross sections, with a default column of 0.207 DU (`parameters.no2_du`).
   Real columns vary with location, season and time of day, and the model has no photochemistry. In MYSTIC runs at ten
   twilight pixels, replacing the fixed 220 K (NO₂) and 233 K (ozone) cross sections with per-layer temperatures changed
@@ -202,6 +212,8 @@ passing turns the run red until its entry is removed, so the failures stay visib
 
 1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply to them unchanged. The changed default v2 states in
 1.2.3 are covered by the separate installed-sdist checks below.
+
+1.3.3 changes documentation only. Its code is that of 1.3.2, and no test or gate was run again for it.
 
 Configurations verified for 1.3.2. The kernel, the solver and the gate are those of 1.3.0, so the GPU row of 1.3.0
 applies to 1.3.2 and the gates were not run again:
