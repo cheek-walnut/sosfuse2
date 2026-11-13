@@ -1,4 +1,4 @@
-"""Geometry rules for the sosfuse2 two-layer COMMON endpoint cache (M2, 2026-10-01).
+"""Geometry rules for the sosfuse2 two-layer COMMON endpoint cache.
 
 The common-layer signature hashes THIS file instead of the whole
 sosfuse2/geometry.py, so edits to timers, packing speed-ups or
@@ -14,7 +14,7 @@ Bump VERSION (and re-run the local test) whenever geometry.py changes any of:
   * the column quadrature (Gauss-Legendre COLUMN_GL_ORDER) or which end_col
     column depends on the scale height.
 Pure refactors preserving the cached layout and values within preparation tolerance do not need a bump.
-The pack meta code_hashes still record full file hashes (product identity).
+The pack metadata also records product source identities.
 
 check() is a cheap drift guard: it compares these constants with the live
 geometry module and fails with E_GEOMETRY_CONTRACT_DRIFT; it cannot prove
@@ -26,6 +26,8 @@ import inspect
 import re
 import json
 from pathlib import Path
+
+from . import identity as source_identity
 
 VERSION = 'sosfuse2-geometry-contract-4'
 SIGNATURE_VERSION = 7  # v7 also identifies all endpoint-generation sources
@@ -60,7 +62,7 @@ DTYPES = dict(
 )
 TRAIL = dict(starts=(3,), targets=(3, 3), dirs=(3,), end_col=(5,))
 AEROSOL_COLUMN = dict(path='aerosol/H_<float.hex(height)>.f4', dtype='f4', replaces='end_col[:,1]')
-# Upstream inputs that still generate the endpoints (read-only; hashed in full).
+# Upstream inputs that still generate the endpoints.
 UPSTREAM = (
     'accepted/engine.py',
     'solver_columns.py',
@@ -117,8 +119,8 @@ def check(gm):
 
 def identity(s):
     """Common-layer identity: grid + quadrature counts + geometry rules file + upstream hashes; no scale height."""
-    files = {'sosfuse2/' + name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in UPSTREAM}
-    files['sosfuse2/geometry_contract.py'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    files = {'sosfuse2/' + name: source_identity.file_sha(ROOT / name) for name in UPSTREAM}
+    files['sosfuse2/geometry_contract.py'] = source_identity.file_sha(Path(__file__))
     content = dict(
         h=s.geo.h.tolist(),
         chi=s.geo.chi.tolist(),

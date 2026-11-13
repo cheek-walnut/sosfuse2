@@ -11,6 +11,8 @@ import hashlib, json, math, os
 from pathlib import Path
 import numpy as np
 
+from . import identity as source_identity
+
 DEFAULT = Path(__file__).with_name('assets') / 'strato_sulfate_rg0.08_sg1.6_n1.43.json'
 # State parameters the attach geometry never reads (_geometry_key, run_gpu_state_v3.attach_lock_name): optics
 # combined after attach; ssa/g/angstrom/ozone_du were byte-equal on the full grid.
@@ -216,8 +218,8 @@ def _column_nodes(p, d, old, n):
     """geometry_segments' exact nodes/XYZ reduction, without unused optical prefixes.
 
     SOSFUSE2_STRATO_HOST_COMPONENT_RADIUS (default on, '0' = off) sums the radius
-    components separately, avoiding the [ray,node,xyz] temporary; was byte-identical
-    to the q*q reduction (strato-kernel-loop cycle15, test_wall_host NOPREFIX bytes).
+    components separately, avoiding the [ray,node,xyz] temporary while retaining
+    the q*q reduction's result.
     """
     edges = old.probe.boundaries(p, d)
     end = edges[:, -1]
@@ -244,7 +246,7 @@ def _column_nodes(p, d, old, n):
         ds = np.where(lower, 2 * (b - a) * u * wu, 2 * (b - a) * (1 - u) * wu)
         if (
             os.environ.get('SOSFUSE2_STRATO_HOST_COMPONENT_RADIUS', '1') != '0'
-        ):  # default on: measured bit-identical, ~2x in cycle15
+        ):  # Default on: measured bit-identical and approximately twice as fast.
             radius2 = np.square(pa[:, None, 0] + t * da[:, None, 0])
             for axis in (1, 2):
                 radius2 += np.square(pa[:, None, axis] + t * da[:, None, axis])
@@ -307,7 +309,7 @@ _GEOM_MEMO = {}
 
 def _geometry_key(s, scope, profile):
     """Everything the per-cell ground geometry below reads, except the state optics combined afterwards.
-    Unknown dependence is fail-safe only if it shows in these inputs; verified by array equality (2026-10-03)."""
+    Unknown dependence is fail-safe only if it shows in these inputs."""
     from .density import profile_identity
 
     h = hashlib.sha256()
@@ -324,10 +326,10 @@ def _geometry_key(s, scope, profile):
         'column_parallel.py',
     ):
         h.update(name.encode())
-        h.update(hashlib.sha256((here / name).read_bytes()).digest())
+        h.update(bytes.fromhex(source_identity.file_sha(here / name)))
     d = getattr(s, 'density_optics', None)
     p = {k: v for k, v in s.fuse_state.get('parameters', {}).items() if k not in ATTACH_OPTICS_PARAMS}
-    # ②b: the PROFILE identity, not a coincidental sun.col byte match; k3 #12: the ground rays' PROFILE method likewise.
+    # Include the PROFILE identity and ground-ray method, not only the sun.col bytes.
     h.update(
         json.dumps(
             dict(
@@ -355,8 +357,7 @@ def _sun_method(s):
 def _ground_geometry(s, scope, old, profile):
     """(suncol, per-cell [loc,w,sc,lit,col,st,ssc,ec,re]): the state-independent, expensive part of attach.
     Always memoized in-process by _geometry_key (wavelength-independent: one state's FW15 bundles share it); STRATO_ATTACH_CACHE=<dir>
-    adds the on-disk copy. Before 2026-11-03 the memo was tied to the directory, so a bake with the cache off recomputed it for every
-    bundle (L4: 23.6-29.1 s each)."""
+    adds the on-disk copy."""
     import os
 
     root = os.environ.get('STRATO_ATTACH_CACHE', '').strip()

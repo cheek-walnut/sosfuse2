@@ -177,13 +177,15 @@ def finish(grid, pieces, scale):
 
 
 def common(fine):
+    from .identity import file_sha
+
     gen = Path(__file__).read_bytes()
     return dict(wavelength_reference=fine['wavelength_reference'], wavelength_nm=fine['wavelength_nm'],
                 definition=('0.1 nm cell means [x-0.05, x+0.05] of the source linear interpolant on the spectra_fine.json grid, '
                             '7 significant digits; band means integrate this grid with the trapezoid rule (spectral.py), '
                             'point values interpolate it (a filtered spectrum, like the solar column).'),
                 generator=dict(module='sosfuse2.generate_minor_absorbers', rules_version=RULES_VERSION,
-                               sha256=hashlib.sha256(gen).hexdigest()))
+                               sha256=hashlib.sha256(gen).hexdigest(), identity_sha256=file_sha(Path(__file__))))
 
 
 def build_no2(bira_dir):
@@ -228,7 +230,7 @@ def build_o4(cia):
                            negative_cells_set_to_zero=neg),
                 source=dict(name='HITRAN2024 collision-induced absorption, O2-O2 main', file='O2-O2_2024.cia', sha256=cia_sha,
                             url=CIA_URL,
-                            licence='no licence text on hitran.org/cia or /citepolicy (checked 2026-11-04); not redistributed',
+                            licence='no licence text on hitran.org/cia or /citepolicy; not redistributed',
                             references=['Gordon, I. E. et al. (2026). The HITRAN2024 molecular spectroscopic database. JQSRT 353, 109807.',
                                         'Terragni, J. et al. (2025). Collision induced absorption in HITRAN2024. JQSRT 347, 109631.',
                                         'Finkenzeller, H., Volkamer, R. (2022). JQSRT 279, 108063 (HITRAN ref 54).',

@@ -49,7 +49,12 @@ def coeff(state, wl=(450.0, 550.0, 577.0), sigma=None):
 
 
 def test_loader_normal_and_sampling(asset):
-    assert M.load('no2')['sha256'] == '23bdb5fb1f8a2e99f968ad2d3ce8395c9e3190c0aa8fb2e30289beea37f0fb9e'
+    from sosfuse2.identity import asset_digest
+
+    published_raw_sha = '23bdb5fb1f8a2e99f968ad2d3ce8395c9e3190c0aa8fb2e30289beea37f0fb9e'
+    no2 = M.load('no2')
+    assert no2['raw_sha256'] == published_raw_sha  # Byte-integrity pin of the published NO2 asset.
+    assert no2['sha256'] == asset_digest(M.NO2.name, published_raw_sha)  # Computation identity.
     assert M.load('o4')['values'].dtype == np.float64
     w = np.array(SP.PRODUCT['wavelengths_nm'])
     b = SP.block(dict(spectral_mode='band', bin_edges_nm=SP.PRODUCT_EDGES), w, True)
@@ -223,7 +228,10 @@ def test_prepare_mock_download(asset, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(P.urllib.request, 'urlopen', urlopen)
     monkeypatch.setenv('SOSFUSE2_OFFLINE', '0')
     P.main(['--download'])
-    assert json.loads(capsys.readouterr().out)['sha256'] == M.load('o4')['sha256']
+    # The preparation report authenticates generated file bytes, not computation identity.
+    reported_raw_sha = json.loads(capsys.readouterr().out)['sha256']
+    assert reported_raw_sha == hashlib.sha256(asset.read_bytes()).hexdigest()
+    assert reported_raw_sha == M.load('o4')['raw_sha256']
     assert calls == [(G.CIA_URL, 60)]
 
 

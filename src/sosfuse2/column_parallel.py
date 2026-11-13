@@ -6,6 +6,7 @@ per-chunk call (stratosphere.columns / density.correct_columns) on equal input b
 placed at its own index; no sum crosses a chunk.  Workers are spawned processes (no GIL; never a fork of a parent
 that may hold CUDA or threads).  Module functions and minimal state bindings travel by pickle.
 Workers check the source hashes recorded when the parent imports this module before running any task.
+Workers are used only for SOSFUSE2_COLUMN_METHOD=gl24; the default table-v1 path uses column_table.fill.
 
 The process count is SOSFUSE2_COLUMN_WORKERS; unset = all usable CPUs (default_workers), 1 = the serial loop.
 pipeline.py exports max(--threads, usable CPUs // concurrent states) unless the variable is set (pipeline.prep_workers).  The worker count enters no cache key: column_cache.cache_key hashes stratosphere.py, density.py, the
@@ -57,7 +58,7 @@ def thaw(frozen):
 
 
 def source_hashes():
-    """Hashes of module definitions used by spawned workers."""
+    """Raw hashes detect any source drift between the parent and spawned workers."""
     here = Path(__file__).parent
     return {
         name: hashlib.sha256((here / name).read_bytes()).hexdigest()
@@ -122,7 +123,7 @@ def _run(task):
 
 
 def event_fields():
-    """Identity and clock fields every PHASE line carries (pipeline_trace.py reads pid/timestamp_ns)."""
+    """Identity and clock fields carried by every PHASE line."""
     return dict(
         id=os.environ.get('SOSFUSE2_STATE_ID', 'COLUMN_CACHE'),
         pid=os.getpid(),
@@ -156,7 +157,7 @@ def parallel_columns(out, kind, starts, cell_off, dirs, old, parameter, count=No
 
     kind 'strato': out[a:b] = columns(...) (f8 -> f4 on assignment, as serially); parameter = strato profile.
     kind 'density': out = end_col copy; out[a:b] = correct_columns(..., out[a:b], ...); parameter = density optics.
-    False: one worker (default), a bundle below MIN_RAYS, or a failure of the parallel machinery (reason printed;
+    False: one worker, a bundle below MIN_RAYS, or a failure of the parallel machinery (reason printed;
     a numerical error then recurs in the serial loop and is raised there)."""
     from . import column_table
 

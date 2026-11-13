@@ -18,7 +18,7 @@ try:
 except ImportError:  # standalone research harness
     from numerical_checks import within_tol
 
-# Only the cases that read the old CPU-engine fixture need the sky-sos checkout; the pinned-record check below always runs.
+# Only cases that read the old CPU-engine fixture need research data; the pinned-record check below always runs.
 needs_legacy = pytest.mark.skipif(
     not v.legacy_available(),
     reason='legacy rig/selftest_ref.npz: sky-sos checkout (SOSFUSE2_SKY_SOS_ROOT) with the deploy-copied fixture',
@@ -129,7 +129,7 @@ def test_gate_historical_reports_delta_and_old_engine_fixture_unchanged(tmp_path
     monkeypatch.setattr(gate, 'child', child)
     g = gate.historical(tmp_path)
     assert g['pass_'] and g['code'] is None and g['historical_delta'] == dict(blocking=False, max_relative=5.39e-2)
-    # Old CPU engine selftest (rig/run_state.py, bootstrap_v3.sh:85) and the sosfast2 V3 selftest keep the old fixture.
+    # The historical selftest keeps the old fixture.
     assert (
         hashlib.sha256(v.LEGACY.read_bytes()).hexdigest()
         == v.LEGACY_SHA256

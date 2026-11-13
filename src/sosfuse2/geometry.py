@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 import numpy as np
 from .fused import Kernel, load_engine
-from . import paths, reference, tropo_profile
+from . import identity as source_identity, paths, reference, tropo_profile
 from .timers import stage
 
 
@@ -94,7 +94,7 @@ def _create(output, grid, wavelengths, backend, block_size, state):
 
     from .density import profile_step_km, kernel_kwargs
 
-    kw = kernel_kwargs(profile_step_km(state))  # ②b: the Kernel compiles the state's PROFILE node count (none at 0.5)
+    kw = kernel_kwargs(profile_step_km(state))  # Kernel compiles the state's PROFILE node count (none at 0.5).
     initial, scope, settings = engine.create(
         state,
         output,
@@ -127,7 +127,7 @@ def subset(g, index):
 
 
 def _csr_loop(edges, lower):
-    """Original per-ray packing (sosfuse/geometry.py:72-79), kept as the A2 oracle."""
+    """Per-ray reference implementation of endpoint packing."""
     edge_counts = []
     edge_values = []
     flags_out = []
@@ -141,7 +141,7 @@ def _csr_loop(edges, lower):
 
 
 def _csr_vector(edges, lower):
-    """A2: array form of _csr_loop.  Returns (counts i8[n], values f8[sum], flags u2[n]).
+    """Array form of _csr_loop. Returns (counts i8[n], values f8[sum], flags u2[n]).
 
     A ray keeps every strictly positive interval (diff>0, even 1e-12: the kernel
     skips <=1e-8 itself).  Values are the left endpoints of kept intervals plus
@@ -180,8 +180,7 @@ class Bundle:
 
     Compression removes duplicate zero-width intervals, preserving the retained
     interval's endpoint orientation flag. No path samples are ever generated.
-    A2: per-ray Python packing was replaced by the numerically equivalent
-    _csr_vector; consecutive groups with equal edge width are packed in one array call.
+    _csr_vector packs consecutive groups with equal edge width in one array call.
     """
 
     # Sidecars are method-scoped even when an existing host Bundle is reused.
@@ -354,7 +353,7 @@ TRAIL = dict(starts=(3,), targets=(3, 3), dirs=(3,), end_col=(5,))
 
 
 class PackedCache:
-    """A4: whole-grid endpoint cache = one contiguous raw file per field.
+    """Whole-grid endpoint cache with one contiguous raw file per field.
 
     Replaces 1500 x (13 .npy + complete.json).  Cells are appended in order;
     journal.jsonl commits each cell after its bytes are flushed, so an
@@ -476,27 +475,26 @@ class PackedCache:
 
 
 def identity(s, version):
-    """Cache identity.  version 1 = the original sosfuse content (read-only legacy
-    lookup); version 2 = sosfuse2 packed cache (hashes sosfuse2/geometry.py);
+    """Cache identity.  version 1 is used for read-only legacy lookup;
+    version 2 is the sosfuse2 packed cache (hashes sosfuse2/geometry.py);
     version 3 = sosfuse2 two-layer COMMON layer: identical but without the aerosol
-    scale height (A3: only end_columns[:,1] depends on it)."""
+    scale height (only end_columns[:,1] depends on it)."""
     from .geometry_contract import UPSTREAM
 
     upstream = [paths.PKG / n for n in UPSTREAM]
-    files = {paths.rel(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in upstream}
+    files = {paths.rel(p): source_identity.file_sha(p) for p in upstream}
     if version == 1:
-        # The original sosfuse (v1) geometry is not part of the package: its cache can be read only inside sky-sos. The v1
-        # identity is used to *find* an existing v1 cache (find_legacy), never to build one, so outside sky-sos it carries a
-        # sentinel that matches no folder and the cells are generated instead (no error, nothing is silently reused).
+        # The legacy geometry source is optional. If unavailable, use a sentinel
+        # so no legacy folder matches and the cells are generated instead.
         root = paths.sky_sos_root()
         code_file = (root / 'scripts/sosfuse/geometry.py') if root is not None else None
         files['sosfuse/geometry.py'] = (
-            hashlib.sha256(code_file.read_bytes()).hexdigest()
+            source_identity.file_sha(code_file)
             if code_file is not None and code_file.is_file()
             else 'unavailable'
         )
     else:
-        files[paths.rel(Path(__file__))] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        files[paths.rel(Path(__file__))] = source_identity.file_sha(Path(__file__))
     content = dict(
         h=s.geo.h.tolist(), chi=s.geo.chi.tolist(), cfg=s.geo.cfg, height=s.kernel.height, version=version, files=files
     )
@@ -518,7 +516,7 @@ def identity(s, version):
 
 def aerosol_column(arrays, height, chunk=50_000, workers=None, profile=None):
     """end_columns[:,1] from cached endpoints, operation-identical to
-    sos_sky.total_columns(p,d,24)[:,1] as called by pack() (the integrate(...) call in this module).
+    the total column calculation used by pack() (the integrate(...) call in this module).
 
     Same segment endpoints (the CSR keeps every diff>0 interval, and a dropped
     zero-width interval never has diff>1e-8), same per-segment expressions and
@@ -528,7 +526,7 @@ def aerosol_column(arrays, height, chunk=50_000, workers=None, profile=None):
     ozone columns.  Rays are grouped in chunks (all operations are per ray), run
     on `workers` threads (NumPy releases the GIL).  Returns f4.
     profile: None = exp(-max(h,0)/height) (historical expression); else the two-layer callable of
-    tropo_profile.column_function, the same function the patched sos_sky.profiles uses.
+    tropo_profile.column_function, the same function used by the engine profiles.
     """
     from . import column_table as ct
 
@@ -615,15 +613,15 @@ def aerosol_column_pack_route(arrays, old):
 
 
 class ResidentGeometry(TransientGeometry):
-    """Reviewable endpoint-resident option (~0.87 GB), explicitly selected.
+    """Endpoint-resident option (~0.87 GB), explicitly selected.
 
-    A4: the device arrays come from one PackedCache (few contiguous files).  If
-    a complete original v1 per-cell cache (endpoints_<v1 signature>/cell_*)
+    The device arrays come from one PackedCache (few contiguous files). If
+    a compatible v1 per-cell cache (endpoints_<v1 signature>/cell_*)
     exists it is read (never written) and converted; otherwise cells are
     generated.  Device input remains resident for every wavelength/iteration.
     """
 
-    _host_test = False  # Mac numerical-equivalence test only; production requires CUDA
+    _host_test = False  # Numerical-equivalence tests only; production requires CUDA.
     _version = 2
 
     def __init__(self, s, scope, cache):
@@ -795,10 +793,10 @@ class ResidentGeometry(TransientGeometry):
 
 
 class TwoLayerGeometry(ResidentGeometry):
-    """A3 implemented: COMMON endpoint layer (no scale height in its signature) +
+    """COMMON endpoint layer (no scale height in its signature) +
     per-height aerosol column end_col[:,1].
 
-    The common layer is any complete packed build; it may be converted from a v1
+    The common layer is any complete packed build; it may be converted from a compatible v1
     cache of ANY scale height (identity equal except height).  The aerosol column
     of the current height is loaded from common/aerosol/H_<hex>.f4 or recomputed by
     aerosol_column() and stored.  The device end_col is the composite (rays,5)
@@ -875,7 +873,7 @@ class TwoLayerGeometry(ResidentGeometry):
             how = 'computed'
         if how != 'cached':
             path.parent.mkdir(exist_ok=True)
-            tmp = path.with_suffix('.tmp')
+            tmp = path.with_name(f'{path.name}.{os.getpid()}.tmp')
             column.tofile(tmp)
             os.replace(tmp, path)
         if column.shape != (len(host['dirs']),):

@@ -2,7 +2,7 @@
 
 No optical prefixes are needed for endpoint columns. Segment order, GL nodes,
 XYZ summation order and the legacy 3 / density 2 / strato scalar reductions
-match sos_sky.geometry_segments and its consumers exactly.
+match the engine geometry_segments and its consumers exactly.
 """
 
 import numpy as np

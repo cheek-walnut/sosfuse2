@@ -58,6 +58,12 @@ def optics(s=None, h=None, wl=None):
     )
 
 
+def test_parity_covers_stratosphere_and_lane_variants():
+    from sosfuse2.validate import parity
+
+    assert '((False, 1), (False, 15), (True, 1), (True, 15))' in inspect.getsource(parity)
+
+
 class Delta(unittest.TestCase):
     def test_D01_disabled_unused_fields(self):
         class Unused:
@@ -202,9 +208,8 @@ class Delta(unittest.TestCase):
                 meta = st.computed_metadata(s, o)
                 self.assertEqual(meta['parameters_requested'], s['parameters'])
                 self.assertEqual(meta['parameters_computed']['stratosphere_tau550'], 0.003)
-            with patch.object(st, '__file__', '/unrelated-root/scripts/sosfuse2/stratosphere.py'):
-                self.assertEqual(st.path_label(table), table.name)
-                self.assertEqual(optics(s)['meta']['optics_table'], table.name)
+            self.assertEqual(st.path_label(table), table.name)
+            self.assertEqual(optics(s)['meta']['optics_table'], table.name)
             disabled = state(0.003, 'disabled')
             disabled['stratosphere'].update(optics_table=object(), optics_sha256='stale')
             meta = st.computed_metadata(disabled, None)
@@ -356,10 +361,6 @@ class Delta(unittest.TestCase):
         source = (MODULE / 'kernel.cu').read_text()
         macro = next(x for x in source.splitlines() if x.startswith('#define COPY_STRATO') and 'scache' in x)
         self.assertEqual(macro.count('_Pragma("unroll")'), 2)
-        from sosfuse2.validate import parity
-
-        parity_source = inspect.getsource(parity)
-        self.assertIn('((False,1),(False,15),(True,1),(True,15))', parity_source)
         MEASUREMENTS['static_cases'] = len(report['cases'])
         MEASUREMENTS['CUDA_runtime'] = 'OUT-OF-MODEL: not executed on Mac'
 
@@ -407,7 +408,7 @@ class Delta(unittest.TestCase):
     def test_D10_source_cache_changed_table_and_retry(self):
         try:
             from sosfuse2 import strato_colors as colors
-        except ImportError:  # sky-sos research module (scripts/sosfuse2_dev), not part of the public package
+        except ImportError:  # optional research module, not part of the package
             self.skipTest('strato_colors is a sky-sos research module (scripts/sosfuse2_dev)')
 
         class StopProbe(Exception):

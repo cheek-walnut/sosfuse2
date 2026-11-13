@@ -4,7 +4,8 @@
 import argparse, copy, json, sys
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 from sosfuse2.geometry import normal_state
 from sosfuse2 import paths
 
@@ -21,7 +22,7 @@ def build():
         s.update(
             group='strato_purple_stress' if tau == 0.10 else 'strato_purple',
             runnable=True,
-            description='local scalar Mie sulfate diagnostic; rig review gate pending',
+            description='scalar Mie sulfate diagnostic state',
             stratosphere=dict(
                 status='enabled',
                 profile='gaussian',
@@ -35,9 +36,9 @@ def build():
         states.append(s)
     return dict(
         version=2,
-        sampling='deterministic Pro purple diagnostic matrix',
+        sampling='deterministic stratospheric diagnostic matrix',
         supported_physics='Rayleigh coherency + fully depolarizing trop HG / strat scalar Mie + ozone + Lambert',
-        review_gate='astra + Opus review and CUDA/full-grid checks before rig',
+        review_gate='independent review and CUDA full-grid checks',
         states=states,
     )
 
@@ -46,7 +47,7 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--out', type=Path, required=True)
     a = p.parse_args()
-    # Avoid accidental writes outside the agreed module or to the live rig.
+    # Keep generated states under the work root.
     root = paths.work_root()
     if not a.out.resolve().is_relative_to(root):
         p.error(f'output must be under the work root {root}')

@@ -12,7 +12,7 @@
   ],
   "cwd": "<release checkout>",
   "note": "maintainer harness (not packaged); argv shows placeholders",
-  "queue": "mac-cpu"
+  "queue": "local"
  },
  "decision": "b2-s2-gatev2-20261105",
  "description": "E6/G-H pass record: HEAD fused NumPy values (B2 physics: Bodhaine Rayleigh, NO2, O4; continuous Gate v2 trace interpolation) of the reduced selftest, full_35 and spectral_15 (sosfuse2/validate.py); old references stay as historical_delta",

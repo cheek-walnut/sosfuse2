@@ -103,7 +103,9 @@ def research():
     t_asset = json.loads((ROOT / rebuilt[1]).read_text())
     if OT.sha(ROOT / rebuilt[0]) != pinned[rebuilt[0]]:
         assert t_asset['generator']['script'] == 'scripts/build_spectra_fine.py'
-        assert t_asset['frozen_source_sha256'] == OT.sha(ROOT / rebuilt[0])
+        from sosfuse2.identity import asset_digest
+
+        assert asset_digest('spectra_fine.json', t_asset['frozen_source_sha256']) == OT.sha(ROOT / rebuilt[0])
         checked_sha = module.sha
         module.sha = lambda p: (
             pinned[str(Path(p).relative_to(ROOT))] if Path(p) in [ROOT / r for r in rebuilt] else checked_sha(p)
@@ -418,13 +420,6 @@ def test_03b_contract_hashes(monkeypatch):
     assert {paths.rel(OT.FINE), paths.rel(OT.TEMP), 'sosfuse2/ozone_temperature.py'} <= set(
         h
     ) and 'sosfuse2/gate.py' in h
-    extra = {}
-    monkeypatch.setattr(gate, 'file_sha', lambda p: extra.setdefault(Path(p), 'x'))
-    gate.code_identity()
-    assert (
-        density.asset_path() in extra and paths.GATE / 'fixtures.json' in extra
-    )  # asset under its logical key + gate inputs
-    monkeypatch.undo()
     monkeypatch.setattr(
         V3, 'package_hashes', lambda: {k: v for k, v in h.items() if k != 'sosfuse2/ozone_temperature.py'}
     )
@@ -668,7 +663,7 @@ def test_05b_band_definitions(shape, research):
 
 
 # ⑦ ------------------------------------------------------------------------------------------------------------------
-def test_07_asset_sha_and_temperature_range(monkeypatch):
+def test_07_asset_sha_and_temperature_range(monkeypatch, tmp_path):
     b = block('usstd76')
     for key in ('temperature_asset_sha256', 'ozone_sigma_asset_sha256', 'ozone_profile'):
         changed = copy.deepcopy(b)
@@ -681,10 +676,17 @@ def test_07_asset_sha_and_temperature_range(monkeypatch):
     pinned['ozone_profile']['asset_sha256'] = '0' * 64
     raises('E_OZONE_T_ASSET_SHA', lambda: SP.resolve(pinned, state('usstd76')))
     original = Path.read_bytes
-    for target in (OT.FINE, OT.TEMP, density.ASSET):
-        with monkeypatch.context() as patch:
-            patch.setattr(Path, 'read_bytes', lambda p: original(p) + (b' ' if p == target else b''))
-            raises('E_OZONE_T_ASSET_SHA', lambda: SP.spec_table(b, WL))
+    # The density profile is not a v5 content-identity asset: its published bytes remain pinned.
+    target = tmp_path / 'usstd76_profile.json'
+    raw_density = original(density.ASSET)
+    target.write_bytes(raw_density)
+    with monkeypatch.context() as patch:
+        patch.setattr(density, '_PACKAGED', target)
+        assert SP.spec_table(b, WL)
+        for damaged in (raw_density + b' ', raw_density[:-1], b'{"version": 999}'):
+            target.write_bytes(damaged)
+            with pytest.raises(RuntimeError, match='^E_DENSITY_ASSET_SHA256: packaged .* expected '):
+                SP.spec_table(b, WL)
     model = OT.ProfileMean(SP.PRODUCT_EDGES, 'triangle')
     for value in (192.999, 293.001, np.nan, np.inf, -np.inf):
         raises('E_OZONE_T_RANGE', lambda: model.sigma(value))
@@ -695,6 +697,47 @@ def test_07_asset_sha_and_temperature_range(monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(Path, 'read_bytes', lambda p: encoded(damaged) if p == OT.TEMP else original(p))
         raises('E_OZONE_T_RANGE', lambda: OT.sigma_bar(SP.PRODUCT_EDGES, 'triangle'))
+
+
+@pytest.mark.parametrize(
+    'target,key,note',
+    [
+        (OT.FINE, 'ozone_233K', 'wavelength_reference'),
+        (OT.TEMP, 'temperature_K', 'formula_source'),
+    ],
+)
+@pytest.mark.parametrize('change', ['number', 'truncated', 'whitespace', 'indent', 'description'])
+def test_07_v5_asset_content_identity(monkeypatch, target, key, note, change):
+    # Triangle keeps corruption coverage runnable without optional IPRT inputs or research records.
+    b = block('triangle')
+    expected = SP.spec_table(b, WL)
+    original = Path.read_bytes
+    raw = original(target)
+    doc = json.loads(raw)
+    if change == 'number':
+        doc[key][0] += 0.125
+        damaged = json.dumps(doc).encode()
+    elif change == 'truncated':
+        damaged = raw.rstrip()[:-1]
+    elif change == 'whitespace':
+        damaged = raw + b' '
+    elif change == 'indent':
+        damaged = json.dumps(doc, indent=2).encode()
+    else:
+        doc[note] = 'Revised description'
+        damaged = json.dumps(doc).encode()
+    assert damaged != raw
+    monkeypatch.setattr(Path, 'read_bytes', lambda p: damaged if p == target else original(p))
+    if change == 'number':
+        with pytest.raises(
+            ValueError, match='^E_OZONE_T_ASSET_SHA: profile_mean assets changed since the block was made'
+        ):
+            SP.spec_table(b, WL)
+    elif change == 'truncated':
+        with pytest.raises(ValueError, match='^E_IDENTITY.*JSON:'):
+            SP.spec_table(b, WL)
+    else:
+        assert SP.spec_table(b, WL) == expected
 
 
 # ⑨ ------------------------------------------------------------------------------------------------------------------

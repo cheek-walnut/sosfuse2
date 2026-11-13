@@ -24,8 +24,8 @@ native/sh_cpu.cpp full_transport (aerosol_height < 0, parameters after asc[0..W)
 sun_h[0..nsh)) and reference.sample (FP32 mirror of the kernel line).
 
 DEFAULTS. Source: LOWTRAN7 lowtran7.f, https://raw.githubusercontent.com/space-physics/lowtran/main/src/lowtran/fortran/lowtran7.f
-(fetched 2026-10-07; 875,546 bytes, the same length and block offsets as the local copy sha256 25e83d94e24b... whose line
-numbers are quoted): BLOCK DATA PRFDTA :13587-13630, AERPRF :3900-3938, season default :1068, EXPINT interpolation :4057.
+(875,546 bytes, sha256 25e83d94e24b...): BLOCK DATA PRFDTA :13587-13630, AERPRF :3900-3938, season default :1068,
+EXPINT interpolation :4057.
   bl_top_km 2.0          boundary layer table HZ2K covers ZHT <= 2 km (:13592-13593, AERPRF :3913). Verified.
   bl_scale_height_km 2.14  HZ2K 23 km column (rural V 23 km = Lee 2003 reference case):
                          0.158 / 0.0991 / 0.0621 km^-1 at 0 / 1 / 2 km (:13619-13624, verified); log least squares H = 2.142 km
@@ -37,12 +37,12 @@ numbers are quoted): BLOCK DATA PRFDTA :13587-13630, AERPRF :3900-3938, season d
                          HZ2K(3,.) interpolated in 1/V (:3914-3920): 0.0621 for every VIS <= 23 km. MODEL 3 (midlatitude winter,
                          Lee 2003 reference atmosphere) selects fall/winter (:1068); levels are joined exponentially (EXPINT
                          :4057). V <= 23 km: 2-10 km integral 0.0797, log least squares H 1.85 km. The Lee comparison states (aod
-                         .2 / .4 ~ V 23 / 10 km by a development estimate, itself a 'hypothesis') are
+                         .2 / .4 ~ V 23 / 10 km by an approximate estimate) are
                          in this class, so it is the default; a state with V > 23 km (aod below about .2) should carry its own
                          ft values from lowtran_free_troposphere(V) (V 50 km: 0.0429, H 2.39 km).
   bl_transition_km 1.0   smoothing width (not a LOWTRAN quantity). A real boundary-layer top is an entrainment zone a few
                          hundred m to ~1 km thick; 1 km also resolves the blend for the GL-24 column quadrature (vertical column
-                         vs a dense integral, these defaults, aod .15: +1.40 % at 0.2 km, -0.12 % at 1.0 km; measured during development).
+                         vs a dense integral, these defaults, aod .15: +1.40 % at 0.2 km, -0.12 % at 1.0 km).
 """
 
 import hashlib, json, math, types
@@ -212,6 +212,8 @@ def parameters(cfg):
     if w / 2 * kf >= limit:
         raise ValueError('E_TROPO_PROFILE_FP32: free-troposphere exponent overflows')
     ib, jf = basis_integrals(z, w, kb, kf)
+    if not math.isfinite(kb) or ib <= 0 or jf <= 0:
+        raise ValueError('E_TROPO_PROFILE_FP32: boundary-layer scale height too small')
     vector = np.array([z - w / 2, 1.0 / w, abl / aod / ib, kb, aft / aod / jf, kf, z], 'f8')
     with np.errstate(over='ignore', invalid='ignore'):
         k = vector.astype('f4')

@@ -615,7 +615,7 @@ def test_commit_and_portable_reference(monkeypatch, tmp_path):
     monkeypatch.setenv('GATE_SOURCE_COMMIT', 'cafe')
     assert gate.commit() == 'cafe'
     monkeypatch.setenv('HOME', str(tmp_path))
-    assert gate.portable(tmp_path / 'a/b.npz') == '~/a/b.npz' and gate.portable('~/a/b.npz') == '~/a/b.npz'
+    assert gate.portable(tmp_path / 'a/b.npz') == 'b.npz' and gate.portable('~/a/b.npz') == 'b.npz'
     assert gate.portable('/somewhere/else/table.npz') == 'table.npz'
 
 

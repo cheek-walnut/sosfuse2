@@ -1,7 +1,7 @@
-"""Test-only helpers for the optional sky-sos research extras.
+"""Test-only helpers for optional research data.
 
-The package tests run on their own. A test that reads a sky-sos record (results/, rig/, the v1 `sosfuse` oracle, the
-legacy selftest fixture) asks for it through sky_sos(): with SOSFUSE2_SKY_SOS_ROOT unset the test is skipped, with the
+The package tests run on their own. A test that reads a research record asks for it through sky_sos():
+with SOSFUSE2_SKY_SOS_ROOT unset the test is skipped, with the
 variable set but the record missing the test FAILS (a wrong root or a moved record must not look like a pass).
 Both unittest and pytest honour unittest.SkipTest, so the same helper serves the dual-mode harnesses.
 """
@@ -67,13 +67,13 @@ def known_failure(ident, reason, when=None):
 
 
 def sky_sos_root():
-    """The sky-sos checkout or None (unset). An env value that is not a directory is an error (paths.sky_sos_root
+    """The research data root or None (unset). An env value that is not a directory is an error (paths.sky_sos_root
     raises E_SKY_SOS_ROOT), never a silent skip."""
     return paths.sky_sos_root()
 
 
 def sky_sos(*relative):
-    """Path of a sky-sos record: SkipTest when the root is unset, AssertionError when it is set and the record is missing."""
+    """Path of a research record: SkipTest when the root is unset, AssertionError when the record is missing."""
     root = sky_sos_root()
     rel = '/'.join(relative)
     if root is None:
@@ -85,7 +85,7 @@ def sky_sos(*relative):
 
 
 def sky_sos_optional(*relative):
-    """Path of a gitignored local copy inside sky-sos, or None when the root or the file is absent (the caller skips)."""
+    """Path of a local research record, or None when the root or the file is absent (the caller skips)."""
     root = sky_sos_root()
     if root is None:
         return None
@@ -94,7 +94,7 @@ def sky_sos_optional(*relative):
 
 
 def scratch(prefix):
-    """Fresh output folder for a harness run; under $TMPDIR, never inside the package (the research tree's old in-package scratchpad)."""
+    """Fresh output folder for a harness run, under $TMPDIR and outside the package."""
     return Path(tempfile.mkdtemp(prefix=prefix + '-', dir=scratch_parent()))
 
 

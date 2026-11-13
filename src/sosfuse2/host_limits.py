@@ -1,8 +1,7 @@
 """Host-dependent resource ceilings (stdlib only).
 
-The 6 GB RSS ceiling protects the Mac and the development GPU host (15 GB RAM, GPU guard services).
-It is lifted on other Linux hosts by their RAM: rented rigs (>= 48 GB) and mid-size VMs such as the GCP L4
-g2-standard-8 (32 GB), where ncu --set full replay reached 6.4-6.8 GB (measured during development).
+The default RSS ceiling is 6 GB. Linux hosts without a protection marker use
+RAM-dependent ceilings above 24 GB; hosts with at least 48 GB use at most 128 GB.
 default_workers (usable CPUs: affinity and cgroup-v2 cpu.max) moved here from column_parallel.py so the stdlib-only
 pipeline controller can size the per-state process pools with the same rule the children use.
 """
@@ -30,7 +29,7 @@ EDA_MARKERS = ('tools/gpu_guard', 'gpu_guard')  # current marker first, then the
 
 
 def rss_cap_gb():
-    """6 on the Mac, on a host with a GPU guard marker, and on any small/unknown host;
+    """6 on the Mac, on a host with a protection marker, and on any small/unknown host;
     min(128, physical RAM) on a Linux host with at least 48 GB RAM; 0.75 x RAM on one with 24-48 GB."""
     try:
         markers = [Path.home() / marker for marker in EDA_MARKERS]
@@ -102,3 +101,11 @@ def _quota_limits(groups, mounts):
                 break
             current = current.parent
     return limits
+
+
+def peak_rss_bytes():
+    """Peak resident set size of this process, in bytes."""
+    import resource
+    import sys
+
+    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * (1 if sys.platform == 'darwin' else 1024)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local D2 measurements, with strict thresholds and explicit unverified gates."""
 
-import argparse, copy, hashlib, json, os, resource, sys, time
+import argparse, copy, hashlib, json, os, sys, time
 from pathlib import Path
 import numpy as np
 from sosfuse2 import reference
@@ -21,7 +21,7 @@ def zero_bytes(current, baseline):
             report[name] = dict(pass_=False, reason='E_BASELINE_MISSING')
             continue
         with np.load(a, allow_pickle=False) as az, np.load(b, allow_pickle=False) as bz:
-            # A key on one side only (e.g. 'record', added 2026-10-22) is a mismatch, not a KeyError.
+            # A key on one side only (e.g. 'record') is a mismatch, not a KeyError.
             arrays = {
                 k: k in az.files and k in bz.files and within_tol(az[k], bz[k], rtol=1e-5)
                 for k in sorted(set(az.files) | set(bz.files))
@@ -220,7 +220,7 @@ def profile_grid(scope):
         cases=rows,
         pass_=all(r['pass_'] for r in rows),
         shape_metric='integral abs(linear source density - analytic q) dz / integral q dz',
-        decision='column conserved; grid refinement remains a later user decision',
+        decision='column conserved; grid refinement remains deferred',
     )
 
 
@@ -281,7 +281,7 @@ def main():
     p.add_argument('--skip-timing', action='store_true')
     a = p.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
-    report = dict(risk_class='D2', V1=zero_bytes(a.out / 'val_zero', a.baseline))
+    report = dict(V1=zero_bytes(a.out / 'val_zero', a.baseline))
     report['V2'], s, scope, g = thin_case(a.out)
     print('V2', json.dumps(report['V2']), flush=True)
     report['V3'] = energy()
@@ -292,7 +292,9 @@ def main():
         report['V6'] = timing(a.out)
     with open(Path(__file__).with_name('assets') / 'strato_sulfate_rg0.08_sg1.6_n1.43.json') as f:
         report['Mie'] = json.load(f)['checks']
-    report['peak_rss_bytes'] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    from sosfuse2.host_limits import peak_rss_bytes
+
+    report['peak_rss_bytes'] = peak_rss_bytes()
     report['local_numeric_pass_'] = (
         report['V1']['pass_']
         and report['V2']['pass_']

@@ -1,8 +1,7 @@
 """Device profile: per-machine launch budget and launch splitting (configs/devices.json).
 
-eda (RTX 3080, display-attached, guarded by gpu-guard) must keep every kernel launch within its profile's launch budget
-(30 s while the fan curve is active, else 5 s; see configs/devices.json); a leased rig
-runs C3 first light as one 11.9 s launch. The numbers live in configs/devices.json, not in scripts.
+Each profile sets a kernel launch budget and optional launch splitting.
+The budgets live in configs/devices.json.
 
 Selection order: SOSFUSE2_DEVICE_PROFILE, else the CUDA device name against each profile's gpu_names,
 else 'rig' for an unmatched CUDA device and 'mac' without CUDA. Single fields can be overridden by
@@ -156,3 +155,13 @@ def first_light_split_error(flags, strato, profile_name, profile):
         f'E_LAUNCH_BUDGET_CONFIG: the {profile_name} profile needs first light split below one cell; '
         'the instrumentation role uses unsplit transport. Not launched.'
     )
+
+
+def apply_pool_limit(xp):
+    """Apply the memory pool ceiling and return (limit, free), in bytes."""
+    free, _ = xp.cuda.runtime.memGetInfo()
+    if free < 4 * 1024**3:
+        raise RuntimeError('E_VRAM_FREE: need at least 4 GiB free')
+    limit = pool_limit_bytes(free)
+    xp.get_default_memory_pool().set_limit(size=limit)
+    return limit, free

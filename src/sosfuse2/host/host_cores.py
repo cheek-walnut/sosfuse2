@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Cores this process may really use, for a rig preflight. `nproc` obeys OMP_NUM_THREADS, and rig images set it
-(2026-10-05: an image's /etc/environment had OMP_NUM_THREADS=4, so nproc said 4 on a 64-core host). This reads the
-scheduler affinity and the cgroup quota instead and prints one integer; with --explain, every source it read."""
+"""Cores this process may use. Unlike `nproc`, this reads scheduler affinity and cgroup quota without applying
+OMP_NUM_THREADS. Prints one integer, or every source read with --explain."""
 
 import math, os, subprocess, sys
 

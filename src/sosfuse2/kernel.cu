@@ -79,7 +79,7 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 // Phase-0 first light (FP64 pipe ~76 % after the p/d DS cache): point() and the Simpson
 // nodes take the segment ends and quadrature nodes as DS computed once (segment) or held per lane (nodes, nq<=32)
 // instead of converting the same doubles every step; the DS values equal ds() of them, so results are unchanged.
-// Warm kernels do the same (slimray FP64 pipe 39 % at 926b06e): the ray's p/d DS cache, segment-end DS and
+// Warm kernels do the same: the ray's p/d DS cache, segment-end DS and
 // lane-held node DS feed the batched point()/point_m2 and the Simpson prefix.
 #if !K_FIRST || K_PHASE==0
 #define PATH_DS
@@ -102,7 +102,7 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 #define PI 3.14159265358979323846
 // Smallest normal float (FLT_MIN). Traces below it are excluded from log-space moments; NaN fails >= as well. The trace
 // itself compares the same under FTZ, but subnormal terms inside it do not: CuPy always builds with
-// -ftz=true, so reference.py runs transport under flush_to_zero() to match (taskB_simpson_20261022/REPORT_2L.md).
+// -ftz=true, so reference.py runs transport under flush_to_zero() to match.
 #define TRACE_MIN 1.17549435e-38f
 // Transport defaults are isolated from the historical LUT translation unit.
 // Specialized transport always uses paired SH sidecars, lane attenuation/ground,
@@ -261,7 +261,7 @@ __device__ DS dr(DS a){float h=sqrtf(fmaxf(a.h,0.f));DS e=dx(a,dm({h,0},{h,0}));
 __device__ DS ddiv(DS a,DS b){float h=a.h/b.h;DS e=dx(a,dm({h,0},b));float lo=(e.h+e.l)/b.h;return da({h,0},{lo,0});}
 __device__ float dq(DS a,DS b){DS x=ddiv(a,b);return x.h+x.l;}
 __device__ float dv(DS a){return a.h+a.l;}
-// FTZ-B (gate v2 2026-10-21): a solar-boundary DS value as an FTZ FP32 build
+// FTZ: a solar-boundary DS value as an FTZ FP32 build
 // computes it, on every build: components and sum below FLT_MIN count as 0; NaN passes (fabsf(NaN)<TRACE_MIN is false).
 __device__ float ftz_dv(DS a){float h=fabsf(a.h)<TRACE_MIN?0.f:a.h,l=fabsf(a.l)<TRACE_MIN?0.f:a.l,v=h+l;return fabsf(v)<TRACE_MIN?0.f:v;}
 __device__ float clip(float x,float lo,float hi){return fminf(hi,fmaxf(lo,x));}
@@ -407,7 +407,7 @@ __device__ void sh_basis_ds(double mu,int lane,float*y,const float2*aa2,const fl
   }
  }
 }
-// Task B (1) (2026-10-22): the profile is evaluated by one function, profile_at, for
+// The profile is evaluated by one function, profile_at, for
 // the quadrature nodes (point()) and the Simpson optical-depth prefix (segment ends, panel midpoints); reference.py profile_at,
 // extinction, SimpsonPrefix use the same operations. Path coordinates, panel widths and midpoints are DS, like point().
 #define PROFILE_ARG ,profile_table,profile_mask,air_surface
@@ -764,7 +764,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
 #endif
  int tid=threadIdx.x,lane=tid&31,warp=tid>>5,nwarps=blockDim.x>>5;
 #ifdef SKIP_ACTIVE
- // Live-layer masks for up to 64 heights (V14 has 44; before 2026-10-25 only nh<=32 skipped, sh_layout.combined_coefficients).
+ // Live-layer masks for up to 64 heights (see sh_layout.combined_coefficients).
  unsigned long long live_a=~0ull,live_s=~0ull;
  if(nh<=64){bool la=false,ls=false,la2=false,ls2=false;
   if(lane<nh){const float r=hr[lane];la=ha[lane]>SKIP_TAU*r;ls=st_density[lane]>SKIP_TAU*r;}
@@ -830,7 +830,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
 #if   defined(FL_SPLIT_ON)
  const int64_t ray_lo=cell_off[0],ray_hi=cell_off[cells];
 #ifdef LAUNCH_RAY_LIMIT
- // Ray-range launches (eda, 2026-10-07): this launch serves queue slots up to ray_sync[1+cells] (rays from
+ // Ray-range launches: this launch serves queue slots up to ray_sync[1+cells] (rays from
  // ray_lo); the host restarts the head ray_sync[0] at the previous end and keeps the cell counters and
  // ray_rads, so a cell is projected by whichever launch finishes its last ray, with the same code and order.
  const int q_lim=ray_sync[1+cells];

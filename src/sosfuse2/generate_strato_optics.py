@@ -48,7 +48,7 @@ def main():
         '--out',
         type=Path,
         required=True,
-        help=f'output JSON; the packaged asset is {DEFAULT.name} (regenerating it is a maintenance step, 2026-11-03 release review)',
+        help=f'output JSON; the packaged asset is {DEFAULT.name}',
     )
     p.add_argument('--imag-index', type=float, default=0.0)
     p.add_argument('--rg', type=float, default=0.08, help='lognormal median radius, um')

@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "note": "Per-device launch and overlap budgets read by sosfuse2.device_profile. Select with SOSFUSE2_DEVICE_PROFILE=<name>; otherwise the CUDA device name picks the first profile whose gpu_names contains it, an unmatched CUDA device gets 'rig', and NumPy runs get 'mac'. Environment variables (SOSFUSE2_LAUNCH_CELLS, SOSFUSE2_LAUNCH_BUDGET_SECONDS, SOSFUSE2_LAUNCH_TARGET_SECONDS, SOSFUSE2_LAUNCH_PAUSE_MS) override single fields. stage1_defaults (r17 compile options FMAD/FASTMATH) and strato_async (legacy gate metadata only) apply when SOSFUSE2_<NAME> / SOSFUSE2_STRATO_ASYNC is unset; the rig values are the r17 rig defaults (strato-kernel-loop wall/cycle8_combo/rig_environment.py, S2 = FMAD+FASTMATH: RTX 3060 total GPU -6.27 %, radiance max rel 7.7e-6, wall/cycle7_stage1/REPORT.md:38,58), eda and mac keep the exact pre-r17 kernels.",
+ "note": "Per-device launch and overlap budgets. Environment overrides and device matching are defined by sosfuse2.device_profile.",
  "profiles": {
   "eda": {
    "gpu_names": [
@@ -10,20 +10,17 @@
    "launch_target_seconds": 2.5,
    "launch_cells_initial": 24,
    "launch_pause_ms": 0,
-   "strato_launch_pause_ms": 60,
    "stage1_defaults": [],
    "strato_async": 0,
-   "state_rss_gb": 5.0,
    "state_vram_gb": 4.5,
-   "slots": 1,
-   "source": "AGENTS.md eda rules (launch abort budget 30 s with the eda fan curve active, user 2026-10-30: gpu-guard pauses only between launches and the fan curve keeps 180 W at 63-65 C; the eda harness lowers it to 5 s via SOSFUSE2_LAUNCH_BUDGET_SECONDS when gpu-fan-curve is inactive; chunking still targets launch_target_seconds 2.5 s); docs/NIGHT_RULES_2026-10-07.md section 2 (slot: RSS <= 5 GB, VRAM <= 4.5 GB, 2 slots); 08:0x update: 1 slot, first come first served (eda throughput is thermal)",
    "slot_pss_gb": 5.0,
    "service_pss_gb": 3.0,
    "worker_pss_gb": 1.5,
    "state_process_pss_gb": 2.8,
-   "memory_source": "development GPU host, 2026-10-07 (research record): persistent p1 (workers 2, GPU active 1) PSS service 2.99 GB + workers 1.46/1.01 GB = 5.47 GB at 08:52 (> slot 5 GB); separate runner r4 peak RSS 2.76 GB. Rounded up: service 3.0, worker 1.5, state process 2.8 -> one state per eda slot in either mode.",
    "requires_split": true,
-   "requires_split_source": "first light must split below one cell (FL_RAYSPLIT ray ranges): task E r2 2026-10-07, C2 first light 24 cells = one 8.6 s launch, three times"
+   "note": "CUDA launch and memory budgets.",
+   "memory_note": "PSS budgets cover the service, workers and state process separately.",
+   "requires_split_note": "First-light ray ranges split launches below one cell."
   },
   "rig": {
    "gpu_names": [],
@@ -31,13 +28,13 @@
    "launch_target_seconds": null,
    "launch_cells_initial": 0,
    "launch_pause_ms": 0,
-   "strato_launch_pause_ms": 0,
-   "stage1_defaults": ["FMAD", "FASTMATH"],
+   "stage1_defaults": [
+    "FMAD",
+    "FASTMATH"
+   ],
    "strato_async": 1,
-   "state_rss_gb": 3.0,
    "state_vram_gb": 3.7,
-   "slots": null,
-   "source": "leased rigs have no display watchdog; C3 first light is one launch, 11.9 s on a 4090 (leased-rig run of 2026-10-04, attempt 4, research record); 60 s = that campaign script's LAUNCH_BUDGET; per-state RSS 1.9-2.6 GB and VRAM about 3.7 GB (research rig-queue notes)"
+   "note": "CUDA launch and memory budgets."
   },
   "mac": {
    "gpu_names": [],
@@ -45,13 +42,10 @@
    "launch_target_seconds": null,
    "launch_cells_initial": 0,
    "launch_pause_ms": 0,
-   "strato_launch_pause_ms": 0,
    "stage1_defaults": [],
    "strato_async": 0,
-   "state_rss_gb": 3.0,
    "state_vram_gb": null,
-   "slots": null,
-   "source": "NumPy reference backend; no GPU launches"
+   "note": "NumPy reference backend; no GPU launches."
   }
  }
 }

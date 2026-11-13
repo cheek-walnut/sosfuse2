@@ -1,7 +1,7 @@
 {
  "version": "usstd76-dual-strato-1",
- "derived_from": "rig/states_v2_proposed.json (dual_st x6)",
- "decision": "user 2026-10-02 06:20: production profile = US Standard 1976 (density_profile=usstd76, ozone_profile=usstd76, rayleigh_column=usstd); stratosphere off; all other numerics unchanged. docs/REPRODUCTION_USSTD.md | exception: these 6 dual test states enable the stratospheric layer (opt-in).",
+ "derived_from": "Stratospheric and standard-atmosphere state templates.",
+ "decision": "US Standard 1976 density, ozone profile and Rayleigh column; stratospheric layers are enabled per state.",
  "physics": "polarized Rayleigh (US Standard 1976 density shape, column tau550 0.0993) + depolarizing HG + ozone (usstd76 shape, state ozone_du preserved) + Lambert; stratospheric gaussian layer ENABLED for these dual test states (center 21 km, sigma 3 km, g 0.63, ssa 1.0)",
  "density": {
   "density_profile": "usstd76",
@@ -60,7 +60,7 @@
     "albedo": 0.3,
     "stratosphere_tau550": 0.003
    },
-   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+   "note_enable": "Stratospheric layer enabled."
   },
   {
    "id": "dual_st0p003_aod0p15",
@@ -113,7 +113,7 @@
     "albedo": 0.3,
     "stratosphere_tau550": 0.003
    },
-   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+   "note_enable": "Stratospheric layer enabled."
   },
   {
    "id": "dual_st0p01_aod0p02",
@@ -168,7 +168,7 @@
     "albedo": 0.3,
     "stratosphere_tau550": 0.01
    },
-   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+   "note_enable": "Stratospheric layer enabled."
   },
   {
    "id": "dual_st0p01_aod0p15",
@@ -223,7 +223,7 @@
     "albedo": 0.3,
     "stratosphere_tau550": 0.01
    },
-   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+   "note_enable": "Stratospheric layer enabled."
   },
   {
    "id": "dual_st0p03_aod0p02",
@@ -278,7 +278,7 @@
     "albedo": 0.3,
     "stratosphere_tau550": 0.03
    },
-   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+   "note_enable": "Stratospheric layer enabled."
   },
   {
    "id": "dual_st0p03_aod0p15",
@@ -333,7 +333,7 @@
     "albedo": 0.3,
     "stratosphere_tau550": 0.03
    },
-   "note_enable": "stratosphere opt-in enabled (user 2026-10-02 15:35 KST, dual test states only; fix round 01:50 rig-conditional)"
+   "note_enable": "Stratospheric layer enabled."
   }
  ]
 }

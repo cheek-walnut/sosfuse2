@@ -28,11 +28,11 @@ try:
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent
 
-OUT = testing.scratch_parent() / 'strato/astra'
+OUT = testing.scratch_parent() / 'strato/adversarial'
 
 
 def _strato_colors(test):
-    """strato_colors (colour figures, Display P3 ICC) is a sky-sos research module (scripts/sosfuse2_dev), not in the package."""
+    """Load the optional colour-figure module, which is not part of the package."""
     try:
         from sosfuse2 import strato_colors as color
     except ImportError:
@@ -563,7 +563,7 @@ class TransportContract(unittest.TestCase):
         with patch.object(st, 'attach', return_value=None):
             s, scope, _ = create(OUT / 'retry', 'selftest', [550.0], state=cfg)
         before = {key: getattr(s, key).copy() for key in ('gm', 'gval', 'gdir', 'goff')}
-        # _ground_geometry is memoized in-process regardless of STRATO_ATTACH_CACHE (2026-11-03); an empty memo makes the
+        # _ground_geometry is memoized in-process regardless of STRATO_ATTACH_CACHE; an empty memo makes the
         # injected solar_grid failure reach the compute path, and patch.dict restores the memo for the other cases.
         with patch.dict(st._GEOM_MEMO, clear=True):
             with patch.object(st, 'solar_grid', side_effect=RuntimeError('injected sidecar failure')):
@@ -620,9 +620,7 @@ class BaselineContract(unittest.TestCase):
                 for name in ('ds', 'da', 'dm', 'dr', 'dv', 'clip', 'hg'):
                     self.assertEqual(body(before, name), body(after, name), name)
 
-    # test_A01_existing_regression_and_baseline_bytes moved to scripts/sosfuse2_dev/test_a01_baseline_bytes.py (sky-sos only): it
-    # compared a harness run with another session's scratchpad folder by absolute path — not reproducible outside that machine
-    # (public split S2). G-P/G-T/G-F (gate.py) cover the regression it stood for.
+    # G-P/G-T/G-F (gate.py) cover the numerical regression checks.
 
 
 class ColorContract(unittest.TestCase):

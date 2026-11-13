@@ -14,8 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-# Keep the documented direct-script and `python -m` entry points working (the bare import below needs this folder on sys.path).
-# New portable entry point; legacy GPU/reference entry points below are retained.
+# The host-only entry point runs the standalone stratosphere checks.
 if '--host-only' in sys.argv:
     import argparse
     from sosfuse2.tests.test_strato_parallel_host import run as run_strato_host

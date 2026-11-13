@@ -352,5 +352,5 @@
     -2.0
   ],
   "generator_sha256": "26f8d15adfb45a5a8f4cddd7c5e22c6a55ca1debf706a5c0c59e7519a98c43c9",
-  "formula_source": "scripts/sosfuse2/generate_density_profile.py:11-18"
+  "formula_source": "US Standard Atmosphere 1976, geopotential lapse-rate layers"
 }

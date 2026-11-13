@@ -4,7 +4,7 @@
 #else
 #define SLIM_ON 0
 #endif
-// R1 split (fused.py KSPLIT, results/kdiag_20261025): PROD (producer) keeps geometry, tag cache, SH contraction and
+// PROD (producer) keeps geometry, tag cache, SH contraction and
 // m-reduction, writes own_aero per corner, and compiles out the tensor/log/attenuation/Kahan/boundary/projection and
 // moment/flux epilogue (its outputs are not meaningful); SLIM (consumer) reads own_aero instead (see SINV below).
 #ifdef PROD
@@ -46,20 +46,20 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 #define FW 15
 #endif
 // Aerosol record row stride: FW padded to a multiple of 4 floats (16 for FW 15) so VPROD stores one float4 per thread
-// (full 32 B sectors; the FW-stride scalar rows were partial-sector writes: results/wavefront_20261101/vprod_gemm, 2.6x on a 5090,
-// bit-identical values). The pad lane is written as 0 by VPROD, never written by PROD and never read.
+// (full 32 B sectors; FW-stride scalar rows were partial-sector writes). The pad lane is written as 0 by VPROD,
+// never written by PROD and never read.
 #define AERO_W (((FW+3)/4)*4)
 // SLIM consumer on the RS2 path (the only one that reads SLIM_AERO): every corner ends in a ballot and __syncwarp, so
-// the compiler cannot hoist the next corner's global reads and a step waits for 4+ serial L2 round trips (cq 1212-1214:
-// L1TEX long_scoreboard ~41 % of warp stalls, no local spills). SLIM_PRELOAD issues a step's PROD aerosol, cell source
+// the compiler cannot hoist the next corner's global reads and a step waits for 4+ serial L2 round trips.
+// SLIM_PRELOAD issues a step's PROD aerosol, cell source
 // rows and column record before the corner loop; the arithmetic and its order are unchanged.
 #if defined(SINV) && defined(SLIM) && defined(STRATO) && FW==15 && !defined(LUT_ONLY)
 #define SLIM_PRELOAD
 #endif
-// Phase-0 first light (FP64 pipe ~76 % after the p/d DS cache, results/kclean_20261029/fp64): point() and the Simpson
+// Phase-0 first light: point() and the Simpson
 // nodes take the segment ends and quadrature nodes as DS computed once (segment) or held per lane (nodes, nq<=32)
 // instead of converting the same doubles every step; the DS values equal ds() of them, so results are unchanged.
-// Warm kernels do the same (slimray FP64 pipe 39 % at 926b06e, cq 1239): the ray's p/d DS cache, segment-end DS and
+// Warm kernels do the same: the ray's p/d DS cache, segment-end DS and
 // lane-held node DS feed the batched point()/point_m2 and the Simpson prefix.
 #if !defined(LUT_ONLY) && (!K_FIRST || K_PHASE==0)
 #define PATH_DS
@@ -68,7 +68,7 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 #define PI 3.14159265358979323846
 // Smallest normal float (FLT_MIN). Traces below it take the linear path; NaN fails >= as well. The trace
 // itself compares the same under FTZ, but subnormal terms inside it do not: CuPy always builds with
-// -ftz=true, so reference.py runs transport under flush_to_zero() to match (taskB_simpson_20261022/REPORT_2L.md).
+// -ftz=true, so reference.py runs transport under flush_to_zero() to match.
 #define TRACE_MIN 1.17549435e-38f
 // Transport defaults are isolated from the historical LUT translation unit.
 #ifndef LUT_ONLY
@@ -197,7 +197,7 @@ __constant__ LMTable LM=LMTable();
 // Opt-in spectral tiles: local buffers use TW; global arrays keep FW.
 #define TW FW
 #define GW(w) w
-// P3' (results/kclean_20261029/p3): slimray handles two steps per warp, step+h in half h = lane>>4, wavelength lane&15.
+// Slim rays handle two steps per warp, step+h in half h = lane>>4, wavelength lane&15.
 // Elsewhere the macros expand to the one-step forms.
 #ifdef SLIM_RAYS
 #define SR_INC 2
@@ -242,13 +242,13 @@ __device__ DS dr(DS a){float h=sqrtf(fmaxf(a.h,0.f));DS e=dx(a,dm({h,0},{h,0}));
 __device__ DS ddiv(DS a,DS b){float h=a.h/b.h;DS e=dx(a,dm({h,0},b));float lo=(e.h+e.l)/b.h;return da({h,0},{lo,0});}
 __device__ float dq(DS a,DS b){DS x=ddiv(a,b);return x.h+x.l;}
 __device__ float dv(DS a){return a.h+a.l;}
-// FTZ-B (gate v2 2026-10-21, results/gate_redesign_20261021/SPEC_V2.md 9): a solar-boundary DS value as an FTZ FP32 build
+// A solar-boundary DS value as an FTZ FP32 build
 // computes it, on every build: components and sum below FLT_MIN count as 0; NaN passes (fabsf(NaN)<TRACE_MIN is false).
 __device__ float ftz_dv(DS a){float h=fabsf(a.h)<TRACE_MIN?0.f:a.h,l=fabsf(a.l)<TRACE_MIN?0.f:a.l,v=h+l;return fabsf(v)<TRACE_MIN?0.f:v;}
 __device__ float clip(float x,float lo,float hi){return fminf(hi,fmaxf(lo,x));}
 __device__ int search(const float*a,int n,float x){int lo=0,hi=n;while(lo<hi){int m=(lo+hi)/2;if(a[m]<=x)lo=m+1;else hi=m;}return max(0,min(n-2,lo-1));}
 #ifndef LUT_ONLY
-// ②b (results/kclean_20261029/SPEC_codex_2b.md): PROFILE nodes 0..80 km at 0.5/0.25/0.125 km = 161/321/641 rows. The
+// PROFILE nodes 0..80 km at 0.5/0.25/0.125 km = 161/321/641 rows. The
 // host passes -DPROFILE_N only for 321/641 (fused.Kernel profile_step_km); the default expands to the same literals.
 #ifndef PROFILE_N
 #define PROFILE_N 161
@@ -372,7 +372,7 @@ __device__ void sh_basis(double mu,int lane,float*y,const double*aa,const double
 // sos_vprod_y: sh_basis's recurrence in double-single (DS, FMA products, ~1e-14 relative) instead of FP64, whose rate on
 // consumer GPUs is 1/64 of FP32. aa2/bb2/dd2 are the host's (hi, lo) float pairs of aa/bb/dd, so the loop has no FP64.
 // The float rows agree with sh_basis's to about 1 ulp (FP32 alone loses up to 3.5e-3 near |mu|=1 and 4.7e-6 rms with an
-// FP64 st, above the 1e-6 prep-product contract; results/kclean_20261029/vprod_sort).
+// FP64 st, above the 1e-6 prep-product contract).
 __device__ void sh_basis_ds(double mu,int lane,float*y,const float2*aa2,const float2*bb2,const float2*dd2){
  mu=fmin(1.,fmax(-1.,mu));const DS u=ds(mu),st=ds(sqrt(fmax(0.,1-mu*mu)));
  for(int m=lane;m<=32;m+=32){
@@ -385,7 +385,7 @@ __device__ void sh_basis_ds(double mu,int lane,float*y,const float2*aa2,const fl
   }
  }
 }
-// Task B (1) (2026-10-22, results/taskB_simpson_20261022/SPEC_IMPL.md): the profile is evaluated by one function, profile_at, for
+// The profile is evaluated by one function, profile_at, for
 // the quadrature nodes (point()) and the Simpson optical-depth prefix (segment ends, panel midpoints); reference.py profile_at,
 // extinction, SimpsonPrefix use the same operations. Path coordinates, panel widths and midpoints are DS, like point().
 #ifndef LUT_ONLY
@@ -539,9 +539,9 @@ __device__ POINT_INLINE void point(Sample &s,const Coord*p
 }
 
 #if defined(SLIM_RAYS) && defined(PT_ACTIVE)
-// KSPLIT=3 consumer (results/slim2_20261025): mode-2 SLIM reads only T, sw, cell and ir of a sample, so the batch keeps this
+// KSPLIT=3 consumer: mode-2 SLIM reads only T, sw, cell and ir of a sample, so the batch keeps this
 // 112 B record (PointData 292 B) and point_m2 evaluates exactly point()'s expressions for those fields (nothing else).
-// 16-byte aligned (112 B) so the step loop reads T, sw and cell as 128-bit shared loads (slimray is LSU-issue-bound, cq 1252).
+// 16-byte aligned (112 B) so the step loop reads T, sw and cell as 128-bit shared loads.
 struct __align__(16) PointM2 { float T[16],sw[4];int cell[4],ir; };
 // Coord/Scalar as point(): PATH_DS passes the ray's DS p/d, the segment-end DS and the lane's node DS.
 template<class Coord,class Scalar>
@@ -741,7 +741,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
  const int64_t slim_base=((const int64_t*)query)[2];
 #endif
 #if defined(LUT_ONLY)
- __trap(); // E_SIMPSON_LANE_ATTEN: the Simpson prefix (task B) exists on the LANE_ATTEN path only; fused.Kernel refuses to compile it
+ __trap(); // E_SIMPSON_LANE_ATTEN: the Simpson prefix exists on the LANE_ATTEN path only; fused.Kernel refuses to compile it
 #endif
  int cell=blockIdx.x;
 #ifdef SPLIT_ACTIVE
@@ -757,7 +757,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
 #endif
  int tid=threadIdx.x,lane=tid&31,warp=tid>>5,nwarps=blockDim.x>>5;
 #ifdef SKIP_ACTIVE
- // Live-layer masks for up to 64 heights (V14 has 44; before 2026-10-25 only nh<=32 skipped, sh_layout.combined_coefficients).
+ // Live-layer masks for up to 64 heights (V14 has 44; sh_layout.combined_coefficients).
  unsigned long long live_a=~0ull,live_s=~0ull;
  if(nh<=64){bool la=false,ls=false,la2=false,ls2=false;
   if(lane<nh){const float r=hr[lane];la=ha[lane]>SKIP_TAU*r;ls=st_density[lane]>SKIP_TAU*r;}
@@ -832,7 +832,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
 #if   defined(FL_SPLIT_ON)
  const int64_t ray_lo=cell_off[0],ray_hi=cell_off[cells];
 #ifdef LAUNCH_RAY_LIMIT
- // Ray-range launches (eda, 2026-10-07): this launch serves queue slots up to ray_sync[1+cells] (rays from
+ // Ray-range launches: this launch serves queue slots up to ray_sync[1+cells] (rays from
  // ray_lo); the host restarts the head ray_sync[0] at the previous end and keeps the cell counters and
  // ray_rads, so a cell is projected by whichever launch finishes its last ray, with the same code and order.
  const int q_lim=ray_sync[1+cells];
@@ -910,7 +910,7 @@ for(int j=0;j<3;j++){double x=0;for(int k=0;k<3;k++)x+=target[3*k+j]*d[k];dl[j]=
    float global_st=ray_constants[0];
 #ifdef WARM_LANE_ON
    // pu is fixed for the ray: register copies instead of 16 shared loads per step in the corner loop (slimray is
-   // LSU-issue-bound, cq 1252: LSU pipe 72 %); same values.
+   // LSU-issue-bound); same values.
    const float pu_r[4]={pu[0],pu[1],pu[2],pu[3]};
 #endif
 #else
@@ -1575,7 +1575,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
         if(component<3)tensors[component]=tensor;
        }
        if(!first){float trace=(tensors[0]+tensors[1])+tensors[2];
-        // Gate v2 (2026-10-21, user decision): only a weighted corner can force the linear fallback. A zero-weight
+        // Only a weighted corner can force the linear fallback. A zero-weight
         // corner (sample exactly on a grid node) is ignored, so the mode no longer flips with the last bit of atan2f.
 #ifdef SLIM_RAYS
         bad_trace=!(trace>=TRACE_MIN)&&corner_sw!=0.f;
@@ -1668,7 +1668,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
       }else s.logs[w]=1.f;
 #endif
 #ifndef LUT_ONLY
-      // Simpson prefix to this node (task B (1)): panel [previous node or a, this node], node extinction from point()'s
+      // Simpson prefix to this node: panel [previous node or a, this node], node extinction from point()'s
       // profile, new midpoint evaluation; replaces the GL-weight prefix mid=(tau-tc)+dt/2, tau+=dt.
       SINV_SIMPSON {
 #ifdef STRATO
@@ -1999,7 +1999,7 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS) fl_project(int cells,l
 
 #if defined(SINV) && PROD_ON && defined(SH_L) && !defined(LUT_ONLY) && (defined(STRATO) && FW==15 && !defined(LUT_ONLY)) && FW==15 && !K_FIRST
 #if SH_L<=16
-// VPROD (SOSFUSE2_KSPLIT=2, results/vprod_20261025): visitor-stream producer, compiled in the PROD module (same source,
+// VPROD (SOSFUSE2_KSPLIT=2): visitor-stream producer, compiled in the PROD module (same source,
 // same NVRTC options) and writing the same chunk-local own_aero records [slot = (point-base)*4+corner][w] as PROD
 // (row stride AERO_W = 16: one float4 store per thread, pad wave 15 = 0).
 // Block = one source cell (combined SH plane in shared), visitors = (ray, cell) of a host plan (fused.vprod_plan).
@@ -2011,7 +2011,7 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS) fl_project(int cells,l
 //           P4[j]=P3[j]+P3[j+2], value=P4[0]+P4[1] (xor 16,8,4,2,1; float addition is commutative);
 //  cm     : cm[0]=1, cm[1]=cp, cm[m]=(2cp)cm[m-1]-cm[m-2] from the recorded cp (point());
 //  live   : SKIP_ACTIVE mask test of the warm kernel, sk_a||sk_s (SH_COMBINE); a dead layer writes +0 (RS2 skipped).
-// Data movement (results/vprod_regs_20261026): the C plane and each
+// Data movement: the C plane and each
 // tile's y rows go global->shared with cp.async (sm_80+, plain copies below), so a thread has all its copies in flight
 // at once instead of one vis_ray->yb load chain per element (the element loop was not unrolled: ~38 serial global
 // latencies per tile); one warp copies whole y rows (coalesced), the tile's rays come from one vis_ray load per lane;
@@ -2123,7 +2123,7 @@ extern "C" __global__ void __launch_bounds__(128) sos_vprod(const int*blk,const 
   if(live && tb+VP_TILE<v1)vp_fill(vp_y,yb,vis_ray,tb+VP_TILE,min(VP_TILE,v1-tb-VP_TILE),lane,wp,nwp);
   if(vl<nv){
    // Records in batches of 8: the 8 slots, then the 8 cp words, are independent loads in flight together instead of the
-   // slot->cp->next-slot chain (results/wavefront_20261101/vprod_gemm V3b: +6 % on 5090/4090, bit-identical).
+   // slot->cp->next-slot chain.
    for(int rb=r0;rb<r1;rb+=8){
     const int nb=min(8,r1-rb);int sl[8],cw[8];
     #pragma unroll

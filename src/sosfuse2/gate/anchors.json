@@ -80,5 +80,5 @@
    "S_src": 3.241694863236575e-07
   }
  },
- "rule": "block if S > max(3*anchor, 1e-6) (SPEC_V2 3.3); raise only with a user decision ID"
+ "rule": "block if S > max(3*anchor, 1e-6); raise only with a decision ID"
 }

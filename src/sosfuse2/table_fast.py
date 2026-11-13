@@ -20,8 +20,9 @@ no cross-warp reduction; kernel.cu:117-239), so no approximation is introduced.
 import argparse, json, os, sys, time
 from pathlib import Path
 
-sys.dont_write_bytecode = True
-from sosfuse2 import paths
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
+from sosfuse2 import paths, identity
 import numpy as np
 
 UNITS = 'W m^-2 sr^-1 nm^-1'
@@ -240,10 +241,12 @@ def load_source(path, s, wl, *, settings=None, backend=None, full_settings=False
         source_settings = contract['settings']
         if not isinstance(source_settings, dict) or not isinstance(settings, dict):
             raise ValueError('settings missing')
-        if contract['state'] != canonical_state(s.fuse_state):
+        if identity.state_identity(contract['state']) != canonical_state(s.fuse_state):
             raise ValueError('state differs')
         if full_settings:
-            if source_settings != settings:
+            from .spectral import same_settings
+
+            if not same_settings(source_settings, settings):
                 raise ValueError('solver settings differ')
         else:
             keys = ('nr', 'nchi', 'nmu', 'nphi', 'path_n', 'L', 'interpolation', 'observer_km')
@@ -283,6 +286,7 @@ def restored_settings(path, state, reduced, backend):
     recorded = np.asarray(cfg.get('wavelengths_nm', legacy_wl))
     if (
         cfg.get('spectral') is None
+        and cfg.get('L') == 32
         and cfg.get('wavelengths', len(legacy_wl)) == len(legacy_wl)
         and wl.shape == recorded.shape == legacy_wl.shape
         and np.allclose(wl, recorded, rtol=0, atol=1e-9)
@@ -290,7 +294,7 @@ def restored_settings(path, state, reduced, backend):
     ):
         return None
     try:
-        if contract['state'] != canonical_state(state):
+        if identity.state_identity(contract['state']) != canonical_state(state):
             raise ValueError('state differs')
         if contract['backend'] != backend or contract['polarization_model'] != 'depolarizing':
             raise ValueError('backend or polarization differs')
@@ -312,7 +316,9 @@ def restored_settings(path, state, reduced, backend):
                 return json.dumps(raw, allow_nan=False)
 
         expected = resolve_settings(settings_for(SimpleNamespace(reduced=reduced, settings_json=SettingsFile())), state)
-        if cfg != expected:
+        from .spectral import same_settings
+
+        if not same_settings(cfg, expected):
             raise ValueError('solver settings differ from current code')
         expected_wl = np.asarray(cfg['wavelengths_nm'])
         if wl.shape != expected_wl.shape or not np.allclose(wl, expected_wl, rtol=0, atol=1e-9):
@@ -407,7 +413,7 @@ def build_solver(state, prepare, reduced, backend):
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--id', required=True)
-    p.add_argument('--states', type=Path, default=paths.ASSETS / 'states_v1.json')
+    p.add_argument('--states', type=Path, default=paths.ASSETS / 'states_v2.json')
     p.add_argument('--source', type=Path, required=True)
     p.add_argument('--prepare', type=Path, required=True, help='solver scratch folder (sun columns cache)')
     p.add_argument('--out', type=Path, required=True, help='table.npz path')
@@ -423,7 +429,9 @@ def main():
     a = p.parse_args()
     if a.batch < 1:
         p.error('E_TABLE_BATCH: batch must be positive')
-    state = next((s for s in json.loads(a.states.read_text())['states'] if s['id'] == a.id), None)
+    from .run_gpu_state_v3 import read_states
+
+    state = next((s for s in read_states(a.states, True) if s['id'] == a.id), None)
     if state is None:
         p.error(f'E_STATE_ID: no state {a.id!r} in {a.states}')
     settings = restored_settings(a.source, state, a.reduced, a.backend)

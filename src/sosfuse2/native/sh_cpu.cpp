@@ -1,4 +1,4 @@
-// Derived from results/sos_full/b2_run/sh_cpu.cpp; runtime H, g and thread count.
+// Spherical harmonics with runtime H, g and thread count.
 
 #include <cmath>
 #include <algorithm>
@@ -189,7 +189,6 @@ extern "C" void source_interp(int nr,int L,int nc,int ns,int V,const int*mode,
  };
  std::vector<std::thread>ts;for(int k=0;k<RIG_THREADS;k++)ts.emplace_back(worker,nr*k/RIG_THREADS,nr*(k+1)/RIG_THREADS);for(auto&t:ts)t.join();
 }
-// Stage B preparation only. The Python launcher must first enforce A2_pass.
 // Appended to the existing, read-only SH kernel text at build time.
 static void tensor_coeff(const double*B,const double*P,double chi,double cx,double sx,double*T){
  double s=sin(chi),c=cos(chi),Q[9]={-c*cx,sx,s*cx,-c*sx,-cx,s*sx,s,0,c},R[9]={},K[9]={};

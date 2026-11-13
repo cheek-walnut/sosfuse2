@@ -17,7 +17,7 @@ from .verify_tol import compare_chunks, compare_tol, log_summary, tolerances
 
 SLIM_PROJ_THREADS = 128  # two wavelength groups per moment
 SLIM_PROJ_MOMENTS = 64  # includes the final flux row
-KSPLIT_BLOCK = 128  # split kernels only (168 registers: 12 warps/SM at 128 vs 8 at 256, kdiag §7)
+KSPLIT_BLOCK = 128  # split kernels only (168 registers: 12 warps/SM at 128 vs 8 at 256)
 # SOSFUSE2_KSPLIT=2: PROD is replaced by kernel.cu sos_vprod (visitor-stream producer, same module and
 # options as PROD). Plan per fixed chunk (aerosol cap, once per state): records (slot = (point-base)*4+corner) stable-sorted by
 # source cell (one uint64 sort of cell<<32|slot), visitors = runs of one (cell, ray), blocks = <= VPROD_VISITORS visitors of one cell.
@@ -50,7 +50,7 @@ extern "C" __global__ void vp_keys(long long nrec,const int*c0cp,int nc,unsigned
 extern "C" __global__ void vp_split(long long n,const unsigned long long*key,int*slot,int*cell){
  const long long i=(long long)blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;
  const unsigned long long x=key[i];slot[i]=(int)(x&0xFFFFFFFFull);cell[i]=(int)(x>>32);}
-// Stable counting sort by source cell (same slot/cell as the key sort above, kernel clean-up study of 2026-10-29: 3.9x
+// Stable counting sort by source cell (same slot/cell as the key sort above, 3.9x
 // faster, 8.6 vs 24 B/record pool peak). Block b owns records [b*seg, (b+1)*seg): vp_count counts its records per cell,
 // the host takes the exclusive cumsum of counts in [cell][block] order, and vp_scatter (one warp per block, 32-record
 // tiles in order, __match_any_sync ranks) writes each record's slot after all lower cells, lower blocks and lower records.
@@ -558,15 +558,14 @@ class KsplitMixin:
 
     def vprod_budget(self, co, pcum, points, W, fixed, free, field_bytes, env_cap, *, minimum=False, option=None):
         """SOSFUSE2_KSPLIT=2 memory rule. Budget B = free (pool-limited, shared aerosol buffer counted as free) - reserve, reserve =
-        16 x the source field (solver growth after this point: Anderson history, apply temporaries) + max(256 MB, 3 %). eda
-        2026-10-25 (62.6 MB field): 8 x left cap 4.51e6 points and the cold solve ran out of memory in iteration 5
-        (vprod2gf_run2); the earlier fixed 1 GB buffer (4.47e6 points) peaked at 8.44+ of 8.69 GB. Per option (stored plans first, then rebuild; records
+        16 x the source field (solver growth after this point: Anderson history, apply temporaries) + max(256 MB, 3 %).
+        Per option (stored plans first, then rebuild; records
         device-resident first, then pinned host), the largest aerosol chunk cap (points) whose peak fits B:
           run   = fixed + records + stored plans + aerosol 4W*4 B/pt of the largest chunk + y rows + verify piece
                   (+ build workspace when rebuilding every iteration)
           build = fixed + records + stored plans + build workspace (stored mode builds all plans before the aerosol buffer)
         records 8 B/point (device) or 8 B/pt of the largest chunk (host upload); stored plans estimated VPROD_STORE_BPP B/point
-        (measured 25.1-26.1: slot 4/record, visitor 8, block 12); build workspace 21 B/record + 4 B/point (live bound; plan_ab.py
+        (measured 25.1-26.1: slot 4/record, visitor 8, block 12); build workspace 21 B/record + 4 B/point (live bound;
         pool 94 B/point incl. 8 B/point inputs); y K*4 B/ray. Stored mode needs a cap >= points/64 (at most 64 chunks);
         SOSFUSE2_KSPLIT_AERO_MB fixes the cap."""
         reserve = 16 * field_bytes + max(256 << 20, int(0.03 * free))
@@ -882,8 +881,7 @@ class KsplitMixin:
     def budget_end(self, kind, a, n, step, cum, initial=None):
         """End of the next launch inside a fixed KSPLIT=2 chunk [a, n): the whole rest when its predicted time (predict_seconds,
         the next_chunk_end model) fits the profile target, else next_chunk_end. Without this, next_chunk_end's 1.5x growth limit
-        restarts from the previous chunk's tail and splits every chunk into small underfilled launches (eda 2026-10-25:
-        SLIM 1192 launches 71.0 s vs 449 launches 32.4 s at KSPLIT=1, same work)."""
+        restarts from the previous chunk's tail and splits every chunk into small underfilled launches."""
         if cum is not None and self.__dict__.get('_launch_obs', {}).get(kind) and (not step or n <= a + step):
             _, p, _ = self.device()
             target = p['launch_target_seconds'] or self.PREDICT_CAP * (p['launch_budget_seconds'] or 0) or float('inf')
@@ -1004,7 +1002,7 @@ class KsplitMixin:
         return launches
 
     def wf_dump(self, path, tag, kb, ctx, bundle, W, boundary, c0, c1, ray_rads, nray, r0, base, npt, slim_s, where):
-        """exp/wavefront 2a: save one chunk's KSPLIT=3 slimray inputs and its ray radiances (ray_rads[(ray-r0)*4W + 4w+k]) so the
+        """Save one chunk's KSPLIT=3 slimray inputs and its ray radiances (ray_rads[(ray-r0)*4W + 4w+k]) so the
         streaming kernel can be run on real inputs and compared. Opt-in by SOSFUSE2_WF_DUMP=<dir>; production behaviour unchanged."""
         import pathlib
 
@@ -1330,7 +1328,7 @@ class KsplitMixin:
                 self.slim_rays(kb, ctx, W, boundary, c0, c1, ray_buf, kind, report)
                 ev['c1'].record()
                 if os.environ.get('SOSFUSE2_WF_DUMP') and phase == 0 and it in (1, 2) and ci == 0:
-                    # exp/wavefront 2a: one chunk's slimray inputs and ray radiances
+                    # Save one chunk's slimray inputs and ray radiances.
                     tag = f'chunk0_it{it}_{id(self) & 0xFFFF:04x}'
                     self.wf_dump(
                         os.environ['SOSFUSE2_WF_DUMP'],

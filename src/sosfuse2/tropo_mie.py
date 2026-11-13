@@ -31,7 +31,7 @@ L = 32
 
 STATUS = ('enabled', 'disabled')
 KEYS = {'status', 'model', 'optics_table'}
-# Asset acceptance (load_table). Measured on tropo_rural_sf79_rh70.json (2026-10-07): table mean over the sphere on its
+# Asset acceptance (load_table). For tropo_rural_sf79_rh70.json, the table mean over the sphere on its
 # own theta grid |-1| <= 2.6e-5; LUT (16384 bins, linear in u) mean |-1| <= 2.0e-3 (forward first bin); SH eigenvalue
 # chi_l/(2l+1) recomputed from the LUT vs the table <= 2.0e-3 (l <= 32). Tolerances = about 10x / 2.5x / 2.5x of these.
 TABLE_MEAN_TOL = 2.5e-4

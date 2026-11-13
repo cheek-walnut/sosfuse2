@@ -7,11 +7,11 @@ output formats are untouched; CuPy is imported only after acquiring the token.
 import contextlib
 import copy
 import fcntl
-import hashlib
 import os
 import time
 import traceback
 from pathlib import Path
+from . import identity
 
 KSPLIT_STATE_VRAM_GB = 5.1  # = pipeline.KSPLIT_STATE_VRAM_GB (the controller stays import-free of this module)
 
@@ -132,9 +132,9 @@ def captured_queries(s, hs, part, ee, aa, dummy):
     root = getattr(s, 'host_cache_root', None)
     if root is None or not host_cache.enabled():
         return capture()
-    from .geometry_contract import identity
+    from .geometry_contract import identity as geometry_identity
 
-    common, signature = identity(s)
+    common, signature = geometry_identity(s)
     b = s.ctx.b
     key = dict(
         kind='query01',
@@ -145,7 +145,7 @@ def captured_queries(s, hs, part, ee, aa, dummy):
         sun_elevation_deg=[float(hs[j]) for j in part],
         view=host_cache.array_hash(np.stack([ee, aa])),
         sources={
-            'sosfuse2/' + name: hashlib.sha256((Path(__file__).resolve().parent / name).read_bytes()).hexdigest()
+            'sosfuse2/' + name: identity.file_sha(Path(__file__).resolve().parent / name)
             for name in ('table_fast.py', 'geometry.py', 'pipeline_execution.py')
         },
     )
@@ -424,7 +424,7 @@ def wire_recv(conn, emit, name):
     start = time.monotonic()
     message = conn.recv()
     # The service reports a failure as one 'E_PERSISTENT_STATE: <type>: <detail>' string in place of the descriptor;
-    # unpacking it as (directory, offsets, size) hid the reason (R3 train0 4090: ENOSPC became a ValueError).
+    # unpacking it as (directory, offsets, size) would hide the reason (e.g. ENOSPC would become a ValueError).
     if isinstance(message, str):
         raise RuntimeError(message if message.startswith('E_') else 'E_PERSISTENT_STATE: ' + message)
     directory, offsets, size = message
@@ -457,7 +457,6 @@ class PreparedSegments:
 
 def persistent_chunk(s, geometry, tables, a, name, emit):
     """CPU closure owner. Service calls back once for every observer evaluation."""
-    import json
     import numpy as np
     from multiprocessing.connection import Client
     from .fused import Solver
@@ -466,8 +465,8 @@ def persistent_chunk(s, geometry, tables, a, name, emit):
 
     root = Path(os.environ['SOS_PERSISTENT_ROOT'])
     # macOS refuses a Unix-socket connect at once when the accept backlog is full (Linux blocks), which
-    # failed test_3_prepare_failure 1 of 3 on 2026-10-05 (P1 ConnectionRefusedError while the service was
-    # authenticating P0). Retry refusals for a bounded time; the service also listens with a deeper backlog.
+    # can refuse a worker while the service authenticates another. Retry for a bounded time;
+    # the service also listens with a deeper backlog.
     deadline = time.monotonic() + 30
     while True:
         try:
@@ -528,7 +527,7 @@ def persistent_chunk(s, geometry, tables, a, name, emit):
                         else 'E_PERSISTENT_STATE: ' + str(message)
                     )
     except (EOFError, ConnectionError, OSError) as exc:
-        raise RuntimeError('E_PERSISTENT_SERVICE_LOST') from exc
+        raise RuntimeError(f'E_PERSISTENT_SERVICE_LOST: {type(exc).__name__}: {exc}') from exc
     finally:
         conn.close()
 
@@ -540,7 +539,6 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
     peaks and RawKernel compilation races. Live states remain device-resident.
     """
     import json
-    import sys
     import threading
     from multiprocessing.connection import Listener
     from . import timers
@@ -619,7 +617,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
             pickle.dumps(payload, protocol=5, buffer_callback=lambda b: arrays.append(b.raw().nbytes))
             state = payload['solver']
             field_bytes = state.geo.ns * (1132 if state.strato is not None else 571) * state.W * 4
-            # Measured on a 4090 (2026-10-03): two full-grid strato states resident together used 7.5 GB
+            # Measured on an RTX 4090: two full-grid strato states resident together used 7.5 GB
             # (payload arrays 1.2 GB + field 0.1 GB each), i.e. about 3.7 GB per state at peak.
             from .device_profile import reserved_field_bytes
 
@@ -633,7 +631,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 and ksplit_setting(backend, payload['flags'], payload['L']) in ('1', '2', '3')
             )
             # Admit a KSPLIT state only with room for its smallest aerosol option too, and keep that floor reserved: base
-            # reservations alone let two states in whose KSPLIT then fit beside neither (L4 2026-10-26: base 7.64 GB each,
+            # reservations alone let two states in whose KSPLIT then fit beside neither (L4: base 7.64 GB each,
             # 4.7 GB left < 5.07 GB minimum, both waited, E_KSPLIT_MEMORY; pipeline.KSPLIT_STATE_VRAM_GB).
             floor = int(KSPLIT_STATE_VRAM_GB * 1e9) if ksplit else 0
             with gate:
@@ -654,13 +652,9 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                         )
                         xp = prototype.xp
                         if backend == 'cupy':
-                            free, _ = xp.cuda.runtime.memGetInfo()
-                            if free < 4 * 1024**3:
-                                raise RuntimeError('E_VRAM_FREE')
-                            from .device_profile import pool_limit_bytes
+                            from sosfuse2.device_profile import apply_pool_limit
 
-                            pool_limit = pool_limit_bytes(free)
-                            xp.get_default_memory_pool().set_limit(size=pool_limit)
+                            pool_limit, _ = apply_pool_limit(xp)
                     available = float('inf')
                     if backend == 'cupy':
                         pool = xp.get_default_memory_pool()

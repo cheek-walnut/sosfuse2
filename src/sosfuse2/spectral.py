@@ -29,10 +29,10 @@ import math
 
 import numpy as np
 
-from . import paths
+from . import paths, identity as source_identity
 
 ASSET = paths.ASSETS / 'spectra_fine.json'
-CMF_1NM = paths.ASSETS / 'cmf_1nm.json'  # Mitsuba 3.9.1 CIE 1931 XYZ 1 nm (was scripts/lut/cmf_1nm.json)
+CMF_1NM = paths.ASSETS / 'cmf_1nm.json'  # Mitsuba 3.9.1 CIE 1931 XYZ 1 nm
 LEF = paths.ASSETS / 'lef_cie.json'  # colour-science 0.4.7 V_scotopic (was assets/lef_cie.json)
 SPECTRA_48 = paths.ASSETS / 'spectra.json'  # 48-band legacy solar spectrum (engine SPEC dict)
 MODES = ('legacy', 'point', 'band')
@@ -118,10 +118,11 @@ def product_default(spectral_raw, raw):
 def asset():
     data = ASSET.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
-    if _CACHE.get('sha') != digest:
+    if _CACHE.get('raw_sha256') != digest:
         doc = json.loads(data)
         _CACHE.update(
-            sha=digest,
+            sha=source_identity.asset_identity(data, 'spectra_fine.json'),
+            raw_sha256=digest,
             wl=np.asarray(doc['wavelength_nm'], float),
             solar=np.asarray(doc['solar'], float),
             **{f'ozone_{t}K': np.asarray(doc[f'ozone_{t}K'], float) for t in OZONE_COLUMNS},
@@ -233,7 +234,7 @@ def check_asset(b):
         check_physics(b.get('physics'))
     if b is not None:
         _minor_contract(b)
-    if b is not None and b['asset_sha256'] != asset()['sha']:
+    if b is not None and source_identity.asset_digest('spectra_fine.json', b['asset_sha256']) != asset()['sha']:
         raise ValueError('E_SPECTRAL_CONTRACT: assets/spectra_fine.json changed since the block was made')
     if _profile_mean(b):
         from . import ozone_temperature as OT
@@ -289,7 +290,7 @@ def asset_hashes(b):
     from . import ozone_temperature as OT
 
     return {
-        key: hashlib.sha256(p.read_bytes()).hexdigest() for key, p in OT.asset_items(b['ozone_profile'].get('name'))
+        key: source_identity.asset_sha(p) for key, p in OT.asset_items(b['ozone_profile'].get('name'))
     }
 
 
@@ -315,9 +316,7 @@ def representative(b, wavelengths, *, band_mean_of='band'):
         sigma, meta = OT.sigma_bar(
             b['bin_edges_nm'], b['ozone_profile']['name'], band_mean_of=band_mean_of, wavelengths=wl
         )
-        if any(
-            meta[k] != b[k] for k in ('temperature_asset_sha256', 'ozone_sigma_asset_sha256')
-        ) or not OT.same_profile_identity(meta['ozone_profile'], b['ozone_profile']):
+        if not OT.identity_matches(b, {k: meta[k] for k in OT.identity(b['ozone_profile']['name'])}):
             raise ValueError('E_OZONE_T_ASSET_SHA: profile_mean assets read differ from the block')
         e = b['bin_edges_nm']
         return sigma, np.array([band_mean(A['solar'], lo, hi) for lo, hi in zip(e[:-1], e[1:])])
@@ -368,8 +367,8 @@ def _product_integral(x, f, g):
 def channel_weights(b, wavelengths):
     """W[n, 4] (X, Y, Z, S'): W_ic = K int_bin c(l) E(l) dl / E_rep,i with E_rep,i the value the engine used
     (point: E(l_i), band: bin mean), bins from the block; exact product integral of the piecewise-linear CMF and E.
-    Generalizes skylut/lutcv2_core.channel_weights 'esun'
-    (fixed 15 bins) to n bins; V' restricted to 380-780 like purkinje_analyze.weights()."""
+    Generalizes the legacy 'esun' weight set (legacy_channel_weights, fixed 15 bins) to n bins; V' is restricted
+    to 380-780 nm."""
     check_asset(b)
     A = asset()
     mi = json.loads(CMF_1NM.read_text())
@@ -393,17 +392,17 @@ def channel_weights(b, wavelengths):
     return W
 
 
-LEGACY_EDGES = np.linspace(360, 830, 16)  # sos_render2.py:73 / lutcv2_core.EDGES
+LEGACY_EDGES = np.linspace(360, 830, 16)  # bin edges of the legacy 15-bin tables
 
 
-def _isamples(lo, hi):  # lutcv2_core.isamples (sos_render2.py:74 integral_samples)
+def _isamples(lo, hi):  # integration nodes of a legacy bin: its two edges and the integer wavelengths between them
     return np.unique(np.r_[lo, np.arange(math.ceil(lo), hi), hi])
 
 
 def legacy_channel_weights(wl):
-    """Port of skylut.lutcv2_core.channel_weights 'esun' (lutcv2.py:101-132): the 15-bin legacy weight set, same
-    arithmetic (np.interp to 1 nm, unique integer samples per bin, trapezoid), same sources (Mitsuba CIE 1931 1 nm,
-    colour-science V_scotopic, 48-band spectra.json 'solar'). Returns (W[15, 4], info) like the original 'esun' branch."""
+    """The 15-bin legacy weight set ('esun'), computed the way the legacy tables were made: the arithmetic
+    (np.interp to 1 nm, unique integer samples per bin, trapezoid) and the sources (Mitsuba CIE 1931 1 nm,
+    colour-science V_scotopic, 48-band spectra.json 'solar') are fixed. Returns (W[15, 4], info)."""
     wl = np.asarray(wl, float)
     mi = json.loads(CMF_1NM.read_text())
     wl1 = np.array(mi['wavelength_nm'])
@@ -414,7 +413,7 @@ def legacy_channel_weights(wl):
     sp = json.loads(SPECTRA_48.read_text())
     sw = np.array(sp['wavelength_nm'], float)
     se = np.array(sp['solar'], float)
-    Ec = np.interp(wl, sw, se)  # = sos_sky.py:301 self.solar (rig solar at bin centres)
+    Ec = np.interp(wl, sw, se)  # solar irradiance at the bin centres, as the legacy solver sampled it
     We = np.zeros((15, 4))
     for i, (lo, hi) in enumerate(zip(LEGACY_EDGES[:-1], LEGACY_EDGES[1:])):
         x = _isamples(lo, hi)
@@ -422,7 +421,7 @@ def legacy_channel_weights(wl):
         for c in range(3):
             cm = np.interp(x, wl1, xyz1[:, c])
             We[i, c] = KM * np.trapezoid(cm * E, x) / Ec[i]
-        lo2, hi2 = max(lo, 380), min(hi, 780)  # V' support restriction as purkinje_analyze.weights()
+        lo2, hi2 = max(lo, 380), min(hi, 780)  # V' is tabulated on 380-780 nm
         if hi2 > lo2:
             x2 = _isamples(lo2, hi2)
             v = np.interp(x2, lw, vs)
@@ -449,8 +448,8 @@ def legacy_channel_weights(wl):
 
 
 def table_weights(block, wavelengths):
-    """(W[n, 4] X, Y, Z, S', info) for tables made with `block` (None = legacy). Legacy is the lutcv2 15-bin E_sun set
-    (skylut/lutcv2_core.channel_weights 'esun', unchanged bytes); another legacy count has no defined weights."""
+    """(W[n, 4] X, Y, Z, S', info) for tables made with `block` (None = legacy). Legacy is the 15-bin E_sun set
+    (legacy_channel_weights); another legacy count has no defined weights."""
     wl = np.asarray(wavelengths, float)
     if block is None:
         if len(wl) != 15:
@@ -487,7 +486,9 @@ def _minor_contract(b):
     if physical in (LEGACY, S1_REFERENCE):
         return
     minor = physical['minor_absorbers']
-    if b.get('minor_absorber_sha256') != {k: minor[k]['asset_sha256'] for k in ('no2', 'o4')}:
+    from .minor_absorbers import canonical_hashes
+
+    if canonical_hashes(b.get('minor_absorber_sha256')) != {k: minor[k]['asset_sha256'] for k in ('no2', 'o4')}:
         raise ValueError('E_PHYSICS_CONTRACT: missing or inconsistent minor absorber block SHA')
     if b.get('point_definition') != dict(
         o3='point', no2='0.1 nm cell-mean interpolant', o4='0.1 nm cell-mean interpolant'
@@ -495,10 +496,41 @@ def _minor_contract(b):
         raise ValueError('E_PHYSICS_CONTRACT: missing component point definitions')
 
 
-def block_key(b):
+def canonical_block(b):
+    """Copy a block with registered equivalent asset digests; retain every other field."""
     if b is None:
         return None
     _minor_contract(b)
+    b = copy.deepcopy(b)
+    for key, name in (('asset_sha256', 'spectra_fine.json'),
+                      ('temperature_asset_sha256', 'temperature_usstd76.json'),
+                      ('ozone_sigma_asset_sha256', 'spectra_fine_temperature.json')):
+        if key in b:
+            b[key] = source_identity.asset_digest(name, b[key])
+    if 'minor_absorber_sha256' in b:
+        from .minor_absorbers import canonical_hashes
+
+        b['minor_absorber_sha256'] = canonical_hashes(b['minor_absorber_sha256'])
+    if 'physics' in b:
+        from .components import identity
+
+        b['physics'] = identity(b['physics'])
+    return b
+
+
+def same_settings(a, b):
+    """Full settings equality, allowing only registered asset-digest replacements."""
+    a, b = copy.deepcopy(a), copy.deepcopy(b)
+    for cfg in (a, b):
+        if 'spectral' in cfg:
+            cfg['spectral'] = canonical_block(cfg['spectral'])
+    return a == b
+
+
+def block_key(b):
+    b = canonical_block(b)
+    if b is None:
+        return None
     from .components import identity  # a block without physics (before B2) keys as the legacy identity
 
     physical = json.dumps(identity(b.get('physics')), sort_keys=True)
@@ -522,12 +554,14 @@ def block_key(b):
 CONTRACTS = (
     'v3',
     'v4',
+    'v5',
 )  # docs/PROVENANCE_V3.md "Reader rule": the `contract` fields of signed tables (run_gpu_state_v3 meta.json)
 
 
 def check_meta_contract(meta):
     """Returns meta['contract']. A *signed* table (meta carries `signature`, i.e. a run_gpu_state_v3 output) must name a known
-    `contract` version, E_PROVENANCE_CONTRACT otherwise (SHA comparisons are only meaningful within a known version).
+    `contract` version, E_PROVENANCE_CONTRACT otherwise (SHA comparisons are only meaningful within a known version:
+    v3 and v4 hash file bytes, v5 hashes the identity text of sosfuse2.identity under the same keys).
     A derived table without a signature (merge tools write their own
     descriptive `contract` text) is accepted as is (and may be paired with a signed table, as the product twilight/day pair is).
     Physics applies to both (B2): the table's identity must be known, a table without one (written before B2) reads as the

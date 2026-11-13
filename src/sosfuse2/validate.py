@@ -1,8 +1,8 @@
 """One final numerical validation checkpoint; accepted reference is read-only.
 
-E6 (selftest, full_35, spectral_15) and G-H pass against the record RECORD (HEAD NumPy, decision DECISION, 2026-10-22). The old references stay computed as information only (historical_delta, never in pass_):
-the old CPU-engine fixture LEGACY and the original sos_full CPU
-transport (original_kernel). Task B's Simpson prefix moved fused results away from both by design.
+E6 (selftest, full_35, spectral_15) and G-H compare against RECORD. Historical references are computed as information
+only (historical_delta, never in pass_): the old CPU-engine fixture LEGACY and the original CPU transport
+(original_kernel). The Simpson prefix differs from both.
 """
 
 import hashlib
@@ -17,9 +17,8 @@ from . import paths
 from . import reference
 from .timers import TIMERS
 
-# The old CPU-engine fixture lives outside git in the sky-sos checkout (rig/selftest_ref.npz); the package reaches it only
-# through SOSFUSE2_SKY_SOS_ROOT. Without it the record's own selftest query directions are used and the informational
-# historical_delta is omitted (public split).
+# The old CPU-engine fixture is available through SOSFUSE2_SKY_SOS_ROOT. Without it the record's own selftest query
+# directions are used and the informational historical_delta is omitted.
 _SKY = paths.sky_sos_root()
 LEGACY = (_SKY / 'rig/selftest_ref.npz') if _SKY is not None else None
 LEGACY_SHA256 = 'a48688cdc86bf6cb88950944840b88bc846a813864a54ad4672c9ee034ef03be'
@@ -334,7 +333,7 @@ def reduced(output, backend, block_size):
     return report, m['packed']
 
 
-# The accepted converged full source (sky-sos results/, 2026-09) is research material, reachable only via SOSFUSE2_SKY_SOS_ROOT.
+# The accepted converged full source is research material, reachable only via SOSFUSE2_SKY_SOS_ROOT.
 FULL_SOURCE = (
     (_SKY / 'results/sos_full/b2_run/base550_d0.03_1_684f84f1be89fb8c/source.npz') if _SKY is not None else None
 )

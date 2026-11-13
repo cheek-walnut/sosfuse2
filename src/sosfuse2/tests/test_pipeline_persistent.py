@@ -25,7 +25,7 @@ from sosfuse2 import paths, testing
 from sosfuse2.strato_states import build
 from sosfuse2.pipeline import cpu_budget
 
-TAUS = (0.003, 0.004, 0.005, 0.006)  # Commander may tune reduced-state convergence here.
+TAUS = (0.003, 0.004, 0.005, 0.006)
 BACKEND = os.environ.get('PERSISTENT_TEST_BACKEND', 'numpy')
 
 
@@ -44,9 +44,7 @@ def child_environment():
 
 
 def interleave_env():
-    """On the development GPU host (RTX 3080 10 GB), KSPLIT reserves 5.2 GB per state, so a second state waits in
-    vram_wait and the service runs one state at a time. The interleaving case tests the scheduler, so it runs with KSPLIT off
-    there; larger cards keep the default KSPLIT and still check interleaving with it."""
+    """Allow multiple states to run for the scheduler interleaving check when GPU memory is limited."""
     from sosfuse2 import device_profile
 
     device = device_profile.smi_device_name() if BACKEND == 'cupy' else None
@@ -253,13 +251,13 @@ class PersistentTests(unittest.TestCase):
         ]
         runs = [s for i, s in enumerate(pieces) if i == 0 or s != pieces[i - 1]]
         self.assertGreater(len(runs), len(set(runs)), 'no return to a previous state')
-        if testing.sky_sos_root() is not None:  # the timeline renderer is a sky-sos research tool (not in the package)
+        if testing.sky_sos_root() is not None:  # Optional timeline check.
             trace = testing.sky_sos_optional(
                 'scripts', 'sosfuse2_dev', 'pipeline_trace.py'
-            )  # absent in some checkouts: then no timeline check
+            )  # Skip if the renderer is absent.
             if trace is None:
                 self.skipTest(
-                    'the timeline renderer scripts/sosfuse2_dev/pipeline_trace.py is not in this sky-sos checkout'
+                    'the timeline renderer is not available in the research checkout'
                 )
             subprocess.run([sys.executable, '-B', str(trace), str(self.root / 'interleaved')], check=True, timeout=10)
             self.assertTrue((self.root / 'interleaved/timeline.html').is_file())

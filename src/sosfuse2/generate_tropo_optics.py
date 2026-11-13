@@ -292,7 +292,7 @@ def main():
         '--out',
         type=Path,
         required=True,
-        help=f'output JSON; the packaged asset is {DEFAULT.name} (regenerating it is a maintenance step, 2026-11-03 release review)',
+        help=f'output JSON; the packaged asset is {DEFAULT.name}',
     )
     p.add_argument('--jobs', type=int, default=4)
     a = p.parse_args()

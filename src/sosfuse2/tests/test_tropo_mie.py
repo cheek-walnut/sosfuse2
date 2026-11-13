@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Tropospheric Mie phase (tropo_mie.py, kernel.cu -DTROPO_MIE): Mac static/host checks and the eda GPU parity.
 
-  --static  clang++ -E -P token identity of the HG kernel (main e555913 vs this tree) for the production flag sets
+  --static  clang++ -E -P token identity of the HG kernel for the production flag sets
             (C3 + STRATO + PROFILE, with and without LAUNCH_RAY_LIMIT; the strato-off C2 set + PROFILE; the
             strato_lut_build options) over every launched specialization; TROPO_MIE preprocesses without #error for
             the same sets; the unsupported ground paths stop at their #error.
   --host    optics table (normalization, LUT energy, LUT vs table, eigenvalue order) and the NumPy reference with a
             Mie table filled from hg() reproducing the HG reference; Kernel.setup of a Mie state.
-  --gpu     (eda, inside one gpujob slot) CUDA vs NumPy reference with TROPO_MIE: strato off (C2 set) and on (C3 set),
+  --gpu     CUDA vs NumPy reference with TROPO_MIE: strato off (C2 set) and on (C3 set),
             15 lanes, first light (phase 2 rays, phase 0 moments, ground flux) and warm; HG control on the C3 set.
 usage: python -B -m sosfuse2.tests.test_tropo_mie --static --host --out <dir>   |   ... --gpu --out <dir>
 """
@@ -21,7 +21,7 @@ HERE = paths.PKG  # the package directory (kernel, configs, assets)
 import numpy as np
 from sosfuse2 import testing
 
-ROOT = testing.sky_sos_root()  # sky-sos checkout (None stand-alone): the git HG-baseline comparison needs it
+ROOT = testing.sky_sos_root()  # The HG-baseline comparison needs the research data root.
 try:
     from sosfuse2.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
@@ -458,9 +458,8 @@ def gpu(out, only=None):
 
 
 def judge(rows):
-    """Gate (2026-10-07 12:3x, coordinator): a Mie case passes when its ray error is <= 2x the HG control's
-    (same first-light flag) and its moment L2 and ground flux errors are <= 1e-5. The first rule (absolute 1e-5 on
-    rays) sat below the float32 floor: eda 12:25 gave 3.46e-4 on warm rays for the HG control as well."""
+    """A Mie case passes when its ray error is <= 2x the HG control's with the same first-light flag,
+    and its moment L2 and ground flux errors are <= 1e-5. The ray bound accounts for the float32 error floor."""
     hg = {(r['case'], r['first']): r for r in rows if r['case'].startswith('hg_')}
     checks = []
     for r in rows:

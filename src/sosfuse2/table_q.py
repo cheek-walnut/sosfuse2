@@ -1,11 +1,11 @@
 """Lossy radiance table store for the R3 bake.
 
 table_q.npz holds ln(radiance) quantized to uint16 over [log_lo, log_hi] of each slice along the first axis (solar
-elevation: the whole table spans W 25.7-26.0 on the 2026-10-26 L4 R3-corner states, one elevation at most 6.4, so a
+elevation: measured tables span W 25.7-26.0, with one elevation at most 6.4, so a
 per-state range would sit at the 26.2 limit and quantize 4x coarser), differenced (mod 2^16) along
 the delta axis (the second to last: relative azimuth for (solar, view, azimuth, wavelength)) and stored as two byte
 planes (high bytes, then low bytes), plus the coordinate arrays of table.npz verbatim. Both steps are lossless; the
-pack's zstd -10 gives about 3.8 MB per V14 state (36 local tables: max rel 6.0e-5, slice W at most 7.9; 2026-10-26).
+pack's zstd -10 gives about 3.8 MB per V14 state (36 tables: max rel 6.0e-5, slice W at most 7.9).
 The rounding error in ln is at most W/(2*65535) for W = log_hi - log_lo of the slice, so the relative error is at
 most exp(W/131070) - 1; W <= 26.2 keeps it under 2e-4 (MAX_REL). Reader: I = exp(lo + q/65535*(hi - lo)) with lo, hi
 broadcast along the first axis. Every failure is explicit (E_TABLE_Q_*): zero, negative or non-finite radiance, a

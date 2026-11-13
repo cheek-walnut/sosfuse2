@@ -1,6 +1,6 @@
 """Spherical endpoint columns (main rays), f64 until the existing f4 boundary.
 
-SOSFUSE2_COLUMN_METHOD=table-v1 (default since 2026-10-25, gate B) | gl24 (previous GL path) | exact (gate B reference). Only main-ray callers
+SOSFUSE2_COLUMN_METHOD=table-v1 (default) | gl24 (Gauss-Legendre path) | exact. Only main-ray callers
 select this method; solar and first-ground quadratures are unchanged.
 Tables are independent of optical coefficients and are cached per profile.
 """
@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+from . import identity as source_identity
 from .components import MOLECULAR_COLUMNS
 
 R, Z = 6371.0, 80.0
@@ -33,7 +34,7 @@ def source_hash():
     h = hashlib.sha256()
     for path in (Path(__file__), Path(__file__).with_name('tropo_profile.py')):
         h.update(path.name.encode())
-        h.update(path.read_bytes())
+        h.update(source_identity.file_sha(path).encode())
     return h.hexdigest()
 
 
@@ -83,7 +84,7 @@ def molecular(optics, k):
         )
     if optics is None or not optics['mask'] & (1 << k):
         return descriptor('exp', height=8.0) if k == 0 else descriptor('triangle')
-    # 'usstd76' = piecewise-linear PROFILE column (name kept); grid and policy from the effective table (②b), so the
+    # 'usstd76' = piecewise-linear PROFILE column; grid and policy from the effective table, so the
     # table key separates node counts, origins (asset/external) and normalizations as well as values.
     from .density import profile_identity
 

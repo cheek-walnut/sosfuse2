@@ -1,9 +1,9 @@
 """CuPy RawKernel wrapper and NumPy reference, with no sample cache.
 
-Only contiguous arrays are passed to NVRTC. Source layout is cell,571,wave
-or cell,1132,wave for an explicitly enabled stratosphere;
+Only contiguous arrays are passed to NVRTC. Source layout is cell,10+K,wave
+or cell,10+2*K,wave for an explicitly enabled stratosphere, where K is the SH mode count;
 the inactive scalar diagnostic lane is omitted and never substitutes for the
-polarized calculation. Boundary and source outputs retain all 561 SH modes.
+polarized calculation. Boundary and source outputs retain all K SH modes.
 """
 
 import importlib.util
@@ -19,7 +19,7 @@ from .components import NCOMP
 from .arithmetic import F, norm_constants
 from .sh_layout import count, padded, workspace, source_size, kernel_source, combined_aux
 from .timers import TIMERS, stage
-from .kernel_config import KERNEL_FLAGS, STAGE1_FLAGS, KSPLIT_VARIANTS, resolve_config, deterministic
+from .kernel_config import STAGE1_FLAGS, KSPLIT_VARIANTS, resolve_config, deterministic
 
 PROFILE_N_DEFAULT = 161  # density.PROFILE_STEPS[0.5]; kernel.cu #ifndef PROFILE_N
 
@@ -47,7 +47,7 @@ from .ksplit import (  # noqa: E402,F401 (re-exported: KSPLIT host side, ksplit.
     VPROD_PLAN_SRC,
 )
 # A6 kernel variants (kernel.cu header); each independent, all off = original kernel.
-# r17 stage-1 compile options (strato-kernel-loop de3e13b): SOSFUSE2_<NAME>=1/0 overrides,
+# Stage-1 compile options: SOSFUSE2_<NAME>=1/0 overrides,
 # unset = device profile stage1_defaults (configs/devices.json: rig FMAD+FASTMATH, eda/mac none).
 # None active = the exact pre-r17 options, key and kernel tokens.
 KPAD = 576
@@ -166,7 +166,7 @@ class Kernel(KsplitMixin):
         from .ground_sh import configured_order
 
         self.ground_sh_l = configured_order()
-        # Production default since 2026-10-26:
+        # Production default:
         # unset means KSPLIT=3 (VPROD + warm ray consumer + projection) where it applies (CuPy, STRATO/FW15, L<=16, FP64
         # projection accumulator) and the unsplit kernel elsewhere; SOSFUSE2_KSPLIT=0 forces the unsplit kernel, and an
         # explicit 1-3 still fails loudly on an unsupported configuration.
@@ -179,7 +179,7 @@ class Kernel(KsplitMixin):
         )  # 2: VPROD instead of PROD; 3: + warm ray consumer and projection
         if self.ksplit_mode >= 2 and self.L > 16:
             raise ValueError(
-                'E_KSPLIT_FLAGS: SOSFUSE2_KSPLIT=2 (VPROD) is compiled for SH order L<=16 only (kernel.cu sos_vprod)'
+                'E_KSPLIT_FLAGS: SOSFUSE2_KSPLIT=2 or 3 (VPROD) is compiled for SH order L<=16 only (kernel.cu sos_vprod)'
             )
         self.ksplit_verify = os.environ.get('SOSFUSE2_KSPLIT_VERIFY', '').strip() == '1'
         if self.ksplit_verify and self.ksplit_mode not in (2, 3) and os.environ.get('SOSFUSE2_KSPLIT', '').strip():
@@ -285,7 +285,7 @@ class Kernel(KsplitMixin):
                 self.ksplit = bool(self.ksplit_mode)
                 if self.ksplit_verify and self.ksplit_mode not in (2, 3):
                     # Only a CuPy FW15 kernel can run KSPLIT: the persistent pipeline's CPU-prepare Kernel (NumPy backend) and FW1 kernels
-                    # have nothing to verify, so VERIFY=1 is inactive there with a warning (2026-11-03: before, SOSFUSE2_KSPLIT_VERIFY=1
+                    # have nothing to verify, so VERIFY=1 is inactive there with a warning (SOSFUSE2_KSPLIT_VERIFY=1
                     # could not reach the persistent service at all; the service's CuPy Kernel still enforces it).
                     if self.xp is not np and s.W == 15:
                         raise ValueError('E_KSPLIT_VERIFY: requires KSPLIT=2 or 3')
@@ -655,7 +655,7 @@ class Kernel(KsplitMixin):
                 '--prec-div=false' if 'FASTMATH' in stage1 else '--prec-div=true',
                 '--prec-sqrt=false' if 'FASTMATH' in stage1 else '--prec-sqrt=true',
                 f'-DFW={W}',
-            )  # no --ftz: CuPy 14 RawKernel always adds -ftz=true (NVRTC 12.8.93 'defined more than once'); production already ran ftz=true (T1 exp8 bit-identical to 10-01 v1 pack, AUTOPILOT 10-02 04:55)
+            )  # no --ftz: CuPy 14 RawKernel always adds -ftz=true (NVRTC 12.8.93 'defined more than once')
             options += (f'-DSOSFUSE2_DETERMINISTIC={int(self.deterministic)}',)
             options += tuple('-DSOSFUSE2_' + f for f in stage1 if f != 'FMAD')
             options += tuple(f'-D{f}' for f in flags)
@@ -1007,7 +1007,7 @@ class Kernel(KsplitMixin):
         with stage('sh_aux_build', device=True):
             if 'strato_ext' in c and self.config().strato:
                 if src.shape != (len(s.geo.h) * len(s.geo.chi), 10 + 2 * self.K, W):
-                    raise ValueError('E_STRATO_SH_SOURCE: expected [nh*nc,1132,W]')
+                    raise ValueError(f'E_STRATO_SH_SOURCE: expected [nh*nc,{10 + 2 * self.K},W]')
                 if self.config().c3_fw15 and not first:
                     args.append(combined_aux(src, c, self.L, xp, skip_thin=True))
                 else:
@@ -1072,7 +1072,7 @@ class Kernel(KsplitMixin):
             if mode != 'single' and (not first):
                 raise ValueError('E_FL_RAYSPLIT_LAUNCH_CELLS: WARM_RAYSPLIT needs one launch per cell grid')
             # Split FL_RAYSPLIT first light goes by ray ranges over the whole cell grid (eda: 68 cells of first light
-            # took 6.3 s on 2026-10-07, and fewer cells leave SMs idle because a block is a cell).
+            # took 6.3 s, and fewer cells leave SMs idle because a block is a cell).
             # SOSFUSE2_FL_PROJECT=1 also runs one-launch first light as ray launch + fl_project (rig experiment: the
             # single-warp projections may dominate its 11.9 s first light on a 4090; not measured yet).
             ray_mode = mode != 'single' or os.environ.get('SOSFUSE2_FL_PROJECT', '').strip() == '1'
@@ -1435,7 +1435,7 @@ class Solver:
         moment += self.first_moments
         if os.environ.get('SOSFUSE2_EXPORT_MOMENT') == '1':
             self.last_moment = (
-                moment  # opt-in (2026-10-28, saddle control variate): incident-radiance SH moments of this evaluation
+                moment  # Opt-in: incident-radiance SH moments of this evaluation
             )
         out = xp.empty_like(field)
         out[:, :4] = (moment[:, :4] * xp.asarray(F(3 / (8 * math.pi)) * s.ext[0].astype('f4'))[None, None, :]).astype(

@@ -387,7 +387,7 @@ def test_common_geometry_identity_tracks_endpoint_sources(tmp_path, monkeypatch)
         target = tmp_path / name
         before = target.read_bytes()
         assert 'sosfuse2/' + name in content['files']
-        target.write_bytes(before + b'\n# changed endpoint source\n')
+        target.write_bytes(before + b'\nIDENTITY_PROBE = 1\n')
         assert gc.identity(solver)[1] != baseline
         target.write_bytes(before)
     assert gc.identity(solver)[1] == baseline

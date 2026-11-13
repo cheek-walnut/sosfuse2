@@ -1,5 +1,5 @@
 """Persistent-service IPC error path (pipeline_execution.wire_recv): a service failure string in place of the array
-descriptor keeps its reason (R3 train0 4090, 2026-10-26: ENOSPC on the service side surfaced as a ValueError)."""
+descriptor keeps its reason when an ENOSPC error surfaces as a ValueError."""
 
 import multiprocessing as mp
 import numpy as np

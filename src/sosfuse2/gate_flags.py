@@ -9,13 +9,12 @@ Without it, stage 2 uses the stricter atol=0 sufficient condition.
 
 import argparse
 import copy
-import hashlib
 import json
 import os
 from pathlib import Path
 import numpy as np
 from . import reference
-from . import paths
+from . import paths, identity
 from .fused import Solver, STAGE1_FLAGS
 from .geometry import Bundle, TransientGeometry, create, normal_state
 from .stratosphere import source_size
@@ -106,7 +105,7 @@ def main():
         exact_tolerance=1e-6,
         selftest_tolerance=1e-5,
         code_sha256={
-            n: hashlib.sha256((paths.PKG / n).read_bytes()).hexdigest()
+            n: identity.file_sha(paths.PKG / n)
             for n in ('kernel.cu', 'fused.py', 'ksplit.py', 'reference.py', 'validate.py')
         },
         exact={},

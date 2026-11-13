@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from functools import partial
 import numpy as np
 from .. import paths, solver_columns, solver_optics, solver_sky, solver_legacy, solver_poly, solver_core
+from .. import identity as source_identity
 from ..tropo_profile import ExponentialProfile
 
 ROOT = paths.PKG  # package sources and assets
@@ -27,15 +28,16 @@ SPECTRA = ROOT / 'assets/spectra.json'
 
 
 def cell_folder(cache, h, chi, cfg):
-    """blocks/<identity>: a cell is reused only by the code, layout and grid that wrote it. Before B2 a point row was 14
-    floats and the native transport now reads 18 (5 components), so an unkeyed blocks/ folder would hand old rows to it.
-    Optics stay the caller's (one folder per state), as before."""
+    """Reuse cells only for the code, layout and grid that wrote them.
+
+    Native transport requires 18-float point rows. Optics stay the caller's, with one folder per state.
+    """
     from sosfuse2 import components, density
 
     files = fingerprint()
     files.update(
         {
-            paths.rel(p): hashlib.sha256(p.read_bytes()).hexdigest()
+            paths.rel(p): source_identity.file_sha(p)
             for p in (ROOT / 'density.py', ROOT / 'components.py')
         }
     )
@@ -65,7 +67,7 @@ def fingerprint():
         ROOT / 'native/sh_cpu.cpp',
         ROOT / 'assets/rgb_weights.npy',
     ]
-    return {paths.rel(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+    return {paths.rel(p): source_identity.file_sha(p) for p in files}
 
 
 def compile_kernel(threads=2, force=False):
@@ -85,7 +87,7 @@ def compile_kernel(threads=2, force=False):
     compiler = shutil.which('g++') or shutil.which('clang++')
     if not compiler:
         raise RuntimeError(
-            'E_COMPILER_MISSING: integrated full_transport has no NumPy fallback; install g++ or clang++ on rig'
+            'E_COMPILER_MISSING: integrated full_transport has no NumPy fallback; install g++ or clang++'
         )
     tmp = target.with_suffix(f'.{os.getpid()}.tmp')
     args = [

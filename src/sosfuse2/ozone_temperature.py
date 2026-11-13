@@ -8,12 +8,11 @@ ozone_profile from state_shape(state), the shape the engine itself uses (density
 otherwise). An injected external ozone column (density.with_profile, mask bit 2) has no profile_mean identity.
 """
 
-import hashlib
 import json
 
 import numpy as np
 
-from . import density, spectral as SP
+from . import density, spectral as SP, identity as source_identity
 
 FINE = SP.paths.ASSETS / 'spectra_fine_temperature.json'
 TEMP = SP.paths.ASSETS / 'temperature_usstd76.json'
@@ -29,7 +28,7 @@ RULE = (
 
 
 def sha(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return source_identity.asset_sha(path)
 
 
 def profile_identity(shape):
@@ -65,7 +64,9 @@ def same_profile_identity(a, b):
 
 def identity_matches(block, expected):
     """spectral.check_asset rule: the fixed fields of identity() equal, the ozone_profile equal up to superseded digests."""
-    return all(block.get(k) == v for k, v in expected.items() if k != 'ozone_profile') and same_profile_identity(
+    names = {'temperature_asset_sha256': TEMP.name, 'ozone_sigma_asset_sha256': FINE.name}
+    return all(source_identity.asset_digest(names[k], block.get(k)) == v if k in names else block.get(k) == v
+               for k, v in expected.items() if k != 'ozone_profile') and same_profile_identity(
         block.get('ozone_profile'), expected['ozone_profile']
     )
 
@@ -106,16 +107,16 @@ class ProfileMean:
     def __init__(self, bin_edges_nm, shape, *, band_mean_of='band', wavelengths=None):
         self.shape = shape
         raw_fine, raw_temp = FINE.read_bytes(), TEMP.read_bytes()
-        # The SHAs of the bytes actually parsed, so a block check against them cannot race a file change.
+        # Identities of the bytes actually parsed, so a block check cannot race a file change.
         self.meta = dict(
-            temperature_asset_sha256=hashlib.sha256(raw_temp).hexdigest(),
-            ozone_sigma_asset_sha256=hashlib.sha256(raw_fine).hexdigest(),
+            temperature_asset_sha256=source_identity.asset_identity(raw_temp, TEMP.name),
+            ozone_sigma_asset_sha256=source_identity.asset_identity(raw_fine, FINE.name),
             ozone_temperature_rule=RULE,
             ozone_profile=profile_identity(shape),
         )
         a = json.loads(raw_fine)
         t = json.loads(raw_temp)
-        if a['frozen_source_sha256'] != SP.asset()['sha']:
+        if source_identity.asset_digest('spectra_fine.json', a['frozen_source_sha256']) != SP.asset()['sha']:
             raise ValueError('E_OZONE_T_ASSET_SHA: frozen spectral source')
         if (
             not np.array_equal(a['wavelength_nm'], SP.asset()['wl'])

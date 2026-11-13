@@ -332,5 +332,5 @@
  "column_source_0_120km_DU": 0.20746941720511164,
  "column_grid_0_80km_DU": 0.20624305011514052,
  "semantics": "shape only; the product column is the state parameter no2_du (default 0.207 DU, afglus reference)",
- "generator": "sky-sos results/b2_minor_absorbers_20261104/make_no2_profile.py"
+ "generator": "AFGL US Standard Atmosphere profile, log-linear interpolation to 0.5 km"
 }

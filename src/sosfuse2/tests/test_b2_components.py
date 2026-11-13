@@ -390,7 +390,7 @@ def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
 
 
 def test_sun_table_identity_rebuilds_stale_and_reuses_current(tmp_path, monkeypatch):
-    """2026-11-04 judge run: an unkeyed 3-column sun_columns.npz from before B2 reached the 5-column solver."""
+    """An unkeyed 3-column sun table must not reach the 5-column solver."""
     import warnings
 
     from sosfuse2 import sun_parallel

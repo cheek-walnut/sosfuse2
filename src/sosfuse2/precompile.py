@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fill the deployment NVRTC cache with every kernel a state uses, compiled in parallel processes.
 
-A new deployment otherwise compiles its kernels one after another inside the first state (rig 2026-10-04: setup
+A new deployment otherwise compiles its kernels one after another inside the first state (setup
 154 s with an empty cache against 12 s with a warm one, measured during development). Run it once
 per deployment, e.g. while geometry is copied:
 

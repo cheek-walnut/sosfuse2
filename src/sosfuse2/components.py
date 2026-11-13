@@ -18,6 +18,8 @@ from contextvars import ContextVar
 import math
 import re
 
+from .identity import state_identity
+
 COMPONENTS = ('air', 'tropo_aerosol', 'o3', 'no2', 'o4')
 NCOMP = len(COMPONENTS)
 MOLECULAR_COLUMNS = (0, 2, 3, 4)
@@ -80,6 +82,12 @@ def identity(value):
         if value == LEGACY or value == S1_REFERENCE:
             return copy.deepcopy(value)
         try:
+            from .minor_absorbers import canonical_hashes
+
+            value = copy.deepcopy(value)
+            minors = value['minor_absorbers']
+            for kind, digest in canonical_hashes({k: minors[k]['asset_sha256'] for k in ('no2', 'o4')}).items():
+                minors[kind]['asset_sha256'] = digest
             sha = value['minor_absorbers']['o4']['asset_sha256']
             if (sha is None or isinstance(sha, str) and re.fullmatch('[0-9a-f]{64}', sha)) and value == _b2(sha):
                 return copy.deepcopy(value)
@@ -130,7 +138,9 @@ def optics_state(state, optics=None):
 
 
 def canonical_state(state):
-    result = copy.deepcopy(state)
+    """The state as contracts and signatures carry it: state_identity (no note or label keys) with the
+    resolved NO2 and O4 amounts filled in."""
+    result = state_identity(state)
     result.setdefault('parameters', {}).update(no2_du=no2_du(state), o4=o4_enabled(state))
     return result
 

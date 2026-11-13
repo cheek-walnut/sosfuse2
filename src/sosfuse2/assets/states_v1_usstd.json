@@ -1,15 +1,11 @@
 {
   "version": "v1-usstd76-1",
-  "derived_from": [
-    "rig/states_v1.json"
-  ],
-  "decision": "user 2026-10-02 06:20: production profile = US Standard 1976 (density_profile=usstd76, ozone_profile=usstd76, rayleigh_column=usstd); stratosphere off; all other numerics unchanged. docs/REPRODUCTION_USSTD.md",
   "density": {
     "density_profile": "usstd76",
     "ozone_profile": "usstd76",
     "rayleigh_column": "usstd"
   },
-  "note": "parameters_* per state are documentation; runner meta.json is authoritative",
+  "note": "US Standard 1976 density, ozone profile and Rayleigh column; stratosphere disabled. parameters_* per state are documentation; runner meta.json is authoritative",
   "seed": 20261001,
   "sampling": "maximin Latin hypercube (256 candidates)",
   "axes": {

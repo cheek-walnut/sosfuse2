@@ -1,10 +1,8 @@
-"""sosfuse2 geometry replacement for the legacy helper, which imports the
-original sosfuse.geometry. Same requirement: build the exact
-endpoint cache on the CPU without importing CuPy, via sosfuse2.geometry.
+"""Build the exact endpoint cache on the CPU without importing CuPy.
 
 layers=1: ResidentGeometry (cache identity v2, packed layout v3; signature includes the scale height).
 layers=2: ContractTwoLayerGeometry = TwoLayerGeometry whose COMMON-layer
-          signature hashes geometry_contract.py instead of geometry.py (M2).
+          signature hashes geometry_contract.py instead of geometry.py.
           ensure_column() writes this state's aerosol column before the worker
           (or the CPU prefetch helper) hands over, so prepare() only loads it.
 """
@@ -17,7 +15,8 @@ import sys
 import time
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 
 
 def _contract_class():
@@ -26,7 +25,7 @@ def _contract_class():
     from . import geometry_contract as gc
 
     class ContractTwoLayerGeometry(gm.TwoLayerGeometry):
-        """TwoLayerGeometry with the common-layer signature (geometry.py:345-354 otherwise identical)."""
+        """TwoLayerGeometry with the common-layer signature."""
 
         _version = gc.SIGNATURE_VERSION
 
@@ -67,8 +66,7 @@ def host_geometry(s, scope, cache, layers=1):
 
     attach(s, scope)
     cls = _contract_class() if int(layers) == 2 else ResidentGeometry
-    # Same shallow-host trick as the rig helper: pass the residency guard
-    # without CUDA, then restore NumPy before any cell work.
+    # Pass the residency guard without CUDA, then restore NumPy before cell work.
     host = copy.copy(s)
     host.kernel = copy.copy(s.kernel)
     host.kernel.xp = object()
@@ -88,7 +86,7 @@ def column_ready(geometry):
 
 def ensure_column(geometry):
     """layers=2 only: write aerosol/H_<hex>.f4 with the same rule as
-    TwoLayerGeometry.prepare() (geometry.py:478-498) without any upload.
+    TwoLayerGeometry.prepare() without any upload.
     A per-height lock serialises writers; tmp names are per process.
     Returns 'cached' | 'common layer (same height)' | 'computed' | None (layers=1)."""
     if not hasattr(geometry, 'column_path'):

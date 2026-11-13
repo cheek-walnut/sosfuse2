@@ -1,10 +1,8 @@
 """plan_queue.py against the keys the calculator actually used, and pipeline.py --plan.  CPU only, no CUDA.
 
-Ground truth = PHASE events the calculator printed while it ran full-grid queues:
-  rig 2026-10-03: states, run logs and column cache files
-  eda 2026-10-07: states and run logs
-The packed geometry cache (git-ignored .bin files) and the rig logs live in the
-main checkout; from a worktree the test looks there (or in SADDLE_DATA_ROOT) and skips if absent.
+Ground truth consists of PHASE events from full-grid runs, together with state and column cache files.
+The packed geometry cache and run logs are supplied through SADDLE_DATA_ROOT or SOSFUSE2_SKY_SOS_ROOT;
+the corresponding tests skip when those inputs are absent.
 
 Run: python -B -m sosfuse2.tests.test_plan_queue
 """
@@ -19,7 +17,7 @@ import unittest
 from sosfuse2 import paths, pipeline, plan_queue, testing
 
 
-# r11 generation (2026-10-15, stratosphere.py NOPREFIX port), retained: historical key -> r11 source-hash key.
+# Historical key -> r11 source-hash key.
 COLUMN_KEY_R11 = {
     '0b87806d026a4452932b3090886f2fe573a60c29335e638716ae9db4edaade7d': '08c0f2f8ca51e2187285b1e1aa5fb4b3aaae884e1d1ada337436ae056c0dd5c5',
     '142edbdacf805123bfff331038d2d7d57e70768d7aa1bb2f5112c22f8ab0663e': '188a7b39d8d95b47b0a23f2168c7f546624a22ad6fd3807d8b75c499a1adec81',
@@ -29,7 +27,7 @@ COLUMN_KEY_R11 = {
     'b2bdf15dce7ed85f2aad75aebf52f353cf65299e3201494bf71620eb4e7d35f8': 'c00745c0664fec3fe36d0d87c5645bd24c9a624f71b391b37e87504415b52bf8',
 }
 
-# r17 generation (2026-10-17, stratosphere.py COMPONENT_RADIUS branch), retained: historical key -> r17 source-hash key.
+# Historical key -> r17 source-hash key.
 COLUMN_KEY_R17 = {
     '0b87806d026a4452932b3090886f2fe573a60c29335e638716ae9db4edaade7d': 'f3d90e2803021bf58616e0ee76e81342b0b238d9045648c7ed003b595929e17c',
     '142edbdacf805123bfff331038d2d7d57e70768d7aa1bb2f5112c22f8ab0663e': 'ba2b97c679554c7fc8bb32a91b5fc9ea9c40c71eef824d8c4016bdd647307d14',
@@ -39,10 +37,7 @@ COLUMN_KEY_R17 = {
     'b2bdf15dce7ed85f2aad75aebf52f353cf65299e3201494bf71620eb4e7d35f8': 'e1c3b3320dd3db873005ef6168d0f11161e31057fc7a5e8501f9d4131d83e069',
 }
 
-# Editing the file invalidates the cache on purpose: column_cache.cache_key hashes the whole stratosphere.py file (sources['0']), so
-# ff8c05b (2026-10-21: SH order L, attach source_stride) and c6be075 (ground cells via ground_parallel) moved every column
-# key.  Neither commit edits columns(); only the source-hash generation changed (stratosphere.py of ff8c05b^ at HEAD
-# reproduces the r17 keys).  Historical full keys are retained on the left; current source-hash keys on the right.
+# Historical full keys are retained on the left; the corresponding source-hash keys are on the right.
 COLUMN_KEY_UPDATES = {
     '0b87806d026a4452932b3090886f2fe573a60c29335e638716ae9db4edaade7d': '4d4c67b36f8fccb5ed2eee7a5385aa8e9cb2f42ddb3ea04424cbbb8db1294b91',
     '142edbdacf805123bfff331038d2d7d57e70768d7aa1bb2f5112c22f8ab0663e': 'ae7b42a663f9b9bdf5a30f45fa6ec59f2a4dbe64c3db75eae05c787aba34ad5e',
@@ -53,7 +48,7 @@ COLUMN_KEY_UPDATES = {
 }
 
 # The logged runs used nr20/nphi64; production now defaults to V14/nphi16, so replay both explicitly
-# (same packed geometry endpoints_bab3478c3f15b4d62418). The engine is unchanged from main.
+# (same packed geometry endpoints_bab3478c3f15b4d62418).
 
 SIGNATURE = 'endpoints_bab3478c3f15b4d62418'
 LUT2 = paths.FIXTURES / 'states_lutv2_strato_usstd.json'
@@ -62,8 +57,10 @@ PURPLE = _SKY / 'results/purple_aod_axis_20261007/states/states_night.json' if _
 
 
 def data_root():
-    """sky-sos research data (packed geometry cache + rig logs): SADDLE_DATA_ROOT, else the SOSFUSE2_SKY_SOS_ROOT checkout
-    (and, from a worktree, its main checkout)."""
+    """Research data (packed geometry cache and logs): SADDLE_DATA_ROOT or SOSFUSE2_SKY_SOS_ROOT.
+
+    Also checks the parent checkout if the configured root is a worktree.
+    """
     candidates = [Path(os.environ['SADDLE_DATA_ROOT'])] if os.environ.get('SADDLE_DATA_ROOT') else []
     if _SKY is not None:
         candidates += [_SKY] + ([_SKY.parents[1]] if _SKY.parent.name == '.worktrees' else [])
@@ -122,13 +119,6 @@ class PlanQueueTests(unittest.TestCase):
             cost_profile='rig4090',
             settings_json=phi64,
         )
-        cls.purple = run_plan(
-            cls.root / 'purple.json',
-            PURPLE,
-            column_cache=cls.root / 'empty_col',
-            attach_cache=cls.root / 'empty_att',
-            settings_json=phi64,
-        )
         cls.cold = run_plan(
             cls.root / 'cold.json',
             LUT2,
@@ -140,14 +130,22 @@ class PlanQueueTests(unittest.TestCase):
             cost_profile='rig4090',
             settings_json=phi64,
         )
-        cls.strato_on = run_plan(
-            cls.root / 'strato_on.json',
-            PURPLE,
-            column_cache=cls.root / 'empty_col',
-            attach_cache=cls.root / 'empty_att',
-            stratosphere='on',
-            settings_json=phi64,
-        )
+        if PURPLE is not None:
+            cls.purple = run_plan(
+                cls.root / 'purple.json',
+                PURPLE,
+                column_cache=cls.root / 'empty_col',
+                attach_cache=cls.root / 'empty_att',
+                settings_json=phi64,
+            )
+            cls.strato_on = run_plan(
+                cls.root / 'strato_on.json',
+                PURPLE,
+                column_cache=cls.root / 'empty_col',
+                attach_cache=cls.root / 'empty_att',
+                stratosphere='on',
+                settings_json=phi64,
+            )
 
     def keys(self, plan, state_id):
         row = next(r for r in plan['states'] if r['id'] == state_id)
@@ -158,26 +156,26 @@ class PlanQueueTests(unittest.TestCase):
         }
         return row, items
 
-    def test_keys_and_groups_match_calculator(self):
+    def check_keys_match_calculator(self, plan, logs):
         checks = 0
-        for plan, logs in (
-            (self.lut2, sorted((DATA / 'results/strato_rig_20261003_lut2/runs').glob('*/logs/*.log'))),
-            (self.purple, sorted((DATA / 'results/purple_aod_axis_20261007/logs/runs').glob('*/run.raw.log'))),
-        ):
-            truth = logged(logs)
-            ids = {r['id'] for r in plan['states']}
-            self.assertTrue(truth and set(truth) <= ids | {'COLUMN_CACHE'})
-            for state_id, seen in truth.items():
-                row, keys = self.keys(plan, state_id)
-                for bundle in ('main', 'ground'):
-                    if bundle in seen:
-                        expected = {old[:16]: new[:16] for old, new in COLUMN_KEY_UPDATES.items()}
-                        self.assertEqual({expected[k] for k in seen[bundle]}, {keys[bundle][:16]}, (state_id, bundle))
-                        checks += 1
-                if 'lock' in seen:
-                    self.assertEqual(seen['lock'], {row['attach_lock']}, state_id)
+        truth = logged(logs)
+        ids = {r['id'] for r in plan['states']}
+        self.assertTrue(truth and set(truth) <= ids | {'COLUMN_CACHE'})
+        for state_id, seen in truth.items():
+            row, keys = self.keys(plan, state_id)
+            for bundle in ('main', 'ground'):
+                if bundle in seen:
+                    expected = {old[:16]: new[:16] for old, new in COLUMN_KEY_UPDATES.items()}
+                    self.assertEqual({expected[k] for k in seen[bundle]}, {keys[bundle][:16]}, (state_id, bundle))
                     checks += 1
-        self.assertGreaterEqual(checks, 40)
+            if 'lock' in seen:
+                self.assertEqual(seen['lock'], {row['attach_lock']}, state_id)
+                checks += 1
+        return checks
+
+    def test_keys_and_groups_match_calculator(self):
+        logs = sorted((DATA / 'results/strato_rig_20261003_lut2/runs').glob('*/logs/*.log'))
+        self.assertGreater(self.check_keys_match_calculator(self.lut2, logs), 0)
         # Existing historical files remain intact; the new source generation is initially cold.
         columns = [it for it in self.lut2['items'].values() if it['kind'] == 'column']
         self.assertEqual(len(columns), 4)
@@ -206,6 +204,15 @@ class PlanQueueTests(unittest.TestCase):
                 if i.startswith('off_')
             )
         )
+
+    def test_purple_keys_and_groups_match_calculator(self):
+        if PURPLE is None:
+            self.skipTest('research state file is not configured')
+        lut2_logs = sorted((DATA / 'results/strato_rig_20261003_lut2/runs').glob('*/logs/*.log'))
+        purple_logs = sorted((DATA / 'results/purple_aod_axis_20261007/logs/runs').glob('*/run.raw.log'))
+        checks = self.check_keys_match_calculator(self.lut2, lut2_logs)
+        checks += self.check_keys_match_calculator(self.purple, purple_logs)
+        self.assertGreaterEqual(checks, 40)
         self.assertEqual(
             [set(g['states']) for g in self.purple['groups']['column']],
             [{r['id'] for r in self.purple['states'] if r['id'].startswith('L19s3_')}],
@@ -264,13 +271,7 @@ class PlanQueueTests(unittest.TestCase):
             resolve('--ids', 'dual_st0p01_aod0p15')
         with self.assertRaisesRegex(ValueError, 'E_PIPELINE_PLAN'):
             resolve('--plan-gpu', '5')
-        # Refused: run arguments that change keys or groups (plan with --stratosphere on, run without it; settings).
-        on = self.root / 'strato_on.json'
-        self.assertTrue(resolve('--stratosphere', 'on', plan_path=on, states=PURPLE).ids)
-        with self.assertRaisesRegex(
-            ValueError, 'E_PIPELINE_PLAN_STALE: run arguments differ from the plan: stratosphere'
-        ):
-            resolve(plan_path=on, states=PURPLE)
+        # Refused: run arguments that change keys or groups.
         settings = self.root / 'settings.json'
         settings.write_text('{}')
         with self.assertRaisesRegex(ValueError, 'E_PIPELINE_PLAN_STALE: .*settings_sha256'):
@@ -288,6 +289,48 @@ class PlanQueueTests(unittest.TestCase):
             bad.write_text(json.dumps(doc))
             with self.assertRaisesRegex(ValueError, 'E_PIPELINE_PLAN: GPU lists'):
                 resolve(plan_path=bad)
+
+    def test_purple_stratosphere_plan_requires_matching_arguments(self):
+        if PURPLE is None:
+            self.skipTest('research state file is not configured')
+        on = self.root / 'strato_on.json'
+
+        def resolve(*extra):
+            args = pipeline.parser().parse_args(
+                ['--states', str(PURPLE), '--plan', str(on), '--settings-json', str(self.root / 'nphi64.json'), *extra]
+            )
+            return pipeline.resolve_plan(args)
+
+        self.assertTrue(resolve('--stratosphere', 'on').ids)
+        with self.assertRaisesRegex(
+            ValueError, 'E_PIPELINE_PLAN_STALE: run arguments differ from the plan: stratosphere'
+        ):
+            resolve()
+
+
+def test_plan_setup_without_research_states(tmp_path, monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+
+    module = sys.modules[__name__]
+    calls = []
+    monkeypatch.setattr(module, 'DATA', tmp_path)
+    monkeypatch.setattr(module, 'PURPLE', None)
+    monkeypatch.setattr(testing, 'scratch', lambda prefix: tmp_path)
+    monkeypatch.setattr(module, 'run_plan', lambda output, states, **kwargs: calls.append(states) or {})
+    probe = SimpleNamespace()
+    PlanQueueTests.setUpClass.__func__(probe)
+    assert calls == [LUT2, LUT2]
+    for method in ('test_purple_keys_and_groups_match_calculator', 'test_purple_stratosphere_plan_requires_matching_arguments'):
+        test = PlanQueueTests(method)
+        with pytest.raises(unittest.SkipTest, match='research state file is not configured'):
+            getattr(test, method)()
+
+    purple = tmp_path / 'states_night.json'
+    monkeypatch.setattr(module, 'PURPLE', purple)
+    calls.clear()
+    PlanQueueTests.setUpClass.__func__(SimpleNamespace())
+    assert calls == [LUT2, LUT2, purple, purple]
 
 
 def test_missing_geometry_cache_is_reported(tmp_path, monkeypatch):

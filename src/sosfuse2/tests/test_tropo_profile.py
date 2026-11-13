@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """Two-layer tropospheric aerosol (tropo_profile.py, kernel.cu -DAEROSOL_2L): Mac checks.
 
-  --host      block validation codes; profile integral = aod550 (closed form, and through the patched sos_sky.profiles);
-              the legacy entry points of the sky-sos checkout refuse a state that carries the block.
-The former --static and --paths modes are retired. --static looked for kernel.cu text that the kernel no longer contains
-(`prof[1]` is now `aerosol_two_layer(h,aer2)`) and took its baseline from the `main` branch of the sky-sos checkout, so
-its result moved with that branch. --paths probed with three wavelengths, which the kernel no longer accepts (it
-specializes to 1 or 15), and its byte comparison against that same baseline no longer holds. Nothing replaces the
-host-built point() check of the -DAEROSOL_2L branch that --static carried: test_kernel_static and test_tropo_mie build
+  --host      block validation codes; profile integral = aod550 (closed form and engine integration);
+              legacy entry points refuse a state that carries the block.
+The former --static and --paths modes are retired. Nothing replaces the host-built point() check of the -DAEROSOL_2L
+branch: test_kernel_static and test_tropo_mie build
 the kernel without that flag. test_tropo_patches covers how an enabled block reaches the CPU engine.
 usage: python -B -m sosfuse2.tests.test_tropo_profile --host --out <dir>
 """
@@ -19,7 +16,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 from sosfuse2 import testing as T
 
-ROOT = T.sky_sos_root()  # sky-sos checkout: this harness reads its two-layer states and runs its legacy entry points
+ROOT = T.sky_sos_root()  # Optional research data for two-layer states and legacy entry points.
 
 # ---- host: validation and integrals ------------------------------------------------------------------------------
 
@@ -113,7 +110,7 @@ def host(out):
                 bl_gl_abs=abs(cfg['aod550'] * whole(blc) - (cfg['aod550'] - cfg['ft_aod550'])),
             )
         )
-    # The patched sos_sky.profiles (engine source patch) and the solver's own column quadrature.
+    # The engine profile integral and the solver's own column quadrature.
     st = copy.deepcopy(base)
     st['troposphere_profile'] = good
     s, scope, _ = create(out / 'host_integral', 'selftest', (550.0,), 'numpy', 128, state=st)
@@ -187,7 +184,7 @@ def host(out):
         and len(explicit) == 2
         and lt['50.0'] == [0.0429, 2.3877]
     )
-    # Gate (coordinator 2026-10-07): with the default 1 km blend the GL-24 column error is within 0.5 % at every zenith.
+    # With the default 1 km blend the GL-24 column error is within 0.5 % at every zenith.
     integ['solver_columns_gate'] = dict(
         rule='|solver_rel| <= 0.005 at zenith 0/60/80/85 deg, default block',
         pass_=all(abs(r['solver_rel']) <= 0.005 for r in integ['solver_columns']),

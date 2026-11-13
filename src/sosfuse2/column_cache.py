@@ -11,6 +11,8 @@ import warnings
 import zipfile
 import numpy as np
 
+from . import identity as source_identity
+
 
 def array_hash(value):
     # Same descriptor as host_cache.array_hash, without its full .tobytes() copy.
@@ -41,12 +43,10 @@ def cache_key(kernel, bundle, c, kind):
         PKG / 'solver_columns.py',
         PKG / 'solver_columns.py',
     )
-    sources = {str(i): hashlib.sha256(path.read_bytes()).hexdigest() for i, path in enumerate(files)}
-    sources['joint_columns'] = hashlib.sha256(Path(__file__).with_name('ray_columns.py').read_bytes()).hexdigest()
-    sources['engine'] = hashlib.sha256(
-        (Path(__file__).resolve().parent / 'accepted/engine.py').read_bytes()
-    ).hexdigest()
-    from .density import column_identity  # ②b: grid N/step, normalization, origin with the table bytes
+    sources = {str(i): source_identity.file_sha(path) for i, path in enumerate(files)}
+    sources['joint_columns'] = source_identity.file_sha(Path(__file__).with_name('ray_columns.py'))
+    sources['engine'] = source_identity.file_sha(Path(__file__).resolve().parent / 'accepted/engine.py')
+    from .density import column_identity  # Grid, normalization, origin and table bytes.
 
     parameters = (
         column_identity(optics)
@@ -88,8 +88,7 @@ def direct(build, shape):
 def first_use(job, key, payload, value, build, shape, reference=None):
     """Called only under cached_columns' per-key flock, including the marker publication.
 
-    One direct calculation per (key, payload SHA) and job, after strato-kernel-loop cycle17
-    host_cache.checked_columns. Markers are job-local evidence about that exact payload, never cache
+    One direct calculation per (key, payload SHA) and job. Markers are job-local evidence about that exact payload, never cache
     content. A mismatch returns the direct bytes and disables the payload for the rest of the job;
     the shared file is left untouched for diagnosis. Returns (array, verify, result or None, reason).
     """

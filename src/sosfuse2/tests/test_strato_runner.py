@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local enabled reduced solver -> table -> verified pack, plus source reuse.
 
-No rig files are edited; all artifacts stay in the supplied module scratchpad.
+All artifacts stay in the supplied scratch directory.
 """
 
 import argparse, copy, hashlib, io, json, os, subprocess, sys, tarfile, time

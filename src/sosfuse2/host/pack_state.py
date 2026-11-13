@@ -1,6 +1,6 @@
 """Portable preview + atomic archive; only the four final products are packed."""
 
-import ast, json, math, os, resource, shutil, subprocess, sys, tarfile, time
+import ast, json, math, os, shutil, subprocess, tarfile, time
 from pathlib import Path
 import numpy as np
 from PIL import Image, PngImagePlugin
@@ -102,7 +102,9 @@ def pack_state(out, pack, compression='auto', started=None, *, reuse_previews=Fa
     if not reuse_previews:
         previews(out)
     pack.mkdir(parents=True, exist_ok=True)
-    peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * (1 if sys.platform == 'darwin' else 1024)
+    from sosfuse2.host_limits import peak_rss_bytes
+
+    peak = peak_rss_bytes()
     meta['peak_rss_bytes'] = max(meta.get('peak_rss_bytes', 0), peak)
     if started is not None:
         meta['elapsed_seconds'] = time.monotonic() - started

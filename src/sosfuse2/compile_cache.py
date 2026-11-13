@@ -9,7 +9,7 @@ from .kernel_config import resolve_config, deterministic
 
 def cache_key(gpu_name, compiler, block_size=None):
     here = Path(__file__).resolve().parent
-    # Kernel sources only (2026-10-07): CuPy keys every entry by the exact source text, NVRTC options, architecture and
+    # Kernel sources only: CuPy keys every entry by the exact source text, NVRTC options, architecture and
     # compiler, so host-side Python edits need not orphan a deployment's compiled kernels.
     sources = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(here.glob('*.cu'))}
     identity = dict(
@@ -30,7 +30,7 @@ def cache_key(gpu_name, compiler, block_size=None):
 
 
 def configure(root, backend='cupy', block_size=None):
-    """SOSFUSE2_COMPILE_CACHE=<dir> replaces the per-run root with a deployment-level one (2026-10-07): a new
+    """SOSFUSE2_COMPILE_CACHE=<dir> replaces the per-run root with a deployment-level one: a new
     work root then reuses the NVRTC binaries of earlier runs with the same sources, flags and toolchain."""
     if backend != 'cupy':
         return None
@@ -51,3 +51,8 @@ def configure(root, backend='cupy', block_size=None):
     os.environ['CUPY_CACHE_DIR'] = str(path.resolve())
     print('COMPILE_CACHE ' + json.dumps(dict(path=str(path.resolve()), gpu=name, compiler=compiler)), flush=True)
     return path
+
+
+def default_root(work_root):
+    """Shared NVRTC cache beside the work root."""
+    return Path(work_root).parent / 'nvrtc_cache_shared'

@@ -5,13 +5,13 @@ import argparse
 import gc
 import json
 import os
-import resource
 import sys
 import threading
 import time
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 from sosfuse2 import paths
 
 for key in (
@@ -60,7 +60,9 @@ def parser():
 
 
 def peak():
-    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * (1 if sys.platform == 'darwin' else 1024)
+    from sosfuse2.host_limits import peak_rss_bytes
+
+    return peak_rss_bytes()
 
 
 def monitor(stop, limit):
@@ -96,12 +98,10 @@ def run_state(args, output, wavelengths, state=None, cache=None):
     s, scope, settings = create(output / 'prepare', args.grid, wavelengths, args.backend, args.block_size, state)
     xp = s.kernel.xp
     if xp is not np:
-        free, total = xp.cuda.runtime.memGetInfo()
-        if free < 4 * 1024**3:
-            raise RuntimeError('E_VRAM_FREE: need at least 4 GiB free')
-        from sosfuse2.device_profile import pool_limit_bytes
+        from sosfuse2.device_profile import apply_pool_limit
 
-        xp.get_default_memory_pool().set_limit(size=pool_limit_bytes(free))
+        apply_pool_limit(xp)
+        _, total = xp.cuda.runtime.memGetInfo()
     resident = TwoLayerGeometry if args.geometry_mode == 'endpoints-2layer' else ResidentGeometry
     geometry = resident(s, scope, cache or output / 'geometry') if args.grid == 'full' else TransientGeometry(s, scope)
     solver = Solver(s, geometry, fixed_boxes=args.fixed_boxes)

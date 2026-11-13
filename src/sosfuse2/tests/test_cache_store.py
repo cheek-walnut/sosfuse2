@@ -1,4 +1,4 @@
-"""sosfuse2.cache_store, the sky-sos rig/bake/bake_run.py cache_new and the cold paths, without network: a fake rclone
+"""Cache store and cold paths without network: a fake rclone
 (local folder as the store) records every call. Run: python -m pytest -q src/sosfuse2/tests/test_cache_store.py"""
 
 import errno
@@ -29,7 +29,7 @@ def load(name, path):
 
 @pytest.fixture(scope='module')
 def br():
-    """rig/bake/bake_run.py: the sky-sos rig bake driver (consumer of the package, not part of it)."""
+    """Load an optional research driver that consumes the package."""
     return load('bake_run', testing.sky_sos('rig/bake/bake_run.py'))
 
 
@@ -141,7 +141,7 @@ def endpoints(root, sig, complete=True, height=1.2):
 
 
 def tree(root, height=1.2):
-    """A cache folder as eda left it (2026-10-22 rebake widget layout) plus every kind of non-unit file."""
+    """A cache folder containing complete units and non-unit files."""
     e = endpoints(root, SIG, height=height)
     endpoints(root, SIG2, complete=False)
     put(root, 'geometry/.v3-leases.lock', '')
@@ -268,6 +268,40 @@ def test_mixed_copies_are_refused_never_combined(tmp_path, store):
         del os.environ['FAKE_RCLONE_DUP']
 
 
+def wait_for_lock_holder(holder, ready, timeout=30):
+    deadline = time.monotonic() + timeout
+    while not ready.exists():
+        code = holder.poll()
+        if code is not None:
+            raise AssertionError(f'lock holder exited before signalling readiness: exit {code}')
+        if time.monotonic() >= deadline:
+            try:
+                holder.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                holder.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                holder.kill()
+                holder.wait(timeout=5)
+            raise AssertionError(f'lock holder did not signal readiness within {timeout} seconds')
+        time.sleep(0.02)
+
+
+def test_lock_holder_wait_reports_early_exit(tmp_path):
+    holder = subprocess.Popen([sys.executable, '-c', 'raise SystemExit(23)'])
+    with pytest.raises(AssertionError, match='lock holder exited before signalling readiness: exit 23'):
+        wait_for_lock_holder(holder, tmp_path / 'held')
+    assert holder.wait(timeout=1) == 23
+
+
+def test_lock_holder_wait_has_a_deadline(tmp_path):
+    holder = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+    with pytest.raises(AssertionError, match='lock holder did not signal readiness within'):
+        wait_for_lock_holder(holder, tmp_path / 'held', timeout=0.05)
+    assert holder.poll() is not None
+
+
 def test_pull_publishes_under_the_pipeline_locks_and_two_pulls_race(tmp_path, store):
     src = tmp_path / 'cache'
     e = tree(src)
@@ -285,8 +319,7 @@ def test_pull_publishes_under_the_pipeline_locks_and_two_pulls_race(tmp_path, st
             str(tmp_path / 'held'),
         ]
     )
-    while not (tmp_path / 'held').exists():
-        time.sleep(0.02)
+    wait_for_lock_holder(holder, tmp_path / 'held')
     t0 = time.monotonic()
     row = cs.pull(mirror)
     waited = time.monotonic() - t0

@@ -5,7 +5,7 @@ import json
 
 import numpy as np
 
-from . import paths
+from . import paths, identity as source_identity
 from .generate_minor_absorbers import CIA_SHA, RULES_VERSION
 
 NO2 = paths.ASSETS / 'no2_vandaele1998_fine.json'
@@ -22,7 +22,7 @@ def o4_path():
 
 
 def load(kind, *, required=True, path=None):
-    """Validated FP64 values, exact byte SHA, and metadata. Never downloads."""
+    """Validated FP64 values, content identity, byte-integrity SHA, and metadata. Never downloads."""
     path = path or (NO2 if kind == 'no2' else o4_path())
     if not path.is_file() and kind == 'o4':
         if not required:
@@ -54,7 +54,25 @@ def load(kind, *, required=True, path=None):
         if str(exc).startswith('E_O4_ASSET_STALE:'):
             raise
         raise ValueError(f'E_{kind.upper()}_ASSET_INVALID: {exc}') from exc
-    return dict(wavelength_nm=grid, values=values, sha256=hashlib.sha256(raw).hexdigest(), meta=doc)
+    name = NO2.name if kind == 'no2' else O4_NAME
+    return dict(wavelength_nm=grid, values=values, sha256=source_identity.asset_identity(raw, name),
+                raw_sha256=hashlib.sha256(raw).hexdigest(), meta=doc)
+
+
+def canonical_hashes(value):
+    if not isinstance(value, dict):
+        return value
+    names = dict(no2=NO2.name, o4=O4_NAME)
+    result = dict(value)
+    for kind, digest in value.items():
+        if kind not in names or not isinstance(digest, str):
+            continue
+        result[kind] = source_identity.asset_digest(names[kind], digest)
+        if result[kind] == digest:
+            asset = load(kind, required=False)
+            if asset is not None and digest == asset['raw_sha256']:
+                result[kind] = asset['sha256']
+    return result
 
 
 def hashes():
@@ -72,7 +90,7 @@ def representative(block, wavelengths, *, o4=True):
             result[kind] = np.zeros_like(wavelengths, dtype='f8')
             continue
         asset = load(kind)
-        if block is not None and block.get('minor_absorber_sha256', {}).get(kind) != asset['sha256']:
+        if block is not None and canonical_hashes(block.get('minor_absorber_sha256', {})).get(kind) != asset['sha256']:
             raise ValueError('E_SPECTRAL_CONTRACT: minor absorber asset changed since block creation')
         if block is not None and block['mode'] == 'band':
             edges = block['bin_edges_nm']

@@ -1,5 +1,4 @@
-"""2026-10-21 development GPU host regressions: PHASE lines without timestamp_ns broke pipeline_trace.py,
-and concurrent states built the same solar table at once. No CUDA, no spawn."""
+"""PHASE event fields and serialization of concurrent solar table builds."""
 
 from sosfuse2 import paths
 import re
@@ -17,7 +16,7 @@ from sosfuse2 import host_cache, sun_parallel  # noqa: E402
 
 
 def test_every_phase_line_carries_trace_fields():
-    # pipeline_trace.py:75 reads pid/timestamp_ns from every PHASE event of a state log.
+    # Every PHASE event needs the fields used to identify and order it.
     missing = []
     for path in sorted(HERE.glob('*.py')):
         if path.name.startswith('test_'):
@@ -132,7 +131,7 @@ def test_profile_code_change_misses_the_shared_table(tmp_path):
     shared = tmp_path / 'geometry'
     state = tmp_path / 'aerosol_profile' / 'tagA'
     real = Path.read_bytes
-    for edit in (b'', b'# changed profile code'):
+    for edit in (b'', b'\nIDENTITY_PROBE = 1\n'):
 
         def read_bytes(self, edit=edit):
             return real(self) + edit if self.name == 'tropo_profile.py' else real(self)

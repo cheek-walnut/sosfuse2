@@ -13,10 +13,10 @@ cache already holds it:
 The state-dependent pieces come from one probe per class (parameters except aod550/stratosphere_tau550/albedo,
 density options): run_gpu_state_v3.create_configured with the stratosphere switched off (attach returns before its
 ground geometry) and the host-cache ground step skipped.  The table bundles (about 4,000 of 10 million rays per
-state, eda logs 2026-10-07) are not keyed here.
+state) are not keyed here.
 
 Platform: the attach and sun02 keys hash floating-point arrays computed on the host (sun columns).  Mac and rig bytes
-differ (2026-10-07: 26,378 of 32,481 solar-grid entries, max_rel 2.7e-15), so their hit prediction is valid only when
+differ (26,378 of 32,481 solar-grid entries, max_rel 2.7e-15), so their hit prediction is valid only when
 the planner runs on the queue's own host.  Column, ground, endpoint02 and aerosol keys hash cached geometry bytes,
 profile reprs and sources, and match across hosts (rig and eda keys reproduced on the Mac, test_plan_queue.py).
 
@@ -58,12 +58,12 @@ COST_PROFILES = {
         geometry_build_seconds=None,
         state_seconds=dict(strato=2006.0, off=1030.0),
         sources=dict(
-            strato_column='development GPU host CPU profile, 2026-10-03 (research record): stratosphere columns about 118 s; '
-            'rays 9,586,008 main + 404,496 ground (bake logs of 2026-10-07)',
+            strato_column='stratosphere columns about 118 s; '
+            'rays 9,586,008 main + 404,496 ground',
             density_column='same profile: density column correction about 21 s; taken as the '
             'main-bundle correction (guess: the profile does not name the code path)',
-            attach_miss='bake log of 2026-10-07 (research record), state L19s3_tau0p01_aod0p15_g0p65: attach_cache miss 51.3 s',
-            state='mean source_done of the r2 runs in the 2026-10-07 bake logs (two-slot shared GPU): '
+            attach_miss='center 19 km, sigma 3 km, tau 0.01, aod 0.15, g 0.65: attach_cache miss 51.3 s',
+            state='mean source_done (two-slot shared GPU): '
             'stratosphere on 2006 s (5 states), off 1030 s (2 states); used only to balance GPUs',
         ),
     ),
@@ -77,10 +77,10 @@ COST_PROFILES = {
         geometry_build_seconds=None,
         state_seconds=dict(strato=52.0, off=82.8),
         sources=dict(
-            strato_column='leased 4090 run of 2026-10-03 (research record), state B22s5_tau0p005_aod0p15: column_cache miss 145.0 s, 9,586,008 rays',
+            strato_column='RTX 4090, center 22 km, sigma 5 km, tau 0.005, aod 0.15: column_cache miss 145.0 s, 9,586,008 rays',
             density_column='same log: density column_cache miss 9.9 s for a 450,000-ray table bundle',
             attach_miss='same log: attach_cache miss 77.9 s',
-            state='same run (research record): 12 stratosphere states in 10 min 24 s (52 s each, overlapped), '
+            state='12 stratosphere states in 10 min 24 s (52 s each, overlapped), '
             '5 stratosphere-off states in 6 min 54 s; used only to balance GPUs',
         ),
     ),
@@ -94,7 +94,7 @@ COST_PROFILES = {
         geometry_build_seconds=None,
         state_seconds=dict(strato=1.0, off=1.0),
         sources=dict(
-            strato_column='Mac column-parallel measurement of 2026-10-07 (research record; serial, 9,586,008 rays)',
+            strato_column='serial column-parallel measurement, 9,586,008 rays',
             density_column='same file: fused density_end_columns serial, 9,586,008 rays (the host-cache endpoint02 '
             'path runs the same per-chunk correction)',
             state='no GPU on the Mac: equal weights',
@@ -363,7 +363,6 @@ def cost_profile(a):
 
 def collect(a, cfg, states, columns, attach_root):
     """Per-state item lists and the item table (id -> kind, key, file, hit, cost)."""
-    import numpy as np
     from sosfuse2 import column_cache, host_cache, geometry as gm, tropo_profile
     from sosfuse2.fused import Kernel
     from sosfuse2.run_gpu_state_v3 import attach_lock_name
@@ -869,7 +868,7 @@ def plan_queue(a):
             'attach and sun02 hits are valid only on this host (floating-point keys); run the planner on the queue host',
             'table bundles (about 0.04 % of the stratosphere rays per state) are not keyed',
             'cold_cpu_seconds are serial; cold_seconds divide column and endpoint02 items by the measured speed-up '
-            'of the column workers (SPEEDUP, Mac column-parallel measurement of 2026-10-07)',
+            'of the column workers (SPEEDUP, column-parallel measurement)',
         ],
     )
     commands(a, lists, columns, attach_root, a.out, res)

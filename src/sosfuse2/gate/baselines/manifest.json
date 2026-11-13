@@ -593,7 +593,7 @@
    7,
    7
   ],
-  "reference": "~/b2_rebless_20261105/fixed_refs/gf_L19s3_tau0p01_aod0p4_g0p65_e2620f6f90c39dcb.npz",
+  "reference": "gf_L19s3_tau0p01_aod0p4_g0p65_e2620f6f90c39dcb.npz",
   "made_in": "table.npz",
   "commit": "04ec83a",
   "recorded_utc": "2026-11-05T12:00:09.398514+00:00",
@@ -633,7 +633,7 @@
    "commit": "7838f96",
    "recorded_utc": "2026-11-01T03:23:42.413282+00:00",
    "decision": "p2-aprime-default-20261101",
-   "reason": "p2-aprime-default-20261101: ozone A\u2032 (profile_mean, layer-mean sigma_bar) is the product default, settings {} = BM45 + profile_mean; new A\u2032 fixture FX-AP = FX-C3 + profile_mean, the fixed-233 K fixtures stay (user 2026-10-31)",
+   "reason": "p2-aprime-default-20261101: ozone A\u2032 (profile_mean, layer-mean sigma_bar) is the product default, settings {} = BM45 + profile_mean; new A\u2032 fixture FX-AP = FX-C3 + profile_mean, the fixed-233 K fixtures stay",
    "change_vs_previous": {
     "max_abs": 6.085634231567383e-05,
     "max_rel": 0.003541851087138202

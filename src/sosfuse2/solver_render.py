@@ -44,7 +44,7 @@ def save_png(path, rgb, seed=17):
 def projection(w, h, hfov, azimuth):
     """Gnomonic pinhole; horizontal field of view at the image centre; horizon .8H.
 
-    Uses the centre/right/up construction in lut_mockup.desk_dirs, with the
+    Uses a centre/right/up construction, with the
     specified field of view and analytically chosen camera pitch.
     """
     focal = w / (2 * math.tan(math.radians(hfov / 2)))
@@ -74,7 +74,7 @@ def cubic_weights(t):
 def sample(pano, az, alt):
     """Catmull-Rom bicubic, periodic azimuth, clamped altitude; bound overshoots.
 
-    Supports the original 100x360 SOS and app_pano's 180x720 grids.
+    Supports 100x360 and 180x720 grids.
     """
     nr, nc, channels = pano.shape
     out = np.empty((*az.shape, channels), np.float32)

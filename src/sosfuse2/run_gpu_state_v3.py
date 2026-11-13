@@ -5,14 +5,15 @@ import argparse, contextlib, copy, fcntl, hashlib, json, os, re, shutil
 import subprocess, sys, tarfile, threading, time
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 from sosfuse2 import paths
 
 # Solar column table resolution (sos_sky.SunGeometry scale). 4 = production (measured:
 # scale 1 gives -2.38 % first order at -10 deg AOD .6, scale 4 +0.20 %); 1 = the accepted engine table.
 SUN_SCALE = 4
 # Production kernel SH order. 16 = production with SH_COMBINE in configs/C3.json (measured:
-# 5060 Ti V14 L16+SH_COMBINE+nphi16+sun4 vs L32+nphi32+sun1 3.3-5.2x faster, order 2 vs direct L8 equal or 0.03 %p
+# RTX 5060 Ti L16+SH_COMBINE+nphi16+sun4 vs L32+nphi32+sun1 3.3-5.2x faster, order 2 vs direct L8 equal or 0.03 %p
 # better, full radiance within 0.40 %). settings_json may still choose 24 or 32.
 SH_L = 16
 # Production Anderson fixed-point tolerance (observer and source relative residual). .001 = production (measured:
@@ -430,7 +431,7 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
     from sosfuse2 import tropo_profile
 
     output.mkdir(parents=True, exist_ok=True)
-    # prepare_ground=False: the ground is prepared once below (host cache or density.attach), after the wavelength Solver.
+    # With fast_host, density.attach prepares the ground below, after the wavelength Solver.
     initial, scope, _ = engine.create(
         state,
         output,
@@ -453,10 +454,6 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
     tropo_profile.attach(s)
     if fast_host:
         scope.prepare_ground = True
-        from sosfuse2.density import build
-
-        if build(state) is None:
-            s.prepare_ground()
     if geometry_cache is not None:
         s.host_cache_root = Path(geometry_cache)
     from sosfuse2.density import attach as attach_density
@@ -487,7 +484,7 @@ def verify_pack(path, signature):
     # Read every archived member through zstd; verify both CRC/content and the identity.
     # tarfile's stream mode stops at the end-of-archive marker and leaves the record padding (10240 bytes measured) unread;
     # closing the pipe then can kill a zstd still writing it (SIGPIPE, nonzero exit) when the pipe buffer is small, which
-    # failed a valid pack in an eda gate run (2026-11-03, FX-N; the same file decodes with rc 0). So the rest of the stream
+    # can reject a valid pack. The rest of the stream
     # is drained before close, and a real decode failure reports zstd's exit code and stderr.
     import tempfile
 
@@ -563,95 +560,13 @@ def enable_spectral_previews(module):
     module.previews = previews
 
 
-def package_hashes():
-    """Provenance v4 code hashes (docs/PROVENANCE_V3.md): package-relative keys ('sosfuse2/...') over the
-    production modules (paths.PRODUCTION_MODULES, a fixed list), the CUDA kernel, the engine module (v3 never
-    hashed them), the host helpers, the native CPU kernel source and the data assets the engine reads. Sorted keys; every
-    entry is a fixed name and a missing file is E_PACKAGE_FILE_MISSING, not a gap. package_version/package_commit are
-    recorded beside the `contract` field but are NOT signature inputs: the same bytes sign the same in-tree and
-    installed."""
-    P = paths.PKG
-    files = paths.production_files()
-    files += [
-        P / 'kernel.cu',
-        *[P / 'accepted' / n for n in ACCEPTED_SOURCES],
-        *[P / 'host' / n for n in HOST_MODULES],
-        P / 'native/sh_cpu.cpp',
-    ]
-    files += [P / 'assets' / n for n in DATA_ASSETS]
-    missing = [paths.rel(p) for p in files if not p.is_file()]
-    if missing:
-        raise RuntimeError(f'E_PACKAGE_FILE_MISSING: provenance inputs absent from the package: {missing}')
-    return {paths.rel(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
-
-
-# Fixed provenance inputs beside the production modules: the engine module, the host helpers and
-# the data the engine reads. Adding a file here changes every v4 signature (intended); a listed file that is missing is an error.
-ACCEPTED_SOURCES = ('__init__.py', 'engine.py')
-HOST_MODULES = ('__init__.py', 'host_cores.py', 'pack_state.py')
-DATA_ASSETS = (
-    'spectra.json',
-    'spectra_fine.json',
-    'spectra_fine_temperature.json',
-    'lef_cie.json',
-    'cmf_1nm.json',
-    'states_v1.json',
-    'states_v2.json',
-    'states_v1_usstd.json',
-    'rgb_weights.npy',
-    'temperature_usstd76.json',
-    'no2_afglus_profile.json',
-    'no2_vandaele1998_fine.json',
-)
-
-
-def package_info():
-    """Release identity beside the content hashes: version from the installed metadata (None in-tree without install); commit from
-    SOSFUSE2_PACKAGE_COMMIT, else the installer's direct_url.json (pip/uv VCS install: vcs_info.commit_id; used only when the
-    distribution's sosfuse2/__init__.py is this package's own), else the git checkout whose
-    src/sosfuse2 IS this package (never a consumer checkout that merely holds an installed copy). None otherwise, never an error."""
-    dist = None
-    ver = None
-    try:
-        from importlib.metadata import distribution
-
-        dist = distribution('sosfuse2')
-        ver = dist.version
-    except Exception:
-        pass
-    commit = os.environ.get('SOSFUSE2_PACKAGE_COMMIT') or None
-    if commit is None and dist is not None:
-        try:
-            # Only when the metadata describes THIS copy of the package: an in-tree run (PYTHONPATH=src) next to an installed
-            # sosfuse2 must not record the installed copy's commit.
-            if Path(dist.locate_file('sosfuse2/__init__.py')).resolve() == (Path(paths.PKG) / '__init__.py').resolve():
-                du = dist.read_text('direct_url.json')
-                commit = ((json.loads(du).get('vcs_info') or {}).get('commit_id') or None) if du else None
-        except Exception:
-            commit = None
-    if commit is None:
-        try:
-            top = subprocess.run(
-                ['git', 'rev-parse', '--show-toplevel'], cwd=paths.PKG, capture_output=True, text=True, timeout=10
-            )
-            if (
-                top.returncode == 0
-                and (Path(top.stdout.strip()) / 'src/sosfuse2').resolve() == Path(paths.PKG).resolve()
-            ):
-                r = subprocess.run(
-                    ['git', 'rev-parse', 'HEAD'], cwd=paths.PKG, capture_output=True, text=True, timeout=10
-                )
-                commit = r.stdout.strip() or None if r.returncode == 0 else None
-        except (OSError, subprocess.SubprocessError):
-            commit = None
-    return dict(package_version=ver, package_commit=commit)
+from .identity import package_hashes, package_info
+from .identity import ACCEPTED_SOURCES as ACCEPTED_SOURCES, HOST_MODULES as HOST_MODULES, DATA_ASSETS as DATA_ASSETS
 
 
 from .components import physics, optics_state, canonical_state, check_optics
 
-CONTRACT_VERSION = (
-    'v4'  # v3 tables (sky-sos repository-relative code_hashes) keep their meaning; readers must accept both
-)
+CONTRACT_VERSION = 'v5'  # Readers also accept v3 and v4 tables.
 
 
 def signed_contract(state, cfg, backend, reduced, polarization_model, derived=None):
@@ -756,7 +671,7 @@ def geometry_only(a):
         os.environ[k] = str(a.threads)
     import numpy as np
     from sosfuse2.geometry_cpu import build_cells, cache_complete, column_ready, ensure_column
-    from sosfuse2.run_fuse import monitor, peak
+    from sosfuse2.run_fuse import monitor
 
     for k in (
         'OMP_NUM_THREADS',
@@ -951,7 +866,7 @@ def run(a):
         previous = json.loads(meta_path.read_text())
         check_optics(previous.get('optics_state'), optics_state(state))
         if previous.get('signature') != signature:
-            raise RuntimeError('E_OUTPUT_IDENTITY: use a fresh work-root/out_name')
+            raise RuntimeError(f"E_OUTPUT_IDENTITY: use a fresh work-root/out_name; stored contract={previous.get('contract')!r}")
     # Recompute an interrupted attempt rather than treating a loose table as validated success.
     started = time.monotonic()
     stop = threading.Event()
@@ -959,7 +874,7 @@ def run(a):
     leased = None
     released = False
     threading.Thread(target=monitor, args=(stop, a.rss_gb * 1e9), daemon=True).start()
-    from sosfuse2.compile_cache import configure
+    from sosfuse2.compile_cache import configure, default_root
 
     pipeline_lock = getattr(a, 'gpu_lock', None)
     token = None
@@ -967,7 +882,7 @@ def run(a):
     solver = field = None
     persistent = bool(os.environ.get('SOS_PERSISTENT_ROOT'))
     if not pipeline_lock:
-        configure(a.work_root.parent / 'nvrtc_cache_shared', a.backend, a.block_size)
+        configure(default_root(a.work_root), a.backend, a.block_size)
     os.environ['CUDA_CACHE_PATH'] = str(prepare / 'cuda_driver_cache')
     wl = np.asarray(cfg['wavelengths_nm'])
     hs = np.asarray(cfg['solar_elevation_deg'])
@@ -1022,12 +937,9 @@ def run(a):
             )
             xp = s.kernel.xp
             if xp is not np:
-                free, _ = xp.cuda.runtime.memGetInfo()
-                if free < 4 * 1024**3:
-                    raise RuntimeError('E_VRAM_FREE: need at least 4 GiB free')
-                from sosfuse2.device_profile import pool_limit_bytes
+                from sosfuse2.device_profile import apply_pool_limit
 
-                xp.get_default_memory_pool().set_limit(size=pool_limit_bytes(free))
+                apply_pool_limit(xp)
             if geometry is None:
                 leased = register_geometry(s, scope, a.geometry_cache, a.geometry_layers)
                 with (a.geometry_cache / (leased.stats['signature'] + '.lock')).open('a') as lock:
@@ -1093,16 +1005,13 @@ def run(a):
                 phase(name, 'cpu_prepare_done', chunk=index, cuda_imported='cupy' in sys.modules)
                 token = GpuToken(pipeline_lock, name, phase)
                 token.acquire()
-                configure(a.work_root.parent / 'nvrtc_cache_shared', a.backend, a.block_size)
+                configure(default_root(a.work_root), a.backend, a.block_size)
                 promote_solver(s, geometry, a.backend, a.block_size, a.threads)
                 xp = s.kernel.xp
                 if xp is not np:
-                    free, _ = xp.cuda.runtime.memGetInfo()
-                    if free < 4 * 1024**3:
-                        raise RuntimeError('E_VRAM_FREE: need at least 4 GiB free')
-                    from sosfuse2.device_profile import pool_limit_bytes
+                    from sosfuse2.device_profile import apply_pool_limit
 
-                    xp.get_default_memory_pool().set_limit(size=pool_limit_bytes(free))
+                    apply_pool_limit(xp)
             phase(name, 'source_start', chunk=index, wavelengths=count)
             t = time.monotonic()
             solver = Solver(s, geometry, fixed_boxes=a.fixed_boxes)
@@ -1162,8 +1071,8 @@ def run(a):
         table = np.concatenate(tables, axis=-1)
         if not np.isfinite(table).all():
             raise RuntimeError('E_TABLE_FINITE')
-        # Uncompressed (2026-10-25): a per-state diagnostic read only through np.load (gate.py); zlib saved 6 % in
-        # 0.5-1 s of single-core time per state. table.npz too (2026-10-25: numeric identity is judged on
+        # Uncompressed: a per-state diagnostic read only through np.load (gate.py); zlib saved 6 % in
+        # 0.5-1 s of single-core time per state. table.npz too (numeric identity is judged on
         # arrays, not file SHA); the pack is tar.zst either way, and same arrays still give the same file bytes.
         np.savez(
             prepare / 'source.npz',
@@ -1312,11 +1221,11 @@ def run(a):
 
 
 def run_extra(a):
+    """M3: table rows at extra solar elevations from a stored source
+    (<work-root>/tmp/<source_out_name>/source.npz written by run()); no solve, no geometry cache."""
     from .components import production_only
 
     production_only()
-    """M3: table rows at extra solar elevations from a stored source
-    (<work-root>/tmp/<source_out_name>/source.npz written by run()); no solve, no geometry cache."""
     if not shutil.which('zstd'):
         raise RuntimeError('E_ZSTD_MISSING: install zstd (required by pack and verify)')
     for k in (
@@ -1369,13 +1278,13 @@ def run_extra(a):
         previous = json.loads(meta_path.read_text())
         check_optics(previous.get('optics_state'), optics_state(state))
         if previous.get('signature') != signature:
-            raise RuntimeError('E_OUTPUT_IDENTITY: use a fresh work-root/out_name')
+            raise RuntimeError(f"E_OUTPUT_IDENTITY: use a fresh work-root/out_name; stored contract={previous.get('contract')!r}")
     started = time.monotonic()
     stop = threading.Event()
     threading.Thread(target=monitor, args=(stop, a.rss_gb * 1e9), daemon=True).start()
-    from sosfuse2.compile_cache import configure
+    from sosfuse2.compile_cache import configure, default_root
 
-    configure(a.work_root.parent / 'nvrtc_cache_shared', a.backend, a.block_size)
+    configure(default_root(a.work_root), a.backend, a.block_size)
     os.environ['CUDA_CACHE_PATH'] = str(prepare / 'cuda_driver_cache')
     try:
         phase(name, 'source_reuse_start', source_out_name=a.source_out_name)

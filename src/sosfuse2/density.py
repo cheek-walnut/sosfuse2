@@ -27,11 +27,11 @@ from pathlib import Path
 import numpy as np
 
 from . import paths
-from .components import NCOMP, MOLECULAR_COLUMNS
+from .components import MOLECULAR_COLUMNS
 
 # The US1976 + IPRT ozone-shape profile asset is not redistributed with the package: it is generated once, on first use, from the IPRT inputs (iprt.fetch, pinned sha256) into the work root and
 # checked against the pinned digest. The pin is the platform-independent (decimal) generator's output, measured identical on
-# arm64/Python 3.14 and x86_64/Python 3.12 (2026-11-03); the float64 2026-10 asset a7ccf7b1… differed per platform in the last
+# arm64/Python 3.14 and x86_64/Python 3.12; the earlier float64 asset a7ccf7b1… differed per platform in the last
 # ulp and is superseded (values within 4.7e-15 relative, generate_density_profile docstring). Provenance (code_hashes, gate
 # identity, block identity) always uses the logical key ASSET_KEY, wherever the file physically lives. `density.ASSET`
 # stays usable as a Path (module __getattr__).
@@ -40,7 +40,7 @@ ASSET_SHA256 = '05dfeb6e158e97fcccd2af30e3fd55ad1ea11fa0c8a58be51bd214de506c5795
 # Digests of earlier generations of the same logical asset (same formulas, inputs and normalization; only the arithmetic
 # implementation differed). Readers of blocks and tables made with them accept them as the same ozone profile
 # (ozone_temperature.same_profile_identity, docs/PROVENANCE_V3.md "Superseded asset digests"); they are never produced again.
-# a7ccf7b1…: the 2026-10 float64/numpy generator, values within 4.7e-15 of the decimal asset and platform dependent in the
+# a7ccf7b1…: the float64/numpy generator, values within 4.7e-15 of the decimal asset and platform dependent in the
 # last ulp, which is why the decimal generator replaced it.
 ASSET_SHA256_SUPERSEDED = ('a7ccf7b152de5d82c3c47759e55b92cd558e64f8d4e8584623d92e78670c3020',)
 _PACKAGED = (
@@ -342,7 +342,9 @@ def no2_asset():
     if not np.isfinite(f.astype('f4')).all() or np.any((f > 0) & (f.astype('f4') == 0)):
         raise ValueError('E_NO2_PROFILE_FP32')
     z.flags.writeable = f.flags.writeable = False
-    return z, f, hashlib.sha256(raw).hexdigest()
+    from .identity import asset_identity
+
+    return z, f, asset_identity(raw, 'no2_afglus_profile.json')
 
 
 def no2_profile(h):
@@ -674,8 +676,6 @@ def attach(s, scope, defer_ground=False):
     if hasattr(s, 'density_optics'):
         return s.density_optics
     optics = build(s.fuse_state)
-    if optics is None:
-        return None
     old = scope.b.sh.old
     sun = s.geo.sun
     optics['old'] = old

@@ -2,7 +2,7 @@
 
 Store  : <rclone remote>:<path>/{geometry,attach,columns}/<the key names the pipeline already uses>; the remote is named by
          SKY_CACHE_REMOTE or the remote= argument, never built in (the remote work folder is the original, local copies are caches).
-Mirror : SKY_CACHE_MIRROR (default <work root>/sky-cache)/{geometry,attach,columns}; the sky-sos bake driver passes it as --geometry-cache,
+Mirror : SKY_CACHE_MIRROR (default <work root>/sky-cache)/{geometry,attach,columns}; callers may pass it as --geometry-cache,
          --column-cache and STRATO_ATTACH_CACHE (cold runs such as gate.py --gf keep their own empty caches).
 
   python -B -m sosfuse2.cache_store list [--json]
@@ -30,17 +30,15 @@ to the root); in the store every unit is ONE object, so an interrupted upload le
       to an npy this push uploaded or a stored npy whose bytes were downloaded and hashed equal; a stored marker that
       differs is E_CACHE_CONFLICT.
   Single-file units already stored with another size are E_CACHE_CONFLICT (same size: kept, contents not compared).
-Legacy: the first fill (2026-10-23, queue job 627) stored endpoints_54b6bf909981453cea6a as loose files
+Legacy: earlier stores used loose endpoint files
 (geometry/endpoints_<sig>/{identity.json,source_height.json,packed/*}). That form is never written again and is read
-only by `pull --legacy` when no tar of the signature exists (one upload from one copy, verified by the 627 pull and
-hit bake); `list` marks it. Nothing is deleted.
+only by `pull --legacy` when no tar of the signature exists; `list` marks it. Nothing is deleted.
 Pull downloads into <root>/.cache_store/pull-* (same file system), re-checks every unit there, then publishes with the
 pipeline's own locks or no-clobber hard links, marker last; it never replaces a file the mirror already has.
-Concurrency note (two pipeline.py runs on one mirror; code read 2026-10-23 at 5b7f583): endpoints folders are leased
-under .v3-leases.lock and built under <sig>.lock (run_gpu_state_v3.py, 470-473), complete.json is written last
-(geometry.py), and bake_run.common always passes --keep-geometry so release_geometry never deletes a shared
-folder (run_gpu_state_v3.py); aerosol columns, host sidecars and sun tables take per-file locks and publish by
-os.replace (geometry_cpu.py, host_cache.py, 183-188); attach files are computed in a private overlay and
+Concurrency: endpoints folders are leased under .v3-leases.lock and built under <sig>.lock
+(run_gpu_state_v3.py), and complete.json is written last (geometry.py). A caller sharing geometry must retain it;
+aerosol columns, host sidecars and sun tables take per-file locks and publish by
+os.replace (geometry_cpu.py, host_cache.py); attach files are computed in a private overlay and
 renamed in (run_gpu_state_v3.py); columns are read and written under a per-key lock (column_cache.py),
 first-use markers stay in each job's work root; the geometry-only prefetch attaches through the same overlay.
 flock needs a local file system (keep the mirror on a local disk).

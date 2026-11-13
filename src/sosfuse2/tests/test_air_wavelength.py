@@ -3,7 +3,7 @@ the production builder's refusals, and independent recomputations of the relabel
 solar column (0.1 nm cell means).
 
 NIST reference: Engineering Metrology Toolbox, Refractive Index of Air Calculator, Documentation Table 1 (Ciddor,
-CO2 450 µmol/mol), https://emtoolbox.nist.gov/Wavelength/Documentation.asp (fetched 2026-10-31); dry rows (RH 0) only,
+CO2 450 µmol/mol), https://emtoolbox.nist.gov/Wavelength/Documentation.asp; dry rows (RH 0) only,
 since air_wavelength.ciddor_dry has no water term. NIST uses the CODATA 1998 gas constant and its table has 9 decimals.
 """
 
@@ -29,7 +29,7 @@ NIST_DRY = [
     (20, 101.325, 300, 1.000286581),
     (-40, 120, 300, 1.000427233),
 ]
-# sky-sos research sources: the raw files are gitignored local copies (skip when absent), the builder and the source
+# Research sources: the raw files are local copies (skip when absent), the builder and the source
 # listings are tracked records (skip without SOSFUSE2_SKY_SOS_ROOT, fail when it is set and they are missing).
 RAW = testing.sky_sos_optional('results/sigma_tz_20261028/raw/serdyuchenkogorshelev5digits.dat')
 NEEDS_RAW = pytest.mark.skipif(
@@ -53,7 +53,7 @@ def builder():
 
 @pytest.mark.parametrize('t, p, lam, n', NIST_DRY)
 def test_ciddor_matches_nist(t, p, lam, n):
-    assert abs(AW.ciddor_dry(lam, t, p * 1e3) - n) <= 1e-9  # measured 2026-10-31: |Δ| <= 0.4e-9
+    assert abs(AW.ciddor_dry(lam, t, p * 1e3) - n) <= 1e-9  # measured |Δ| <= 0.4e-9
 
 
 def test_standard_air_chain_and_edlen_record():
@@ -103,9 +103,13 @@ def test_asset_declarations():
     assert (
         fine['wavelength_reference'].startswith('air') and temp['wavelength_reference'] == fine['wavelength_reference']
     )
-    assert temp['frozen_source_sha256'] == SP.asset()['sha'] and temp['wavelength_nm'] == fine['wavelength_nm']
+    from sosfuse2.identity import asset_digest
+
+    # The frozen reference pins published bytes; the loader exposes computation identity.
+    assert asset_digest('spectra_fine.json', temp['frozen_source_sha256']) == SP.asset()['sha']
+    assert temp['wavelength_nm'] == fine['wavelength_nm']
     assert all(temp[f'ozone_{t}K'] == fine[f'ozone_{t}K'] for t in (213, 233, 253)) and temp['solar'] == fine['solar']
-    assert fine['generator']['air_wavelength']['script'] == 'scripts/sosfuse2/air_wavelength.py'
+    assert fine['generator']['air_wavelength']['script'] == 'sosfuse2.air_wavelength'  # Public module provenance.
 
 
 @NEEDS_RAW

@@ -6,6 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
+from sosfuse2 import identity as source_identity
+
 R = 6371.0
 Z = 80.0
 
@@ -123,11 +125,9 @@ class SunGeometry:
     @staticmethod
     def identity(scale, aerosol_height, descriptor):
         """Everything the table depends on. A file without this identity, or with another one, is rebuilt: an unkeyed
-        3-column table from before B2 once reached the 5-column solver (2026-11-04 judge run). descriptor is the
+        3-column table is incompatible with the 5-column solver. descriptor is the
         aerosol profile record (kind and parameters), so two profiles with one scale height never share a table even in
         one folder. sun_parallel.prebuild writes and checks the same string."""
-        import hashlib
-
         from sosfuse2 import components, density
 
         here = Path(__file__).parent  # this file + both builders (prebuild: sun_parallel/ray_columns/column_parallel)
@@ -150,7 +150,7 @@ class SunGeometry:
                 aerosol_height=None if height is None else float(height),
                 aerosol=descriptor,
                 no2_asset_sha256=density.no2_asset()[2],
-                sources={f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in files},
+                sources={f.name: source_identity.file_sha(f) for f in files},
             ),
             sort_keys=True,
         )

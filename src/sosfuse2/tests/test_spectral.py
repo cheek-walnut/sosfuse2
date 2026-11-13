@@ -3,8 +3,8 @@
 
   (default)  unit checks: legacy settings unchanged, band = bin integral, point = monochromatic, edge/mode errors,
              weights split invariance (§4-3), provenance vs assets/spectra.json (§4-4), `contract` keys and hashes
-  --runs     reduced NumPy solves (rig/states_v2.json clear_33, 3 wavelengths) through run_gpu_state_v3:
-               legacy     this tree == 6a5c3f5 tree (git archive), table bytes (§6-3)
+  --runs     reduced NumPy solves (clear_33, 3 wavelengths) through run_gpu_state_v3:
+               legacy     compare table bytes against the archived reference (§6-3)
                E          band with E of bin 1 doubled: that wavelength x2 exactly, the others bit-equal (§4-1)
                sigma      band with sigma of bin 1 x1.5: the other wavelengths bit-equal (§4-2)
                cache      legacy then band on one work root (geometry/attach/column caches kept) == band on a fresh root (§4-6),
@@ -24,7 +24,7 @@ from sosfuse2 import paths, testing
 from sosfuse2 import spectral as SP
 from sosfuse2 import run_gpu_state_v3 as V3
 
-ROOT = testing.sky_sos_root()  # sky-sos checkout (None stand-alone): the legacy-tree runs and the builder rerun need it
+ROOT = testing.sky_sos_root()  # The legacy runs and builder rerun need the research data root.
 CUR = paths.SRC  # 'current tree' marker for run(): the installed package
 try:
     from sosfuse2.numerical_checks import within_tol
@@ -75,7 +75,7 @@ def units():
             and len(prod['wavelengths_nm']) == 45,
         )
         check(
-            'product default ozone = A′ profile_mean (P2, user 2026-10-31), resolved per state',
+            'product default ozone = A′ profile_mean, resolved per state',
             prod['spectral']['ozone_temperature'] == 'profile_mean' and 'ozone_column' not in prod['spectral'],
         )
         fixed = settings({'ozone_temperature': '233K'}, tmp)
@@ -256,7 +256,7 @@ def units():
         and doc['sources']['solar']['wavelength_reference'].startswith('air')
         and doc['sources']['ozone']['wavelength_reference'].startswith('air'),
     )
-    # n-wavelength production checks: bake_run.check_table takes the state's settings count (sky-sos rig consumer, rig/bake)
+    # The consumer checks that the wavelength count matches the state's settings.
     if ROOT is not None:
         import importlib.util
 

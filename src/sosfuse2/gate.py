@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 import numpy as np
 from .kernel_config import deterministic
-from . import paths
+from . import paths, identity
 
 HERE = Path(__file__).resolve().parent
 GATE = HERE / 'gate'  # fixtures.json, anchors.json, baselines/{manifest.json,numpy/,<toolkey>/}
@@ -78,13 +78,12 @@ def numeric(v):
 
 
 def code_identity():
-    """Hash of everything that decides fixture numbers (gate.py and tests excluded): a staged run is blessable only by it."""
+    """Calculation identity of fixture inputs; staged runs must match before blessing."""
     from sosfuse2 import density
     from sosfuse2.run_gpu_state_v3 import package_hashes
 
-    # One manifest for both provenance versions v3/v4: the v4 package_hashes() set (fixed lists: production modules,
-    # kernel, accepted engine sources, host helpers, native kernel, data assets) minus gate.py itself, plus the gate's own
-    # fixtures/configs and the ozone profile asset under its logical key. A missing listed file is E_PACKAGE_FILE_MISSING.
+    # Production source identities exclude comments and docstrings. Fixture/config JSON excludes notes;
+    # numerical assets retain byte hashes. The gate implementation itself is excluded.
     try:
         hashes = package_hashes()
     except RuntimeError as e:
@@ -94,7 +93,7 @@ def code_identity():
     missing = [paths.rel(p) for p in extra if not p.is_file()]
     if missing:
         raise GateError('E_PACKAGE_FILE_MISSING', f'gate identity inputs absent from the package: {missing}')
-    hashes.update({paths.rel(p): file_sha(p) for p in extra})
+    hashes.update({paths.rel(p): identity.file_sha(p, kind='json') for p in extra})
     hashes[density.ASSET_KEY] = file_sha(density.asset_path())  # ozone q (ozone_profile usstd76), logical key
     return hashlib.sha256(json.dumps(sorted(hashes.items())).encode()).hexdigest()
 
@@ -113,7 +112,7 @@ def state_id(fx):
 
 def fixture_state(F, fx, solve=False):
     """② uses the product state; ① (reduced solve) the same state with F['solve_parameters'] (the product AOD .4 does not
-    converge on the reduced grid: 8/15 after 64 evaluations, IMPL_REPORT.md). A fixture's 'parameters' override the product
+    converge on the reduced grid: 8/15 after 64 evaluations). A fixture's 'parameters' override the product
     values (FX-A: albedo 0.3, so the boundary term that alone consumes main-ray endpoint columns is not zero)."""
     s = copy.deepcopy(F['state'])
     s['id'] = state_id(fx)
@@ -718,12 +717,8 @@ def commit():
 
 
 def portable(path):
-    """Record form of a reference file: '~/<rest>' under the home directory, else the bare file name (no host path in records)."""
-    p = Path(path)
-    try:
-        return '~/' + p.expanduser().relative_to(Path.home()).as_posix()
-    except (ValueError, RuntimeError):
-        return p.name  # not under home, or no home directory at all
+    """Record only the reference file name."""
+    return Path(path).name
 
 
 def load_anchors():
@@ -933,6 +928,17 @@ def persistent(out):
 
 def gf(args, F, report):
     """Product state on the full grid with bake common() arguments and one cache root: cold, then warm."""
+    M = manifest()
+    fixed = M.get('gf') or {}
+    reference = args.reference
+    if reference is not None:
+        reference = Path(reference).expanduser()
+    if reference is None or not reference.is_file():
+        raise GateError(
+            'E_GATE_BASELINE_MISSING',
+            f'G-F needs --reference to an existing fixed table; expected {portable(fixed.get("reference") or "unset")} '
+            f'radiance {(fixed.get("radiance_sha256") or "unset")[:16]}; supplied {reference}',
+        )
     # G-F reuses the sky-sos bake template: a research-side dependency, reachable only via SOSFUSE2_SKY_SOS_ROOT
     sky = paths.sky_sos_root()
     if sky is None or not (sky / 'rig/bake/bake_run.py').is_file():
@@ -951,16 +957,6 @@ def gf(args, F, report):
     (P.plan / 'settings.json').write_text('{}')
     env = fixture_env(F, 'FX-C3')
     env.update(STRATO_ATTACH_CACHE=str(P.work / 'cache/attach'), SOSFUSE2_COMPILE_CACHE=str(root / 'cache_compile'))
-    M = manifest()
-    fixed = M.get('gf') or {}
-    reference = args.reference or (Path(fixed['reference']) if fixed.get('reference') else None)
-    if reference is not None:
-        reference = Path(reference).expanduser()  # the manifest keeps '~/…' (portable())
-    if reference is None or not reference.is_file():
-        raise GateError(
-            'E_GATE_BASELINE_MISSING',
-            f'G-F needs the fixed table (--reference); tried {reference if reference is not None else "none (no --reference, manifest gf.reference unset)"}',
-        )
     with np.load(reference) as z:
         ref_array = z['radiance']
     ref = sha(ref_array)
@@ -1075,7 +1071,11 @@ def bless(F, names, args, report):
     if args.staged and any(
         r['meta'].get('code_identity') != code_identity() for r in (*runs.values(), *again.values())
     ):
-        raise GateError('E_GATE_CONFIG', f'staged runs in {base} were made by other code (code_identity)')
+        raise GateError(
+            'E_GATE_CONFIG',
+            f'staged runs in {base} have missing or mismatched code_identity; '
+            'stage again with the current identity rules',
+        )
     report['staged'] = str(args.staged) if args.staged else None
     report['determinism'] = {fx: repeat_run(runs[fx], again[fx]) for fx in names}
     report['repeat_max_rel'] = max((v['repeat_max_rel'] for v in report['determinism'].values()), default=0.0)
@@ -1087,7 +1087,7 @@ def bless(F, names, args, report):
     doc = None
     if args.measure_anchors:
         if not args.decision:
-            raise GateError('E_GATE_CONFIG', 'measuring fixed anchors needs --decision <user decision ID>')
+            raise GateError('E_GATE_CONFIG', 'measuring fixed anchors needs --decision <decision ID>')
         values = pairs(F, runs, golden)
         high = {p: n for p, st in values.items() for n, v in flat(st) if not v <= ANCHOR_STOP}
         report['anchors_measured'] = values
@@ -1099,9 +1099,9 @@ def bless(F, names, args, report):
             schema=1,
             measured_utc=utc(),
             commit=commit(),
-            decision=args.decision or 'initial (user 2026-10-21, (a) plan)',
+            decision=args.decision,
             anchors=values,
-            rule='block if S > max(3*anchor, 1e-6) (SPEC_V2 3.3); raise only with a user decision ID',
+            rule='block if S > max(3*anchor, 1e-6); raise only with a decision ID',
         )
     else:
         anchors = load_anchors()
@@ -1110,7 +1110,7 @@ def bless(F, names, args, report):
     if args.canonical:
         raise GateError(
             'E_GATE_CONFIG',
-            '--bless records runs only; fixed canonical replacement needs a separate user-reviewed update',
+            '--bless records runs only; fixed canonical replacement needs a separate reviewed update',
         )
     for fx in names:
         key, fields = toolkey(runs[fx]['meta'])
@@ -1189,8 +1189,8 @@ def plan_check(order, states, settings, reference):
     bad = []
     if not order or order[0] != want:
         bad.append(f'first state {order[:1]} != product {want}')
-    elif {k: v for k, v in states.get(want, {}).items() if k != 'runnable'} != {
-        k: v for k, v in F['state'].items() if k != 'runnable'
+    elif {k: v for k, v in identity.state_identity(states.get(want, {})).items() if k != 'runnable'} != {
+        k: v for k, v in identity.state_identity(F['state']).items() if k != 'runnable'
     }:
         bad.append('product state definition differs from gate/fixtures.json')
     if settings != {}:
@@ -1274,12 +1274,13 @@ def dispatch(args, report):
             (v['repeat_max_rel'] for rows in report['determinism'].values() for v in rows), default=0.0
         )
         ok = all(v['pass_'] for rows in report['determinism'].values() for v in rows)
-        report['fixtures'] = {
-            fx: dict(
-                toolkey=toolkey(a[fx]['meta']), outputs=outputs(a[fx]), solve=a[fx].get('solve'), meta=a[fx]['meta']
+        report['fixtures'] = {}
+        for fx in names:
+            key, fields = toolkey(a[fx]['meta'])
+            report['fixtures'][fx] = dict(
+                toolkey=key, toolkey_fields=fields,
+                outputs=outputs(a[fx]), solve=a[fx].get('solve'), meta=a[fx]['meta'],
             )
-            for fx in names
-        }
         report['max_launch_seconds'] = max(
             [r['meta']['launch']['max_seconds'] for r in a.values()]
             + [(r.get('solve') or {}).get('launch_max_seconds') or 0.0 for r in a.values()]
@@ -1384,7 +1385,7 @@ def run_main(p, args, argv):
         fixtures={},
         gates={},
         code=None,
-        code_sha256={n: file_sha(HERE / n) for n in ('kernel.cu', 'fused.py', 'ksplit.py', 'reference.py', 'gate.py')},
+        code_sha256={n: identity.file_sha(HERE / n) for n in ('kernel.cu', 'fused.py', 'ksplit.py', 'reference.py', 'gate.py')},
         env={k: v for k, v in os.environ.items() if k.startswith(('SOSFUSE2_', 'CUDA_VISIBLE'))},
     )
     try:

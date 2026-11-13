@@ -31,7 +31,7 @@ THREAD_ENV = (
 )
 # Process pools of one state's CPU preparation (column_parallel, sun_parallel, ground_parallel, geometry_parallel).
 # Unset, each pool takes every usable CPU, so W states prepared at once started W x cores processes
-# (eda 2026-10-21: 4 states x 12 workers, solar table 52 s).
+# (4 states x 12 workers, solar table 52 s).
 PREP_WORKER_ENV = (
     'SOSFUSE2_COLUMN_WORKERS',
     'SOSFUSE2_SUN_WORKERS',
@@ -48,14 +48,14 @@ def clocks():
 
 
 CORES_LEFT_FREE = 4  # for the resident GPU service, the queue, telemetry and the OS
-WORKER_RSS_GB = 3.0  # one state's process, measured 1.9-2.6 GB on the rigs of 2026-10-03 and 10-05
+WORKER_RSS_GB = 3.0  # one state's process, measured 1.9-2.6 GB during CPU preparation
 RAM_SHARE = 0.8
 
 
 def slot_workers(states, persistent):
     """States a memory-budgeted GPU slot holds (device profile slot_pss_gb, e.g. eda 5 GB): a persistent queue pays
     one service plus a worker per state, separate runners a full state process each. None if the profile sets no
-    slot budget (rig). eda 2026-10-07 p1: service PSS 2.99 GB, workers 1.46 and 1.01 GB, so 2 workers = 5.47 GB."""
+    slot budget (rig). Measured: service PSS 2.99 GB, workers 1.46 and 1.01 GB, so 2 workers = 5.47 GB."""
     from sosfuse2.device_profile import select
 
     name, _ = gpu_memory()
@@ -73,7 +73,7 @@ def slot_workers(states, persistent):
 def auto_workers(states, threads, backend='numpy', persistent=False):
     """States prepared at once when --workers is not given: as many as the cores read right now allow with
     [CORES_LEFT_FREE] kept back, never more than the states or than [RAM_SHARE] of the RAM holds. A state's CPU
-    preparation is single-threaded, so the cores are filled with states, not with threads (2026-10-05: 8 threads on one
+    preparation is single-threaded, so the cores are filled with states, not with threads (8 threads on one
     state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). The Mac and eda keep 2."""
     if backend == 'cupy':
         slot = slot_workers(states, persistent)
@@ -88,7 +88,7 @@ def auto_workers(states, threads, backend='numpy', persistent=False):
 
 VRAM_SHARE = 0.85  # of the GPU memory free at queue start; the rest for the context, LUTs and fragmentation
 # A KSPLIT state also holds its aerosol chunk buffers: the smallest option for the product grid is 5.07 GB (L4
-# 2026-10-26 repjob: 5 resident states on 22 GB left 3.83 GB, 35 of 39 failed E_KSPLIT_MEMORY while every state waited).
+# 5 resident states on 22 GB left 3.83 GB, 35 of 39 failed E_KSPLIT_MEMORY while every state waited).
 # B2 SINV_F=7 stores 28 bytes per point; retain this reservation until the 4090 pilot measures it.
 KSPLIT_STATE_VRAM_GB = 5.1
 
@@ -120,7 +120,7 @@ def auto_gpu_active(workers, backend):
     """Persistent-service states resident on the GPU at once when --gpu-active is not given: as many as [VRAM_SHARE]
     of the free GPU memory holds at the device profile's state_vram_gb (configs/devices.json: eda 4.5, rig 3.7),
     never more than the workers, plus [KSPLIT_STATE_VRAM_GB] unless SOSFUSE2_KSPLIT=0. The NumPy path keeps the old
-    default 2. (2026-10-03 rig: 3 on a 4090 ran the GPU 94 %; a 10 GB 3080 holds 1.)"""
+    default 2. (3 on an RTX 4090 ran the GPU 94 %; a 10 GB 3080 holds 1.)"""
     if backend != 'cupy':
         return max(1, min(workers, 2))
     from sosfuse2.device_profile import select
@@ -184,7 +184,7 @@ def parser():
         '--threads',
         type=int,
         default=1,
-        help='Per state; its CPU preparation is single-threaded (measured 2026-10-05) '
+        help='Per state; its CPU preparation is single-threaded (measured) '
         'except the cold column builds, which use this many processes (SOSFUSE2_COLUMN_WORKERS)',
     )
     p.add_argument(
@@ -450,8 +450,7 @@ def run_queue(a):
                 except ProcessLookupError:
                     pass
                 except PermissionError:
-                    # macOS answers EPERM for a group whose members are all zombies (seen 2026-10-05/07 on a
-                    # timed-out test run): nothing left to signal; the leader is reaped below.
+                    # macOS answers EPERM for a group whose members are all zombies after a timeout: nothing left to signal; the leader is reaped below.
                     pass
                 active[pid][0].poll()
             if not live:

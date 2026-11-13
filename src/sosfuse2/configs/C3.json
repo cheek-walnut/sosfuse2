@@ -3,15 +3,14 @@
  "block_size": 256,
  "kernel_flags": [],
  "single_launch": false,
- "definition": "Default transport; physical state, FW and role select the existing production paths.",
- "source": "Production C3 flags; inactive experiments removed by kernel cleanup A+B.",
- "automatic_flags": [
-  "STRATO from enabled nonzero tau",
-  "TROPO_MIE and AEROSOL_2L from state"
- ],
- "launch_rule": "Cell-subset launches re-zero FL_RAYSPLIT ray_sync and CELL_SPLIT2 split_count before each chunk. Device-profile launch budgets and SOSFUSE2_LAUNCH_CELLS determine chunking.",
- "track": "precision (tol comparison to lut16384); gate l2_rel <= 1e-5 and max_rel over |x| >= 1e-3 max <= 1e-4",
- "full_state_gate": "PASS rig 4090 2026-10-03 dual_st0p01_aod0p15 vs v4_lut16384 table 839fbcfd: l2_rel 1.13e-08, max_rel_m3 4.72e-07, evals 6=6, freeze history identical; see docs/C3_MANIFEST.md",
- "sh_combine": "SH_COMBINE added 2026-10-21 (user decision) with production L16 (run_gpu_state_v3.SH_L): bench b7ea197, defaults benchmark of 2026-10-21 (research record). Requires an enabled stratosphere (fused.py E_SH_COMBINE_STRATO), so C3_nostrato does not carry it. track/full_state_gate above are the L32 records (before SH_COMBINE); not re-run for L16+SH_COMBINE.",
- "gate_v2": "2026-10-21 (user decision, gate redesign spec v2 of 2026-10-21, research record): blocking gate = sosfuse2.gate, fixtures FX-C3 (exact, stage1 0) and FX-S2 (FMAD+FASTMATH, async 1) on the product state with L16+SH_COMBINE+PROFILE+STRATO: G-R bytes per toolkey, G-P vs the NumPy golden (rtol 1e-3, atol 0), G-T ratchet (gate/anchors.json), G-A, full-grid G-F at development GPU host deploys; records in sosfuse2/gate/baselines/manifest.json. track/full_state_gate above stay the L32 history (L7)."
+ "notes": {
+  "definition": "Default transport; physical state, FW and role select the production paths.",
+  "automatic_flags": [
+   "STRATO from enabled nonzero tau",
+   "TROPO_MIE and AEROSOL_2L from state"
+  ],
+  "launch_rule": "Cell-subset launches reset synchronization counters before each chunk. Device launch budgets and SOSFUSE2_LAUNCH_CELLS determine chunking.",
+  "sh_combine": "SH_COMBINE requires an enabled stratosphere. The SH order is run_gpu_state_v3.SH_L.",
+  "gate_v2": "Fixtures FX-C3 and FX-S2 cover exact and approximate transport. G-P uses rtol 1e-3; G-T uses gate/anchors.json."
+ }
 }

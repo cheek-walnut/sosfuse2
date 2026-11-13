@@ -39,15 +39,21 @@ SRC = PKG.parent  # directory that makes `import sosfuse2` work (src/ in-tree, s
 
 
 def work_root():
-    """Writable root for caches, builds and run outputs. Created on first use."""
+    """Writable root for caches, builds and run outputs. Created on first use. A root that cannot be located or
+    created is E_WORK_ROOT with the path and the underlying error."""
     env = os.environ.get('SOSFUSE2_WORK_ROOT', '').strip()
-    if env:
-        root = Path(env).expanduser()
-    else:
-        xdg = os.environ.get('XDG_CACHE_HOME', '').strip()
-        root = (Path(xdg) if xdg else Path.home() / '.cache') / 'sosfuse2'
-    root.mkdir(parents=True, exist_ok=True)
-    return root.resolve()
+    xdg = os.environ.get('XDG_CACHE_HOME', '').strip()
+    where = env or (xdg + '/sosfuse2' if xdg else '~/.cache/sosfuse2')
+    try:
+        if env:
+            root = Path(env).expanduser()
+        else:
+            root = (Path(xdg) if xdg else Path.home() / '.cache') / 'sosfuse2'
+        where = str(root)
+        root.mkdir(parents=True, exist_ok=True)
+        return root.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise RuntimeError(f'E_WORK_ROOT: {where}: {type(exc).__name__}: {exc}') from exc
 
 
 def sky_sos_root():
@@ -78,10 +84,12 @@ def module_command(name, *args):
     return [sys.executable, '-B', '-m', 'sosfuse2.' + name, *map(str, args)]
 
 
-# Production modules whose bytes enter the v4 provenance format (run_gpu_state_v3.package_hashes) and the gate bless identity
+# Production modules that enter the provenance format (identity.package_hashes) and the gate bless identity
 # (gate.code_identity): a fixed list, not a glob, so a file that goes missing is an error instead of a silently different
-# signature. test_*.py and testing.py (test support) are excluded; numerical_checks stays (validate_strato
-# imports it). test_ozone_temperature.test_03c keeps this list equal to the tree: adding a module means adding it here.
+# signature. Each module enters by its identity text (identity.python_text: the source without comments and
+# docstrings), not by its bytes. test_*.py and testing.py (test support) are excluded; numerical_checks stays
+# (validate_strato imports it). test_ozone_temperature.test_03c keeps this list equal to the tree: adding a module
+# means adding it here.
 PRODUCTION_MODULES = (
     '__init__',
     'air_wavelength',
@@ -109,6 +117,7 @@ PRODUCTION_MODULES = (
     'ground_sh',
     'host_cache',
     'host_limits',
+    'identity',
     'iprt',
     'kernel_config',
     'ksplit',

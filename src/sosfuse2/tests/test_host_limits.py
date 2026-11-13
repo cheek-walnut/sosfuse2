@@ -1,7 +1,7 @@
 """rss_cap_gb eda detection (host_limits.py). CPU only, stdlib + pytest.
 
-HOME points at a temporary folder; sys.platform and physical_ram_gb are faked so the Linux rig rule is reached
-on the Mac. eda is recognised by ~/tools/gpu_guard (current, 2026-10-21) or the older ~/gpu_guard.
+HOME points at a temporary folder; sys.platform and physical_ram_gb are faked so the Linux host rule is reached.
+The protected profile is recognised by either supported marker.
 
 Run: PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider src/sosfuse2/tests/test_host_limits.py
 """
@@ -41,7 +41,7 @@ def test_no_marker_uses_ram_rule(linux_rig):
 
 
 def test_mid_size_host_gets_ram_share(linux_rig, monkeypatch):
-    """GCP L4 g2-standard-8 (32 GB): ncu --set full replay reached 6.4-6.8 GB (measured during development)."""
+    """A mid-size host uses a share of physical memory."""
     monkeypatch.setattr(hl, 'physical_ram_gb', lambda: 32.0)
     assert hl.rss_cap_gb() == 24.0
     assert hl.default_rss_gb(1) == 24.0

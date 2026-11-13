@@ -1,11 +1,11 @@
-"""Task B (1) Simpson optical-depth prefix (2026-10-22): reference.py, Mac, < 1 min.
+"""Simpson optical-depth prefix in reference.py.
 
 Run: python -m pytest -q -s src/sosfuse2/tests/test_simpson_prefix.py   (-s prints the E4 closure numbers)
 
 The prefix under test is reference.SimpsonPrefix driven exactly as transport() drives it (begin / node(sample()) / finish) with the
 production sample() and profile_at(); nothing is replaced by a synthetic beta. Truth is an independent FP64 integral of the same
 profile model (test-local, every panel split at the profile knots it crosses, Gauss-Legendre 32 per piece).
-  - node match: profile_at at the node heights == sample() prof (and the pre-task-B inline expressions, copied below) bit for bit,
+  - node match: profile_at at the node heights == sample() prof (and the historical inline expressions, copied below) bit for bit,
     4 components, density table / two-layer aerosol / stratosphere on and off; extinction * ds == the old dt/ds; the DS height
     helper reproduces sample() h bit for bit.
   - constant and exponential beta, each component alone (air, tropospheric aerosol incl. AEROSOL_2L, ozone, stratosphere):
@@ -35,7 +35,7 @@ from sosfuse2 import testing  # noqa: E402
 
 FROZEN = testing.sky_sos_optional(
     'results/taskB_simpson_20261022/e1_frozen_small.npz'
-)  # sky-sos record, None without it
+)  # Optional research record.
 Z05 = np.arange(161) * 0.5
 
 
@@ -289,7 +289,7 @@ def production(g, c):
 
 
 def old_gl(g, c):
-    """Pre-task-B prefix (reference.py before 2026-10-22, transport :211-219): mid = (tau - tc) + dt/2, tau += dt (Kahan)."""
+    """Historical prefix: mid = (tau - tc) + dt/2, tau += dt (Kahan)."""
     n, nseg, nq, W = len(g['d']), g['edges'].shape[1] - 1, len(c['u']), c['W']
     st = np.sqrt(np.maximum(0.0, 1 - g['d'][:, 2] ** 2)).astype('f4')
     tau = np.zeros((n, W), 'f4')
@@ -313,7 +313,7 @@ def old_gl(g, c):
 
 
 def old_inline_profile(h, c):
-    """sample() profile block before task B (reference.py :106-115 at f947191), verbatim."""
+    """Historical sample() profile block, copied verbatim."""
     prof = np.stack([np.exp(-h / F(8)), np.exp(-h / c['height']), np.maximum(F(0), F(1) - abs(h - F(25)) / F(15))], -1)
     if 'density_optics' in c:
         from sosfuse2.density import interpolate32
@@ -494,7 +494,7 @@ def slant(g):
 
 def test_e4_closure():
     """E4: stop if the Simpson closure error is >= 1e-3 and more than twice the old rule's, on the
-    slant class and on all rays. The closure also carries the GL source quadrature error (unchanged by task B), so both rules can
+    slant class and on all rays. The closure also carries the GL source quadrature error, so both rules can
     exceed 1e-3 on under-resolved slant segments; the rule compares the two prefixes on the same nodes and weights."""
     rows = []
     g = geometry(

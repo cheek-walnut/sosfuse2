@@ -2,7 +2,7 @@
 """Batch: stored fused sources -> table.npz + meta.json + previews + zstd pack.
 
 Scans <work-root>/tmp/<id>/source.npz; processes states whose
-<work-root>/out/<id>/table.npz is missing and that no live run_gpu_state_v3
+<work-root>/out/<id>/table.npz or <work-root>/pack/<id>.tar.zst is missing and that no live run_gpu_state_v3
 worker (script or `-m sosfuse2.run_gpu_state_v3`) currently owns. Uses
 table_fast.make_table (same rays, same kernel, same post-processing as
 run_gpu_state_v3) and sosfuse2.host.pack_state.pack_state.
@@ -14,7 +14,8 @@ run_gpu_state_v3.signed_contract: run_gpu_state_v3 refuses such an out_name
 import argparse, fcntl, hashlib, json, os, re, sys, time
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 from sosfuse2 import paths
 
 THREAD_KEYS = (
@@ -50,6 +51,7 @@ def live_workers():
 def signature_of(state, backend, reduced, wl, hs, nr, nc, settings=None):
     """Signature of a batch table: this module's own `contract` dict hashed with the package code hashes."""
     from sosfuse2.run_gpu_state_v3 import package_hashes
+    from sosfuse2.run_gpu_state_v3 import ANDERSON_TOLERANCE
     from sosfuse2.components import physics, optics_state, canonical_state
 
     hashes = package_hashes()
@@ -62,7 +64,7 @@ def signature_of(state, backend, reduced, wl, hs, nr, nc, settings=None):
         wavelengths_nm=wl.tolist(),
         solar_elevation_deg=hs.tolist(),
         view_shape=[nr, nc],
-        tolerance=0.005,
+        tolerance=ANDERSON_TOLERANCE,
         code_hashes=hashes,
     )
     if settings is not None:
@@ -86,7 +88,7 @@ def candidates(roots, ids):
 def process(root, ident, source, state, a, log):
     from sosfuse2 import table_fast as tf
     from sosfuse2.host.pack_state import pack_state
-    from sosfuse2.run_gpu_state_v3 import CONTRACT_VERSION
+    from sosfuse2.run_gpu_state_v3 import CONTRACT_VERSION, ANDERSON_TOLERANCE
     from sosfuse2.components import physics, optics_state, check_same_state, production_only
 
     production_only()
@@ -130,7 +132,7 @@ def process(root, ident, source, state, a, log):
         signature=signature,
         id=ident,
         parameters=state['parameters'],
-        stratosphere=state['stratosphere'],
+        stratosphere=state.get('stratosphere'),
         mode='reduced-validation' if a.reduced else 'full',
         shape=list(table.shape),
         dtype='float32',
@@ -148,7 +150,7 @@ def process(root, ident, source, state, a, log):
         unsupported_parameters=['stratosphere_tau550'],
         folding='mirror azimuth around solar plane; cell centers 0.5..179.5 in full mode',
         units=tf.UNITS,
-        convergence_scope='source and 35-box residual <=0.5% (stored source; solve stats in the worker log)',
+        convergence_scope=f'source and 35-box residual <={100 * ANDERSON_TOLERANCE:g}% (stored source; solve stats in the worker log)',
         table_method=dict(runner='tables_from_sources', table='table_fast.make_table', group=a.group, batch=a.batch),
         code_hashes=hashes,
     )
@@ -164,7 +166,7 @@ def process(root, ident, source, state, a, log):
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--work-roots', type=Path, nargs='+', required=True)
-    p.add_argument('--states', type=Path, default=paths.ASSETS / 'states_v1.json')
+    p.add_argument('--states', type=Path, default=paths.ASSETS / 'states_v2.json')
     p.add_argument('--ids', nargs='*')
     p.add_argument('--gpu', default=None, help='CUDA_VISIBLE_DEVICES for this process')
     p.add_argument('--backend', choices=['cupy', 'numpy'], default='cupy')
@@ -182,7 +184,9 @@ def main():
         os.environ[key] = str(a.threads)
     if a.gpu is not None:
         os.environ['CUDA_VISIBLE_DEVICES'] = a.gpu
-    states = {s['id']: s for s in json.loads(a.states.read_text())['states'] if s.get('runnable')}
+    from .run_gpu_state_v3 import read_states
+
+    states = {s['id']: s for s in read_states(a.states, True) if s.get('runnable')}
     roots = [r.resolve() for r in a.work_roots]
     live = live_workers() if Path('/proc').is_dir() else set()
     log = lambda m: print(m, flush=True)

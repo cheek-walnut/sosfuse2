@@ -89,7 +89,7 @@ def test_column_producers_invalidate_caches_but_coefficients_only_sign_products(
     original = keys()
     for name, invalidates in (('solver_columns.py', True), ('solver_optics.py', False)):
         target = paths.PKG / name
-        with patch.object(Path, 'read_bytes', lambda p: actual_read(p) + (b'\n# mutation\n' if p == target else b'')):
+        with patch.object(Path, 'read_bytes', lambda p: actual_read(p) + (b'\nIDENTITY_PROBE = 1\n' if p == target else b'')):
             changed = keys()
         for cache in ('geometry', 'legacy_geometry', 'host', 'sun', 'column'):
             assert (changed[cache] != original[cache]) is invalidates, (name, cache)

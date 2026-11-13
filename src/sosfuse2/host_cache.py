@@ -18,7 +18,7 @@ import zipfile
 from pathlib import Path
 import numpy as np
 
-from . import paths
+from . import identity as source_identity, paths
 
 VERSION = 3
 PKG = paths.PKG
@@ -88,7 +88,7 @@ def context(s, optics):
     from .density import DEFAULTS, column_identity
 
     common, signature = identity(s)
-    # Include the complete common identity, not only its shortened directory name. profile (②b): effective table bytes,
+    # Include the complete common identity, not only its shortened directory name. Profile: effective table bytes,
     # grid N/step, mask, scale, normalization and origin; options/asset/mask alone do not separate injected tables.
     # Additional sources cover sun_parallel rows, ground_parallel cells, density corrections, column workers and methods,
     # ray_columns' GL walk, density profiles and the solver_sky incoming quadrature. Common-identity sources are in common.
@@ -101,7 +101,7 @@ def context(s, optics):
         profile=column_identity(optics),
         selected_columns=[0, 2, 3, 4],
         sources={
-            'sosfuse2/' + name: hashlib.sha256((PKG / name).read_bytes()).hexdigest()
+            'sosfuse2/' + name: source_identity.file_sha(PKG / name)
             for name in (
                 'host_cache.py',
                 'density.py',
@@ -216,8 +216,7 @@ def sun_geometry(old, scale, folder, height, shared=None):
     # The SunGeometry file carries an identity (code, components, aerosol profile, scale; solver_columns.SunGeometry.identity) and a
     # mismatch rebuilds it, so the folders below are for reuse, not safety: they keep states from replacing one file in turn
     # when a caller reuses a prepare folder for a different state; scale 1 keeps its old folder.
-    # shared = the job's geometry cache: one table per (table source, aerosol profile, scale, height) for every state
-    # (2026-10-21 development GPU host: four reduced states each built the same scale-4 table in their own prepare folders, 52 s).
+    # shared = the job's geometry cache: one table per (table source, aerosol profile, scale, height) for every state.
     # Unwritable shared root: warn and keep the per-state folder.
     from .sun_parallel import prebuild
 
@@ -235,14 +234,16 @@ def sun_geometry(old, scale, folder, height, shared=None):
                 str(here.with_name('column_parallel.py')),
                 str(here.with_name('tropo_profile.py')),
                 str(here.with_name('ray_columns.py')),
-                # B2: solver_columns.profiles reads density.no2_profile, which interpolates this asset.
+                # solver_columns.profiles reads density.no2_profile, which interpolates this asset.
                 str(here.with_name('density.py')),
                 str(here.parent / 'assets/no2_afglus_profile.json'),
             }
         )
         source = hashlib.sha256(json.dumps(dict(R=float(old.R), Z=float(old.Z))).encode())
         for name in files:
-            source.update(Path(name).read_bytes())
+            p = Path(name)
+            digest = source_identity.asset_sha(p) if p.name in source_identity.ASSET_NOTES else source_identity.file_sha(p)
+            source.update(digest.encode())
         folder = Path(shared) / 'host_sun' / source.hexdigest()[:20]
         # tropo_profile.AER_FOLDER(cache) = cache/aerosol_profile/<tag>: the table depends on that profile too.
         if local.parent.name == 'aerosol_profile':
@@ -362,7 +363,7 @@ def aerosol_identity(s):
         params={k: v for k, v in state.get('parameters', {}).items() if k not in ATTACH_OPTICS_PARAMS},
         blocks={k: state.get(k) for k in LEGACY_BLOCKS},
         sources={
-            'sosfuse2/' + name: hashlib.sha256((PKG / name).read_bytes()).hexdigest()
+            'sosfuse2/' + name: source_identity.file_sha(PKG / name)
             for name in ('ground_parallel.py', 'tropo_profile.py')
         },
     )

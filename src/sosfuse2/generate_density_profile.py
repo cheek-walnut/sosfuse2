@@ -6,14 +6,14 @@ pinned SHA-256 digests. The engine calls density.asset_path(), which generates t
 asset into the work root on first use and checks density.ASSET_SHA256. Run as `python -m sosfuse2.generate_density_profile
 [out.json]` to write the text explicitly (default: the work-root asset location).
 
-Platform-independent arithmetic (2026-11-03, S2 regression): the float64/numpy version of this generator produced
-different bytes on arm64 (Mac) and x86_64 (development GPU host) — 6 values differed by <= 1.9e-15 relative, the last ulp of exp/log/pow
+Platform-independent arithmetic: the float64/numpy version of this generator produced
+different bytes on arm64 and x86_64 — 6 values differed by <= 1.9e-15 relative, the last ulp of exp/log/pow
 and of SIMD summation order — so a pinned sha256 could only match the platform that made the pin. Every transcendental
 function, sum and interpolation below runs in `decimal` (libmpdec: exp/ln correctly rounded, power "almost always", and in
 any case the same C algorithm in every CPython build, so the result does not depend on libm or SIMD width) at 40 digits and
 is rounded to float64 once, at the end; json float repr is shortest-round-trip. Measured identical on arm64/CPython 3.14 and
-x86_64/CPython 3.12 (2026-11-03); other interpreters (PyPy's _pydecimal) are not covered by that measurement.
-The expressions are the 2026-10 asset's; measured against it the
+x86_64/CPython 3.12; other interpreters (PyPy's _pydecimal) are not covered by that measurement.
+The expressions match the original asset; measured against it the
 values move by at most 4.7e-15 relative (air ratio, the float64 version accumulated several ulp over the layer products)
 and 1.2e-15 (ozone), far below the rtol 1e-6 of prepared quantities."""
 
