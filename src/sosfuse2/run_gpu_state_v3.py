@@ -253,6 +253,87 @@ def kernel_settings():
     return settings
 
 
+# Height grid rules (settings key h_refine). The 20 base heights of solver_columns.grids have 14 intervals at or below
+# 13 km and 5 above. 'b<m>a<k>' splits every interval at or below 13 km into m parts and every interval above into k parts;
+# 'b<m>a<k1>.<k2>.<k3>.<k4>.<k5>' gives the five intervals above 13 km their own counts; m and k are 1-12. The names of
+# 1.3.4 and earlier are aliases and give the same heights.
+H_REFINE_ALIASES = {'none': 'b1a1', 'mid': 'b2a2', 'below13mid_above13thirds': 'b2a3'}
+_H_RULE = re.compile(r'b([1-9]|1[0-2])a([1-9]|1[0-2])((?:\.(?:[1-9]|1[0-2])){4})?')
+CHI_STEPS_DEG = (0.5, 0.25, 0.125)
+
+
+def height_rule(rule):
+    """(parts below 13 km, (parts of the five intervals above)) for an h_refine value, or None when it is not a rule."""
+    match = _H_RULE.fullmatch(H_REFINE_ALIASES.get(rule, rule)) if isinstance(rule, str) else None
+    if match is None:
+        return None
+    above = (int(match.group(2)),) * 5
+    if match.group(3):
+        above = (above[0], *(int(x) for x in match.group(3)[1:].split('.')))
+    return int(match.group(1)), above
+
+
+def refined_heights(h, rule):
+    """Base heights h refined by an h_refine rule, sorted. Two parts add the midpoint (u + v) / 2, n parts add
+    u + (v - u) * (j / n), so the aliases reproduce the 1.3.4 grids; 'none' returns h itself."""
+    import numpy as np
+
+    below, above = height_rule(rule)
+    if below == 1 and set(above) == {1}:
+        return h
+    pairs = list(zip(h[:-1], h[1:]))
+    low = [(u, v) for u, v in pairs if v <= 13 + 1e-9]
+    high = [(u, v) for u, v in pairs if u >= 13 - 1e-9]
+    if len(low) + len(high) != len(pairs) or len(high) != len(above):
+        raise ValueError('E_SETTINGS_GRID: height rule %r does not fit the base heights' % rule)
+
+    def inner(u, v, n):
+        return [(u + v) / 2] if n == 2 else [u + (v - u) * (j / n) for j in range(1, n)]
+
+    return np.sort(
+        np.r_[
+            h,
+            [x for u, v in low for x in inner(u, v, below)],
+            [x for (u, v), n in zip(high, above) for x in inner(u, v, n)],
+        ]
+    )
+
+
+def refined_chi(ch, step, window=None):
+    """Solar zenith nodes in radians: the base nodes outside 85-110 deg, `step` deg inside (0.5 = the base nodes), and the
+    midpoint of every pair of neighbouring nodes inside `window` = [lo, hi] deg. Built in degrees, converted once.
+    step None (the reduced grid) or 0.5 without a window returns ch itself."""
+    import numpy as np
+
+    if step in (None, 0.5) and window is None:
+        return ch
+    degrees = np.round(np.rad2deg(ch), 12)
+    if step not in (None, 0.5):
+        degrees = np.unique(np.r_[degrees[(degrees < 85) | (degrees > 110)], np.arange(85, 110 + step / 2, step)])
+    if window is not None:
+        lo, hi = window
+        middle = [(u + v) / 2 for u, v in zip(degrees[:-1], degrees[1:]) if u >= lo - 1e-9 and v <= hi + 1e-9]
+        degrees = np.unique(np.r_[degrees, middle])
+    return np.deg2rad(degrees)
+
+
+def _chi_window(value, step, base_chi):
+    """Checked chi_refine_deg as [lo, hi] floats: two numbers within 1e-9 deg of two different nodes of the step grid in
+    85-110 deg, lo below hi; each is replaced by its node."""
+    import numpy as np
+
+    if isinstance(value, list) and len(value) == 2 and all(type(x) in (int, float) for x in value):
+        nodes = np.round(np.rad2deg(refined_chi(base_chi, step)), 12)
+        nodes = nodes[(nodes >= 85) & (nodes <= 110)]
+        with contextlib.suppress(OverflowError):  # a JSON integer too large for a float is refused like any other value
+            near = [nodes[np.argmin(np.abs(nodes - float(x)))] for x in value]
+            if all(abs(n - float(x)) < 1e-9 for n, x in zip(near, value)) and near[0] < near[1]:
+                return [float(near[0]), float(near[1])]
+    raise ValueError(
+        'E_SETTINGS_GRID: chi_refine_deg must be [lo, hi] with 85 <= lo < hi <= 110 on the chi_step_deg nodes'
+    )
+
+
 def settings_for(a):
     import numpy as np
 
@@ -278,7 +359,8 @@ def settings_for(a):
 
     # Spectral keys leave raw before the key check; legacy adds nothing, so explicit-legacy settings bytes are unchanged.
     spectral_raw = {k: raw.pop(k) for k in spectral.KEYS if isinstance(raw, dict) and k in raw}
-    if not isinstance(raw, dict) or set(raw) - set(cfg):
+    # chi_refine_deg has no default entry: absent (or null) means no refinement, so settings without it stay as they were.
+    if not isinstance(raw, dict) or set(raw) - set(cfg) - {'chi_refine_deg'}:
         raise ValueError('E_SETTINGS_KEYS: unknown settings')
     # Product grid default band BM45; the reduced 550 nm smoke grid stays legacy unless a mode is named.
     if not a.reduced:
@@ -300,11 +382,44 @@ def settings_for(a):
         raise ValueError('E_SETTINGS_WAVELENGTHS: positive ordered wavelengths required')
     if cfg['L'] not in (16, 24, 32) or cfg['interpolation'] != 'log':
         raise ValueError('E_SETTINGS_FIXED: L in {16,24,32} and log interpolation required')
-    allowed = [(4, 'none')] if a.reduced else list(pairs.items())
-    if (cfg['nr'], cfg['h_refine']) not in allowed:
-        raise ValueError('E_SETTINGS_GRID: received=%r; allowed=%r' % ((cfg['nr'], cfg['h_refine']), allowed))
-    if cfg['chi_step_deg'] not in ((None,) if a.reduced else (0.5, 0.25)):
-        raise ValueError('E_SETTINGS_GRID: chi_step_deg must be 0.5 or 0.25')
+    if cfg.get('chi_refine_deg', 0) is None:
+        del cfg['chi_refine_deg']
+    if a.reduced:
+        # The reduced smoke grid is fixed: 4 heights, no refinement, its own 10 chi nodes.
+        fixed = (cfg['nr'], cfg['h_refine'], cfg['nchi'], cfg['chi_step_deg']) == (4, 'none', 10, None)
+        if not fixed or 'chi_refine_deg' in cfg:
+            raise ValueError(
+                'E_SETTINGS_GRID: received=%r; the reduced grid is nr 4, h_refine none, nchi 10, no chi_step_deg or '
+                'chi_refine_deg' % ((cfg['nr'], cfg['h_refine']),)
+            )
+    else:
+        from sosfuse2.solver_columns import grids
+
+        base_h, base_chi = grids(1)
+        if height_rule(cfg['h_refine']) is None:
+            raise ValueError(
+                'E_SETTINGS_GRID: received=%r; h_refine must be none, mid, below13mid_above13thirds or '
+                'b<m>a<k>[.<k2>.<k3>.<k4>.<k5>] with m, k in 1-12 (nr 20, 39, 44 alone name the first three)'
+                % ((cfg['nr'], cfg['h_refine']),)
+            )
+        want = len(refined_heights(base_h, cfg['h_refine']))
+        if 'h_refine' in raw and 'nr' not in raw:
+            cfg['nr'] = want
+        if cfg['nr'] != want:
+            raise ValueError(
+                'E_SETTINGS_GRID: received=%r; h_refine gives nr %d' % ((cfg['nr'], cfg['h_refine']), want)
+            )
+        step = cfg['chi_step_deg']
+        if type(step) not in (int, float) or step not in CHI_STEPS_DEG:
+            raise ValueError('E_SETTINGS_GRID: chi_step_deg must be 0.5, 0.25 or 0.125')
+        if 'chi_refine_deg' in cfg:
+            cfg['chi_refine_deg'] = _chi_window(cfg['chi_refine_deg'], step, base_chi)
+        want = len(refined_chi(base_chi, step, cfg.get('chi_refine_deg')))
+        if 'nchi' in raw and cfg['nchi'] != want:
+            raise ValueError(
+                'E_SETTINGS_GRID: received nchi %d; chi_step_deg and chi_refine_deg give %d' % (cfg['nchi'], want)
+            )
+        cfg['nchi'] = want
     if not 0 <= cfg['observer_km'] <= 80:
         raise ValueError('E_SETTINGS_OBSERVER')
     if (
@@ -349,17 +464,7 @@ def grid_metadata(cfg, h=None):
     if h is None:
         from sosfuse2.solver_columns import grids
 
-        h = grids(1)[0] if cfg['nr'] != 4 else np.array([0.0, 0.1, 8.0, 80.0])
-        if cfg['h_refine'] == 'mid':
-            h = np.sort(np.r_[h, (h[:-1] + h[1:]) / 2])
-        elif cfg['h_refine'] == 'below13mid_above13thirds':
-            h = np.sort(
-                np.r_[
-                    h,
-                    [(u + v) / 2 for u, v in zip(h[:-1], h[1:]) if v <= 13 + 1e-9],
-                    [u + (v - u) * f for u, v in zip(h[:-1], h[1:]) if (u >= 13 - 1e-9) for f in (1 / 3, 2 / 3)],
-                ]
-            )
+        h = refined_heights(grids(1)[0], cfg['h_refine']) if cfg['nr'] != 4 else np.array([0.0, 0.1, 8.0, 80.0])
     return dict(h_refine=cfg['h_refine'], h_sha256=hashlib.sha256(np.ascontiguousarray(h).tobytes()).hexdigest())
 
 
@@ -376,7 +481,6 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
         from .components import check_current
 
         check_current(cfg['spectral'].get('physics'), what='solver spectral block')
-    import numpy as np
     from sosfuse2 import geometry as gm
     from sosfuse2.fused import load_engine
 
@@ -392,21 +496,8 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
     def grid(mode, h, ch, nmu, nphi, path_n):
         # The settings own the grid: full mode refines the accepted h/chi, every mode takes the quadrature counts from cfg.
         if mode == 'full':
-            if cfg['h_refine'] == 'mid':
-                h = np.sort(np.r_[h, (h[:-1] + h[1:]) / 2])
-            elif cfg['h_refine'] == 'below13mid_above13thirds':
-                h = np.sort(
-                    np.r_[
-                        h,
-                        [(u + v) / 2 for u, v in zip(h[:-1], h[1:]) if v <= 13 + 1e-9],
-                        [u + (v - u) * f for u, v in zip(h[:-1], h[1:]) if (u >= 13 - 1e-9) for f in (1 / 3, 2 / 3)],
-                    ]
-                )
-            if cfg['chi_step_deg'] == 0.25:
-                degrees = np.round(np.rad2deg(ch), 12)
-                ch = np.deg2rad(
-                    np.unique(np.r_[degrees[(degrees < 85) | (degrees > 110)], np.arange(85, 110 + 0.125, 0.25)])
-                )
+            h = refined_heights(h, cfg['h_refine'])
+            ch = refined_chi(ch, cfg['chi_step_deg'], cfg.get('chi_refine_deg'))
         if len(h) != cfg['nr'] or len(ch) != cfg['nchi']:
             raise ValueError('E_SETTINGS_GRID_COUNT: actual grid disagrees with nr/nchi')
         return h, ch, cfg['nmu'], cfg['nphi'], cfg['path_n']

@@ -75,7 +75,9 @@ def test_reject_incompatible_pairs(tmp_path):
             with pytest.raises(ValueError, match='E_SETTINGS_GRID:') as caught:
                 settings(tmp_path, {'nr': nr, 'h_refine': refine})
             assert 'received=' + repr((nr, refine)) in str(caught.value)
-            assert "allowed=[(20, 'none'), (39, 'mid'), (44, 'below13mid_above13thirds')]" in str(caught.value)
+            # an alias of another node count names the count it gives; anything else names the accepted forms
+            assert ('h_refine gives nr' in str(caught.value)) == (refine in ('none', 'mid', 'below13mid_above13thirds'))
+            assert 'h_refine gives nr' in str(caught.value) or 'h_refine must be none, mid' in str(caught.value)
     for raw, reduced in (({'nr': 30}, False), ({'nr': 44}, True), ({'h_refine': 'mid'}, True)):
         with pytest.raises(ValueError, match='E_SETTINGS_GRID:'):
             settings(tmp_path, raw, reduced)
