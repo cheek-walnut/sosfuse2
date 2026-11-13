@@ -90,6 +90,38 @@ def cuda_device_name(xp):
     return name.decode() if isinstance(name, bytes) else str(name)
 
 
+def pool_limit_bytes(free):
+    """Cap for the CuPy default memory pool, in bytes: the free device memory minus 1 GiB, or SOSFUSE2_POOL_LIMIT_GIB
+    (GiB, a positive number) when that is smaller. Up to 1.3.4 the cap was min(20 GiB, free - 1 GiB) at every site, which
+    refused a state that needed more than 20 GiB on any card (E_PERSISTENT_VRAM_ADMISSION, a 24 GB state on a 48 GB card)."""
+    room = int(free) - 1024**3
+    value = os.environ.get('SOSFUSE2_POOL_LIMIT_GIB', '').strip()
+    if not value:
+        return room
+    gib = _number('SOSFUSE2_POOL_LIMIT_GIB', value, allow_none=False)
+    if gib * 1024**3 >= room:  # float compare first: a huge value would overflow int()
+        return room
+    limit = int(gib * 1024**3)
+    if limit < 1:  # set_limit(size=0) removes the limit in CuPy, the opposite of what was asked
+        raise ValueError(f'E_DEVICE_PROFILE: invalid SOSFUSE2_POOL_LIMIT_GIB={value!r}')
+    return limit
+
+
+def reserved_field_bytes(field_bytes):
+    """Bytes the persistent service reserves for a state's source fields next to its payload arrays when it admits the
+    state (pipeline_execution.handle): SOSFUSE2_FIELD_RESERVE fields (a positive number), default 30 (the 1.3.x value,
+    computed in integers as before). A smaller value admits larger states or more states at once; the admission is a
+    reservation, so too small a value turns a wait into an out-of-memory error during the solve."""
+    value = os.environ.get('SOSFUSE2_FIELD_RESERVE', '').strip()
+    if not value:
+        return 30 * int(field_bytes)
+    k = _number('SOSFUSE2_FIELD_RESERVE', value, allow_none=False)
+    out = k * int(field_bytes)
+    if k <= 0 or not math.isfinite(out):
+        raise ValueError(f'E_DEVICE_PROFILE: invalid SOSFUSE2_FIELD_RESERVE={value!r}')
+    return int(out)
+
+
 def smi_device_name():
     """Visible GPU name from nvidia-smi without initializing CUDA (CPU-side workers); None if unavailable."""
     import subprocess

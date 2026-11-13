@@ -1025,7 +1025,9 @@ def run(a):
                 free, _ = xp.cuda.runtime.memGetInfo()
                 if free < 4 * 1024**3:
                     raise RuntimeError('E_VRAM_FREE: need at least 4 GiB free')
-                xp.get_default_memory_pool().set_limit(size=min(20 * 1024**3, int(free) - 1024**3))
+                from sosfuse2.device_profile import pool_limit_bytes
+
+                xp.get_default_memory_pool().set_limit(size=pool_limit_bytes(free))
             if geometry is None:
                 leased = register_geometry(s, scope, a.geometry_cache, a.geometry_layers)
                 with (a.geometry_cache / (leased.stats['signature'] + '.lock')).open('a') as lock:
@@ -1098,7 +1100,9 @@ def run(a):
                     free, _ = xp.cuda.runtime.memGetInfo()
                     if free < 4 * 1024**3:
                         raise RuntimeError('E_VRAM_FREE: need at least 4 GiB free')
-                    xp.get_default_memory_pool().set_limit(size=min(20 * 1024**3, int(free) - 1024**3))
+                    from sosfuse2.device_profile import pool_limit_bytes
+
+                    xp.get_default_memory_pool().set_limit(size=pool_limit_bytes(free))
             phase(name, 'source_start', chunk=index, wavelengths=count)
             t = time.monotonic()
             solver = Solver(s, geometry, fixed_boxes=a.fixed_boxes)

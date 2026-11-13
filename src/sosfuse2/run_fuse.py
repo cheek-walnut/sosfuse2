@@ -99,7 +99,9 @@ def run_state(args, output, wavelengths, state=None, cache=None):
         free, total = xp.cuda.runtime.memGetInfo()
         if free < 4 * 1024**3:
             raise RuntimeError('E_VRAM_FREE: need at least 4 GiB free')
-        xp.get_default_memory_pool().set_limit(size=min(20 * 1024**3, int(free) - 1024**3))
+        from sosfuse2.device_profile import pool_limit_bytes
+
+        xp.get_default_memory_pool().set_limit(size=pool_limit_bytes(free))
     resident = TwoLayerGeometry if args.geometry_mode == 'endpoints-2layer' else ResidentGeometry
     geometry = resident(s, scope, cache or output / 'geometry') if args.grid == 'full' else TransientGeometry(s, scope)
     solver = Solver(s, geometry, fixed_boxes=args.fixed_boxes)

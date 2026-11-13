@@ -621,7 +621,9 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
             field_bytes = state.geo.ns * (1132 if state.strato is not None else 571) * state.W * 4
             # Measured on a 4090 (2026-10-03): two full-grid strato states resident together used 7.5 GB
             # (payload arrays 1.2 GB + field 0.1 GB each), i.e. about 3.7 GB per state at peak.
-            required = sum(arrays) + 30 * field_bytes
+            from .device_profile import reserved_field_bytes
+
+            required = sum(arrays) + reserved_field_bytes(field_bytes)
             # KSPLIT (default on CuPy, fused.ksplit_setting) sizes its columns, plans and aerosol buffer from free VRAM. With
             # several resident states it stays out of the other states' reservations (ksplit_room) and adds what it holds to
             # its own (ksplit_hold), so a later state is admitted only into memory nobody claims.
@@ -655,7 +657,9 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                             free, _ = xp.cuda.runtime.memGetInfo()
                             if free < 4 * 1024**3:
                                 raise RuntimeError('E_VRAM_FREE')
-                            pool_limit = min(20 * 1024**3, int(free) - 1024**3)
+                            from .device_profile import pool_limit_bytes
+
+                            pool_limit = pool_limit_bytes(free)
                             xp.get_default_memory_pool().set_limit(size=pool_limit)
                     available = float('inf')
                     if backend == 'cupy':
