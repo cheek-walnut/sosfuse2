@@ -11,7 +11,6 @@ import signal
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 
@@ -21,7 +20,6 @@ if __name__ == '__main__':
         os.environ[key] = '1'
 import numpy as np
 from sosfuse2.checks.numerical_checks import assert_equivalent
-from sosfuse2.foundation import paths
 from sosfuse2.checks import testkit
 from sosfuse2.asset_tools.strato_states import build
 from sosfuse2.jobs.pipeline import cpu_budget
@@ -80,6 +78,8 @@ def numeric(value):
 class PersistentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        with testkit.socket_root('sos-persistent-'):  # length probe: the pipeline binds <TMPDIR>/sos-persistent-*/socket
+            pass
         cls.root = testkit.scratch('persistent-tests')
         if os.environ.get('SOSFUSE2_KEEP_TEST_OUTPUT') != '1':  # runs even if setUpClass fails later
             cls.addClassCleanup(shutil.rmtree, cls.root, ignore_errors=True)
@@ -90,6 +90,9 @@ class PersistentTests(unittest.TestCase):
             s['id'] = 'P' + str(i)
             s['parameters']['stratosphere_tau550'] = TAUS[i]
             states.append(s)
+        from sosfuse2.atmosphere import density
+
+        density.build(states[0])  # a missing IPRT input stops here as E_IPRT_OFFLINE, not as a queue child's exit code
         cls.states.write_text(json.dumps(dict(states=states)))
         cls.run_queue('baseline', 4, persistent=False)
         cls.run_queue('pair', 2)

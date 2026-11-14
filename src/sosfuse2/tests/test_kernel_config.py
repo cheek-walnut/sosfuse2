@@ -2,7 +2,6 @@
 
 from sosfuse2.foundation import paths
 import json
-from pathlib import Path
 import numpy as np
 from sosfuse2.checks import testkit
 from sosfuse2.solve.source_solver import Kernel

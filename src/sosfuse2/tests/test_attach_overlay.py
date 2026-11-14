@@ -1,8 +1,8 @@
-"""attach_cache_event overlay (run_gpu_state_v3): two processes attaching one key never share a '<key>.tmp.npz'.
+"""attach_cache_event overlay (jobs.run_state): two processes attaching one key never share a folder.
 
-CPU only, no solver. Each worker stands in for stratosphere._ground_geometry: it writes a fixed-name tmp file into
-STRATO_ATTACH_CACHE, holds it, checks the bytes are still its own and renames it to a published attach file. The
-geometry-only prefetch uses record=False, which keeps this overlay and writes no attach_cache PHASE record.
+CPU only, no solver. Each worker stands in for stratosphere._ground_geometry: it writes a fixed-name tmp file (the
+worst case; the production writer names it per process) into STRATO_ATTACH_CACHE, holds it, checks the bytes are still
+its own and renames it to a published attach file. The geometry-only prefetch uses record=False, which keeps this overlay and writes no attach_cache PHASE record.
 """
 
 import json

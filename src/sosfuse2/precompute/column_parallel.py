@@ -10,7 +10,7 @@ Workers are used only for SOSFUSE2_COLUMN_METHOD=gl24; the default table-v1 path
 
 The process count is SOSFUSE2_COLUMN_WORKERS; unset = all usable CPUs (default_workers), 1 = the serial loop.
 pipeline.py exports max(--threads, usable CPUs // concurrent states) unless the variable is set (pipeline.prep_workers).  The worker count enters no cache key: column_cache.cache_key hashes stratosphere.py, density.py, the
-accepted sources and the engine; host_cache keys hash host_cache.py (which calls this module), not this file.  test_column_parallel.py checks shape, dtype and numerical tolerance.
+accepted sources and the engine.  test_column_parallel.py checks shape, dtype and numerical tolerance.
 """
 
 import hashlib

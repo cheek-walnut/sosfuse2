@@ -5,19 +5,12 @@ import argparse
 import itertools
 import json
 import math
-import os
 from pathlib import Path
-import types
-import sys
-from unittest.mock import patch
 import numpy as np
 from sosfuse2.tests.test_support_strato import C, C2, BYTE, NEW, load_wrapper
 from sosfuse2.solve.strato_sh_aux import strato_sh_aux
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 F = np.float32
 
 

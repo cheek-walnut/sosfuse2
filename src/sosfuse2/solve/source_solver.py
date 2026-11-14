@@ -48,7 +48,7 @@ from .ksplit import (  # noqa: E402,F401 (re-exported: KSPLIT host side, ksplit.
 )
 # A6 kernel variants (kernel.cu header); each independent, all off = original kernel.
 # Stage-1 compile options: SOSFUSE2_<NAME>=1/0 overrides,
-# unset = device profile stage1_defaults (configs/devices.json: rig FMAD+FASTMATH, split/mac none).
+# unset = device profile stage1_defaults (backends/configs/devices.json: rig FMAD+FASTMATH, split/mac none).
 # None active = the exact pre-r17 options, key and kernel tokens.
 KPAD = 576
 SECTION_CLOCK_NAMES = ('point', 'ground', 'sh_basis', 'transport', 'attenuation', 'projection', 'barrier', 'total')
@@ -366,7 +366,7 @@ class Kernel(KsplitMixin):
         return int(text)
 
     def device(self):
-        """(name, profile, reason) from configs/devices.json, read once per Kernel (device_profile.py)."""
+        """(name, profile, reason) from backends/configs/devices.json, read once per Kernel (device_profile.py)."""
         if getattr(self, '_device', None) is None:
             from ..backends.device_profile import select, cuda_device_name
 

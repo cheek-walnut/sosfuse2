@@ -515,7 +515,12 @@ def extract_tar(stream, key, dst):
 
 
 def rclone_exe():
-    exe = os.environ.get('SKY_CACHE_RCLONE') or shutil.which('rclone') or str(Path('~/.local/bin/rclone').expanduser())
+    exe = os.environ.get('SKY_CACHE_RCLONE') or shutil.which('rclone')
+    if not exe:
+        try:
+            exe = str(Path('~/.local/bin/rclone').expanduser())
+        except RuntimeError:  # no home directory (container user without a passwd entry): no default location
+            raise CacheStoreError('E_CACHE_RCLONE_MISSING', 'rclone not found (no home directory)') from None
     if not (Path(exe).is_file() and os.access(exe, os.X_OK)):
         raise CacheStoreError('E_CACHE_RCLONE_MISSING', 'rclone not found')
     return exe

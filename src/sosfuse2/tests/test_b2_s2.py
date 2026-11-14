@@ -106,6 +106,20 @@ def test_loader_missing(asset):
         coeff({})
 
 
+def test_loader_unreadable_parent_is_missing(asset, monkeypatch):
+    """Path.is_file() raises PermissionError under an unreadable parent before Python 3.14; the loader treats it as a
+    missing asset and keeps the error code."""
+    import pathlib
+
+    def denied(self):
+        raise PermissionError(13, 'Permission denied', str(self))
+
+    monkeypatch.setattr(pathlib.Path, 'is_file', denied)
+    assert M.load('o4', required=False) is None
+    with pytest.raises(ValueError, match='E_O4_ASSET_MISSING'):
+        M.load('o4')
+
+
 @pytest.mark.parametrize('field', ['rules_version', 'sha256'])
 def test_loader_stale(asset, field):
     doc = json.loads(asset.read_text())
@@ -165,8 +179,12 @@ def test_original_reproduction_optional(tmp_path):
     if not bira and not cia:
         pytest.skip('optional original data: SOSFUSE2_BIRA_DIR / SOSFUSE2_HITRAN_CIA')
     if bira:
+        from sosfuse2.foundation.content_identity import asset_identity
+
         raw = (json.dumps(G.build_no2(bira), indent=1, allow_nan=False) + '\n').encode()
-        assert hashlib.sha256(raw).hexdigest() == M.load('no2')['sha256']
+        # Computation identity, not file bytes: the regenerated file takes the current wavelength_reference and
+        # generator hashes, which the identity leaves out.
+        assert asset_identity(raw, M.NO2.name) == M.load('no2')['sha256']
     if cia:
         doc = G.build_o4(cia)
         path = tmp_path / 'reproduced.json'
@@ -241,7 +259,7 @@ def test_rayleigh_vacuum_anchor_and_columns(asset):
     assert R.vacuum_nm(450.0) == pytest.approx(450.126238, abs=5e-7)
     direct = R.sigma([368.0, 550.0, 822.0]) / R.sigma(450.0)
     np.testing.assert_allclose((ratios / direct - 1) * 1e6, [-37.4, 23.3, 48.0], atol=0.06)
-    keep = D.build({})
+    keep = D.build(dict(density=dict(D.LEGACY)))
     exact450 = 0.013558 * (550 / 450) ** 4 * 8 * (1 - np.exp(-10.0))
     # Full precision of the stipulated anchor and truncated exp8 column; the
     # six-digit .242029/.1062566 pair is not precise enough for a 1 ppm test.
@@ -283,7 +301,7 @@ def test_o4_numeric_column_n0_square_and_float32(asset):
     np.testing.assert_allclose(ext[4].astype('f4'), ext[4], rtol=6e-8)
     from sosfuse2.rays.column_table import exact_columns, molecular
 
-    keep = D.build({})
+    keep = D.build(dict(density=dict(D.LEGACY)))
     val = exact_columns(
         molecular(keep, 3), np.array([[0.0, 0.0, 6371.0]]), np.array([[0.0, 0.0, 1.0]]), np.array([80.0])
     )[0]
@@ -376,6 +394,7 @@ def test_identity_q16_sources_and_loss(asset, tmp_path):
         wavelength_nm=[550.0],
         physics=np.array(json.dumps(physical)),
         optics_state=np.array(json.dumps(amounts)),
+        source_contract=np.array(json.dumps(dict(state=C.canonical_state(state)))),
     )
     with pytest.raises(ValueError, match='E_OPTICS_STATE_MIXED'):
         radiance_table.load_source(source, s, [550.0])
@@ -471,7 +490,7 @@ def test_lut_launch_only():
     from sosfuse2.solve import source_solver, ksplit
     from sosfuse2.backends import flags
 
-    # Kernel's methods live in fused.py and, for the split transport, ksplit.py (KsplitMixin).
+    # Kernel's methods live in solve/source_solver.py and, for the split transport, solve/ksplit.py (KsplitMixin).
     trees = [ast.parse(Path(m.__file__).read_text()) for m in (source_solver, ksplit)]
     users = []
     for node in (n for tree in trees for n in ast.walk(tree)):
@@ -613,3 +632,28 @@ def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
     acquired = [e for e in events if e.get('phase') == 'gpu_acquired' and e['id'] != 'GPU_SERVICE']
     assert [e['id'] for e in acquired] == ['ABA0', 'ABA1', 'ABA2']
     assert len({e['pid'] for e in acquired}) == 1
+
+
+def test_o4_asset_not_an_object_is_invalid(tmp_path):
+    path = tmp_path / 'o4.json'
+    for text in ('[]', '"text"', '1'):
+        path.write_text(text)
+        with pytest.raises(ValueError, match='^E_O4_ASSET_INVALID'):
+            M.load('o4', path=path)
+
+
+def test_prepare_download_http_error_is_coded(tmp_path, monkeypatch):
+    """A truncated HTTP response (http.client.HTTPException, not OSError) is E_O4_DOWNLOAD with its reason."""
+    import http.client
+
+    from sosfuse2.asset_tools import prepare_minor_absorbers as P
+
+    monkeypatch.setattr(P, 'o4_path', lambda: tmp_path / 'assets' / M.O4_NAME)
+    monkeypatch.setenv('SOSFUSE2_OFFLINE', '')
+
+    def truncated(*a, **kw):
+        raise http.client.IncompleteRead(b'x', 10)
+
+    monkeypatch.setattr(P.urllib.request, 'urlopen', truncated)
+    with pytest.raises(RuntimeError, match='^E_O4_DOWNLOAD: .*IncompleteRead'):
+        P.prepare(download=True)

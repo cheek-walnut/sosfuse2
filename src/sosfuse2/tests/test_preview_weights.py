@@ -1,4 +1,4 @@
-"""Preview weights (host.pack_state, used by both run_gpu_state_v3 and the batch path) for non-15-band tables: each band counts in proportion to its width.
+"""Preview weights (outputs.pack_state, used by both jobs.run_state and the batch path) for non-15-band tables: each band counts in proportion to its width.
 
 CPU only, no table. ① equal widths reproduce the 1.3.1 15/len(wl) scale (to rounding); ② on the BM45 product edges
 (35 bands of 11.75 nm, 10 of 5.875 nm) smooth spectra give the 15-band RGB within 2 %, while the 1.3.1 count scale was

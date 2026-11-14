@@ -63,7 +63,9 @@ def housekeeping(folder, token):
         if re.fullmatch(r'[0-9a-f]{64}\..+', path.name) and not path.name.startswith(token + '.'):
             try:
                 if path.is_file() and not path.is_symlink():
-                    stale.append(path.stat().st_size)
+                    info = path.stat()
+                    if info.st_mtime <= cutoff:
+                        stale.append(info.st_size)
             except FileNotFoundError:
                 pass
     if stale:

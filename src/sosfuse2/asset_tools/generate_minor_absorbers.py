@@ -23,7 +23,8 @@ usage: python -B -m sosfuse2.asset_tools.generate_minor_absorbers --bira DIR --o
 """
 import argparse, hashlib, json, sys
 from pathlib import Path
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 import numpy as np
 from sosfuse2.atmosphere.air_wavelength import standard_n
 from sosfuse2.atmosphere.minor_absorbers import CIA_SHA, RULES_VERSION  # defined by the loader, which checks them

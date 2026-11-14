@@ -15,7 +15,6 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 
 # Keep the documented direct-script entry point and pytest collection working.
 from sosfuse2.tests.test_support_strato import C, C2, BYTE

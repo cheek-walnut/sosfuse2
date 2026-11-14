@@ -5,8 +5,6 @@ Run: python -B -m sosfuse2.tests.test_launch_split
 
 from sosfuse2.foundation import paths
 import os
-from pathlib import Path
-import sys
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -201,3 +199,12 @@ class LaunchSplit(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
+
+def test_launch_cells_non_ascii_digit_is_coded(monkeypatch):
+    """str.isdigit() accepts superscript digits that int() refuses: they are E_LAUNCH_CELLS like any other bad value."""
+    import pytest
+
+    monkeypatch.setenv('SOSFUSE2_LAUNCH_CELLS', '\u00b2')
+    with pytest.raises(ValueError, match='^E_LAUNCH_CELLS'):
+        device_profile.select()

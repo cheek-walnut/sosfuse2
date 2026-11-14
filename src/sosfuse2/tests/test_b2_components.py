@@ -30,7 +30,7 @@ def atmosphere(table=False, step=0.5):
                 mask=3,
             )
         )
-    return density.build(dict(density=dict(profile_step_km=step)))
+    return density.build(dict(density=dict(density.LEGACY, profile_step_km=step)))
 
 
 def old_solver():

@@ -104,6 +104,7 @@ def main():
         schema=1,
         exact_tolerance=1e-6,
         selftest_tolerance=1e-5,
+        # Keys keep the recorded 1.3.x file names; values are content_identity.file_sha of the files after the move.
         code_sha256={
             name: content_identity.file_sha(paths.PKG / path)
             for name, path in (('kernel.cu', 'backends/kernel.cu'), ('fused.py', 'solve/source_solver.py'),

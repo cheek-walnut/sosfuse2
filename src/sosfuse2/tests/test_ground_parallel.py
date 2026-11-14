@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from types import SimpleNamespace as NS
 import unittest
 from unittest import mock
 import numpy as np
@@ -15,10 +14,7 @@ from sosfuse2.atmosphere import density, stratosphere as st
 from sosfuse2.solve import ray_geometry
 from sosfuse2.foundation import host_limits as hl
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 
 def fail_cell(task):
@@ -28,7 +24,7 @@ def fail_cell(task):
 
 
 def accepted(s, scope, kind, optics=None, profile=None, suncol=None, method=None):
-    # method: host_cache.prepare_ground passes density.sun_method() (③ 0(b)); this GL24 reference is the default only.
+    # method: host_cache.prepare_ground passes density.sun_method(); this GL24 reference is the default only.
     assert method in (None, 'gl'), method
     old = scope.b.sh.old
     rows = []
@@ -70,7 +66,7 @@ class GroundTests(unittest.TestCase):
         s.geo.ns = 4
         cls.s = s
         cls.old = cls.scope.b.sh.old
-        cls.optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
+        cls.optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76', rayleigh_column='keep')))
         cls.profile = st.profile_config({})
         cls.suncol = np.zeros(s.geo.sun.col.shape[:2])
 

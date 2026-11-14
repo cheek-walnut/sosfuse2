@@ -216,13 +216,14 @@ subject to copyright in the United States.
 
 ## 9. Not bundled: IPRT ozone profile shape
 
-The first time a state selects a `usstd76` density or ozone profile, `asset_tools/iprt.py` and `asset_tools/generate_density_profile.py` download
-two files, `tau_rayleigh_450nm_usstd.dat` and `tau_absorption_320nm_usstd.dat`, from the phase E page
+The first time a state uses a density configuration other than `exp8`/`triangle`/`keep`, the default
+`usstd76`/`usstd76`/`usstd` included, `asset_tools/iprt.py` and `asset_tools/generate_density_profile.py` download two
+files, `tau_rayleigh_450nm_usstd.dat` and `tau_absorption_320nm_usstd.dat`, from the phase E page
 (`intercomparisons:phase_e`) of the IPRT (International Polarized Radiative Transfer) intercomparison pages hosted by
 libRadtran (https://www.libradtran.org/), verify their SHA-256 and derive the `usstd76` density asset in the user's work
-root. The default states do not select these profiles. The wiki footer states CC BY-SA 3.0 for wiki content without saying
-whether attachments are covered, so the files are not redistributed with this package. `SOSFUSE2_OFFLINE=1` refuses the
-download and prints the URL to fetch by hand.
+root. Setting all three density options to `exp8`/`triangle`/`keep` avoids the download. The wiki footer states CC BY-SA
+3.0 for wiki content without saying whether attachments are covered, so the files are not redistributed with this
+package. `SOSFUSE2_OFFLINE=1` refuses the download and prints the URL to fetch by hand.
 
 References: Emde, C., et al. (2015). *IPRT polarized radiative transfer model intercomparison project – Phase A.* JQSRT,
 164, 8–36. Emde, C., et al. (2018). *IPRT polarized radiative transfer model intercomparison project – Three-dimensional

@@ -64,15 +64,17 @@ vertical profile `ρ_R` depends on the density option:
 
 | option | profile | Rayleigh optical depth, 0 to 80 km, at 450 nm / 550 nm |
 |---|---|---|
-| default | exp(−h / 8 km) | 0.2420 / 0.1063 (β₄₅₀ = 0.030255 km⁻¹) |
-| `usstd76` with `rayleigh_column: usstd` | hydrostatic number density of the US Standard Atmosphere 1976 (NOAA et al. 1976) | 0.2215 / 0.0972 |
+| `exp8`/`triangle`/`keep` (default through 1.4.0) | exp(−h / 8 km) | 0.2420 / 0.1063 (β₄₅₀ = 0.030255 km⁻¹) |
+| `usstd76`/`usstd76`/`usstd` (default) | hydrostatic number density of the US Standard Atmosphere 1976 (NOAA et al. 1976) | 0.2215 / 0.0972 |
 
 The gate fixtures and `states_v1_usstd.json` use the second row. Its optical depth at 450 nm is the sum of the layers
 below 80 km in the tabulated Rayleigh optical depth at 450 nm of the IPRT phase E atmosphere (IPRT project: Emde et al.
 2015), so the Rayleigh spectrum is the Bodhaine law anchored at that 450 nm value. With the same anchors, the λ⁻⁴ law of
 1.0.0 gave 0.1085 and 0.0993 at 550 nm for the two rows. The states in `states_v1.json` and `states_v2.json` carry no
-density block and take the default row. Below −6° solar elevation the default row is 1.4 to 2.1 times too bright
-against measured twilight brightness and the second row is not; README *Limitations* gives the comparison.
+density block and take the second row. Below −6° solar elevation the exp8 configuration is 1.4 to 2.1 times too bright
+against the Maryland and Paranal measurements. The default still has site-dependent errors; README *Limitations*
+and `docs/VALIDATION.md` Table 13 give the comparison. A state's density block and the density command-line options
+together must give all three options.
 
 ### Ozone
 
@@ -83,8 +85,8 @@ $$
 $$
 
 where the column `N` is `ozone_du` × 2.687×10²⁰ m⁻² per Dobson unit and the state axis `ozone_du` runs from 220 to 420.
-The shape `q` has two options. The default is a triangle, `max(0, 1 − |h − 25 km| / 15 km)`, which is non-zero between
-10 and 40 km and peaks at 25 km. The `usstd76` option takes the shape from the layer absorption at 320 nm of the same IPRT
+The shape `q` has two options. The `triangle` option is `max(0, 1 − |h − 25 km| / 15 km)`, which is non-zero between
+10 and 40 km and peaks at 25 km. The default `usstd76` option takes the shape from the layer absorption at 320 nm of the same IPRT
 atmosphere; the density asset records that this is a vertical shape normalised to the state's column and not a measured
 ozone profile.
 
@@ -121,7 +123,7 @@ $$
 $$
 
 `n₀` is the air number density at the surface. It comes from the density asset for `usstd76`, equals 2.5469×10²⁵ m⁻³ for
-the default exp(−h / 8 km) profile, whose O₄ shape is then exp(−h / 4 km), and is the value that an external profile
+the exp(−h / 8 km) profile (default through 1.4.0), whose O₄ shape is then exp(−h / 4 km), and is the value that an external profile
 declares as `air_surface_number_density_m3`. The state parameter `parameters.o4`, a JSON boolean that defaults to true,
 switches O₄ on and off. The cross section is the HITRAN 2024 collision-induced absorption (Gordon et al. 2026; Terragni
 et al. 2025): data set 54 at 293 K up to 499.861 nm, then data set 32 at 293 K up to 600 nm and at 287 K up to 653.842 nm,

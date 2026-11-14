@@ -200,6 +200,8 @@ def test_old_output_rejected_before_work(run_args, state, version, entry, monkey
 @pytest.mark.parametrize('version', ['v3', 'v4'])
 def test_old_extra_source_rejected_with_reason(run_args, state, monkeypatch, version):
     from sosfuse2.backends import compile_cache
+    from sosfuse2.atmosphere import density
+
     monkeypatch.setattr(compile_cache, 'configure', lambda *args: None)
     monkeypatch.setattr(runner.threading, 'Thread', lambda **kw: SimpleNamespace(start=lambda: None))
     out = run_args.work_root / 'out' / 'source'
@@ -209,7 +211,7 @@ def test_old_extra_source_rejected_with_reason(run_args, state, monkeypatch, ver
     (source_dir / 'source.npz').touch()
     meta = dict(complete=True, contract=version, physics=physics(), optics_state=optics_state(state),
                 id=state['id'], settings=settings(state), backend='numpy', polarization_model='depolarizing',
-                mode='reduced-validation', code_hashes={'module': 'old'})
+                mode='reduced-validation', code_hashes={'module': 'old'}, density=density.build(state)['meta'])
     (out / 'meta.json').write_text(json.dumps(meta))
     with pytest.raises(RuntimeError, match='E_EXTRA_SOURCE: source meta differs: contract,code_hashes'):
         runner.run_extra(run_args)
@@ -280,3 +282,25 @@ def test_query_cache_uses_source_identity(tmp_path, monkeypatch):
         'sosfuse2/' + name: content_identity.file_sha(paths.PKG / name)
         for name in ('outputs/radiance_table.py', 'solve/ray_geometry.py', 'jobs/pipeline_execution.py')
     }
+
+
+def test_extra_source_without_density_is_rejected(run_args, state, monkeypatch):
+    from sosfuse2.backends import compile_cache
+    from sosfuse2.atmosphere import density
+
+    monkeypatch.setattr(compile_cache, 'configure', lambda *args: None)
+    monkeypatch.setattr(runner.threading, 'Thread', lambda **kw: SimpleNamespace(start=lambda: None))
+    monkeypatch.setattr(runner, 'create_configured', lambda *args, **kw: (
+        SimpleNamespace(fuse_state=state, density_optics=density.build(state)), {}))
+    run_args.geometry_cache = run_args.work_root / 'geometry'
+    out = run_args.work_root / 'out/source'
+    out.mkdir(parents=True)
+    source_dir = run_args.work_root / 'tmp/source'
+    source_dir.mkdir(parents=True)
+    (source_dir / 'source.npz').touch()
+    meta = dict(complete=True, contract=runner.CONTRACT_VERSION, physics=physics(), optics_state=optics_state(state),
+                id=state['id'], settings=settings(state), backend='numpy', polarization_model='depolarizing',
+                mode='reduced-validation', code_hashes={'module': 'current'})
+    (out / 'meta.json').write_text(json.dumps(meta))
+    with pytest.raises(RuntimeError, match='E_EXTRA_SOURCE: density profile missing'):
+        runner.run_extra(run_args)

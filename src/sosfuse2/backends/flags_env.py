@@ -7,7 +7,6 @@ block size 128/256, and the config's launch rule (single_launch) agrees with SOS
 Physical dependency checks run when source_solver.Kernel attaches the state."""
 
 import json, os, sys
-from pathlib import Path
 from sosfuse2.foundation import paths
 
 HERE = paths.CONFIGS
@@ -18,7 +17,10 @@ DIAGNOSTIC = {'EXP_SECTION_CLOCKS'}  # wrong-physics / observer-only flags
 def load(name):
     from sosfuse2.backends.flags import RETIRED_FLAGS, resolve_config
 
-    c = json.loads((HERE / f'{name}.json').read_text())
+    path = HERE / f'{name}.json'
+    if not path.is_file():  # the stderr code keeps `eval "$(...)"` from passing silently on an empty stdout
+        raise SystemExit(f'E_CONFIG_UNKNOWN: {name!r}: no backends/configs/{name}.json')
+    c = json.loads(path.read_text())
     flags = c['kernel_flags']
     resolved = resolve_config(flags)
     bs = c['block_size']

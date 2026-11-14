@@ -22,10 +22,7 @@ import numpy as np
 from sosfuse2.checks import testkit
 
 ROOT = testkit.sky_sos_root()  # The HG-baseline comparison needs the research data root.
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 
 def base_ref():
@@ -361,7 +358,7 @@ def host(out):
         hg_state_tropo=getattr(s, 'tropo', 'missing'),
         mie_vs_hg_first_light_ratio_median=float(np.median(mie[..., 0][a[..., 0] > 0] / a[..., 0][a[..., 0] > 0])),
     )
-    # 3. fused.Solver.apply multiplies the aerosol SH moments by the per-wavelength Mie eigenvalues (HG: g**l)
+    # 3. source_solver.Solver.apply multiplies the aerosol SH moments by the per-wavelength Mie eigenvalues (HG: g**l)
     from sosfuse2.solve.source_solver import Solver
     from sosfuse2.atmosphere.tropo_mie import eigen_by_sh
 

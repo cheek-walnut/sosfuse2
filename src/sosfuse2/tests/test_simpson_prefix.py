@@ -1,13 +1,13 @@
-"""Simpson optical-depth prefix in reference.py.
+"""Simpson optical-depth prefix in backends/numpy_reference.py.
 
 Run: python -m pytest -q -s src/sosfuse2/tests/test_simpson_prefix.py   (-s prints the E4 closure numbers)
 
-The prefix under test is reference.SimpsonPrefix driven exactly as transport() drives it (begin / node(sample()) / finish) with the
+The prefix under test is numpy_reference.SimpsonPrefix driven exactly as transport() drives it (begin / node(sample()) / finish) with the
 production sample() and profile_at(); nothing is replaced by a synthetic beta. Truth is an independent FP64 integral of the same
 profile model (test-local, every panel split at the profile knots it crosses, Gauss-Legendre 32 per piece).
-  - node match: profile_at at the node heights == sample() prof (and the historical inline expressions, copied below) bit for bit,
+  - node match: profile_at at the node heights == sample() prof (and the historical inline expressions, copied below) within tolerance,
     4 components, density table / two-layer aerosol / stratosphere on and off; extinction * ds == the old dt/ds; the DS height
-    helper reproduces sample() h bit for bit.
+    helper reproduces sample() h within tolerance.
   - constant and exponential beta, each component alone (air, tropospheric aerosol incl. AEROSOL_2L, ozone, stratosphere):
     FP64 replica of the Simpson rule (same panels and midpoints) to FP32 rounding, truth within the Simpson error bound, and the
     old GL-weight rule (copied below) shown to fail the same check.
@@ -25,10 +25,7 @@ from sosfuse2.backends import numpy_reference as ref  # noqa: E402
 from sosfuse2.atmosphere import tropo_profile, density  # noqa: E402
 from sosfuse2.backends.arithmetic import F, split, kahan  # noqa: E402
 
-try:
-    from sosfuse2.checks.numerical_checks import within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 RE = 6371.0
 from sosfuse2.checks import testkit  # noqa: E402
@@ -128,7 +125,7 @@ def constants(nq, comp=None, kind='exp'):
 
 
 def profile64(h, c):
-    """[..., 4] FP64 components with the FP32 constants of c (same model as reference.profile_at)."""
+    """[..., 4] FP64 components with the FP32 constants of c (same model as numpy_reference.profile_at)."""
     h = np.clip(np.asarray(h, 'f8'), 0.0, 80.0)
     dens = c.get('density_optics')
     mask = dens['mask'] if dens else 0
@@ -266,7 +263,7 @@ def simpson_bound(g, c, comp):
 
 
 def production(g, c):
-    """reference.SimpsonPrefix exactly as transport() drives it; also node ds and beta for the closure sums."""
+    """numpy_reference.SimpsonPrefix exactly as transport() drives it; also node ds and beta for the closure sums."""
     n, nseg, nq, W = len(g['d']), g['edges'].shape[1] - 1, len(c['u']), c['W']
     st = np.sqrt(np.maximum(0.0, 1 - g['d'][:, 2] ** 2)).astype('f4')
     P = ref.SimpsonPrefix(g, c)
@@ -376,7 +373,7 @@ def test_node_profile_matches_sample(opt):
                 dt += (ref.strato_profile(q['h'], c) * q['ds'])[:, None] * c['strato_ext']
             bds = ref.extinction_profile(p4, c, q['st_prof']) * q['ds'][:, None]
             assert np.all(np.abs(bds.astype('f8') - dt) <= 4e-7 * np.abs(dt) + 1e-37)
-            # the DS height helper of the prefix gives sample()'s node height bit for bit
+            # the DS height helper of the prefix gives sample()'s node height within tolerance
             assert within_tol(ref.path_height(ref.path_point(pp, dd, q['t_DS'])[2]), q['h'])
             checked += int(q['valid'].sum())
     assert checked > 300

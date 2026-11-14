@@ -10,7 +10,7 @@
    "TROPO_MIE and AEROSOL_2L from state"
   ],
   "launch_rule": "Cell-subset launches reset synchronization counters before each chunk. Device launch budgets and SOSFUSE2_LAUNCH_CELLS determine chunking.",
-  "sh_combine": "SH_COMBINE requires an enabled stratosphere. The SH order is run_gpu_state_v3.SH_L.",
-  "gate_v2": "Fixtures FX-C3 and FX-S2 cover exact and approximate transport. G-P uses rtol 1e-3; G-T uses gate/anchors.json."
+  "sh_combine": "SH_COMBINE requires an enabled stratosphere. The SH order is jobs/run_state.py SH_L.",
+  "gate_v2": "Fixtures FX-C3 and FX-S2 cover exact and approximate transport. G-P uses rtol 1e-3; G-T uses checks/gate_data/anchors.json."
  }
 }

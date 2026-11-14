@@ -81,7 +81,8 @@ def fingerprint():
 def compile_kernel(threads=2, force=False):
     source = paths.NATIVE / 'sh_cpu.cpp'
     digest = hashlib.sha256(source.read_bytes() + str(threads).encode()).hexdigest()
-    # build products are per source digest and per host (-march=native), never inside the package
+    # build products are keyed by the source bytes and the thread count only, not by host, although built with
+    # -march=native; they live in the work root, never inside the package
     target = paths.work_root() / 'build' / f'kernel_t{threads}_{digest[:12]}.so'
     target.parent.mkdir(parents=True, exist_ok=True)
     stamp = target.with_suffix('.json')
@@ -129,7 +130,7 @@ def compile_kernel(threads=2, force=False):
 
 class Kernel:
     # Two-layer aerosol (tropo_profile): the parameter vector follows the per-wavelength aerosol scattering coefficients and
-    # the native transport reads it only when it is handed aerosol_height < 0 (native/sh_cpu.cpp). None = exponential profile.
+    # the native transport reads it only when it is handed aerosol_height < 0 (backends/native/sh_cpu.cpp). None = exponential profile.
     aerosol_vector = None
 
     def __init__(self, threads, height, g):

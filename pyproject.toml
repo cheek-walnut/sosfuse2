@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sosfuse2"
-version = "1.4.0"
+version = "1.5.0"
 description = "Successive-orders-of-scattering twilight sky radiance tables (NumPy reference, optional CUDA via CuPy)"
 readme = "README.md"
 # PEP 639 expression for the whole distribution: code MIT; project data CC0; CIE colour tables via Mitsuba/colour-science
@@ -35,7 +35,7 @@ gpu = [
   "nvidia-cusparse-cu12>=12.5,<13",
   "nvidia-nvjitlink-cu12>=12.8,<13",
 ]
-test = ["pytest>=8"]
+test = ["pytest>=9"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sosfuse2"]
@@ -72,6 +72,6 @@ extend-exclude = ["docs"]
 [tool.ruff.format]
 # One statement per line, 120 columns; quotes stay as written (tests and provenance strings quote source text).
 quote-style = "preserve"
-# asset_tools/generate_minor_absorbers.py hashes its own bytes into the generated O4 asset (generator.sha256): formatting it would change
-# the O4 asset identity that provenance records and the research harness pins, so it keeps its 1.1.x text.
+# asset_tools/generate_minor_absorbers.py records its own byte hash (generator.sha256) in the assets it generates. That field is
+# not part of the asset identity (content_identity.asset_identity); formatting the file would change its code_hashes entry.
 exclude = ["src/sosfuse2/asset_tools/generate_minor_absorbers.py"]

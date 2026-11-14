@@ -1,7 +1,7 @@
-"""Byte oracle: the accepted interval loop, including ring and horizon edges."""
+"""Oracle within tolerance (assert_equivalent): the accepted interval loop, including ring and horizon edges."""
 
-# ruff: noqa: F821  -- accepted_ring_edges/accepted are verbatim copies of sos_full code, rebound at run time to the
-# sos_full module globals (sh, R, ...) with types.FunctionType (see the test body), so those names are not module names here.
+# ruff: noqa: F821  -- accepted_ring_edges/accepted are verbatim copies of the original engine code, rebound at run time to the
+# engine module globals (sh, R, ...) with types.FunctionType (see the test body), so those names are not module names here.
 import os
 from pathlib import Path
 import tempfile

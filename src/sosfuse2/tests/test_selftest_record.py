@@ -10,13 +10,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-HERE = Path(__file__).resolve().parent
-from sosfuse2.checks import gate, testkit, validate as v  # noqa: E402
+from sosfuse2.checks import gate, testkit, validate as v
 
-try:
-    from sosfuse2.checks.numerical_checks import within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 # Only cases that read the old CPU-engine fixture need research data; the pinned-record check below always runs.
 needs_legacy = pytest.mark.skipif(
@@ -26,7 +22,7 @@ needs_legacy = pytest.mark.skipif(
 
 
 def synthetic_o4():
-    """True when this session's O4 asset is the synthetic test fixture (testing.synthetic_o4, written by conftest)."""
+    """True when this session's O4 asset is the synthetic test fixture (testkit.synthetic_o4, written by conftest)."""
     from sosfuse2.atmosphere import minor_absorbers
 
     try:
@@ -143,3 +139,19 @@ def test_gate_historical_reports_delta_and_old_engine_fixture_unchanged(tmp_path
     v3_text = testkit.sky_sos('rig/run_state_v3.py').read_text()
     assert "np.load(HERE/'selftest_ref.npz')" in v3_text
     assert 'selftest_ref_simpson' not in testkit.sky_sos('rig/run_state.py').read_text() + v3_text
+
+
+@pytest.mark.parametrize('mode', ['--selftest', '--validate-mac'])
+def test_diagnostic_rejects_density_conflicts(tmp_path, monkeypatch, mode):
+    import sys
+    from types import SimpleNamespace
+    from sosfuse2.checks import solver_diagnostics as diagnostics
+
+    monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(tmp_path))
+    monkeypatch.setattr(diagnostics.threading, 'Thread', lambda **kw: SimpleNamespace(start=lambda: None))
+    monkeypatch.setattr(sys, 'argv', ['diagnostics', mode, '--density-profile', 'usstd76', '--ozone-profile', 'usstd76', '--rayleigh-column', 'usstd'])
+    with pytest.raises(ValueError, match='E_PROFILE_VALIDATION'):
+        diagnostics.main()
+    monkeypatch.setattr(sys, 'argv', ['diagnostics', mode, '--density-profile', 'exp8'])
+    with pytest.raises(ValueError, match='E_DENSITY_PARTIAL'):
+        diagnostics.main()

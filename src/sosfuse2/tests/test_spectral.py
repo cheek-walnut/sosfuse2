@@ -3,10 +3,10 @@
 
   (default)  unit checks: legacy settings unchanged, band = bin integral, point = monochromatic, edge/mode errors,
              weights split invariance (§4-3), provenance vs assets/spectra.json (§4-4), `contract` keys and hashes
-  --runs     reduced NumPy solves (clear_33, 3 wavelengths) through run_gpu_state_v3:
-               legacy     compare table bytes against the archived reference (§6-3)
-               E          band with E of bin 1 doubled: that wavelength x2 exactly, the others bit-equal (§4-1)
-               sigma      band with sigma of bin 1 x1.5: the other wavelengths bit-equal (§4-2)
+  --runs     reduced NumPy solves (clear_33, 3 wavelengths) through jobs.run_state:
+               legacy     compare the table against the archived reference within tolerance (§6-3)
+               E          band with E of bin 1 doubled: that wavelength x2, the others unchanged (within tolerance) (§4-1)
+               sigma      band with sigma of bin 1 x1.5: the other wavelengths unchanged (within tolerance) (§4-2)
                cache      legacy then band on one work root (geometry/attach/column caches kept) == band on a fresh root (§4-6),
                           without and with --stratosphere on (explicit off fixture; attach cache hit)
                n>15       16 band wavelengths (2 chunks): M3 extra-elevation row from the stored source == direct run row
@@ -27,10 +27,7 @@ from sosfuse2.jobs import run_state as V3
 
 ROOT = testkit.sky_sos_root()  # The legacy runs and builder rerun need the research data root.
 CUR = paths.SRC  # 'current tree' marker for run(): the installed package
-try:
-    from sosfuse2.checks.numerical_checks import within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 LEGACY_BASELINE = '6a5c3f5'
 TREE_FILES = ('scripts', 'rig', 'results/sos_full/a2_driver.py', 'results/sos_full/b2_driver.py', 'assets')
 FAILS = []

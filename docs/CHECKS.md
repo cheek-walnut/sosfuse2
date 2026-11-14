@@ -22,13 +22,15 @@ The test session fetches the two IPRT inputs into the work root, `SOSFUSE2_WORK_
 `$XDG_CACHE_HOME/sosfuse2`, when they are not there yet, and the density asset is regenerated with platform-independent
 arithmetic (`density.ASSET_SHA256`). An unreachable server is retried 3 times (`E_IPRT_DOWNLOAD`). With
 `SOSFUSE2_OFFLINE=1`, or when the download fails, the session runs without them: the tests that depend on the `usstd76`
-density asset, about 54 cases, skip with `E_IPRT_OFFLINE` and the command that fetches the files,
+density asset, which include every test that solves a state with the default density configuration, about 190 cases,
+skip with `E_IPRT_OFFLINE` and the command that fetches the files,
 `python -B -c "from sosfuse2.asset_tools import iprt; iprt.inputs()"`. A test that fails for another reason is still a failure.
 
 The check in a fresh virtual environment outside the source tree also runs one reduced NumPy solve, which takes a few
-minutes, after the one-time O₄ preparation from the README
-(`python -m sosfuse2.asset_tools.prepare_minor_absorbers --download`; without it the solve stops with
-`E_O4_ASSET_MISSING`):
+minutes, after the one-time O₄ and density preparation from the README
+(`python -m sosfuse2.asset_tools.prepare_minor_absorbers --download` and `python -m sosfuse2 generate_density_profile`).
+Without the O₄ step the solve stops with `E_O4_ASSET_MISSING`; without the density step it fetches the IPRT inputs on
+first use, or stops with `E_IPRT_OFFLINE` under `SOSFUSE2_OFFLINE=1`:
 
 ```sh
 python -B -m sosfuse2.jobs.run_state --id clear_34 --reduced --backend numpy --threads 2 --work-root <dir>
@@ -87,7 +89,8 @@ SOSFUSE2_SKY_SOS_ROOT=/path/to/sky-sos python -B -m sosfuse2.checks.gate --gf --
 ```
 
 G-F, the full-grid fixed table, reuses the bake template of the research records through `SOSFUSE2_SKY_SOS_ROOT`, a
-research-side dependency, and stops with `E_GATE_CONFIG` without it. The fixed table itself is not part of the package.
+research-side dependency, and stops with `E_GATE_CONFIG` without it and with `E_GATE_TEMPLATE` when the template
+fails to load (for example an import of a renamed module). The fixed table itself is not part of the package.
 `checks/gate_data/baselines/manifest.json` records only the file name under `gf.reference`
 (`gf_L19s3_tau0p01_aod0p4_g0p65_e2620f6f90c39dcb.npz`) together with its radiance SHA-256. Historical paths in
 `BASELINE_LOG.md` are reduced to file or directory names, and a new record writes only the bare file name. `gate --gf`
@@ -96,8 +99,8 @@ always requires `--reference <table.npz>` and stops with `E_GATE_BASELINE_MISSIN
 `test_v14_runner`, the kernel_ab evidence packs and others) run in this tier as well. `gate --gf` and the cases that
 load the bake template, `test_cache_store` and the G-F cases of `test_gate`, need a research checkout whose scripts
 import the 1.4.0 module names, and the research-record cases of `test_ozone_temperature` need one that holds the files
-its manifest names under `scripts/sosfuse2/assets/`. In 1.4.0 a case of `test_v14_runner` fails because it expects
-provenance format v3. D04 of `test_strato_delta_adversarial` reads the retained output of an earlier harness run, skips
+its manifest names under `scripts/sosfuse2/assets/`. The provenance check of `test_v14_runner` accepts the current
+format; in 1.4.0 it expected format v3 and failed. D04 of `test_strato_delta_adversarial` reads the retained output of an earlier harness run, skips
 when that output is absent and expects a source of shape `(40, 1132, 1)` in it. None of these cases runs in tier 1. This
 tier lies outside the public CI; it is the deployment check of the consumer, sky-sos. `SADDLE_DATA_ROOT`, which is
 optional, names a research input root holding the packed full-grid geometry cache and the rig logs that

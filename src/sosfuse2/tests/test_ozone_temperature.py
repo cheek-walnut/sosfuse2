@@ -58,7 +58,7 @@ def settings(raw, reduced=False):
 
 
 def state(shape='triangle', **density_extra):
-    return {'density': dict(ozone_profile=shape, **density_extra)}
+    return {'density': dict(dict(density_profile='exp8', ozone_profile=shape, rayleigh_column='keep'), **density_extra)}
 
 
 FIXED = {'ozone_temperature': '233K'}  # the fixed 233 K product (D); {} is A′ since P2
@@ -444,9 +444,9 @@ def test_04_resolver(shape):
     SP.check_state(b, state(shape))
     raises('E_SPECTRAL_OZONE_PROFILE_MISMATCH', lambda: SP.check_state(b, state(other)))
     assert SP.spec_table(b, WL) == SP.spec_table(SP.resolve(unresolved(), state(shape)), WL)
-    # The state's options decide: no density block = triangle; CLI options through effective_state.
-    assert SP.resolve(loose, {})['ozone_profile']['name'] == 'triangle'
-    cli = V3.effective_state({'id': 'x', 'parameters': {}}, SimpleNamespace(ozone_profile=shape))
+    # The state's options decide: no density block = usstd76; CLI options through effective_state.
+    assert SP.resolve(loose, {})['ozone_profile']['name'] == 'usstd76'
+    cli = V3.effective_state({'id': 'x', 'parameters': {}}, SimpleNamespace(density_profile='exp8', ozone_profile=shape, rayleigh_column='keep'))
     assert SP.resolve(loose, cli)['ozone_profile']['name'] == shape
     # A finer PROFILE step keeps the same piecewise-linear q (density.build linear refinement): same identity, same SPEC.
     fine = SP.resolve(loose, state(shape, profile_step_km=0.125))

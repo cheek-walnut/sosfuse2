@@ -1,7 +1,6 @@
 """Portable preview + atomic archive; only the four final products are packed."""
 
 import ast, json, math, os, shutil, subprocess, tarfile, time
-from pathlib import Path
 import numpy as np
 from PIL import Image, PngImagePlugin
 from sosfuse2.foundation import paths

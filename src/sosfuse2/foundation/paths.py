@@ -39,9 +39,10 @@ KERNEL_CU = PKG / 'backends/kernel.cu'
 SRC = PKG.parent  # directory that makes `import sosfuse2` work (src/ in-tree, site-packages when installed)
 
 
-def work_root():
+def work_root(*, create=True):
     """Writable root for caches, builds and run outputs. Created on first use. A root that cannot be located or
-    created is E_WORK_ROOT with the path and the underlying error."""
+    created is E_WORK_ROOT with the path and the underlying error. create=False only locates it, for lookups that
+    read an optional file there and must not create the root as a side effect."""
     env = os.environ.get('SOSFUSE2_WORK_ROOT', '').strip()
     xdg = os.environ.get('XDG_CACHE_HOME', '').strip()
     where = env or (xdg + '/sosfuse2' if xdg else '~/.cache/sosfuse2')
@@ -51,7 +52,8 @@ def work_root():
         else:
             root = (Path(xdg) if xdg else Path.home() / '.cache') / 'sosfuse2'
         where = str(root)
-        root.mkdir(parents=True, exist_ok=True)
+        if create:
+            root.mkdir(parents=True, exist_ok=True)
         return root.resolve()
     except (OSError, RuntimeError) as exc:
         raise RuntimeError(f'E_WORK_ROOT: {where}: {type(exc).__name__}: {exc}') from exc

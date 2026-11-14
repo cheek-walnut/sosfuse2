@@ -6,7 +6,6 @@ The protected profile is recognised by either supported marker.
 Run: PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider src/sosfuse2/tests/test_host_limits.py
 """
 
-import sys
 from pathlib import Path
 
 import pytest

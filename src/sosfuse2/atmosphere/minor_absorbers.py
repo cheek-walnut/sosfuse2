@@ -22,13 +22,19 @@ UNITS = {
 
 
 def o4_path():
-    return paths.work_root() / 'assets' / O4_NAME
+    """Where the prepared O4 asset lives. Locating it never creates the work root: a reader only needs to know
+    whether the file is there, and prepare() creates the directory before writing."""
+    return paths.work_root(create=False) / 'assets' / O4_NAME
 
 
 def load(kind, *, required=True, path=None):
     """Validated FP64 values, content identity, byte-integrity SHA, and metadata. Never downloads."""
     path = path or (NO2 if kind == 'no2' else o4_path())
-    if not path.is_file() and kind == 'o4':
+    try:
+        present = path.is_file()
+    except OSError:  # an unreadable parent: Python before 3.14 raises here instead of returning False
+        present = False
+    if not present and kind == 'o4':
         if not required:
             return None
         raise ValueError(f'E_O4_ASSET_MISSING: run {PREPARE}; expected {path}')
@@ -54,7 +60,7 @@ def load(kind, *, required=True, path=None):
             or doc['units'].get('wavelength_nm') != 'nm (air)'
         ):
             raise ValueError('format, grid, finite nonnegative values or units')
-    except (OSError, KeyError, TypeError, ValueError) as exc:
+    except (OSError, AttributeError, KeyError, TypeError, ValueError) as exc:  # AttributeError: not a JSON object
         if str(exc).startswith('E_O4_ASSET_STALE:'):
             raise
         raise ValueError(f'E_{kind.upper()}_ASSET_INVALID: {exc}') from exc

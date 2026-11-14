@@ -3,6 +3,37 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.5.0
+
+- **Default atmosphere.** A state without a `density` block and without density CLI options now uses
+  `density_profile: usstd76`, `ozone_profile: usstd76`, `rayleigh_column: usstd`. To reproduce the configuration used
+  through 1.4.0, explicitly set **all three** to `exp8`, `triangle`, `keep`. Fully specified configurations retain
+  their optical values. Partial blocks, among them empty blocks and blocks that hold only `profile_step_km` or
+  `external_profile`, and partial CLI selections stop with `E_DENSITY_PARTIAL`; the state and CLI values are counted
+  together. The first default run downloads two IPRT inputs
+  if they have not been prepared with `python -m sosfuse2 generate_density_profile`.
+- **Saved results.** Sources and caches made from states without a density block in 1.4.0 are not reused.
+  Sources must record the density configuration; a missing or different configuration gives `E_SOURCE_DENSITY`
+  before optical amounts are compared, and a source without a readable `source_contract` gives `E_SOURCE_CONTRACT`.
+  Sources whose state set all three options are still read. Both table commands now write `density` in `meta.json`;
+  in 1.4.0 and earlier they did not write it for any configuration, so a table of theirs without the record may come
+  from any configuration.
+  A spectral configuration pinned to triangle ozone conflicts with the new default and gives
+  `E_SPECTRAL_OZONE_PROFILE_MISMATCH`.
+- **Preparation and diagnostics.** Selftests and the offline walkthrough explicitly use exp8/triangle/keep.
+  IPRT offline errors explain the default's input requirement and the explicit analytic alternative.
+  Required O₄ loading under an uncreatable work root now reports `E_O4_ASSET_MISSING` instead of `E_WORK_ROOT`.
+  The new error codes are `E_DENSITY_PARTIAL`, `E_SOURCE_DENSITY`, `E_CONFIG_UNKNOWN` and `E_GATE_TEMPLATE`.
+- **Issues from 1.4.0.** Metadata-only O₄ identity reads no longer create a work root. Host-cache stale warnings count
+  only other-key files older than the temporary-file cleanup cutoff, so newly created entries do not warn.
+  The optional NO₂ reproduction test compares the computation identity of the regenerated asset instead of its byte
+  hash. The research runner test accepts current provenance. A missing kernel configuration gives `E_CONFIG_UNKNOWN`,
+  and a gate bake template that fails to import gives `E_GATE_TEMPLATE` with its cause, instead of uncoded exceptions.
+- **Smaller fixes.** An O₄ asset that is not a JSON object and a truncated O₄ download give their coded errors
+  (`E_O4_ASSET_INVALID`, `E_O4_DOWNLOAD`), a missing home directory for the rclone default gives
+  `E_CACHE_RCLONE_MISSING`, launch cell counts accept ASCII digits only, temporary attach files are named per process,
+  and the `test` extra requires pytest 9.
+
 ## 1.4.0
 
 1.4.0 moves the modules into ten folders by layer (`docs/ARCHITECTURE.md`) and adds a command entry point,

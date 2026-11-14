@@ -1,6 +1,6 @@
 """Height and solar zenith grid rules in the settings (h_refine, chi_step_deg, chi_refine_deg), CPU only.
 
-The grids are built from solver_columns.grids(1); the solver is stopped at its boundary, so no optics are prepared."""
+The grids are built from rays.shell_segments.grids(1); the solver is stopped at its boundary, so no optics are prepared."""
 
 import json
 from types import SimpleNamespace
@@ -191,7 +191,7 @@ def test_reduced_grid_is_fixed(tmp_path):
 
 
 def test_saved_source_settings_round_trip(tmp_path):
-    # table_fast.restored_settings rebuilds the settings of a saved source through settings_for and compares the dict
+    # outputs.radiance_table.restored_settings rebuilds the settings of a saved source through settings_for and compares the dict
     from sosfuse2.foundation import paths
     from sosfuse2.outputs import radiance_table
     from sosfuse2.atmosphere.components import canonical_state

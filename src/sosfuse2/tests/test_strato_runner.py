@@ -14,10 +14,7 @@ from sosfuse2.atmosphere.stratosphere import DEFAULT
 from sosfuse2.jobs.run_state import SH_L
 from sosfuse2.backends.sh_layout import count
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 from sosfuse2.foundation import paths
 from sosfuse2.checks import testkit
 

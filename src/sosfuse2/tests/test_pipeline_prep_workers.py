@@ -3,7 +3,6 @@ the controller's subprocess.Popen is replaced and only the child environment is 
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path

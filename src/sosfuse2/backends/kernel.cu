@@ -1,4 +1,4 @@
-// Fixed component order: air, tropo_aerosol, o3, no2, o4 (components.py).
+// Fixed component order: air, tropo_aerosol, o3, no2, o4 (atmosphere/components.py).
 #define NCOMP 5
 // All current accumulations are deterministic; add nondeterministic atomics only under #if !SOSFUSE2_DETERMINISTIC.
 #ifdef SLIM
@@ -6,7 +6,7 @@
 #else
 #define SLIM_ON 0
 #endif
-// R1 split (fused.py KSPLIT): PROD (producer) keeps geometry, tag cache, SH contraction and
+// R1 split (SOSFUSE2_KSPLIT, solve/ksplit.py): PROD (producer) keeps geometry, tag cache, SH contraction and
 // m-reduction, writes own_aero per corner, and compiles out the tensor/log/attenuation/Kahan/boundary/projection and
 // moment/flux epilogue (its outputs are not meaningful); SLIM (consumer) reads own_aero instead (see SINV below).
 #ifdef PROD
@@ -23,11 +23,11 @@
 #endif
 #define NOSH_ON (SLIM_ON || REC_ON)
 // The SLIM consumer reads the PROD aerosol of the combined SH plane and has no stratospheric contraction of its own
-// (fused.Kernel.raw_kernel compiles every warm STRATO FW15 unit with SH_COMBINE).
+// (source_solver.Kernel.raw_kernel compiles every warm STRATO FW15 unit with SH_COMBINE).
 #if SLIM_ON && defined(STRATO) && !defined(SH_COMBINE)
 #error E_SLIM_REQUIRES_SH_COMBINE
 #endif
-// SLIM_RAYS only publishes ray_rads; sos_slim_proj projects them (fused.Kernel.slim_rays builds it with ray limits).
+// SLIM_RAYS only publishes ray_rads; sos_slim_proj projects them (source_solver.Kernel.slim_rays in solve/ksplit.py builds it with ray limits).
 #if defined(SLIM_RAYS) && !defined(LAUNCH_RAY_LIMIT)
 #error E_SLIM_RAYS_REQUIRES_RAY_LIMIT
 #endif
@@ -50,12 +50,12 @@
 #define SINV_AND_SIMPSON
 #endif
 // NVRTC, CUDA 12. FW is specialized to 1 or 15. Fast math and FMA contraction only through the stage-1 options
-// (fused.Kernel: --fmad, --prec-div/--prec-sqrt and SOSFUSE2_FASTMATH below); the default build has neither.
+// (source_solver.Kernel: --fmad, --prec-div/--prec-sqrt and SOSFUSE2_FASTMATH below); the default build has neither.
 // One destination cell (and optional spectral tile)/block, one ray/warp. No floating-point atomics: the only atomics are
 // integer counters (ray queue, cell and split completion) that hand out work; every sum keeps a fixed order.
 // NVRTC: math builtins available without headers
 typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long long int64_t; typedef int int32_t; typedef unsigned char uint8_t;
-// Stage-1 FASTMATH (fused.Kernel stage1): intrinsic exp/sin/cos for the whole unit. Defined before the first device
+// Stage-1 FASTMATH (source_solver.Kernel stage1): intrinsic exp/sin/cos for the whole unit. Defined before the first device
 // function so the math mode does not depend on where a function sits in this file.
 #ifdef SOSFUSE2_FASTMATH
 #define expf __expf
@@ -93,7 +93,7 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 #error E_SH_L: SH_L must be 16, 24 or 32
 #endif
 #define K ((SH_L+1)*(SH_L+2)/2)
-// Rows per cell of src (fused.Kernel source layout): 10 + K, and 10 + 2K with the stratospheric SH plane; 4 + K moments.
+// Rows per cell of src (source_solver.Kernel source layout): 10 + K, and 10 + 2K with the stratospheric SH plane; 4 + K moments.
 #define SRC_ROWS (10+K)
 #define SRC_ROWS_ST (10+2*K)
 #define NMOM (4+K)
@@ -102,7 +102,7 @@ typedef unsigned int uint32_t; typedef unsigned short uint16_t; typedef long lon
 #define PI 3.14159265358979323846
 // Smallest normal float (FLT_MIN). Traces below it are excluded from log-space moments; NaN fails >= as well. The trace
 // itself compares the same under FTZ, but subnormal terms inside it do not: CuPy always builds with
-// -ftz=true, so reference.py runs transport under flush_to_zero() to match.
+// -ftz=true, so numpy_reference.py runs transport under flush_to_zero() to match.
 #define TRACE_MIN 1.17549435e-38f
 // Transport defaults are isolated from the historical LUT translation unit.
 // Specialized transport always uses paired SH sidecars, lane attenuation/ground,
@@ -267,7 +267,7 @@ __device__ float ftz_dv(DS a){float h=fabsf(a.h)<TRACE_MIN?0.f:a.h,l=fabsf(a.l)<
 __device__ float clip(float x,float lo,float hi){return fminf(hi,fmaxf(lo,x));}
 __device__ int search(const float*a,int n,float x){int lo=0,hi=n;while(lo<hi){int m=(lo+hi)/2;if(a[m]<=x)lo=m+1;else hi=m;}return max(0,min(n-2,lo-1));}
 // PROFILE grid: PROFILE nodes 0..80 km at 0.5/0.25/0.125 km = 161/321/641 rows. The
-// host passes -DPROFILE_N only for 321/641 (fused.Kernel profile_step_km); the default expands to the same literals.
+// host passes -DPROFILE_N only for 321/641 (source_solver.Kernel profile_step_km); the default expands to the same literals.
 #ifndef PROFILE_N
 #define PROFILE_N 161
 #endif
@@ -288,9 +288,9 @@ __device__ float profile_value(float h,const float*table,int k){
  return table[i*3+k]+f*(table[(i+1)*3+k]-table[i*3+k]);
 }
 #ifdef AEROSOL_2L
-// Two-layer tropospheric aerosol (tropo_profile.py, opt-in by state; without -DAEROSOL_2L nothing here exists and
+// Two-layer tropospheric aerosol (atmosphere/tropo_profile.py, opt-in by state; without -DAEROSOL_2L nothing here exists and
 // s.prof[1] stays expf(-s.h/height)). P = [bl_top-w/2, 1/w, a_bl, k_bl, a_ft, k_ft, bl_top] follows sun_h[0..nsh) in
-// the same device allocation (fused.constants_device), so the kernel signature and launch argument lists do not change.
+// the same device allocation (source_solver.Kernel.constants_device), so the kernel signature and launch argument lists do not change.
 // Smoothstep blend of the boundary layer into the free troposphere over the width w.
 __device__ __forceinline__ float aerosol_two_layer(float h,const float*P){
  float x=clip((h-P[0])*P[1],0.f,1.f),s=x*x*(3.f-2.f*x);
@@ -322,7 +322,7 @@ __device__ float mie_phase(float u,int w,const float*chi){
 }
 #endif
 __device__ void kah(float &t,float &c,float v){float y=v-c,z=t+y;c=(z-t)-y;t=z;}
-// LUT_ONLY (fused.Kernel.strato_lut_kernel, precompile.py) compiles strato_lut_build above and nothing below.
+// LUT_ONLY (source_solver.Kernel.strato_lut_kernel, jobs/precompile.py) compiles strato_lut_build above and nothing below.
 // tests/test_strato_precision.py compiles the STRATO block up to kah() on its own: keep this boundary below kah.
 #ifdef LUT_ONLY
 #if defined(GROUND_SH_L)
@@ -408,8 +408,8 @@ __device__ void sh_basis_ds(double mu,int lane,float*y,const float2*aa2,const fl
  }
 }
 // The profile is evaluated by one function, profile_at, for
-// the quadrature nodes (point()) and the Simpson optical-depth prefix (segment ends, panel midpoints); reference.py profile_at,
-// extinction, SimpsonPrefix use the same operations. Path coordinates, panel widths and midpoints are DS, like point().
+// the quadrature nodes (point()) and the Simpson optical-depth prefix (segment ends, panel midpoints); numpy_reference.py profile_at,
+// extinction_profile, SimpsonPrefix use the same operations. Path coordinates, panel widths and midpoints are DS, like point().
 #define PROFILE_ARG ,profile_table,profile_mask,air_surface
 #ifdef STRATO
 #define SP_ST_PARAM ,float st_center,float st_sigma,float st_norm
@@ -597,7 +597,7 @@ __device__ __forceinline__ float2 warm_sh_pair(const float *ptr,int64_t cell,int
 
 
 #ifdef TROPO_MIE
-// Tropospheric aerosol Mie phase (tropo_mie.py, opt-in by state; without -DTROPO_MIE nothing below exists and every
+// Tropospheric aerosol Mie phase (atmosphere/tropo_mie.py, opt-in by state; without -DTROPO_MIE nothing below exists and every
 // hg(u,aerosol_g) site is unchanged). Per-wavelength table per steradian behind the asca pointer: asca[0..FW) as
 // before, table node i of wavelength w at asca[FW+i*FW+w], u=-1+i*2/TROPO_LUT_BINS (strato FINE node formula).
 #define TROPO_LUT_BINS 16384
@@ -808,10 +808,10 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
   +nwarps*32
   )+warp*PT_NB;
 #ifdef SLIM_RAYS
- pts=(PtBatch*)((((unsigned long long)(pts-warp*PT_NB))+15)&~15ull)+warp*PT_NB;   // 16-byte base; fused.py adds 16 B slack
+ pts=(PtBatch*)((((unsigned long long)(pts-warp*PT_NB))+15)&~15ull)+warp*PT_NB;   // 16-byte base; source_solver.py adds 16 B slack
 #endif
 #ifdef RS_ACTIVE
- // 8-bit ranks over a window of 32*nwarps <= 256 rays: blocks of at most 256 threads (fused.Kernel block_size check).
+ // 8-bit ranks over a window of 32*nwarps <= 256 rays: blocks of at most 256 threads (source_solver.Kernel block_size check).
  unsigned char *rs_key=(unsigned char*)(pts-warp*PT_NB+nwarps*PT_NB),*rs_perm=rs_key+256;
 #endif
 #endif
@@ -943,7 +943,7 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
 #endif
    int tags[4]={-1,-1,-1,-1};
    float tau_lane=0.f,tc_lane=0.f;
-   // Simpson prefix state of lane w<TW (reference.py SimpsonPrefix): panel start (DS t, extinction) and the segment sum.
+   // Simpson prefix state of lane w<TW (numpy_reference.py SimpsonPrefix): panel start (DS t, extinction) and the segment sum.
    DS sp_t={0.f,0.f};float sp_b=0.f,sp_acc=0.f;
    Sample &s=samples[warp];
    float sunphase=hg((float)d[2],aerosol_g);
@@ -1547,7 +1547,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #ifdef PT_ACTIVE
     }
 #endif
-    // Simpson end piece to b (beta(b) anew), then the segment sum into tau (Kahan), as reference.py SimpsonPrefix.finish.
+    // Simpson end piece to b (beta(b) anew), then the segment sum into tau (Kahan), as numpy_reference.py SimpsonPrefix.finish.
 #ifdef PATH_DS
     if(lane<TW && !PROD_ON SINV_AND_SIMPSON){const DS te=seg_b;
 #else
@@ -1773,7 +1773,7 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS) fl_project(int cells,l
 // VPROD (SOSFUSE2_KSPLIT=2): visitor-stream producer, compiled in the PROD module (same source,
 // same NVRTC options) and writing the same chunk-local own_aero records [slot = (point-base)*4+corner][w] as PROD
 // (row stride AERO_W = 16: one float4 store per thread, pad wave 15 = 0).
-// Block = one source cell (combined SH plane in shared), visitors = (ray, cell) of a host plan (fused.vprod_plan).
+// Block = one source cell (combined SH plane in shared), visitors = (ray, cell) of a host plan (source_solver.Kernel.vprod_plan in solve/ksplit.py).
 // Arithmetic follows the PROD path (SH_COMBINE, TRANSPORT_RS2, L<=16), with absent SH terms set to compile-time zero:
 //  y      : sos_vprod_y calls sh_basis(d[2],lane,...) per ray exactly as the warm kernel does (one warp per ray);
 //  a_m[w] : +0 start, cache[w]+=y[ix(l,m)]*C[ix(l,m)][w] for l=m..SH_L ascending (warm_sh_pair addressing);

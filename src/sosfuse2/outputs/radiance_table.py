@@ -210,6 +210,23 @@ def _save_table(path, table, wl, hs, el, az):
     os.replace(tmp, path)
 
 
+def check_source_density(contract, state):
+    """The density configuration a source records in its contract state (canonical_state) must be the reader's."""
+    from ..atmosphere.components import canonical_state
+
+    def brief(d):
+        keys = ('density_profile', 'ozone_profile', 'rayleigh_column', 'profile_step_km')
+        return json.dumps(dict({k: d[k] for k in keys if k in d}, external_profile='external_profile' in d), sort_keys=True)
+
+    saved = contract.get('state') if isinstance(contract, dict) else None
+    density = saved.get('density') if isinstance(saved, dict) else None
+    if not isinstance(density, dict):
+        raise ValueError('E_SOURCE_DENSITY: the source records no density configuration')
+    want = canonical_state(state)['density']
+    if density != want:
+        raise ValueError(f'E_SOURCE_DENSITY: source {brief(density)} vs requested {brief(want)}')
+
+
 def load_source(path, s, wl, *, settings=None, backend=None, full_settings=False):
     with np.load(path) as f:
         data = {k: f[k] for k in f.files}
@@ -222,6 +239,15 @@ def load_source(path, s, wl, *, settings=None, backend=None, full_settings=False
     except ValueError as exc:
         raise ValueError('E_PHYSICS_CONTRACT: source physics unreadable') from exc
     check_current(physical, what='source')
+    if 'source_contract' not in data:
+        raise ValueError('E_SOURCE_CONTRACT: source contract missing')
+    try:
+        contract = json.loads(str(data['source_contract']))
+    except (TypeError, ValueError) as exc:
+        raise ValueError('E_SOURCE_CONTRACT: source contract unreadable') from exc
+    if not (isinstance(contract, dict) and isinstance(contract.get('state'), dict)):
+        raise ValueError('E_SOURCE_CONTRACT: source contract has no state')
+    check_source_density(contract, s.fuse_state)
     try:
         amounts = json.loads(str(data['optics_state'])) if 'optics_state' in data else None
     except ValueError as exc:
@@ -274,7 +300,7 @@ def restored_settings(path, state, reduced, backend):
     with np.load(path) as data:
         wl = np.asarray(data['wavelength_nm'])
         if 'source_contract' not in data.files:
-            return None
+            raise ValueError('E_SOURCE_CONTRACT: source contract missing')
         try:
             contract = json.loads(str(data['source_contract']))
             cfg = contract['settings']
@@ -282,6 +308,7 @@ def restored_settings(path, state, reduced, backend):
                 raise ValueError('settings missing')
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError('E_SOURCE_CONTRACT: ' + str(exc)) from exc
+    check_source_density(contract, state)
     legacy_wl = axes(reduced)[0]
     recorded = np.asarray(cfg.get('wavelengths_nm', legacy_wl))
     if (
@@ -385,13 +412,14 @@ def restored_table(path, state, cfg, prepare, backend, group, batch, log):
             s.kernel.constants.clear()
             s.kernel.device_constants.clear()
     from ..atmosphere.stratosphere import computed_metadata
+    from ..atmosphere.density import metadata as density_metadata
 
     return (
         np.concatenate(tables, -1),
         seconds,
         create_seconds,
         table_seconds,
-        computed_metadata(state, getattr(s, 'strato', None)),
+        dict(computed_metadata(state, getattr(s, 'strato', None)), density=density_metadata(s)),
     )
 
 
@@ -447,7 +475,9 @@ def main():
         total = time.monotonic() - t
         from ..atmosphere.stratosphere import computed_metadata
 
-        optical_meta = computed_metadata(state, getattr(s, 'strato', None))
+        from ..atmosphere.density import metadata as density_metadata
+
+        optical_meta = dict(computed_metadata(state, getattr(s, 'strato', None)), density=density_metadata(s))
     else:
         wl, hs, el, az = restored_axes(settings)
         table, seconds, create_seconds, total, optical_meta = restored_table(

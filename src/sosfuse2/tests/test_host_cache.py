@@ -211,6 +211,7 @@ class CacheTests(unittest.TestCase):
                 os.utime(p, (time.time() - 3601,) * 2)
             stale = folder / ('a' * 64 + '.hcache')
             stale.write_bytes(b'old-cache')
+            os.utime(stale, (time.time() - 7200, time.time() - 7200))
             with busy.open('rb') as f:
                 fcntl.flock(f, fcntl.LOCK_EX)
                 with self.assertWarnsRegex(RuntimeWarning, 'HOST_CACHE_STALE n=1 bytes=9'):
@@ -256,3 +257,11 @@ class CacheTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
+
+def test_housekeeping_does_not_warn_for_fresh_other_key(tmp_path):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        hc.cached(tmp_path, dict(key=1), lambda: {'a': np.array([1.0])})
+        hc.cached(tmp_path, dict(key=2), lambda: {'a': np.array([2.0])})
+    assert not any('HOST_CACHE_STALE' in str(w.message) for w in caught)

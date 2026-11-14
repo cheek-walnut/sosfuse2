@@ -30,7 +30,7 @@ def module_file(module):
 
 
 def python(*args):
-    return subprocess.run([sys.executable, '-B', *args], capture_output=True, text=True, timeout=120)
+    return subprocess.run([sys.executable, '-B', *args], capture_output=True, text=True, timeout=120, env=paths.child_env())
 
 
 def test_command_names_are_module_names():
@@ -61,15 +61,16 @@ def test_every_runnable_module_has_a_command():
 @pytest.mark.parametrize('args', [('C3_nostrato',), ('no such config',), ('--help',)])
 def test_dispatch_passes_arguments_and_exit_status(args):
     """flags_env reads its first argument as a config name: a config that exists prints exports (status 0); a name
-    with spaces or one that looks like an option is passed on unchanged, and the module fails on the missing file
-    (status 1) exactly as when it is run directly."""
+    with spaces or one that looks like an option is passed on unchanged, and the module stops with E_CONFIG_UNKNOWN
+    on stderr and an empty stdout (status 1, no traceback) exactly as when it is run directly."""
     door = python('-m', 'sosfuse2', 'flags_env', *args)
     direct = python('-m', front.COMMANDS['flags_env'], *args)
     assert (door.returncode, door.stdout, door.stderr) == (direct.returncode, direct.stdout, direct.stderr)
     if args == ('C3_nostrato',):
         assert door.returncode == 0 and door.stdout.startswith('export SOSFUSE2_BLOCK_SIZE=')
     else:
-        assert door.returncode == 1 and f'configs/{args[0]}.json' in door.stderr
+        assert door.returncode == 1 and f'backends/configs/{args[0]}.json' in door.stderr
+        assert door.stdout == '' and door.stderr.startswith('E_CONFIG_UNKNOWN: ') and 'Traceback' not in door.stderr
 
 
 def loaded_modules(stderr):

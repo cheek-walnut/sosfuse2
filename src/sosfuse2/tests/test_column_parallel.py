@@ -1,9 +1,9 @@
 """Cold column builds with SOSFUSE2_COLUMN_WORKERS > 1 give the serial values within rtol 1e-6 (column_parallel.py).  CPU only.
-Kinds: fused strato_end_columns, fused density_end_columns, host_cache.endpoint_columns (endpoint02 build).
+Kinds: source_solver.Kernel strato_end_columns and density_end_columns, host_cache.endpoint_columns (endpoint02 build).
 
 Real rays: the first 404,496 rays (the ground bundle) of the full-grid packed geometry cache; `old` and the
 usstd76 density optics come from the production solver constructor (plan_queue.probe -> create_configured).
-The production methods fused.Kernel.strato_end_columns / density_end_columns run with the column cache off.
+The production methods source_solver.Kernel.strato_end_columns / density_end_columns run with the column cache off.
 The test asserts that the parallel path really ran (its PHASE event), not a serial fallback; a second test injects a
 worker exception and checks that the serial rerun gives the serial values within rtol 1e-6.
 
@@ -28,10 +28,7 @@ from sosfuse2.precompute import column_parallel
 from sosfuse2.jobs import plan_queue
 from sosfuse2.tests import test_plan_queue as tp
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 
 def flaky_segments(segments, p, d, n):

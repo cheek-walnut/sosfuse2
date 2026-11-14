@@ -11,10 +11,7 @@ import numpy as np
 from sosfuse2.rays import column_table as ct
 from sosfuse2.atmosphere import density, stratosphere
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 
 def boundary_rays():
@@ -46,7 +43,7 @@ def boundary_rays():
 
 
 def supported_profiles():
-    opt = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
+    opt = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76', rayleigh_column='keep')))
     from sosfuse2.atmosphere import tropo_profile
 
     two_layer = [

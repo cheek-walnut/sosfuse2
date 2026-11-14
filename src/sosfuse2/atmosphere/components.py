@@ -138,8 +138,11 @@ def optics_state(state, optics=None):
 
 def canonical_state(state):
     """The state as contracts and signatures carry it: state_identity (no note or label keys) with the
-    resolved NO2 and O4 amounts filled in."""
+    resolved density options and NO2 and O4 amounts filled in."""
+    from .density import options
+
     result = state_identity(state)
+    result['density'] = dict(result.get('density', {}), **options(state))
     result.setdefault('parameters', {}).update(no2_du=no2_du(state), o4=o4_enabled(state))
     return result
 

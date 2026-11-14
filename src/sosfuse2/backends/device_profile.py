@@ -1,7 +1,7 @@
-"""Device profile: per-machine launch budget and launch splitting (configs/devices.json).
+"""Device profile: per-machine launch budget and launch splitting (backends/configs/devices.json).
 
 Each profile sets a kernel launch budget and optional launch splitting.
-The budgets live in configs/devices.json.
+The budgets live in backends/configs/devices.json.
 
 Selection order: SOSFUSE2_DEVICE_PROFILE, else the CUDA device name against each profile's gpu_names,
 else 'rig' for an unmatched CUDA device and 'mac' without CUDA. The profile 'split' (split launches for a card with a
@@ -35,7 +35,7 @@ def _number(name, value, allow_none=True):
 def profiles():
     data = json.loads(CONFIG.read_text())
     if data.get('schema') != 1 or not isinstance(data.get('profiles'), dict):
-        raise ValueError('E_DEVICE_PROFILE: configs/devices.json schema 1 required')
+        raise ValueError('E_DEVICE_PROFILE: backends/configs/devices.json schema 1 required')
     return data['profiles']
 
 
@@ -65,7 +65,7 @@ def select(device_name=None):
         p['launch_pause_ms'] = _number('SOSFUSE2_LAUNCH_PAUSE_MS', pause, allow_none=False)
     cells = os.environ.get('SOSFUSE2_LAUNCH_CELLS', '').strip()
     if cells:
-        if not cells.isdigit():
+        if not (cells.isascii() and cells.isdigit()):  # isdigit() alone also accepts superscript digits
             raise ValueError('E_LAUNCH_CELLS: SOSFUSE2_LAUNCH_CELLS must be a non-negative integer')
         p['launch_cells_fixed'] = int(cells)
     else:

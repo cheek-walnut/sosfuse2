@@ -92,8 +92,6 @@ def table_path(state):
 
 
 def path_label(path):
-    from ..foundation import paths
-
     return paths.rel(path) if Path(path).resolve().is_relative_to(paths.PKG) else Path(path).name
 
 
@@ -380,7 +378,7 @@ def _ground_geometry(s, scope, old, profile):
     _GEOM_MEMO[key] = (suncol, geom)
     if path is not None:
         off = np.r_[0, np.cumsum([len(g[0]) for g in geom])].astype('i8')
-        tmp = path.with_suffix('.tmp.npz')
+        tmp = path.with_suffix(f'.{os.getpid()}.tmp.npz')  # per process: concurrent writers never share it
         Path(root).mkdir(parents=True, exist_ok=True)
         np.savez(
             tmp,

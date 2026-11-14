@@ -38,7 +38,6 @@ def build():
         version=2,
         sampling='deterministic stratospheric diagnostic matrix',
         supported_physics='Rayleigh coherency + fully depolarizing trop HG / strat scalar Mie + ozone + Lambert',
-        review_gate='independent review and CUDA full-grid checks',
         states=states,
     )
 

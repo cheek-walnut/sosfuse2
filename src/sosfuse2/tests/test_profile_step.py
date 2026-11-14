@@ -34,10 +34,7 @@ from sosfuse2.backends import numpy_reference
 from sosfuse2.checks import testkit  # noqa: E402
 from sosfuse2.backends.arithmetic import F  # noqa: E402
 
-try:
-    from sosfuse2.checks.numerical_checks import within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 R = 6371.0
 STEPS = ((0.5, 161), (0.25, 321), (0.125, 641))
@@ -155,7 +152,7 @@ def test_a_grids_keep_asset_nodes_and_integrals(subtests):
     }  # historical keys
     assert half['meta']['interpolation'] == 'linear 0.5 km'
     assert within_tol(density.build(state(profile_step_km=0.5))['table'][:, :2], expected)
-    assert density.build(dict(density=dict(profile_step_km=0.125)))['table'].shape == (
+    assert density.build(dict(density=dict(density.LEGACY, profile_step_km=0.125)))['table'].shape == (
         641,
         3,
     )  # exp8/triangle: nothing to refine, asset unopened
@@ -799,7 +796,7 @@ def review_bad_optics():
 
 
 def test_r1_declared_step_mismatch_rejected_on_every_path(subtests):
-    """Fix #1: cached setup (NumPy transport, geometry, table_fast read it), reference.profile_at, profiles, identity,
+    """Fix #1: cached setup (NumPy transport, geometry, radiance_table read it), numpy_reference.profile_at, profiles, identity,
     payload restore / persistent install: all refuse Kernel 161 + meta 0.5 + table 321x2 (no silent 0.25 reinterpretation)."""
     from sosfuse2.jobs import pipeline_execution as pe
 
@@ -873,3 +870,129 @@ def test_r5_numpy_service_event_records_consumed_profile():
     assert ev['profile_identity'] == density.profile_identity(o)['sha256'] and ev['origin'] == 'external'
     none = pe.profile_service_event(source_solver.Kernel(backend='numpy'))
     assert (none['mask'], none['uploaded_n'], none['profile_identity']) == (0, None, None)
+
+
+@pytest.mark.parametrize('air', ['exp8', 'usstd76'])
+@pytest.mark.parametrize('ozone', ['triangle', 'usstd76'])
+@pytest.mark.parametrize('column', ['keep', 'usstd'])
+def test_explicit_density_preserves_optics(air, ozone, column):
+    """Recompute the pre-1.5 formulas independently for every complete choice."""
+    opt = dict(density_profile=air, ozone_profile=ozone, rayleigh_column=column)
+    got = density.build(dict(density=opt))
+    z = np.arange(161) * .5
+    legacy = (air, ozone, column) == ('exp8', 'triangle', 'keep')
+    if legacy:
+        table = np.column_stack([np.exp(-z / 8), np.maximum(0, 1 - np.abs(z - 25) / 15)])
+        scale, mask, asset = 1., 0, None
+    else:
+        raw = density.asset_path().read_bytes()
+        data = json.loads(raw)
+        a, o = np.asarray(data['air_number_density_ratio']), np.asarray(data['ozone_number_density_m3'])
+        table = np.column_stack([a * (8 * -np.expm1(-10.)) / np.trapezoid(a, z), o * 15 / np.trapezoid(o, z)])
+        scale = 1. if column == 'keep' else data['rayleigh_tau550_0_80'] / (.013558 * (8 * -np.expm1(-10.)))
+        mask = int(air == 'usstd76') | (2 * int(ozone == 'usstd76'))
+        asset = hashlib.sha256(raw).hexdigest()
+    np.testing.assert_array_equal(got['table'][:, :2], table)
+    assert (got['mask'], got['scale'], got['meta']['asset_sha256']) == (mask, scale, asset)
+    assert {k: got['meta'][k] for k in opt} == opt
+    raw_no2 = json.loads((paths.ASSETS / 'no2_afglus_profile.json').read_text())
+    no2 = np.asarray(raw_no2['no2_number_density_m3'])
+    np.testing.assert_array_equal(got['table'][:, 2], no2 / no2.max())
+
+
+def test_partial_density_inputs_and_cli():
+    import itertools
+
+    keys = tuple(density.LEGACY)
+    partial = [dict(zip(keys, row)) for row in itertools.product(*[(None, *density.CHOICES[k]) for k in keys])]
+    partial = [{k: v for k, v in row.items() if v is not None} for row in partial if None in row.values()]
+    assert len(partial) == 19
+    for raw in [*partial, {}, dict(profile_step_km=.25), dict(external_profile={})]:
+        with pytest.raises(ValueError, match='E_DENSITY_PARTIAL') as error:
+            density.build(dict(density=raw))
+        for key in set(keys) - raw.keys():
+            assert key in str(error.value)
+        assert 'exp8/triangle/keep' in str(error.value) and 'usstd76/usstd76/usstd' in str(error.value)
+    for raw in partial:
+        if raw:
+            with pytest.raises(ValueError, match='E_DENSITY_PARTIAL'):
+                density.with_options({}, SimpleNamespace(**raw))
+    with pytest.raises(ValueError, match='E_DENSITY_PARTIAL'):
+        density.with_options({}, SimpleNamespace(profile_step_km=.25))
+    merged = density.with_options(dict(density=dict(density.LEGACY)), SimpleNamespace(density_profile='usstd76'))
+    assert density.options(merged) == dict(density.LEGACY, density_profile='usstd76')
+    merged = density.with_options(dict(density=dict(density_profile='exp8')), SimpleNamespace(ozone_profile='triangle', rayleigh_column='keep'))
+    assert density.options(merged) == density.LEGACY
+
+
+def test_omitted_density_is_explicit_default():
+    from sosfuse2.atmosphere.components import canonical_state
+
+    assert density.options({}) == density.DEFAULTS
+    assert density.with_options({}, SimpleNamespace()) == {}
+    assert canonical_state({})['density'] == density.DEFAULTS
+    omitted, explicit = density.build({}), density.build(dict(density=dict(density.DEFAULTS)))
+    np.testing.assert_array_equal(omitted['table'], explicit['table'])
+    assert omitted['mask'] == explicit['mask'] == 3
+    assert omitted['scale'] == explicit['scale']
+    assert omitted['meta'] == explicit['meta']
+    assert omitted['meta']['asset_sha256'] == density.ASSET_SHA256
+    assert density.profile_identity(omitted) == density.profile_identity(explicit)
+
+
+def test_density_offline_legacy_and_default(tmp_path, monkeypatch):
+    monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(tmp_path))
+    monkeypatch.setenv('SOSFUSE2_OFFLINE', '1')
+    monkeypatch.setattr(density, '_PACKAGED', tmp_path / 'not-packaged.json')
+    old = density.build(dict(density=dict(density.LEGACY)))
+    assert old['mask'] == 0 and old['meta']['asset_sha256'] is None
+    assert not (tmp_path / 'assets').exists()
+    with pytest.raises(RuntimeError, match='E_IPRT_OFFLINE') as error:
+        density.build({})
+    assert 'default density configuration' in str(error.value)
+    assert all(x in str(error.value) for x in ('exp8', 'triangle', 'keep'))
+
+
+def test_external_helper_materializes_density():
+    z = density.grid(161)
+    s = density.with_profile({}, z_km=z, table=np.ones((161, 2)), mask=0, air_surface_number_density_m3=2.5469e25)
+    assert density.options(s) == density.DEFAULTS
+    built = density.build(s)
+    assert built['mask'] == 0 and built['scale'] == 1.
+    assert built['meta']['origin'] == 'external'
+
+
+@pytest.mark.parametrize('saved', [None, {}, dict(density.LEGACY)])
+def test_source_density_precedes_optics(tmp_path, saved):
+    from sosfuse2.atmosphere.components import physics
+    from sosfuse2.outputs import radiance_table as tf
+
+    st = {} if saved is None else dict(density=saved)
+    path = tmp_path / 'source.npz'
+    np.savez(path, physics=json.dumps(physics()), source_contract=json.dumps(dict(state=st, settings={})), wavelength_nm=[550.])
+    with pytest.raises(ValueError, match='E_SOURCE_DENSITY'):
+        tf.load_source(path, SimpleNamespace(fuse_state={}), [550.])
+    with pytest.raises(ValueError, match='E_SOURCE_DENSITY'):
+        tf.restored_settings(path, {}, True, 'numpy')
+
+
+@pytest.mark.parametrize('contract', ['[]', 'null', '{}', '{"state": 5}', '{"state'])
+def test_source_contract_shape_is_a_contract_error(tmp_path, contract):
+    from sosfuse2.atmosphere.components import physics
+    from sosfuse2.outputs import radiance_table as tf
+
+    path = tmp_path / 'source.npz'
+    np.savez(path, physics=json.dumps(physics()), source_contract=contract, wavelength_nm=[550.])
+    with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
+        tf.load_source(path, SimpleNamespace(fuse_state={}), [550.])
+
+
+def test_missing_density_optics_fall_back_to_exp8():
+    """Without density_optics the NumPy profiles and the metadata are those of exp8/triangle/keep, O4 included
+    (q = exp(-h/8) over an air surface of 1); the default configuration would scale O4 by 1/air_surface**2."""
+    h = np.linspace(0, 80, 33, dtype='f4')
+    legacy = density.build(dict(density=dict(density.LEGACY)))
+    fallback = numpy_reference.profile_at(h, dict(height=1.5))
+    np.testing.assert_array_equal(fallback, numpy_reference.profile_at(h, dict(height=1.5, density_optics=legacy)))
+    np.testing.assert_allclose(fallback[:, 4], np.exp(-h / 4), rtol=1e-6)
+    assert density.metadata(SimpleNamespace()) == density.LEGACY

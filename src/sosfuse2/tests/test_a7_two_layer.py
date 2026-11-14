@@ -24,10 +24,7 @@ import numpy as np
 from sosfuse2.solve import ray_geometry as G
 from sosfuse2.foundation.timers import TIMERS
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 F = np.float32
 

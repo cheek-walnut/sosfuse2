@@ -838,3 +838,17 @@ def test_work_root_error(monkeypatch, tmp_path):
         paths.work_root()
     monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(tmp_path / 'made' / 'here'))
     assert paths.work_root() == (tmp_path / 'made' / 'here').resolve()
+
+
+def test_physics_identity_reads_without_creating_the_work_root(monkeypatch, tmp_path):
+    """Reading a B2 physics identity only looks for the optional O4 asset: an absent or uncreatable work root is
+    "no O4 asset", never E_WORK_ROOT, and nothing is created."""
+    from sosfuse2.atmosphere import components as C
+
+    blocker = tmp_path / 'file'
+    blocker.write_text('x')
+    for root in (blocker / 'below', tmp_path / 'absent' / 'root'):
+        monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(root))
+        declared = C._b2('1' * 64)
+        assert C.identity(declared) == declared
+    assert not (tmp_path / 'absent').exists()

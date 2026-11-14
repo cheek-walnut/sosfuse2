@@ -11,10 +11,7 @@ from sosfuse2.atmosphere import density, stratosphere
 from sosfuse2.solve import ray_geometry
 from sosfuse2.rays import ray_columns
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 
 class JointColumnsTests(unittest.TestCase):
@@ -24,7 +21,7 @@ class JointColumnsTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {'SOSFUSE2_SUN_WORKERS': '1', 'SOSFUSE2_GROUND_WORKERS': '1'}):
             cls.s, cls.scope, _ = ray_geometry.create(Path(cls.tmp.name), 'selftest', [550.0], 'numpy')
         cls.old = cls.scope.b.sh.old
-        cls.optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
+        cls.optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76', rayleigh_column='keep')))
         cls.profile = stratosphere.profile_config({})
 
     @classmethod

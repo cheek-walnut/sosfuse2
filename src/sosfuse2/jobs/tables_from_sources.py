@@ -118,7 +118,9 @@ def process(root, ident, source, state, a, log):
         table_seconds = time.monotonic() - t
         from ..atmosphere.stratosphere import computed_metadata
 
-        optical_meta = computed_metadata(state, getattr(s, 'strato', None))
+        from ..atmosphere.density import metadata as density_metadata
+
+        optical_meta = dict(computed_metadata(state, getattr(s, 'strato', None)), density=density_metadata(s))
     else:
         table, seconds, create_seconds, table_seconds, optical_meta = tf.restored_table(
             source, state, settings, root / 'tmp' / ident / 'prepare', a.backend, a.group, a.batch, log

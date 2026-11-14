@@ -18,18 +18,19 @@ every table with the hashes of the code and data that produced it.
    layers, and `AGENTS.md` lists the files to open first for each kind of task.
 
 This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, the versions
-from 1.3.0 on were published one by one, and 1.4.0 is the current release. For users of 1.3.x, 1.4.0 moves the module
+from 1.3.0 on were published one by one, and 1.5.0 is the current release. For users of 1.3.x, 1.4.0 moves the module
 paths into layer folders, with the old-to-new table in `docs/CHANGELOG.md`.
 `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the configurations the releases
-were verified on. The change that matters most for default output is in 1.2.3: the bundled `states_v2.json` states now
-include the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option. The changelog explains how to
-reproduce the earlier output.
+were verified on. The change that matters most for default output is in 1.5.0: a state without a `density` block now
+uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (*Limitations*). In 1.2.3 the bundled
+`states_v2.json` states began to include the stratospheric sulfate layer, and the CLI has no `--stratosphere off`
+option. The changelog explains how to reproduce the earlier output.
 
 ![Engine and MYSTIC radiance and ratios for eight bundled states at solar zenith angles 93 and 96
 degrees](docs/validation/mystic_states.png)
 
-Radiance of the engine (1.2.3) and of the Monte Carlo code MYSTIC on the same optical input, for eight bundled states at
-solar zenith angles 93° and 96°: (a) L/E₀ of `clear_87` at the sun-side pixel 20.25° / 0.5°, (b) the ratio MYSTIC /
+Radiance of the engine (1.2.3, with `usstd76`/`usstd76`/`usstd`, the default density configuration from 1.5.0) and of
+the Monte Carlo code MYSTIC on the same optical input, for eight bundled states at solar zenith angles 93° and 96°: (a) L/E₀ of `clear_87` at the sun-side pixel 20.25° / 0.5°, (b) the ratio MYSTIC /
 engine for the eight states and their mean, (c) the luminance ratio at six pixels with 95 % intervals over 16 seeds.
 Over the 96 cases the ratio minus 1 has a mean of +0.10 % and a root mean square of 0.63 %. At 93° the mean is +0.13 %
 with a root mean square of 0.26 %, and 15 of the 48 intervals exclude 1; at 96° the root mean square of 0.85 % is of the
@@ -88,16 +89,18 @@ regressions across refactors and other hardware; they do not measure physical ac
 
 ## Limitations
 
-- The default density row, exp(−h / 8 km), holds more air above 20 km than the US Standard Atmosphere 1976 at the same
-  column (1.2 times at 20 km, 1.7 times at 30 km), and deep twilight comes out too bright. Against measured zenith and
-  all-sky twilight brightness (Koomen et al. 1952; Patat et al. 2006), a table of a bundled state is 1.4 to 2.1 times
-  the measurements in Maryland and at Paranal between solar elevations of −6° and −12°, and 2.9 to 3.2 times those at
-  Sacramento Peak. Two variants of one state both reproduce the purple light of Lee and Hernández-Andrés (2003), and
-  both use `ozone_profile: usstd76` and `rayleigh_column: usstd`. The variant with the exponential density profile and a
-  stratospheric τ550 of 0.006 gives 1.6 to 2.1 times the Maryland and Paranal measurements, and the variant with
-  `density_profile: usstd76` and τ550 0.0037 gives 0.65 to 1.04 times. The default is kept; for deep twilight, set
-  `density_profile: usstd76`, `ozone_profile: usstd76` and `rayleigh_column: usstd` in the state's `density` block, as
-  `states_v1_usstd.json` does.
+- The default density configuration is `usstd76`/`usstd76`/`usstd` (air profile, ozone profile, Rayleigh column).
+  It still differs from measured twilight brightness. At solar elevations −6° / −9° / −12°, the model-to-measurement
+  ratios for `clear_89` are 1.00 / 1.05 / 0.87 in Maryland, 1.67 / 1.45 / 1.23 at Sacramento Peak, and
+  0.88 / 0.75 / 0.59 at Paranal (`docs/VALIDATION.md`, Table 13, last column).
+  The exp8/triangle/keep configuration, the default through 1.4.0, holds more air above 20 km than the US Standard
+  Atmosphere 1976 at the same column (1.2 times at 20 km, 1.7 times at 30 km). Against measured zenith and all-sky
+  twilight brightness (Koomen et al. 1952; Patat et al. 2006) it gives 1.4 to 2.1 times the Maryland and Paranal
+  measurements and 2.9 to 3.2 times those at Sacramento Peak. Two variants reproduce the purple light of Lee and Hernández-Andrés
+  (2003): `density_profile: exp8`, `ozone_profile: usstd76`, `rayleigh_column: usstd` with stratospheric τ550 0.006
+  gives 1.6 to 2.1 times the Maryland and Paranal measurements; `density_profile: usstd76`, `ozone_profile: usstd76`,
+  `rayleigh_column: usstd` with τ550 0.0037 gives 0.65 to 1.04 times. Specify all three options in the state's
+  `density` block when selecting a configuration; partial blocks and partial CLI choices stop with `E_DENSITY_PARTIAL`.
 - NO₂ uses a fixed AFGL profile shape and 220 K cross sections, with a default column of 0.207 DU (`parameters.no2_du`).
   Real columns vary with location, season and time of day, and the model has no photochemistry. In MYSTIC runs at ten
   twilight pixels, replacing the fixed 220 K (NO₂) and 233 K (ozone) cross sections with per-layer temperatures changed
@@ -144,12 +147,13 @@ run. With `SOSFUSE2_COMPILE_CACHE=<dir>`, they all go to the given directory, an
 
 ## Quick start
 
-A first check takes three commands: install, prepare the O₄ absorption data once, and solve one reduced-resolution state
-with the NumPy backend. The solve takes about a minute on a laptop, 36 s with two threads in the measured run.
+A first check installs the package, prepares the O₄ and density data once, and solves one reduced-resolution state
+with the NumPy backend. The solve takes about a minute on a laptop, 57 s with two threads in the measured run.
 
 ```sh
 pip install ".[test]"
 python -m sosfuse2.asset_tools.prepare_minor_absorbers --download
+python -m sosfuse2 generate_density_profile
 python -B -m sosfuse2.jobs.run_state --id clear_34 --reduced --backend numpy --threads 2 --work-root ./work
 ```
 
@@ -164,8 +168,9 @@ The O₄ step downloads the HITRAN O₂–O₂ collision-induced absorption file
 not bundled (`THIRD_PARTY.md`), and a solve does not download them either: a missing or stale cache stops the run with
 `E_O4_ASSET_MISSING` or `E_O4_ASSET_STALE`.
 
-One other download can happen. A state that selects a `usstd76` density or ozone profile fetches the IPRT input on first
-use; the default states do not. `SOSFUSE2_OFFLINE=1` refuses that download as well (`THIRD_PARTY.md` §9).
+The default density configuration fetches two IPRT inputs on first use. The density preparation command above
+fetches them in advance. `SOSFUSE2_OFFLINE=1` refuses missing inputs with `E_IPRT_OFFLINE` (`THIRD_PARTY.md` §9).
+To avoid that download, explicitly set all three density options to `exp8`/`triangle`/`keep`.
 
 The state ids come from `sosfuse2/assets/states_v2.json`, the default `--states` file. It holds 64 parameter sets over
 `aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo` and `stratosphere_tau550`; `states_v1.json`
@@ -238,8 +243,7 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
    absent and one of the three skips. Tests that need the research records
    skip unless `SOSFUSE2_SKY_SOS_ROOT` points at that checkout, and tests that need `clang++` skip when it is absent. The
    tests use a synthetic O₄ table in an isolated temporary root and download no HITRAN data; reproduction from the
-   original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied. In 1.4.0
-   its NO₂ part fails (`docs/KNOWN_FAILURES.md`).
+   original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied.
 2. A CUDA machine: `python -B -m sosfuse2.checks.gate --all --out <dir>` runs G-P, G-T, G-A, H and PS, and
    `gate --stage --out <dir>` runs the repeat checks.
 3. A CUDA machine with the research checkout: `gate --gf --reference <table.npz> --out <dir>` (`docs/CHECKS.md`).
@@ -255,6 +259,13 @@ passing turns the run red until its entry is removed, so the failures stay visib
 
 1.3.3 and 1.3.4 change documentation only. Their code is that of 1.3.2, and apart from the continuous-integration run no
 test or gate was run again for them.
+
+Configurations verified for 1.5.0:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split` selected with its 1.3.x name `eda`: `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from the RTX 3080: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| macOS arm64 | 3.14 | NumPy | release tree in place (`PYTHONPATH=src`), offline, with the IPRT inputs and the prepared O₄ asset in the work root: 939 passed, 68 skipped, 3 xfailed, 0 failed; without the IPRT inputs: 751 passed, 256 skipped (188 of them `E_IPRT_OFFLINE`), 3 xfailed, 0 failed; the README quick start as written in a fresh virtual environment with an empty work root (O₄ and density preparation, reduced solve 57 s) |
 
 Configurations verified for 1.4.0:
 

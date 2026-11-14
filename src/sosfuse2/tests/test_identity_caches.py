@@ -368,3 +368,61 @@ def test_geometry_cpu_import_does_not_change_bytecode_setting(monkeypatch):
     monkeypatch.setattr(sys, 'dont_write_bytecode', False)
     exec(compile(source.read_bytes(), str(source), 'exec'), namespace)
     assert sys.dont_write_bytecode is False
+
+
+def test_attach_disk_cache_temporary_name_is_per_process(monkeypatch, tmp_path):
+    """Two processes sharing STRATO_ATTACH_CACHE never write the same temporary file (atomic replace per writer)."""
+    from sosfuse2.precompute import ground_parallel
+
+    geom = [tuple(np.zeros(2) for _ in stratosphere.GEOM_FIELDS)]
+    monkeypatch.setenv('STRATO_ATTACH_CACHE', str(tmp_path))
+    monkeypatch.setattr(stratosphere, '_geometry_key', lambda s, scope, profile: 'k')
+    monkeypatch.setattr(stratosphere, 'solar_grid', lambda s, old, profile: np.zeros(3))
+    monkeypatch.setattr(stratosphere, '_sun_method', lambda s: None)
+    monkeypatch.setattr(ground_parallel, 'cells', lambda *a, **kw: geom)
+    monkeypatch.setattr(stratosphere, '_GEOM_MEMO', {})
+    moves = []
+    replace = os.replace
+
+    def record(source, destination):
+        moves.append((Path(source).name, Path(destination).name))
+        replace(source, destination)
+
+    monkeypatch.setattr(os, 'replace', record)
+    stratosphere._ground_geometry(SimpleNamespace(), None, None, None)
+    assert moves == [(f'attach_geometry_k.{os.getpid()}.tmp.npz', 'attach_geometry_k.npz')]
+
+
+@pytest.mark.parametrize(
+    'module', ['generate_minor_absorbers', 'generate_strato_optics', 'generate_tropo_optics']
+)
+def test_asset_generator_import_does_not_change_bytecode_setting(monkeypatch, module):
+    import importlib
+
+    mod = importlib.import_module(f'sosfuse2.asset_tools.{module}')
+    source = Path(mod.__file__)
+    namespace = dict(__name__=mod.__name__, __package__=mod.__package__, __file__=str(source))
+    monkeypatch.setattr(sys, 'dont_write_bytecode', False)
+    exec(compile(source.read_bytes(), str(source), 'exec'), namespace)
+    assert sys.dont_write_bytecode is False
+
+
+@pytest.mark.parametrize('component', [2, 3])
+def test_missing_optics_keeps_legacy_columns_offline(tmp_path, monkeypatch, component):
+    monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(tmp_path))
+    monkeypatch.setenv('SOSFUSE2_OFFLINE', '1')
+    optics = density.build(dict(density=dict(density.LEGACY)))
+    got = column_table.molecular(None, component)
+    assert got == column_table.molecular(optics, component)
+    if component == 3:
+        assert got['kind'] == 'exp' and got['height'] == 4.0
+    assert not (tmp_path / 'assets').exists()
+
+
+def test_endpoint_identity_without_density_assets(tmp_path, monkeypatch):
+    monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(tmp_path))
+    monkeypatch.setenv('SOSFUSE2_OFFLINE', '1')
+    common, signature = endpoint_contract.identity(solver())
+    assert common['minor_profiles'] == [column_table.molecular(None, k) for k in (2, 3)]
+    assert len(signature) == 20
+    assert not (tmp_path / 'assets').exists()

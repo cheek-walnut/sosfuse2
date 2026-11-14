@@ -16,10 +16,7 @@ from sosfuse2.solve.ray_geometry import create, TransientGeometry
 from sosfuse2.solve.source_solver import Solver
 from sosfuse2.asset_tools.strato_states import build
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 CPP = r'''
 #include <cmath>
 extern "C" void project_seq(int N,int W,const float*rad,const float*wt,const float*y,const float*cm,double*out){

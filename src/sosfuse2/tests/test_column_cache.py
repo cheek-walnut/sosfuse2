@@ -1,14 +1,10 @@
 """Reduced queue runs of the column cache; shares PERSISTENT_TEST_BACKEND/DEADLINE knobs."""
 
-from sosfuse2.foundation import paths
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
-import sys
-import tempfile
 import unittest
 from sosfuse2.tests import test_pipeline_persistent as base
 import numpy as np
@@ -31,6 +27,9 @@ class ColumnCacheTests(unittest.TestCase):
             state['parameters'].update(aod550=aod, stratosphere_tau550=tau)
             state['stratosphere']['sigma_km'] = sigma
             states.append(state)
+        from sosfuse2.atmosphere import density
+
+        density.build(states[0])  # a missing IPRT input stops here as E_IPRT_OFFLINE, not as a queue child's exit code
         cls.states = cls.root / 'states.json'
         cls.states.write_text(json.dumps(dict(states=states)))
         for i in range(3):

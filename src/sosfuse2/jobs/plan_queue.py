@@ -151,7 +151,7 @@ def resources(a, n_states):
             1,
             (
                 'memory-protected host (host_limits.rss_cap_gb %g GB: Mac or a protection marker): the split slot PSS budget '
-                '(configs/devices.json slot_pss_gb) does not count column worker processes' % rss_cap_gb()
+                '(backends/configs/devices.json slot_pss_gb) does not count column worker processes' % rss_cap_gb()
             ),
         )
     else:

@@ -2,13 +2,11 @@
 
 import itertools
 import os
-import sys
 import unittest
 from unittest.mock import patch
 
 import numpy as np
 from sosfuse2.atmosphere import stratosphere
-from sosfuse2.backends import device_profile
 
 
 class WallHost(unittest.TestCase):

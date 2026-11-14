@@ -13,7 +13,6 @@ import numpy as np
 from ..backends.flags import deterministic
 from ..foundation import paths, content_identity
 
-HERE = Path(__file__).resolve().parent
 GATE = paths.GATE  # fixtures.json, anchors.json, baselines/{manifest.json,numpy/,<toolkey>/}
 STAGE1 = ('FMAD', 'FASTMATH')
 CONTROLS = ('SOSFUSE2_KERNEL_FLAGS', 'SOSFUSE2_BLOCK_SIZE', 'SOSFUSE2_STRATO_ASYNC') + tuple(
@@ -947,7 +946,12 @@ def gf(args, F, report):
         raise GateError('E_GATE_CONFIG', 'G-F needs the sky-sos bake template: set SOSFUSE2_SKY_SOS_ROOT')
     spec = importlib.util.spec_from_file_location('bake_run', sky / 'rig/bake/bake_run.py')
     br = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(br)
+    try:
+        spec.loader.exec_module(br)
+    except Exception as exc:  # noqa: BLE001 - e.g. a template that still imports a renamed module
+        raise GateError(
+            'E_GATE_TEMPLATE', f'G-F could not load the sky-sos bake template: {type(exc).__name__}: {exc}'
+        ) from exc
     root = args.out / 'gf'
     P = NS(plan=root / 'plan', work=root / 'work')
     if P.work.exists():
@@ -1194,7 +1198,7 @@ def plan_check(order, states, settings, reference):
     elif {k: v for k, v in content_identity.state_identity(states.get(want, {})).items() if k != 'runnable'} != {
         k: v for k, v in content_identity.state_identity(F['state']).items() if k != 'runnable'
     }:
-        bad.append('product state definition differs from gate/fixtures.json')
+        bad.append('product state definition differs from checks/gate_data/fixtures.json')
     if settings != {}:
         bad.append('settings.json must be {} (the reference table uses code defaults)')
     ref = (M.get('gf') or {}).get('radiance_sha256')
@@ -1387,6 +1391,7 @@ def run_main(p, args, argv):
         fixtures={},
         gates={},
         code=None,
+        # Keys keep the recorded 1.3.x file names; values are content_identity.file_sha of the files after the move.
         code_sha256={name: content_identity.file_sha(paths.PKG / path) for name, path in (
             ('kernel.cu', 'backends/kernel.cu'), ('fused.py', 'solve/source_solver.py'),
             ('ksplit.py', 'solve/ksplit.py'), ('reference.py', 'backends/numpy_reference.py'),

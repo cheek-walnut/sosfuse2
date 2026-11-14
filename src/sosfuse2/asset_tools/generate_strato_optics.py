@@ -4,7 +4,8 @@
 import argparse, json, sys
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 import numpy as np
 from sosfuse2.asset_tools.mie import ensemble, self_checks
 from sosfuse2.foundation import paths

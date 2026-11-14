@@ -118,7 +118,7 @@ def gpu_memory():
 
 def auto_gpu_active(workers, backend):
     """Persistent-service states resident on the GPU at once when --gpu-active is not given: as many as [VRAM_SHARE]
-    of the free GPU memory holds at the device profile's state_vram_gb (configs/devices.json: split 4.5, rig 3.7),
+    of the free GPU memory holds at the device profile's state_vram_gb (backends/configs/devices.json: split 4.5, rig 3.7),
     never more than the workers, plus [KSPLIT_STATE_VRAM_GB] unless SOSFUSE2_KSPLIT=0. The NumPy path keeps the old
     default 2. (3 on an RTX 4090 ran the GPU 94 %; a 10 GB 3080 holds 1.)"""
     if backend != 'cupy':

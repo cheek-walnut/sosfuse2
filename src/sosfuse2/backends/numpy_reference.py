@@ -159,12 +159,12 @@ def profile_at(h, c):
     The one profile evaluation of the transport (kernel.cu profile_at): sample() calls it at the quadrature nodes and the Simpson
     optical-depth prefix at segment ends and panel midpoints. Density table (PROFILE) and two-layer aerosol (AEROSOL_2L) options."""
     h = np.asarray(h, 'f4')
-    from ..atmosphere.density import build, interpolate32, check_consumed
+    from ..atmosphere.density import LEGACY, build, interpolate32, check_consumed
 
     optics = c.get('density_optics')
     if optics is None:
-        optics = build({})
-    check_consumed(optics, where='reference.profile_at')
+        optics = build(dict(density=dict(LEGACY)))
+    check_consumed(optics, where='numpy_reference.profile_at')
     tab = interpolate32(h, optics['table'])
     prof = np.stack(
         [
@@ -451,7 +451,7 @@ def _transport(g, c, field, first=False, boundary=None, statistics=None, return_
         sphase = mie_phase(g['d'][:, 2], c['strato_chi'])
         scache = np.zeros_like(cache)
         if not first and (field.ndim != 3 or field.shape[1] != 10 + 2 * count(c.get('L', 32))):
-            raise ValueError('E_STRATO_SOURCE_SHAPE: expected 1132 coefficients')
+            raise ValueError(f"E_STRATO_SOURCE_SHAPE: expected {10 + 2 * count(c.get('L', 32))} coefficients")
     if statistics is None:
         statistics = {}
     statistics.setdefault('samples', 0)

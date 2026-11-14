@@ -1,4 +1,4 @@
-"""run_gpu_state_v3.package_info(): where the recorded package version and commit come from (no GPU, no network, no sky-sos root).
+"""jobs.run_state.package_info(): where the recorded package version and commit come from (no GPU, no network, no sky-sos root).
 
 Priority: SOSFUSE2_PACKAGE_COMMIT, then the installer's direct_url.json (only when the distribution's sosfuse2/__init__.py is
 THIS package), then the git checkout whose src/sosfuse2 is this package; otherwise None, never an error.

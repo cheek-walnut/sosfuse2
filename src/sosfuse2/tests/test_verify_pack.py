@@ -1,4 +1,4 @@
-"""run_gpu_state_v3.verify_pack: a valid pack passes, a zstd failure keeps its exit code and stderr, an earlier reason wins.
+"""jobs.run_state.verify_pack: a valid pack passes, a zstd failure keeps its exit code and stderr, an earlier reason wins.
 
 CPU only. A fake `zstd` on PATH (a small Python script) replays a plain tar so the test needs no zstd and can force the
 failure path deterministically; the real-zstd case runs only when zstd is installed.

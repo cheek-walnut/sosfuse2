@@ -12,6 +12,7 @@ import time
 import numpy as np
 from ..solve.source_solver import Solver, load_engine
 from ..solve.ray_geometry import create, TransientGeometry, normal_state
+from ..atmosphere.density import LEGACY as DENSITY_LEGACY
 from ..backends import arithmetic as a
 from ..foundation import paths
 from ..backends import numpy_reference
@@ -151,7 +152,7 @@ def moment_comparison(actual, expected):
 
 
 def original_kernel(output):
-    """The accepted CPU transport kernel (native/sh_cpu.cpp, built into the work root by accepted.engine.compile_kernel)."""
+    """The accepted CPU transport kernel (backends/native/sh_cpu.cpp, built into the work root by solve.engine.compile_kernel)."""
     return load_engine().Kernel(4, 1.2, 0.8)
 
 
@@ -245,7 +246,10 @@ def legacy_selftest():
 def reduced_values(output, backend, block_size):
     """Reduced selftest values (two applies, legacy query directions); no comparison."""
     tt = time.perf_counter()
-    s, scope, settings = create(output / 'selftest_geometry', 'selftest', [550.0], backend, block_size)
+    s, scope, settings = create(
+        output / 'selftest_geometry', 'selftest', [550.0], backend, block_size,
+        state=dict(normal_state(), density=dict(DENSITY_LEGACY)),
+    )
     geometry = TransientGeometry(s, scope)
     solver = Solver(s, geometry)
     field = s.kernel.xp.zeros((s.geo.ns, 571, 1), 'f4')
@@ -344,7 +348,10 @@ def full_queries_values(output, backend, block_size):
     if FULL_SOURCE is None:
         raise RuntimeError('E_SKY_SOS_ROOT: full_35 needs SOSFUSE2_SKY_SOS_ROOT')
     tt = time.perf_counter()
-    s, scope, settings = create(output / 'full_query_geometry', 'full', [550.0], backend, block_size)
+    s, scope, settings = create(
+        output / 'full_query_geometry', 'full', [550.0], backend, block_size,
+        state=dict(normal_state(), density=dict(DENSITY_LEGACY)),
+    )
     artifact = FULL_SOURCE
     with np.load(artifact, allow_pickle=False) as z:
         field = z['source']
@@ -414,7 +421,7 @@ def full_queries(output, backend, block_size):
         record=ident,
         historical_delta=dict(
             blocking=False,
-            reference='original sos_full CPU transport via accepted.engine (original_kernel)',
+            reference='original sos_full CPU transport via solve.engine (original_kernel)',
             max_relative={n: relative(actual[n], cpu[n]) for n in actual},
             worst={n: worst(actual[n], cpu[n]) for n in actual},
         ),
@@ -428,7 +435,10 @@ def full_queries(output, backend, block_size):
 def spectral_values(output, field, block_size):
     """The 15-lane log operator at an actual varying spectral optical depth: fused values and the original CPU transport."""
     wavelengths = SPECTRAL_WAVELENGTHS
-    s, scope, settings = create(output / 'spectral_geometry', 'selftest', wavelengths, 'numpy', block_size)
+    s, scope, settings = create(
+        output / 'spectral_geometry', 'selftest', wavelengths, 'numpy', block_size,
+        state=dict(normal_state(), density=dict(DENSITY_LEGACY)),
+    )
     full = np.zeros((s.geo.ns, 571, 30), 'f4')
     full[..., ::2] = np.tile(field, (1, 1, 15))
     fused = s.kernel
@@ -486,7 +496,7 @@ def spectral(output, field, block_size):
                 pass_=within(error),
                 historical_delta=dict(
                     blocking=False,
-                    reference='original sos_full CPU transport via accepted.engine (original_kernel)',
+                    reference='original sos_full CPU transport via solve.engine (original_kernel)',
                     max_relative=relative(actual, cpu),
                     worst=worst(actual, cpu),
                 ),
@@ -512,6 +522,7 @@ def parity(output, block_size, field):
         import copy
 
         state = copy.deepcopy(normal_state())
+        state['density'] = dict(DENSITY_LEGACY)
         if enabled:
             state['stratosphere'].update(status='enabled')
             state['parameters']['stratosphere_tau550'] = 0.003

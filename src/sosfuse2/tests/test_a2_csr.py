@@ -26,10 +26,7 @@ sys.path.append(
 from sosfuse.geometry import Bundle as OldBundle  # read-only oracle
 from sosfuse2.solve.ray_geometry import Bundle, create, TransientGeometry
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 
 def synthetic(n=100_000, seed=7):

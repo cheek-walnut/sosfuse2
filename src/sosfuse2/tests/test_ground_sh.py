@@ -6,10 +6,7 @@ import pytest
 from sosfuse2.checks import testkit
 from sosfuse2.solve.ground_sh import configured_order, lut_eigenvalues, project, real_basis
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 
 @pytest.mark.parametrize('order', [16, 24, 32])

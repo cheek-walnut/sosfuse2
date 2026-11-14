@@ -6,7 +6,6 @@ Run: python -B -m sosfuse2.tests.test_pool_limit
 
 import os
 import unittest
-from pathlib import Path
 from unittest import mock
 
 from sosfuse2.backends import device_profile

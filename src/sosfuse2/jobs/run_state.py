@@ -12,7 +12,7 @@ from sosfuse2.foundation import paths
 # Solar column table resolution (sos_sky.SunGeometry scale). 4 = production (measured:
 # scale 1 gives -2.38 % first order at -10 deg AOD .6, scale 4 +0.20 %); 1 = the accepted engine table.
 SUN_SCALE = 4
-# Production kernel SH order. 16 = production with SH_COMBINE in configs/C3.json (measured:
+# Production kernel SH order. 16 = production with SH_COMBINE in backends/configs/C3.json (measured:
 # RTX 5060 Ti L16+SH_COMBINE+nphi16+sun4 vs L32+nphi32+sun1 3.3-5.2x faster, order 2 vs direct L8 equal or 0.03 %p
 # better, full radiance within 0.40 %). settings_json may still choose 24 or 32.
 SH_L = 16
@@ -54,7 +54,7 @@ def attach_lock_name(state):
     the density asset/mask.
     The name uses a subset of those inputs, normalized the same way (profile_config; same filter and
     json.dumps), so equal keys always give equal names: never finer than the key, and one key file is
-    never computed by two lock groups at once (_ground_geometry writes a fixed '<key>.tmp.npz').
+    never computed by two lock groups at once (_ground_geometry's temporary file is per process).
     Density and cfg are left out (coarser): cfg is shared by a queue and its mapping to the grids would
     have to be copied exactly. None = layer off: attach returns before _ground_geometry (tau 0)."""
     from sosfuse2.atmosphere.stratosphere import ATTACH_OPTICS_PARAMS, tau_of, profile_config
@@ -70,10 +70,10 @@ def attach_lock_name(state):
 @contextlib.contextmanager
 def attach_cache_event(name, index, state, record=True):
     """Per-state PHASE record: hit, miss, unused (no stratosphere) or disabled.
-    stratosphere._ground_geometry writes '<key>.tmp.npz' with a fixed name, so two writers of one key
-    must never share a folder. Each call therefore runs against a private overlay folder (hard links
-    to the published files): reads hit through the links, a miss is written privately and then
-    published with an atomic rename. That alone is safe without any lock.
+    stratosphere._ground_geometry publishes '<key>.npz' through a per-process temporary file, and two writers of
+    one key would compute it twice, so they never share a folder. Each call therefore runs against a private
+    overlay folder (hard links to the published files): reads hit through the links, a miss is written
+    privately and then published with an atomic rename. That alone is safe without any lock.
     The attach_lock_name group lock only avoids duplicate work: it is taken while the group has not
     published its key yet ('<group>.done' absent), so the first state computes and the rest wait and
     then hit. Once published, states of the group run in parallel and never wait.
@@ -804,7 +804,7 @@ def geometry_only(a):
         phase(name, 'geometry_start', geometry_only=True)
         # Geometry columns depend on height/grid/quadrature, not wavelength count. The stratosphere attach runs in
         # the same private overlay as a worker's (attach_cache_event), so a prefetch and a worker of one key never
-        # write the same '<key>.tmp.npz' in a shared STRATO_ATTACH_CACHE.
+        # compute it side by side in a shared STRATO_ATTACH_CACHE.
         with attach_cache_event(name, 0, state, record=False) as made:
             made.append(
                 create_configured(
@@ -1389,6 +1389,8 @@ def run_extra(a):
         from sosfuse2.atmosphere.components import check_current  # E_PHYSICS_MIXED / _CONTRACT before the generic comparison
 
         check_current(source_meta.get('physics'), what='source job')
+        if source_meta.get('density') is None:
+            raise RuntimeError('E_EXTRA_SOURCE: density profile missing')
         check_optics(source_meta.get('optics_state'), optics_state(state))
         same = dict(
             complete=True,
@@ -1422,9 +1424,9 @@ def run_extra(a):
         from sosfuse2.atmosphere.stratosphere import computed_metadata
 
         optical_meta = computed_metadata(state, getattr(s, 'strato', None))
-        from sosfuse2.atmosphere.density import metadata, DEFAULTS
+        from sosfuse2.atmosphere.density import metadata
 
-        if source_meta.get('density', dict(DEFAULTS)) != metadata(s):
+        if source_meta.get('density') != metadata(s):
             raise RuntimeError('E_EXTRA_SOURCE: density profile differs')
         if any(
             source_meta.get(k) != optical_meta[k]

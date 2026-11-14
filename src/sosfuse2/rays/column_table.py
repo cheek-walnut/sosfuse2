@@ -55,10 +55,10 @@ def aerosol(old):
 
 def molecular(optics, k):
     if k == 2:
-        from ..atmosphere.density import build
+        from ..atmosphere.density import LEGACY, build
 
         if optics is None:
-            optics = build({})
+            optics = build(dict(density=dict(LEGACY)))
         from ..atmosphere.density import profile_identity
 
         ident = profile_identity(optics)

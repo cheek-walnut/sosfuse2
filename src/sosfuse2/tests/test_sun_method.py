@@ -1,12 +1,10 @@
-"""③ stage 0(b): SOSFUSE2_SUN_METHOD (density.sun_method) = exact PROFILE columns of the sun table and first-ground rays.
+"""SOSFUSE2_SUN_METHOD (density.sun_method) = exact PROFILE columns of the sun table and first-ground rays.
 
 CPU only; every cache root is a temporary folder. The reference is GL64/GL128 between the PROFILE knot crossings and the
 tangent point (no antiderivative), as measured in a larger sweep (observed maxima).
 """
 
-from sosfuse2.foundation import paths
 import contextlib
-import copy
 import io
 import json
 import math

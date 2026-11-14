@@ -186,7 +186,7 @@ def test_source_contract_rejects_wrong_state_settings_and_missing(tmp_path, monk
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
         radiance_table.load_source(path, solver, [550.0], settings=settings, backend='numpy')
     np.savez(path, **arrays)
-    with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
+    with pytest.raises(ValueError, match='E_SOURCE_CONTRACT: source contract missing'):
         radiance_table.load_source(path, solver, [550.0], settings=settings, backend='numpy')
 
 
@@ -940,3 +940,18 @@ def test_legacy_batch_records_computed_stratosphere(tmp_path, monkeypatch, compu
     assert meta['unsupported_parameters'] == []
     assert meta['stratosphere']['status'] == ('enabled' if computed else 'disabled')
     assert meta['parameters_computed']['stratosphere_tau550'] == (0.004 if computed else 0.0)
+
+
+def test_rclone_exe_without_home_is_rclone_missing(monkeypatch):
+    """No rclone on PATH and no home directory (container user without a passwd entry): E_CACHE_RCLONE_MISSING,
+    not the bare RuntimeError of Path.expanduser."""
+    monkeypatch.delenv('SKY_CACHE_RCLONE', raising=False)
+    monkeypatch.setattr(cache_store.shutil, 'which', lambda name: None)
+
+    def no_home(self):
+        raise RuntimeError('Could not determine home directory.')
+
+    monkeypatch.setattr(Path, 'expanduser', no_home)
+    with pytest.raises(cache_store.CacheStoreError) as caught:
+        cache_store.rclone_exe()
+    assert caught.value.code == 'E_CACHE_RCLONE_MISSING'

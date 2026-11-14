@@ -52,9 +52,14 @@ def fetch(name, offline=None):
     if offline is None:
         offline = os.environ.get('SOSFUSE2_OFFLINE', '') not in ('', '0')
     url = BASE + name
+    hint = (
+        'The default density configuration uses this input; to run without downloading it, explicitly set '
+        'density_profile=exp8, ozone_profile=triangle and rayleigh_column=keep.'
+    )
     if offline:
         raise RuntimeError(
-            f'E_IPRT_OFFLINE: {name} missing from {dst.parent}; download {url} and place it there (sha256 {want})'
+            f'E_IPRT_OFFLINE: {name} missing from {dst.parent}; download {url} and place it there (sha256 {want}). '
+            + hint
         )
     tmp = dst.with_suffix(dst.suffix + f'.{os.getpid()}.tmp')
     for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
@@ -68,7 +73,7 @@ def fetch(name, offline=None):
         ) as e:  # URLError, HTTPError, TimeoutError, ConnectionError, IncompleteRead
             if attempt == DOWNLOAD_ATTEMPTS:
                 raise RuntimeError(
-                    f'E_IPRT_DOWNLOAD: {name} from {url}: {type(e).__name__}: {e} ({attempt} attempts)'
+                    f'E_IPRT_DOWNLOAD: {name} from {url}: {type(e).__name__}: {e} ({attempt} attempts). ' + hint
                 ) from e
             time.sleep(RETRY_SECONDS * 2 ** (attempt - 1))
     tmp.write_bytes(data)

@@ -1,8 +1,8 @@
-"""accepted/engine.py create() keyword hooks (1.2.0, formerly text patches): no GPU, no network, no sky-sos root, no compiler.
+"""solve/engine.py create() keyword hooks (1.2.0, formerly text patches): no GPU, no network, no sky-sos root, no compiler.
 
 An enabled `troposphere_profile` block reaches the engine as `create(aerosol=tropo_profile.engine_hooks(state))`; the
 production settings reach it as observer_km / kernel_factory / grid / spec / sun_geometry / prepare_ground
-(run_gpu_state_v3.create_configured). These tests stop at the solver boundary (a StopSolver captures the geometry,
+(jobs.run_state.create_configured). These tests stop at the solver boundary (a StopSolver captures the geometry,
 kernel and scope) so they cost a density build and the engine setup, not a solve.
 Run: python -m pytest -q src/sosfuse2/tests/test_tropo_patches.py
 """

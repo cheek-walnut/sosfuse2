@@ -26,10 +26,7 @@ from sosfuse2.asset_tools import mie
 from sosfuse2.backends import numpy_reference
 from sosfuse2.checks import testkit
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 OUT = testkit.scratch_parent() / 'strato/adversarial'
 

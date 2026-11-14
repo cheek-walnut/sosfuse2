@@ -1,4 +1,4 @@
-"""Opt-in density tables; immutable endpoint caches retain historical columns.
+"""Density tables; immutable endpoint caches retain historical columns.
 
 PROFILE grid: PROFILE nodes 0..80 km at density.profile_step_km in {0.5, 0.25, 0.125}
 (161/321/641 rows, linear interpolation, air/ozone plus NO2, mask bits 1/2 select air/ozone). Omitted = 0.5 = the historical air/ozone table,
@@ -8,7 +8,7 @@ its own grid first; 0.25/0.125 are the same piecewise-linear function sampled on
 External tables (with_profile) carry their own grid, mask and Rayleigh scale; normalize_ozone=False uses the ozone/q_eff
 column as given. A caller that replaces only q_eff keeps the air table, air mask and scale of the state it adapts:
 
-    base = build(dict(state, density=dict(state.get('density', {}), profile_step_km=.125)))   # asset air on the grid
+    base = build(dict(state, density=dict(state.get('density', {}), **options(state), profile_step_km=.125)))   # asset air on the grid
     z = grid(len(base['table']))   # 641 nodes, 0.125 km
     q = <q_eff evaluated on z>     # e.g. Model.effective(shape, i, step=.125); never an upsampled 0.5 km table
     state2 = with_profile(state, z_km=z, table=np.column_stack([base['table'][:, 0], q]),
@@ -23,7 +23,6 @@ import hashlib
 import json
 import os
 from functools import lru_cache
-from pathlib import Path
 import numpy as np
 
 from ..foundation import paths
@@ -80,7 +79,8 @@ def __getattr__(name):  # PEP 562: density.ASSET materialises the asset on first
     raise AttributeError(name)
 
 
-DEFAULTS = dict(density_profile='exp8', ozone_profile='triangle', rayleigh_column='keep')
+LEGACY = dict(density_profile='exp8', ozone_profile='triangle', rayleigh_column='keep')
+DEFAULTS = dict(density_profile='usstd76', ozone_profile='usstd76', rayleigh_column='usstd')
 CHOICES = dict(
     density_profile=('exp8', 'usstd76'), ozone_profile=('triangle', 'usstd76'), rayleigh_column=('keep', 'usstd')
 )
@@ -99,6 +99,14 @@ def options(state):
     raw = state.get('density', {})
     if not isinstance(raw, dict) or set(raw) - set(DEFAULTS) - set(EXTRA):
         raise ValueError('E_DENSITY_OPTIONS')
+    missing = [k for k in DEFAULTS if k not in raw]
+    if 'density' in state and missing:
+        raise ValueError(
+            'E_DENSITY_PARTIAL: missing '
+            + ', '.join(missing)
+            + '; specify density_profile/ozone_profile/rayleigh_column together: '
+            'exp8/triangle/keep (through 1.4.0) or usstd76/usstd76/usstd (default)'
+        )
     opt = dict(DEFAULTS, **{k: v for k, v in raw.items() if k in DEFAULTS})
     if any(opt[k] not in CHOICES[k] for k in opt):
         raise ValueError('E_DENSITY_OPTIONS')
@@ -218,22 +226,25 @@ def profile_step_km(state):
 
 def with_options(state, args):
     """CLI string options over the state; profile_step_km/external_profile are kept as given (an omitted step stays
-    omitted, so ordinary states keep their signed input bytes). Only an explicit conflict is an error."""
+    omitted). A block or any CLI selection must supply all three strings after merging."""
     state = copy.deepcopy(state)
-    opt = options(state)
+    raw = state.get('density', {})
+    if not isinstance(raw, dict):
+        raise ValueError('E_DENSITY_OPTIONS')
+    raw = dict(raw)
     for key in DEFAULTS:
         value = getattr(args, key, None)
         if value is not None:
-            opt[key] = value
-    raw = state.get('density', {})
+            raw[key] = value
     extra = {k: raw[k] for k in EXTRA if k in raw}
     step = getattr(args, 'profile_step_km', None)
     if step is not None:
         if 'profile_step_km' in extra and profile_n(extra['profile_step_km']) != profile_n(step):
             raise ValueError(f'E_PROFILE_STEP_CONFLICT: state {extra["profile_step_km"]} vs requested {step}')
         extra['profile_step_km'] = float(step)
-    if opt != DEFAULTS or 'density' in state or extra:
-        state['density'] = dict(opt, **extra)
+    if raw or 'density' in state or extra:
+        state['density'] = dict(raw, **extra)
+    options(state)
     profile_step_km(state)
     external(state)  # E_PROFILE_* before any expensive work
     return state
@@ -258,7 +269,7 @@ def with_profile(state, *, z_km, table, mask, normalize_ozone=False, scale=1.0, 
             f'E_PROFILE_STEP_CONFLICT: profile_step_km {raw["profile_step_km"]} vs external grid {step} km'
         )
     raw = dict(
-        raw,
+        dict(raw, **options(state)),
         profile_step_km=step,
         external_profile=dict(
             version=1, z_km=z.tolist(), table=t.tolist(), mask=mask, normalize_ozone=normalize, scale=scale
@@ -279,7 +290,8 @@ def add_arguments(parser):
             '--' + key.replace('_', '-'),
             choices=CHOICES[key],
             default=None,
-            help='default ' + DEFAULTS[key] + '; honors state density metadata',
+            help='overrides the state density block; the block and these options together must give all three '
+            '(neither: usstd76/usstd76/usstd)',
         )
 
 
@@ -399,7 +411,7 @@ def build(state):
     ext = external(state)
     if ext is not None:
         return _minor_columns(_external(opt, step, ext), step, state)
-    if opt == DEFAULTS:
+    if opt == LEGACY:
         z = grid(PROFILE_STEPS[step])
         optics = dict(
             table=np.column_stack([np.exp(-z / 8), np.maximum(0, 1 - np.abs(z - 25) / 15)]),
@@ -607,8 +619,6 @@ def sun_method():
     exact = the selected PROFILE columns of those two tables by the FP64 closed form (exact_profile_columns).
     Main-ray endpoint columns (correct_columns, column_table.method) never read it. Callers resolve it once and pass
     the value to their workers; host_cache (sun02/ground) and stratosphere._geometry_key key on it."""
-    import os
-
     value = os.environ.get(SUN_METHOD_ENV, '').strip() or 'gl'
     if value not in SUN_METHODS:
         raise ValueError('E_SUN_METHOD: expected gl or exact')
@@ -728,4 +738,4 @@ def attach(s, scope, defer_ground=False):
 
 
 def metadata(s):
-    return dict(DEFAULTS) if getattr(s, 'density_optics', None) is None else dict(s.density_optics['meta'])
+    return dict(LEGACY) if getattr(s, 'density_optics', None) is None else dict(s.density_optics['meta'])

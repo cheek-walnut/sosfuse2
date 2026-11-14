@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 from sosfuse2.foundation import paths
@@ -398,7 +397,7 @@ def test_planner_records_the_ground_keys_the_producer_asks_for(tmp_path, monkeyp
     from sosfuse2.precompute import host_cache
 
     s, scope, _ = ray_geometry.create(tmp_path, 'selftest', [550.0], 'numpy')
-    optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
+    optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76', rayleigh_column='keep')))
     real_cached = host_cache.cached
 
     class Stop(Exception):
@@ -441,7 +440,7 @@ def test_ground_aerosol_record_has_unknown_cost_without_packed_geometry(tmp_path
     state['runnable'] = True
     states = tmp_path / 'states.json'
     states.write_text(json.dumps(dict(states=[state])))
-    optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
+    optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76', rayleigh_column='keep')))
     token = 'a' * 64
 
     def probe(state, cfg, geometry_cache, folder):

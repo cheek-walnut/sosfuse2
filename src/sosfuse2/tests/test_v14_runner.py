@@ -3,7 +3,6 @@
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -136,7 +135,7 @@ def test_height_hash_in_metadata_and_signature(tmp_path):
         contracts = []
 
         def record(value, **kwargs):
-            if isinstance(value, dict) and value.get('contract') == 'v3':
+            if isinstance(value, dict) and value.get('contract') == v3.CONTRACT_VERSION:
                 contracts.append(value)
             return dumps(value, **kwargs)
 

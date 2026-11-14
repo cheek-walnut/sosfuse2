@@ -2,7 +2,7 @@
 The historical A/C labels use retired flags and therefore measure the same configuration.
 CLI harness: python -m sosfuse2.tests.test_C_registers --out <dir>  (CUDA driver + CuPy; not a pytest module)."""
 
-import argparse, ctypes, json, sys
+import argparse, ctypes, json
 from pathlib import Path
 
 if __name__ != '__main__':

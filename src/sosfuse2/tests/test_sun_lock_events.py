@@ -2,7 +2,6 @@
 
 from sosfuse2.foundation import paths
 import re
-import sys
 import threading
 import time
 from pathlib import Path
@@ -11,8 +10,7 @@ from unittest import mock
 
 import pytest
 
-HERE = paths.PKG  # the package directory (kernel, configs, assets)
-from sosfuse2.precompute import host_cache, sun_parallel  # noqa: E402
+from sosfuse2.precompute import host_cache, sun_parallel
 
 
 def test_every_phase_line_carries_trace_fields():

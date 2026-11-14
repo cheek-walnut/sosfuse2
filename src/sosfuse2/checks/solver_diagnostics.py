@@ -229,11 +229,14 @@ def main():
     tt = time.perf_counter()
     try:
         if args.selftest or args.validate_mac:
-            from sosfuse2.atmosphere.density import DEFAULTS
+            from sosfuse2.atmosphere.density import LEGACY, with_options
 
-            if any(getattr(args, k, None) not in (None, v) for k, v in DEFAULTS.items()):
+            if any(getattr(args, k, None) is not None for k in LEGACY):
+                with_options({}, args)
+            if any(getattr(args, k, None) not in (None, v) for k, v in LEGACY.items()):
                 raise ValueError(
-                    'E_PROFILE_VALIDATION: validate-mac is the historical default gate; run enabled density profiles through jobs/run_state.py or checks/gate.py'
+                    'E_PROFILE_VALIDATION: selftest and validate-mac require the exp8/triangle/keep configuration; '
+                    'run enabled density profiles through jobs/run_state.py or checks/gate.py'
                 )
             from sosfuse2.checks.validate import validate
 

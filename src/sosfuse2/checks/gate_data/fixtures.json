@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "note": "Product state and reduced-grid settings for the numerical gates. The SH order must match run_gpu_state_v3.SH_L.",
+ "note": "Product state and reduced-grid settings for the numerical gates. The SH order must match jobs/run_state.py SH_L.",
  "state": {
   "id": "L19s3_tau0p01_aod0p4_g0p65",
   "parameters": {"aod550": 0.4, "angstrom": 1.0, "ssa": 0.92, "scale_height_km": 1.2, "g": 0.65, "ozone_du": 300.0, "albedo": 0.0, "stratosphere_tau550": 0.01},

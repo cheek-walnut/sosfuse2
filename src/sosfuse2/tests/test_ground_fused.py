@@ -6,9 +6,7 @@ not emulate warp execution or claim GPU numerical coverage.
 
 from sosfuse2.foundation import paths
 import json
-from pathlib import Path
 import subprocess
-import sys
 
 import pytest
 

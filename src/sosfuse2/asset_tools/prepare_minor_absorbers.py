@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -10,10 +11,12 @@ import urllib.request
 
 from . import generate_minor_absorbers as generator
 from ..atmosphere.minor_absorbers import load, o4_path
+from ..foundation import paths
 
 
 def prepare(cia=None, *, download=False):
     target = o4_path()
+    paths.work_root()  # o4_path() only locates the root; writing needs it created (E_WORK_ROOT when it cannot be)
     if download and os.environ.get('SOSFUSE2_OFFLINE', '') not in ('', '0'):
         raise ValueError(f'E_O4_OFFLINE: download {generator.CIA_URL} separately and use --cia FILE')
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -23,7 +26,7 @@ def prepare(cia=None, *, download=False):
             try:
                 with urllib.request.urlopen(generator.CIA_URL, timeout=60) as response:
                     cia.write_bytes(response.read())
-            except OSError as exc:
+            except (OSError, http.client.HTTPException) as exc:  # HTTPException: e.g. IncompleteRead
                 raise RuntimeError(f'E_O4_DOWNLOAD: {generator.CIA_URL}: {type(exc).__name__}: {exc}') from exc
         doc = generator.build_o4(cia)  # validates the pinned original SHA before parsing
         tmp = Path(work) / 'asset.json'

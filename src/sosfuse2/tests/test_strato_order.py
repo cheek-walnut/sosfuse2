@@ -19,10 +19,7 @@ from sosfuse2.solve.source_solver import Solver, sh_aux
 from sosfuse2.asset_tools.strato_states import build
 from sosfuse2.tests.test_kernel_static import STUB
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 
 def run(out):

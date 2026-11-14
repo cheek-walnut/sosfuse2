@@ -10,7 +10,7 @@
    "TROPO_MIE and AEROSOL_2L from state"
   ],
   "launch_rule": "Cell-subset launches reset synchronization counters before each chunk. Device launch budgets and SOSFUSE2_LAUNCH_CELLS determine chunking.",
-  "sh_combine": "SH_COMBINE requires an enabled stratosphere. The SH order is run_gpu_state_v3.SH_L.",
+  "sh_combine": "SH_COMBINE requires an enabled stratosphere. The SH order is jobs/run_state.py SH_L.",
   "use": "States with the stratospheric layer disabled."
  }
 }

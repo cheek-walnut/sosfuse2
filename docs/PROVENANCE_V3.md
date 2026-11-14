@@ -37,7 +37,7 @@ have the same keys without it, for example `sosfuse2/paths.py`.
 | — | `sosfuse2/foundation/__init__.py`, `sosfuse2/foundation/available_cpus.py`, `sosfuse2/outputs/pack_state.py` (`content_identity.HOST_MODULES`), `sosfuse2/backends/native/sh_cpu.cpp` | host helpers and the CPU kernel source |
 | `scripts/sosfuse2/kernel.cu` | `sosfuse2/backends/kernel.cu` | |
 | `scripts/sosfuse2/assets/<data>` (when the block used it) | `sosfuse2/assets/<data>` for `DATA_ASSETS`, always | v3 hashed the fine spectral assets only when the spectral block used them |
-| `scripts/sosfuse2/assets/usstd76_profile.json` | `sosfuse2/assets/usstd76_profile.json` — a logical key (`density.ASSET_KEY`) | the file is generated into the work root on first use (IPRT inputs, pinned sha256); hashed only when the state uses `ozone_profile usstd76` |
+| `scripts/sosfuse2/assets/usstd76_profile.json` | `sosfuse2/assets/usstd76_profile.json` — a logical key (`density.ASSET_KEY`) | the file is generated into the work root on first use (IPRT inputs, pinned sha256); hashed when the state's density configuration reads the asset, which includes the default `usstd76`/`usstd76`/`usstd` |
 | `scripts/sosfuse2/assets/strato_*.json`, `tropo_*.json` (state dependent) | `sosfuse2/assets/...` (state dependent) | `stratosphere.path_label`, `tropo_mie.path_label` |
 | `assets/spectra_fine.json` (spectral block `asset` label) | unchanged `assets/spectra_fine.json` | the label is part of the block signature; kept for block compatibility. The same file is also `sosfuse2/assets/spectra_fine.json` in the fixed list |
 | `rig/docker/geometry_cpu.py` | removed | not an engine input |
@@ -124,7 +124,8 @@ In 1.4.0 the keys of `code_hashes` also carry the folder from the module move. T
 v5 with `contract: "v5"` (`jobs/run_state.py` `CONTRACT_VERSION`). Readers still read v3 and v4 tables, whereas readers
 of 1.3.4 and earlier refuse v5 tables (`E_PROVENANCE_CONTRACT`). Every cache key changes once and is rebuilt on first
 use. Output folders and saved sources of earlier versions are not resumed or extended (`E_OUTPUT_IDENTITY`,
-`E_EXTRA_SOURCE`), while `outputs/radiance_table` and `jobs/tables_from_sources` keep reading older sources.
+`E_EXTRA_SOURCE`), while `outputs/radiance_table` and `jobs/tables_from_sources` keep reading older sources whose
+contract state records the density configuration; from 1.5.0 the others stop with `E_SOURCE_DENSITY`.
 
 ## Folder layout of 1.4.0
 

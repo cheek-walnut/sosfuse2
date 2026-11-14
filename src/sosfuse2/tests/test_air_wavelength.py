@@ -9,8 +9,6 @@ since air_wavelength.ciddor_dry has no water term. NIST uses the CODATA 1998 gas
 
 import importlib.util
 import json
-from pathlib import Path
-import sys
 
 import numpy as np
 import pytest
@@ -118,7 +116,7 @@ def test_asset_declarations():
 @NEEDS_RAW
 def test_independent_relabel():
     """Restates the relabel without the builder: grid columns within the 7-digit rounding, raw-point band means within the
-    0.1 nm sampling error (measured max 3.9e-4 at 371.75-383.5 nm, median 2e-6; SPEC §4 v1 correction)."""
+    0.1 nm sampling error (measured max 3.9e-4 at 371.75-383.5 nm, median 2e-6)."""
     O = np.loadtxt(RAW, skiprows=45)
     fine = json.loads(FINE.read_text())
     grid = np.asarray(fine['wavelength_nm'])

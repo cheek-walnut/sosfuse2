@@ -19,7 +19,8 @@ import argparse, json, math, sys, time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 import numpy as np
 from sosfuse2.asset_tools.mie import coefficients, phase
 from sosfuse2.foundation import paths

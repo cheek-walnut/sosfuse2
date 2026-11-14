@@ -1,16 +1,14 @@
 """GPU promotion and the persistent payload keep the solver's SH order (they rebuilt Kernel at L32).
 
-No CUDA: fused.Kernel is replaced by a recorder, so this runs on the Mac."""
+No CUDA: source_solver.Kernel is replaced by a recorder, so this runs without a GPU."""
 
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
 import pytest
 
-# geometry binds fused.Kernel at import; import it before Kernel is patched so the Recorder never leaks to later tests.
+# ray_geometry binds source_solver.Kernel at import; import it before Kernel is patched so the Recorder never leaks to later tests.
 from sosfuse2.solve import source_solver, ray_geometry
 from sosfuse2.jobs import pipeline_execution as pe  # noqa: E402,F401
 

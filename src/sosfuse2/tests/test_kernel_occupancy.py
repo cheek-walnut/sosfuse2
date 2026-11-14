@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-# Keep the documented direct-script and `python -m` entry points working (the bare import below needs this folder on sys.path).
+# Keep the documented direct-script and `python -m` entry points working.
 # New portable entry point; legacy GPU/reference entry points below are retained.
 if '--host-only' in sys.argv:
     import argparse
@@ -31,10 +31,7 @@ sys.dont_write_bytecode = True
 import numpy as np
 from sosfuse2.solve.source_solver import Kernel
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 SELECTED = ('LANE_GROUND', 'LM_LUT', 'PHASE2_NOBARRIER', 'SH_AUX', 'SPECIALIZE')
 
@@ -93,7 +90,7 @@ def benchmark(out, repeats=3, all_cells=False, seed=None):
         field = np.tile(z['source'], (1, 1, 15)) * np.linspace(0.5, 1.5, 15, dtype='f4')
     field = cp.asarray(field)
     boundary = cp.asarray(np.linspace(0.0001, 0.001, len(s.geo.chi) * 15).reshape(-1, 15))
-    # Small real table_fast capture: phase 2 exercises both first flags.
+    # Small real radiance_table capture: phase 2 exercises both first flags.
     from functools import partial
     from sosfuse2.outputs.radiance_table import _capture, _bundle, _evaluate
 
@@ -166,7 +163,7 @@ def benchmark(out, repeats=3, all_cells=False, seed=None):
                 tile_width=s.kernel.tile_width(15, first, phase),
                 first=first,
                 phase=phase,
-                scope='selftest cells / table_fast 2x2 angles at sun -6; device event excludes SH_AUX build, capture, bundle and D2H',
+                scope='selftest cells / radiance_table 2x2 angles at sun -6; device event excludes SH_AUX build, capture, bundle and D2H',
             )
             records.append(record)
             (out / 'benchmark.json').write_text(json.dumps(records, indent=2) + '\n')

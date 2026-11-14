@@ -25,17 +25,13 @@ if __name__ == '__main__':
         os.environ[key] = '2'
 MODULE = paths.PKG  # the package directory (kernel, configs, assets)
 import numpy as np
-from sosfuse2.foundation import paths
 from sosfuse2.atmosphere import stratosphere as st
+from sosfuse2.backends.sh_layout import count as sh_count
 from sosfuse2.checks import testkit
 from sosfuse2.asset_tools.strato_states import build
 from sosfuse2.solve.source_solver import Kernel, Solver
 from sosfuse2.solve.ray_geometry import create, TransientGeometry
-
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 # The CLI harness (main --out) replaces this; under pytest/unittest collection the cases write into the test scratch instead of
 # failing with OUT=None (harness semantics unchanged).
@@ -500,8 +496,9 @@ class Delta(unittest.TestCase):
         with np.load(work / 'out/enabled/table.npz') as a, np.load(work / 'out/override/table.npz') as b:
             assert_equivalent(a['radiance'], b['radiance'])
         for name in ('enabled', 'override'):
+            width = 10 + 2 * sh_count(metas[name]['settings']['L'])  # stratosphere source: 10 + two SH blocks at the run's L
             with np.load(work / 'tmp' / name / 'source.npz') as data:
-                self.assertEqual(data['source'].shape, (40, 1132, 1))
+                self.assertEqual(data['source'].shape, (40, width, 1))
         validation = json.loads((ARTIFACT / 'val_zero/validation.json').read_text())
         self.assertTrue(validation['pass'])
         from sosfuse2.checks.stratosphere_checks import zero_bytes

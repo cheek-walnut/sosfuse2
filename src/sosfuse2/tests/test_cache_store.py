@@ -124,7 +124,7 @@ BASE = (
 
 def endpoints(root, sig, complete=True, height=1.2):
     """A complete (or unfinished) endpoints folder; height changes source_height.json and dirs.bin like a build from
-    another scale height (end_col[:,1] differs, the signature does not: geometry_contract.py:71-78)."""
+    another scale height (end_col[:,1] differs, the signature does not: precompute/endpoint_contract.py)."""
     e = f'geometry/endpoints_{sig}'
     put(root, f'{e}/identity.json', '{"version": 3}\n')
     put(root, f'{e}/source_height.json', json.dumps(dict(height=height)) + '\n')
@@ -309,7 +309,7 @@ def test_pull_publishes_under_the_pipeline_locks_and_two_pulls_race(tmp_path, st
     cs.push(src)
     mirror = tmp_path / 'sky-cache'
     (mirror / 'geometry').mkdir(parents=True)
-    # A pipeline holding this signature's builder lock (run_gpu_state_v3.py:470) delays the endpoints publication.
+    # A pipeline holding this signature's builder lock (jobs/run_state.py) delays the endpoints publication.
     holder = subprocess.Popen(
         [
             sys.executable,
@@ -355,7 +355,7 @@ def test_pull_publishes_under_the_pipeline_locks_and_two_pulls_race(tmp_path, st
         and content(race) == content(mirror)
     )
     assert not (race / cs.STAGE).exists()
-    # One geometry key by name (SPEC.md CLI order); a file the mirror already has is kept.
+    # One geometry key by name (CLI order); a file the mirror already has is kept.
     other = tmp_path / 'other'
     put(other, f'columns/{COL}.npy', 'LOCAL')
     assert cs.main(['pull', '--keys', e, f'columns/{COL}', str(other)]) == 0
@@ -590,7 +590,7 @@ def test_legacy_loose_store_is_read_only_and_migrates(tmp_path, store):
     src = tmp_path / 'cache'
     e = tree(src)
     for f in unit_files(e):
-        put(store.remote, f, (src / f).read_bytes())  # 10-23 layout
+        put(store.remote, f, (src / f).read_bytes())  # loose-file layout of the first fill
     listing = cs.list_store()
     assert {r['key']: r['kind'] for r in listing['units']}[e] == 'endpoints(legacy)'
     plain = cs.pull(tmp_path / 'm1')

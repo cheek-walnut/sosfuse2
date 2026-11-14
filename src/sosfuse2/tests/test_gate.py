@@ -2,9 +2,9 @@
 Run: python -m pytest -q src/sosfuse2/tests/test_gate.py"""
 
 import json
+import os
 import shutil
 import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -311,7 +311,7 @@ def test_gate_flags_exception_writes_json(tmp_path, monkeypatch):
     monkeypatch.setattr(kernel_diagnostics, 'reduced', lambda *a: (dict(pass_=True), None))
     monkeypatch.setattr(kernel_diagnostics, 'evaluate', boom)
     monkeypatch.setattr(sys, 'argv', ['g', '--out', str(tmp_path / 'b')])
-    assert kernel_diagnostics.main() == 2  # was KeyError 'pass' (gate_flags.py:108-109)
+    assert kernel_diagnostics.main() == 2  # was KeyError 'pass' (checks/kernel_diagnostics.py)
     g = json.loads((tmp_path / 'b/gate.json').read_text())
     assert g['pass'] is False and g['exact']['C3']['code'] == 'E_GATE_EXCEPTION'
 
@@ -445,6 +445,8 @@ def test_log_blend_removes_one_ulp_sensitivity(tmp_path, monkeypatch, perturbati
     for k in ('COLUMN', 'SUN', 'GROUND', 'GEOMETRY'):
         monkeypatch.setenv(f'SOSFUSE2_{k}_WORKERS', '2')
     monkeypatch.delenv('STRATO_ATTACH_CACHE', raising=False)
+    # gate.worker sets this default in its own process; setenv makes teardown remove it again.
+    monkeypatch.setenv('SOSFUSE2_KSPLIT_FALLBACK', os.environ.get('SOSFUSE2_KSPLIT_FALLBACK', '0'))
     gate.worker('fixed', 'FX-N', tmp_path / 'base', 'numpy')
 
     class Ulp:
@@ -487,7 +489,7 @@ def test_log_blend_removes_one_ulp_sensitivity(tmp_path, monkeypatch, perturbati
 
 
 def test_chunked_source_solve_meta():
-    """BM45 (45 wavelengths): run_gpu_state_v3 writes one source_solve per FW=15 chunk; a single chunk keeps the dict form."""
+    """BM45 (45 wavelengths): jobs.run_state writes one source_solve per FW=15 chunk; a single chunk keeps the dict form."""
     one = dict(evaluations=8, converged=[True] * 15)
     many = [
         dict(evaluations=8, converged=[True] * 15),
@@ -594,7 +596,7 @@ def test_gf_fixed_tolerance_and_decision_no_bypass(home, monkeypatch, delta, dec
 
 
 def test_main_restores_records_and_checks_writable_baselines(home, monkeypatch):
-    """C-07/C-08: RECORDS is per call (restored after main), and a bless mode on read-only package baselines is E_GATE_CONFIG."""
+    """RECORDS is per call (restored after main), and a bless mode on read-only package baselines is E_GATE_CONFIG."""
     assert gate.RECORDS is None
     run_gate(home, runs(home / 'r'))
     assert gate.RECORDS is None
@@ -606,7 +608,7 @@ def test_main_restores_records_and_checks_writable_baselines(home, monkeypatch):
 
 
 def test_commit_and_portable_reference(monkeypatch, tmp_path):
-    """C-03/C-05: the recorded commit is GATE_SOURCE_COMMIT or the package's own; a reference path never records a host path."""
+    """The recorded commit is GATE_SOURCE_COMMIT or the package's own; a reference path never records a host path."""
     from sosfuse2.jobs import run_state as v3
 
     monkeypatch.setattr(v3, 'package_info', lambda: dict(package_version='9.9.9', package_commit='feedface'))
@@ -644,3 +646,17 @@ def test_toolkey_reads_the_former_profile_name_as_the_current_one():
     former = dict(meta, device=dict(meta['device'], profile='eda'))  # a reused run recorded by 1.3.x
     assert gate.toolkey(former) == gate.toolkey(meta)
     assert gate.toolkey(meta)[0] == '7de21e0b57f543b1'  # the folder of the FX-C3, FX-A and FX-AP baselines
+
+
+def test_gf_template_import_error_is_coded(home, monkeypatch, tmp_path):
+    """A bake template that fails at import (an import of a renamed module) is E_GATE_TEMPLATE with the reason."""
+    sky = tmp_path / 'sky'
+    (sky / 'rig/bake').mkdir(parents=True)
+    (sky / 'rig/bake/bake_run.py').write_text('from sosfuse2 import no_such_module_for_this_test\n')
+    monkeypatch.setenv('SOSFUSE2_SKY_SOS_ROOT', str(sky))
+    ref = home / 'reference.npz'
+    np.savez(ref, radiance=np.ones((2, 3)))
+    args = gate.NS(out=home / 'gf_test', reference=ref, decision=None, reason='test')
+    with pytest.raises(gate.GateError, match='ImportError') as caught:
+        gate.gf(args, gate.load_fixtures(), dict(gates={}))
+    assert caught.value.code == 'E_GATE_TEMPLATE'

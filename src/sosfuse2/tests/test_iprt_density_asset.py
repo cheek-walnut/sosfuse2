@@ -17,6 +17,7 @@ import pytest
 
 from sosfuse2.atmosphere import density
 from sosfuse2.asset_tools import iprt
+from sosfuse2.foundation import paths
 
 NAME = 'tau_absorption_320nm_usstd.dat'
 
@@ -115,6 +116,7 @@ def test_session_without_inputs_skips_only_the_offline_stop(tmp_path):
     )
     env = {k: v for k, v in os.environ.items() if not k.startswith('SOSFUSE2_')}
     env.update(SOSFUSE2_WORK_ROOT=str(tmp_path / 'work'), SOSFUSE2_OFFLINE='1', PYTHONDONTWRITEBYTECODE='1')
+    env = paths.child_env(env)
     run = subprocess.run(
         [sys.executable, '-B', '-m', 'pytest', '-q', '-rs', '-p', 'no:cacheprovider', '-p', 'sosfuse2.tests.conftest']
         + ['--rootdir', str(tmp_path), '--basetemp', str(tmp_path / 'bt'), str(case)],

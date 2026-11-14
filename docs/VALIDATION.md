@@ -470,7 +470,7 @@ scattering to Legendre order 16 (`docs/MODEL.md`). We solved full tables with on
 them with the tables at 12 nodes and order 16. All tables of this section were made with the two switches named in the
 previous section.
 
-In the default band mode and with the default density row, exp(−h / 8 km), we solved four bundled states, `clear_34`,
+In the default band mode and with the exp8 configuration (`exp8`/`triangle`/`keep`, the default through 1.4.0), we solved four bundled states, `clear_34`,
 `clear_37`, `clear_43` and `clear_80`. Here Y RMS is the root-mean-square relative change of the luminance, weighted with the
 cosine of the view elevation, over the table pixels that reach 1e-3 of the maximum of their solar-elevation row, and the
 percentile of Δu′v′ is unweighted. Raising the source nodes from 12 to 24 changes the tables by a Y RMS of 0.007 % to 0.048
@@ -580,7 +580,7 @@ expansion, the interpolation nor the path quadrature, and the reference evaluate
 form where the engine expands it.
 
 The engine was the installed 1.2.3 package on the production grid in the default band mode, read at two bands, 553.875 nm and
-448.125 nm. The three states derive from the bundled state `clear_33`, with a black surface and the default density row.
+448.125 nm. The three states derive from the bundled state `clear_33`, with a black surface and the exp8 configuration (`exp8`/`triangle`/`keep`, the default through 1.4.0).
 State R has no aerosol and no stratospheric layer, which leaves molecular scattering and gas absorption. State T keeps the
 tropospheric aerosol (aod550 0.045, asymmetry parameter 0.738, single-scattering albedo 0.978) without the stratospheric
 layer. State S keeps both, with a stratospheric τ550 of 0.0052. There are seven directions: 2°, 10° and 30° elevation at the
@@ -639,13 +639,13 @@ we could not test a finer one. In state T the Legendre order accounts for part o
 
 This is one term of the solution. The third and higher orders and the convergence error of the iteration are not included,
 and we did not measure whether the error of the full solution has the same size. The comparison has two bands for states R
-and T and one for state S, no reflecting surface, and the default density row rather than `usstd76`.
+and T and one for state S, no reflecting surface, and the exp8 configuration (`exp8`/`triangle`/`keep`, the default through 1.4.0) rather than `usstd76`.
 
 ## Molecular atmosphere against SASKTRAN2 (solar elevation −9° to −18°)
 
 For the radiance of all orders in deep twilight we compared the engine with SASKTRAN2 (version 2026.10.1; Bourassa et al.
 2008; Zawada et al. 2015) in an atmosphere of Rayleigh scattering only, without aerosol, ozone, NO₂ or O₄, over a black
-surface, with the default density row and a top at 80 km. The directions are the seven of the second-order comparison. Three
+surface, with the exp8 configuration (`exp8`/`triangle`/`keep`, the default through 1.4.0) and a top at 80 km. The directions are the seven of the second-order comparison. Three
 differences between the two calculations were not corrected. SASKTRAN2 ran as a scalar code at 550 nm, while the engine
 carries the polarisation of Rayleigh scattering. The engine value is that of the band containing 550 nm, multiplied by the
 ratio of the engine's Rayleigh cross section at 550 nm to that of the band, a factor of 1.029, without a new solution at 550
@@ -689,7 +689,7 @@ and the surface below the two mountain sites remain in the model. Table 13 adds 
 model over measurement without such a floor, which matters from about −12° downwards. `clear_89` is a bundled state, and
 we did not fit it to the sites or dates.
 
-| site | solar elevation | `clear_89`, default density row | `clear_89`, `density_profile: usstd76` | `clear_89`, all three options |
+| site | solar elevation | `clear_89`, exp8 configuration (`exp8`/`triangle`/`keep`, the default through 1.4.0) | `clear_89`, `usstd76`/`triangle`/`keep` | `clear_89`, `usstd76`/`usstd76`/`usstd` |
 |---|---|---|---|---|
 | Maryland, all sky | −6° / −9° / −12° | 1.78 / 2.09 / 2.06 | 0.96 / 1.04 / 0.86 | 1.00 / 1.05 / 0.87 |
 | Sacramento Peak, all sky | −6° / −9° / −12° | 3.17 / 2.87 / 2.88 | 1.63 / 1.44 / 1.19 | 1.67 / 1.45 / 1.23 |
@@ -697,13 +697,13 @@ we did not fit it to the sites or dates.
 
 Table 13. Model luminance divided by the measured luminance for the bundled state `clear_89` (aod550 0.020, stratospheric
 τ550 0.0032). For the all-sky sets the value is the median over the measured directions. The fourth column changes only
-`density_profile`, while the ozone profile and the Rayleigh column stay at their defaults; the last column sets
+`density_profile`, with `ozone_profile: triangle` and `rayleigh_column: keep` explicitly retained; the last column sets
 `density_profile: usstd76`, `ozone_profile: usstd76` and `rayleigh_column: usstd`.
 
-With the default density row, exp(−h / 8 km), the table is 1.4 to 2.1 times the Maryland and Paranal measurements
-between −6° and −12°, and 2.9 to 3.2 times those at Sacramento Peak. With `density_profile: usstd76` the ratios are 0.86
-to 1.04 at Maryland and 0.58 to 0.86 at Paranal. In the engine the luminance with `density_profile: usstd76` is 0.41
-times the default one at −12°. SASKTRAN2 gives 0.39 to 0.41 for a similar change of profile in a Rayleigh atmosphere, in
+With the exp8 configuration (`exp8`/`triangle`/`keep`, the default through 1.4.0), the table is 1.4 to 2.1 times the Maryland and Paranal measurements
+between −6° and −12°, and 2.9 to 3.2 times those at Sacramento Peak. With `usstd76`/`triangle`/`keep` the ratios are 0.86
+to 1.04 at Maryland and 0.58 to 0.86 at Paranal. In the engine the luminance with `usstd76`/`triangle`/`keep` is 0.41
+times the exp8 configuration at −12°. SASKTRAN2 gives 0.39 to 0.41 for a similar change of profile in a Rayleigh atmosphere, in
 which the two profiles do not have exactly the same column. The agreement of the two codes shows that this sensitivity
 does not come from the solver, and it supports the density profile, which holds more air above 20 km (README,
 *Limitations*), as the main cause of the excess; the comparison does not test other causes. Sacramento Peak stays at 1.2
@@ -722,7 +722,7 @@ average dark-time sky brightness at Paranal, corrected to the zenith, of V = 21.
 0.20 mag, which we take as the uncertainty of the floor. We did not assess moonlight, zodiacal light or a change of the
 airglow during twilight in the data of the fit, nor the error of the conversion from V to luminance. Adding this average
 as a uniform night-sky floor, 2.443e-4 cd m⁻² with the same conversion, gives a ratio at −12° of 0.747 for `clear_89`
-when only `density_profile: usstd76` is set. Table 14 gives the Paranal ratios from −5° to −15° with
+with `density_profile: usstd76`, `ozone_profile: triangle` and `rayleigh_column: keep`. Table 14 gives the Paranal ratios from −5° to −15° with
 `density_profile: usstd76`, `ozone_profile: usstd76` and `rayleigh_column: usstd` for `clear_89` (aod550 0.020, albedo
 0.61) and `clear_92` (aod550 0.100, albedo 0.09). We did not fit the bundled states to the site, and the two states also
 differ in albedo, aerosol scale height, single-scattering albedo, asymmetry parameter, Ångström exponent, ozone column
@@ -788,7 +788,8 @@ options, so the comparison is not independent for those options.
 
 Table 15. Solar elevation of the three purple-light events at 20° elevation on the sun side. In the `density` block the two
 lower rows change only `density_profile`, and the last row also raises τ550 to 0.006. Both keep `ozone_profile: usstd76` and
-`rayleigh_column: usstd`, so they are not the default density row with its default ozone profile and Rayleigh column.
+`rayleigh_column: usstd`, so they differ from the exp8 configuration (`exp8`/`triangle`/`keep`, the default through
+1.4.0) in the ozone profile and the Rayleigh column.
 
 With the exponential density profile and the same stratospheric layer, the purple light ends 1.1° later than the measured
 mean, about 12 standard errors of that mean. Raising τ550 by a factor of 1.6 restores the end to −7.5°, so the timing alone
@@ -948,8 +949,8 @@ still a point sample on a 0.1 nm cross-section grid. Its remaining error was not
 - The remaining difference from the measured twilight brightness with `density_profile: usstd76`,
   `ozone_profile: usstd76` and `rayleigh_column: usstd`. In `clear_89` without a night-sky floor the model is 0.87 to
   1.05 times the Maryland measurements, 1.23 to 1.67 times those at Sacramento Peak and 0.59 to 0.88 times the Paranal
-  zenith fit at −6°, −9° and −12°, against 0.86 to 1.04, 1.19 to 1.63 and 0.58 to 0.86 with `density_profile: usstd76`
-  alone. At Paranal, with a uniform night-sky floor of V = 21.61 mag arcsec⁻² and its uncertainty of 0.20 mag, the ratio
+  zenith fit at −6°, −9° and −12°, against 0.86 to 1.04, 1.19 to 1.63 and 0.58 to 0.86 with
+  `usstd76`/`triangle`/`keep`. At Paranal, with a uniform night-sky floor of V = 21.61 mag arcsec⁻² and its uncertainty of 0.20 mag, the ratio
   is 0.72 to 0.89 for `clear_89` and 0.65 to 0.83 for `clear_92` between −5° and −12°, where ±0.20 mag of floor moves it
   by less than 5 %; from −13° to −15° the floor is 31 % to 77 % of the fit and ±0.20 mag of floor moves the ratio by 7 %
   to 17 %. We did not fit the bundled states to the sites, the mountain sites sit over a sea-level spherical ground, and

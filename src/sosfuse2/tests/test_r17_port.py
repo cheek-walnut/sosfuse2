@@ -175,7 +175,7 @@ class PreviewReuse(unittest.TestCase):
             )
             with patch.object(pm, 'previews', wraps=pm.previews) as rendered:
                 pm.pack_state(out, tmp / label / 'pack', 'gzip')
-                pm.pack_state(out, tmp / label / 'pack', 'gzip', reuse_previews=reuse)  # run_gpu_state_v3 repack
+                pm.pack_state(out, tmp / label / 'pack', 'gzip', reuse_previews=reuse)  # jobs.run_state repack
             members = {}
             with tarfile.open(tmp / label / 'pack' / 'state.tar.gz') as tar:
                 for m in tar.getmembers():
@@ -196,8 +196,8 @@ class Nphi(unittest.TestCase):
         from sosfuse2.solve import ray_geometry as gm
         from sosfuse2.asset_tools.strato_states import build
 
-        # accepted/engine.py keeps 64 (it is in the geometry signature, geometry_contract.UPSTREAM);
-        # the v3 adapter replaces its grid counts with settings_for (run_gpu_state_v3.py create_configured, the create() grid hook).
+        # solve/engine.py keeps 64 (it is in the geometry signature, endpoint_contract.UPSTREAM);
+        # the v3 adapter replaces its grid counts with settings_for (jobs/run_state.py create_configured, the create() grid hook).
         engine = (paths.ACCEPTED / 'engine.py').read_text()
         self.assertRegex(engine, r"if mode == 'full':\s*h, ch = old\.grids\(1\)\s*nmu, nphi, path_n = 12, 64, 12")
         tmp = Path(tempfile.mkdtemp(prefix='r17-nphi-'))
@@ -322,7 +322,7 @@ class KernelFlagsParse(unittest.TestCase):
 
 
 class FakeRawKernel:
-    """Records what fused.Kernel hands NVRTC; compiles nothing."""
+    """Records what source_solver.Kernel hands NVRTC; compiles nothing."""
 
     made = []
 
@@ -366,7 +366,7 @@ class Stage1Wiring(unittest.TestCase):
         self.assertEqual(raw_split.options[1:4], exact)
         self.assertEqual([o for o in raw_split.options if o.startswith('-DSOSFUSE2_')], ['-DSOSFUSE2_DETERMINISTIC=0'])
         self.assertEqual(list(split.raw), [base(split)])
-        # rig profile, env unset: S2 from configs/devices.json stage1_defaults.
+        # rig profile, env unset: S2 from backends/configs/devices.json stage1_defaults.
         rig = self.kernel('rig')
         with patch.dict(os.environ, {}, clear=True):
             raw_s2 = rig.raw_kernel(15, 0, 0, 0)
@@ -424,6 +424,10 @@ rv.main()
 class PipelineRunnerSeam(unittest.TestCase):
     def test_persistent_auto_passes_runner_arguments(self):
         from sosfuse2.asset_tools.strato_states import build
+        from sosfuse2.checks import testkit
+
+        with testkit.socket_root('sos-persistent-'):  # length probe: the pipeline binds <TMPDIR>/sos-persistent-*/socket
+            pass
 
         tmp = Path(tempfile.mkdtemp(prefix='r17-seam-')).resolve()
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)

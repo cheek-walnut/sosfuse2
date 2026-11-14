@@ -33,7 +33,7 @@ from ..foundation import paths, content_identity as source_identity
 
 ASSET = paths.ASSETS / 'spectra_fine.json'
 CMF_1NM = paths.ASSETS / 'cmf_1nm.json'  # Mitsuba 3.9.1 CIE 1931 XYZ 1 nm
-LEF = paths.ASSETS / 'lef_cie.json'  # colour-science 0.4.7 V_scotopic (was assets/lef_cie.json)
+LEF = paths.ASSETS / 'lef_cie.json'  # colour-science 0.4.7 V_scotopic
 SPECTRA_48 = paths.ASSETS / 'spectra.json'  # 48-band legacy solar spectrum (engine SPEC dict)
 MODES = ('legacy', 'point', 'band')
 OZONE_COLUMNS = (213, 233, 253)
@@ -437,7 +437,7 @@ def legacy_channel_weights(wl):
             cmf='mitsuba 3.9.1 mi.cie1931_xyz 1 nm (sosfuse2/assets/cmf_1nm.json)',
             V_scotopic='sosfuse2/assets/lef_cie.json V_scotopic (CIE 1951, 1 nm, 380-780; 0 outside)',
             E_sun=f"sosfuse2/assets/spectra.json 'solar' W m^-2 nm^-1, 10 nm 360-830, source {sp.get('source')} (file sha256 {sha}); "
-            "linear interpolation (np.interp) to 1 nm and to bin centres as sos_sky.py:301",
+            "linear interpolation (np.interp) to 1 nm and to bin centres",
             bins='EDGES=linspace(360,830,16), samples unique([lo, ceil(lo)..hi-1, hi]) + trapezoid',
         ),
         definition=dict(
@@ -454,7 +454,7 @@ def table_weights(block, wavelengths):
     if block is None:
         if len(wl) != 15:
             raise ValueError(
-                f'E_SPECTRAL_CONTRACT: legacy weights are the lutcv2 15-bin set, table has {len(wl)} wavelengths'
+                f'E_SPECTRAL_CONTRACT: legacy weights are the 15-bin E_sun set, table has {len(wl)} wavelengths'
             )
         return legacy_channel_weights(wl)
     W = channel_weights(block, wl)
@@ -464,7 +464,7 @@ def table_weights(block, wavelengths):
         spectral=block,
         definition=dict(
             esun="w_i = 683 int_bin cmf E_sun dl / E_rep,i (S': 1700 V' over 380-780); E_rep = the engine's value "
-            "(point: E(l_i), band: bin mean); exact piecewise-linear product integral (sosfuse2/spectral.py)"
+            "(point: E(l_i), band: bin mean); exact piecewise-linear product integral (sosfuse2/atmosphere/spectral.py)"
         ),
         sources=dict(
             cmf='sosfuse2/assets/cmf_1nm.json (CIE 1931 2 deg)',

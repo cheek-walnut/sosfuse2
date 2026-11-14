@@ -1,7 +1,7 @@
-"""A6: NumPy evidence per kernel flag (no CUDA on this Mac).
+"""A6: NumPy evidence per kernel flag (no CUDA).
 
 SH_AUX       host builder + kernel index formula emulated on every (cell,k,w);
-             reference.transport(sh_source=aux) vs default: bit comparison.
+             numpy_reference.transport(sh_source=aux) vs default: bit comparison.
 LANE_GROUND  first-light ground pool emulated in strict FP32 sequential order,
              original (lane 0, w inside j) vs lane-parallel (w outside j), and
              vs the reference's vectorized ground term: bit comparison.
@@ -32,10 +32,7 @@ from sosfuse2.solve.source_solver import sh_aux, KPAD
 from sosfuse2.backends import numpy_reference
 from sosfuse2.backends.numpy_reference import sample, hg
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 F = np.float32
 
 
@@ -104,7 +101,7 @@ def check_lane_ground(s, scope):
                 mu += q['d'][:, k] * q['Q'][:, k, 2]
                 exd += q['d'][:, k] * q['Q'][:, k, 0]
                 eyd += q['d'][:, k] * q['Q'][:, k, 1]
-            # Reference vectorized order (reference.py first-light block)
+            # Reference vectorized order (backends/numpy_reference.py first-light block)
             ground = np.zeros((len(mu), W), 'f4')
             for corner in range(4):
                 cells = q['cells'][:, corner]

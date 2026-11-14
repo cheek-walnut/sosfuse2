@@ -184,6 +184,9 @@ def example_state():
     state = next(s for s in read_states(paths.ASSETS / 'states_v2.json', True) if s['id'] == 'clear_34')
     state = copy.deepcopy(state)
     state.update(id=STATE_ID, description='clear_34 parameters, O4 off, stratosphere disabled')
+    from sosfuse2.atmosphere.density import LEGACY
+
+    state['density'] = dict(LEGACY)
     state['parameters']['o4'] = False
     state['stratosphere'] = dict(status='disabled')
     return state
@@ -348,6 +351,7 @@ def render(record):
         'State `%s`: the parameters of `clear_34` in `assets/states_v2.json`, with O4 off and the stratospheric layer '
         'disabled. Resolved amounts (`atmosphere/components.py: canonical_state`): NO2 %s DU, O4 %s.'
         % (STATE_ID, g % record['amounts']['no2_du'], 'on' if record['amounts']['o4'] else 'off'),
+        'The example uses exp8/triangle/keep to run without downloads; the default is usstd76/usstd76/usstd.',
         '',
         '```json',
         json.dumps(record['state'], indent=1),

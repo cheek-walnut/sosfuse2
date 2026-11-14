@@ -15,7 +15,7 @@ is rounded to float64 once, at the end; json float repr is shortest-round-trip. 
 x86_64/CPython 3.12; other interpreters (PyPy's _pydecimal) are not covered by that measurement.
 The expressions match the original asset; measured against it the
 values move by at most 4.7e-15 relative (air ratio, the float64 version accumulated several ulp over the layer products)
-and 1.2e-15 (ozone), far below the rtol 1e-6 of prepared quantities."""
+and 1.2e-15 (ozone), far below the check tolerances (rtol 1e-5 and up, docs/CHECKS.md)."""
 
 import argparse
 import json

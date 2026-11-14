@@ -1,10 +1,8 @@
-"""attach_lock_name (run_gpu_state_v3): synthetic state dicts, no solver, no CuPy."""
+"""attach_lock_name (jobs.run_state): synthetic state dicts, no solver, no CuPy."""
 
 from sosfuse2.foundation import paths
 import copy
 import json
-from pathlib import Path
-import sys
 import types
 import unittest
 import numpy as np
@@ -42,7 +40,7 @@ class AttachLockName(unittest.TestCase):
         self.assertEqual(a, attach_lock_name(variant(self.base, ssa=0.001, g=0.0, angstrom=0.5, ozone_du=0.0)))
 
     def test_geometry_key_ignores_optics_only(self):
-        """ssa/g/angstrom/ozone_du share one attach file (measured byte-equal in cpu_prep_multistate_20261024); H does not."""
+        """ssa/g/angstrom/ozone_du share one attach file; H does not."""
         geo = types.SimpleNamespace(
             h=np.arange(4.0),
             chi=np.arange(3.0),

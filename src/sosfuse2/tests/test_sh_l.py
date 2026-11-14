@@ -10,10 +10,7 @@ from sosfuse2.backends.arithmetic import basis
 from sosfuse2.solve.source_solver import sh_aux, sh_aux_pair
 from sosfuse2.solve.strato_sh_aux import strato_sh_aux
 
-try:
-    from sosfuse2.checks.numerical_checks import within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 
 def test_default_source_is_current_kernel():

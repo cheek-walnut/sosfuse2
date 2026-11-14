@@ -16,10 +16,7 @@ from sosfuse2.asset_tools.strato_states import build
 from sosfuse2.tests.test_kernel_static import STUB
 from sosfuse2.tests.test_tropo_mie import SYNTAX_STUB_EXTRA
 
-try:
-    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
-except ImportError:  # standalone research harness
-    from numerical_checks import assert_equivalent, within_tol
+from sosfuse2.checks.numerical_checks import within_tol
 
 
 def compile_native(out):
@@ -109,7 +106,9 @@ def run(out):
     for name, mask, strato in (('ray', 1, False), ('ozone', 2, False), ('both', 3, False), ('both_strato', 3, True)):
         state = copy.deepcopy(build()['states'][5] if strato else normal_state())
         state['density'] = dict(
-            density_profile='usstd76' if mask & 1 else 'exp8', ozone_profile='usstd76' if mask & 2 else 'triangle'
+            density_profile='usstd76' if mask & 1 else 'exp8',
+            ozone_profile='usstd76' if mask & 2 else 'triangle',
+            rayleigh_column='keep',
         )
         s, scope, _ = create(out / name / 'geometry', 'selftest', 360 + (np.arange(15) + 0.5) * 470 / 15, state=state)
         geometry = TransientGeometry(s, scope)
