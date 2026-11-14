@@ -18,8 +18,8 @@ every table with the hashes of the code and data that produced it.
    layers, and `AGENTS.md` lists the files to open first for each kind of task.
 
 This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, the versions
-from 1.3.0 on were published one by one, and 1.5.0 is the current release. For users of 1.3.x, 1.4.0 moves the module
-paths into layer folders, with the old-to-new table in `docs/CHANGELOG.md`.
+from 1.3.0 on were published one by one, and the current release, 1.5.1, changes documentation only. For users of
+1.3.x, 1.4.0 moves the module paths into layer folders, with the old-to-new table in `docs/CHANGELOG.md`.
 `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the configurations the releases
 were verified on. The change that matters most for default output is in 1.5.0: a state without a `density` block now
 uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (*Limitations*). In 1.2.3 the bundled
@@ -34,7 +34,8 @@ the Monte Carlo code MYSTIC on the same optical input, for eight bundled states 
 engine for the eight states and their mean, (c) the luminance ratio at six pixels with 95 % intervals over 16 seeds.
 Over the 96 cases the ratio minus 1 has a mean of +0.10 % and a root mean square of 0.63 %. At 93° the mean is +0.13 %
 with a root mean square of 0.26 %, and 15 of the 48 intervals exclude 1; at 96° the root mean square of 0.85 % is of the
-size of the Monte Carlo error. `docs/VALIDATION.md` gives the details.
+size of the Monte Carlo error. `docs/VALIDATION.md` gives the details, and the scripts in `docs/validation/mystic`
+repeat the comparison.
 
 ## Why a spherical-shell solver
 
@@ -259,6 +260,10 @@ passing turns the run red until its entry is removed, so the failures stay visib
 
 1.3.3 and 1.3.4 change documentation only. Their code is that of 1.3.2, and apart from the continuous-integration run no
 test or gate was run again for them.
+
+1.5.1 changes documentation only. Its code is that of 1.5.0, so the 1.5.0 rows apply to it. Apart from the
+continuous-integration run, its one new check is that of the scripts in `docs/validation/mystic` (*Reproducing the
+figures and the records* in `docs/VALIDATION.md`).
 
 Configurations verified for 1.5.0:
 

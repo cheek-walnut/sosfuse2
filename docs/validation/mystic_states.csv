@@ -1,6 +1,6 @@
 # Engine and MYSTIC on the same optical input: eight bundled states, six sky pixels, solar zenith angles 93 and 96 degrees.
-# Data of Figure 2 of docs/VALIDATION.md (mystic_states.png, plot_mystic_states.py). It is a record of research runs and
-# cannot be regenerated from this repository; do not edit by hand.
+# Data of Figure 2 of docs/VALIDATION.md (mystic_states.png, plot_mystic_states.py). It is the record of the runs described
+# under Origin. The scripts in docs/validation/mystic rebuild it from the run records and can repeat the runs. Do not edit by hand.
 #
 # Rows (quantity)
 #   spectrum    L/E0 at the 30 wavelengths, pixel 20.25 deg / 0.5 deg only, 8 states x 2 SZA = 480 rows; state "mean8" rows
@@ -25,8 +25,9 @@
 #                         seeds of Y_seed / Y_engine; mean8 rows: arithmetic mean of the 8 state values
 #   ratio_se              standard error of ratio: seed standard deviation / sqrt(16) (single states; the engine value is treated
 #                         as exact, so input, grid and model error are not in it); mean8 rows: sqrt(sum of squared state errors)
-#                         / 8, treating the states as independent Monte Carlo runs (every run uses the seeds 11..26 on a
-#                         different input; the correlation between runs that share a seed was not measured)
+#                         / 8, treating the states as independent Monte Carlo runs (the random seed of a run is its seed
+#                         label 11..26 plus 10,000 times the index of its state, pixel, SZA and wavelength, so no two runs
+#                         share a seed)
 #   ratio_ci_low/high     95 % Student t interval of ratio, ratio -/+ 2.131449546 * ratio_se (15 degrees of freedom); single
 #                         states only, empty for mean8
 #   n_seeds               independent MYSTIC runs (random seeds) combined in the value
@@ -38,15 +39,17 @@
 #
 # Origin
 #   Engine: sosfuse2 1.2.3, path_n 12 source nodes per path segment, Legendre order L 16 in multiple scattering
-#   (the package defaults), plus SOSFUSE2_GROUND_SH_L=24 and SOSFUSE2_DETERMINISTIC=1, nr 44, 100 x 180
+#   (the package defaults), plus SOSFUSE2_GROUND_SH_L=24 and SOSFUSE2_DETERMINISTIC=1, device profile rig (its stage-1
+#   kernel options FMAD and FASTMATH), nr 44, 100 x 180
 #   directions, 25 solar elevations +6 to -18 degrees, point mode with ozone cross section at 233 K, Anderson tolerance 0.001,
 #   density_profile usstd76, ozone_profile usstd76, rayleigh_column usstd, stratospheric sulfate at 21 km, NO2 and O4 on. The
 #   table was read at the six pixels and the two SZA.
 #   MYSTIC: libRadtran 2.0.6, rte_solver mystic, 1D spherical geometry (earth_radius 6371 km), backward tracing (mc_backward,
 #   mc_escape on, mc_vroom on), polarised (mc_polarisation), mc_std, observer 0.1 km above the ground, Lambert albedo per state,
-#   no refraction, point Sun, layers of 0.1 km from the ground to 3 km and of 0.5 km above to 80 km, Henyey-Greenstein phase
-#   functions expanded to 256 Legendre terms; the optical input is exported from the engine (same Rayleigh, ozone, NO2, O4 and
-#   aerosol optical depths per layer); Rayleigh depolarisation 0.03, aerosol scattering fully depolarising.
+#   no refraction, point Sun, layers of 0.1 km from the ground to 3 km and of 0.5 km above to 80 km. The tropospheric aerosol
+#   phase function is Henyey-Greenstein expanded to 256 Legendre terms, the stratospheric one the 33 Legendre moments of the
+#   engine's sulfate table. The optical input is exported from the engine (same Rayleigh, ozone, NO2, O4 and aerosol optical
+#   depths per layer); Rayleigh depolarisation 0.03, aerosol scattering fully depolarising.
 #   16 seeds (11..26) x 250,000 photons per wavelength; 46,080 runs of 8 x 6 x 2 x 30 x 16, all successful, no seed discarded.
 #
 # States (id, aod550, Angstrom exponent, single-scattering albedo, aerosol scale height km, g, ozone DU, albedo, stratospheric

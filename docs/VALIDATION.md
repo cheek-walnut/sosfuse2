@@ -402,8 +402,9 @@ Table 7, at SZA 93° and 96°. A case below is one state at one pixel and one SZ
 
 MYSTIC (libRadtran 2.0.6) received the optical input in layers of 0.1 km from the ground to 3 km and of 0.5 km above. In an
 earlier run of two of the states, changing the layers below 3 km from 0.5 km to 0.1 km raised the MYSTIC luminance at the
-pixels at 1.35° elevation by 0.11 % to 0.88 % at SZA 93°. The Henyey–Greenstein phase functions were expanded to 256 Legendre
-terms. Each case has 16 seeds of 250,000 photons at each of the 30 wavelengths, and all 46,080 runs finished. For each case
+pixels at 1.35° elevation by 0.11 % to 0.88 % at SZA 93°. The tropospheric Henyey–Greenstein phase function was expanded to
+256 Legendre terms, and the stratospheric phase function was given by the 33 Legendre moments of the engine's sulfate table.
+Each case has 16 seeds of 250,000 photons at each of the 30 wavelengths, and all 46,080 runs finished. For each case
 we computed the relative luminance difference Y_MYSTIC / Y_engine − 1 and its 95 % Student t interval over the 16 seed
 values. The interval contains only the sampling error of MYSTIC. Table 7 summarises the cases over the eight states.
 
@@ -1013,12 +1014,22 @@ uv run --no-project --with matplotlib --with numpy python docs/validation/plot_p
 
 Both scripts import `docs/validation/figure_style.py`, read their CSV (`mystic_states.csv`, `paranal_twilight.csv`) next
 to them and write the PNG (`mystic_states.png`, `paranal_twilight.png`) next to it with no date or software version, so
-repeated runs with one matplotlib version give the same bytes. The two CSVs are records and cannot be regenerated from
-this repository. `mystic_states.csv` needs the same libRadtran 2.0.6 build and research scripts as `mystic_compare.csv`,
-and the engine tables of the eight states solved with the installed 1.2.3 package on a CUDA machine; the 46,080 MYSTIC
-runs took 359,883 CPU-seconds (100.0 CPU-hours) of `uvspec` time. `paranal_twilight.csv` needs the engine tables of the
-two states solved with 1.2.3 in band mode on a CUDA machine and a comparison script that is not distributed here; its
-header gives the fit, the conversion, the floor and the columns.
+repeated runs with one matplotlib version give the same bytes. Both CSVs are records of runs with the installed 1.2.3
+package. `paranal_twilight.csv` cannot be regenerated from this repository, because it needs the engine tables of the two
+states solved with 1.2.3 in band mode on a CUDA machine and a comparison script that is not distributed here. Its header
+gives the fit, the conversion, the floor and the columns.
+
+The scripts in `docs/validation/mystic` produce `mystic_states.csv` with the installed package, and its `README.md` gives
+the commands, the requirements and a small configuration. They export the shared optical input, build libRadtran 2.0.6,
+write and check the MYSTIC input files, run MYSTIC, bake the engine tables of the eight states on a CUDA machine, read
+them at the six pixels and write the comparison and the CSV. The 46,080 MYSTIC runs of the record took 359,883
+CPU-seconds (100.0 CPU-hours) of `uvspec` time. Run on the stored records of those runs, the scripts regenerate the input
+file of every run, every value of the CSV and the twelve rows of Table 7 at their printed precision. With 1.5.0,
+`SOSFUSE2_DETERMINISTIC=1` and the `rig` device profile, the engine tables of `clear_43` and `clear_80` came out
+identical, value for value, to the recorded 1.2.3 tables, and on the same Linux machine the small configuration ran from
+the libRadtran build to the comparison. A new MYSTIC run is a new Monte Carlo sample, so we compare it with the record
+through the standard errors of both rather than by whether it falls inside the recorded 95 % intervals. The scripts serve
+this record only, and `mystic_compare.csv` and `b2_tier1_effects.csv` still need the research scripts named for them.
 
 `docs/validation/b2_tier1_effects.csv` is the record of the 1.1.0 comparison, with one row for each pixel, variant and
 quantity and the columns defined in its header. It cannot be regenerated from this repository either: that needs the same

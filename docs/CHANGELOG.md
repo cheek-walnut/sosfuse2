@@ -3,6 +3,21 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.5.1
+
+- **MYSTIC comparison scripts.** `docs/validation/mystic` holds the scripts that produce the data of Figure 2
+  (`mystic_states.csv`) with the installed package: the shared optical input, the libRadtran 2.0.6 build, the MYSTIC
+  input files and runs, the engine tables, the comparison and the CSV. Its `README.md` gives the commands, the
+  requirements and a small configuration, and *Reproducing the figures and the records* in `docs/VALIDATION.md` states
+  what they reproduce.
+- **`mystic_states.csv` header.** It said that every state used the seeds 11..26 and that runs sharing a seed might be
+  correlated. The random seed of a run is its seed label plus 10,000 times the index of its state, pixel, solar zenith
+  angle and wavelength, so no two runs share a seed. It also called both aerosol phase functions Henyey-Greenstein;
+  the stratospheric one is given by the 33 Legendre moments of the engine's sulfate table, as `docs/VALIDATION.md`
+  now states too. The header also names the device profile of the engine tables (`rig`, with the stage-1 kernel
+  options FMAD and FASTMATH). The data rows are unchanged.
+- The package code is that of 1.5.0.
+
 ## 1.5.0
 
 - **Default atmosphere.** A state without a `density` block and without density CLI options now uses
