@@ -49,6 +49,11 @@ fresh virtual environment outside the source tree. The five `test_pipeline_persi
 60 s up to 1.3.1, which a busy laptop and a 12-core host both exceeded in fresh virtual environments outside the source
 tree with `TimeoutExpired` errors; on the latter host the setup queue alone took 462 s and the five cases 838 s in total.
 The public CI also sets `PERSISTENT_TEST_DEADLINE=2400`, and the CUDA G-A gate of tier 2 runs the same cases with 900 s.
+The public CI splits this run into four shards for each platform and Python version and runs the test files of a shard
+side by side, one file per worker (`pytest-xdist` with `--dist loadfile`, one worker per CPU), because most files keep a
+single core busy. `.github/ci/ci_shard.py` assigns whole files to shards by the measured file times in
+`.github/ci/shard_weights.json`; a file that is not listed there gets the median time, so a new file still runs once. The
+`shard-coverage` job collects every shard and fails unless together they hold each collected test exactly once.
 
 The kernel syntax and preprocess tests need a C++ compiler, `clang++` or `clang` on `PATH`: `test_ground_fused`,
 `test_sh_l`, `test_kernel_config`, `test_section_clocks_adversarial`, `test_profile_step`, `test_strato_adversarial`
