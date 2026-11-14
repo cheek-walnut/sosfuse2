@@ -50,8 +50,7 @@ def production_only():
 
 
 def _b2(o4_sha):
-    from .minor_absorbers import load
-    from ..asset_tools.generate_minor_absorbers import CIA_SHA, RULES_VERSION
+    from .minor_absorbers import CIA_SHA, RULES_VERSION, load
 
     return dict(
         rayleigh='bodhaine_iprt450air_vac_v1',

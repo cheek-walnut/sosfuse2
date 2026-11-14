@@ -11,7 +11,7 @@ def cache_key(gpu_name, compiler, block_size=None):
     here = Path(__file__).resolve().parent
     # Kernel sources only: CuPy keys every entry by the exact source text, NVRTC options, architecture and
     # compiler, so host-side Python edits need not orphan a deployment's compiled kernels.
-    sources = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(p for p in here.iterdir() if p.suffix == '.cu')}
+    sources = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(here.glob('*.cu'))}
     identity = dict(
         deterministic=deterministic(),
         sources=sources,

@@ -54,7 +54,7 @@ def interleave_env():
 
         device = device_profile.cuda_device_name(cupy)
     name = device_profile.select(device)[0]
-    return {'SOSFUSE2_KSPLIT': '0'} if name == 'eda' else {}
+    return {'SOSFUSE2_KSPLIT': '0'} if name == 'split' else {}
 
 
 def settings_args(root):

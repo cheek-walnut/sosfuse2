@@ -73,7 +73,7 @@ def cache_key(kernel, bundle, c, kind):
 
 
 def job_root():
-    """SOSFUSE2_COLUMN_CACHE_JOB (run_gpu_state_v3: its --work-root); unset = no first-use comparison."""
+    """SOSFUSE2_COLUMN_CACHE_JOB (run_state: its --work-root); unset = no first-use comparison."""
     text = os.environ.get('SOSFUSE2_COLUMN_CACHE_JOB', '').strip()
     return Path(text) if text else None
 

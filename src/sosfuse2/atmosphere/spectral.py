@@ -6,7 +6,7 @@
   band    arithmetic means over explicit bins [a_i, b_i): trapezoid of the 0.1 nm fine grid; default bins
           linspace(360, 830, n+1); explicit wavelengths_nm + band requires bin_edges_nm (E_SPECTRAL_EDGES)
 
-The engine reads its spectra only through the SPEC dict injected in accepted/engine.py create() (coefficients() and Solver.solar,
+The engine reads its spectra only through the SPEC dict injected in solve/engine.py create() (coefficients() and Solver.solar,
 both np.interp). spec_table() returns a table whose nodes are exactly the engine wavelengths, so the interpolation returns
 the representative values unchanged and the accepted solver code is untouched. The block returned by block() goes into
 the settings (and so into the signed inputs, the table meta and every consumer check); legacy returns None so legacy
@@ -17,7 +17,7 @@ block_key and SPEC unchanged; the default of every settings file that names its 
 mode only: sigma_bar of ozone_temperature.py with the temperature/sigma(T) asset SHAs, the averaging rule and the q identity
 in the block. Product default since P2: settings {} on the product grid mean BM45 + profile_mean;
 naming ozone_temperature or ozone_temperature_K keeps the named treatment (opt-out: {"ozone_temperature": "233K"}). A settings block has no state, so
-its q shape is resolved per state by resolve(block, state) (run_gpu_state_v3.resolve_settings); an unresolved block is
+its q shape is resolved per state by resolve(block, state) (run_state.resolve_settings); an unresolved block is
 refused by every consumer (E_SPECTRAL_UNRESOLVED) and a pinned settings ozone_profile that is not the state's shape is
 E_SPECTRAL_OZONE_PROFILE_MISMATCH.
 """
@@ -331,7 +331,7 @@ def representative(b, wavelengths, *, band_mean_of='band'):
 
 
 def spec_table(b, wavelengths, state=None):
-    """SPEC dict for accepted/engine.py: nodes = engine wavelengths, so np.interp returns the representative values exactly.
+    """SPEC dict for solve/engine.py: nodes = engine wavelengths, so np.interp returns the representative values exactly.
     A profile_mean block must already be resolved for its state (resolve, check_state). `state` only decides whether O4 is
     on (components.o4_enabled; omitted = {} = the default, O4 on); NO2 and O4 are zero for the reference/legacy physics."""
     sigma, E = representative(b, wavelengths)
@@ -555,11 +555,11 @@ CONTRACTS = (
     'v3',
     'v4',
     'v5',
-)  # docs/PROVENANCE_V3.md "Reader rule": the `contract` fields of signed tables (run_gpu_state_v3 meta.json)
+)  # docs/PROVENANCE_V3.md "Reader rule": the `contract` fields of signed tables (run_state meta.json)
 
 
 def check_meta_contract(meta):
-    """Returns meta['contract']. A *signed* table (meta carries `signature`, i.e. a run_gpu_state_v3 output) must name a known
+    """Returns meta['contract']. A *signed* table (meta carries `signature`, i.e. a run_state output) must name a known
     `contract` version, E_PROVENANCE_CONTRACT otherwise (SHA comparisons are only meaningful within a known version:
     v3 and v4 hash file bytes, v5 hashes the identity text of sosfuse2.foundation.content_identity under the same keys).
     A derived table without a signature (merge tools write their own

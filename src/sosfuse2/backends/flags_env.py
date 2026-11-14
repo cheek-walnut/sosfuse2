@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Print shell exports for a named sosfuse2 kernel config (sosfuse2/configs/<name>.json).
+"""Print shell exports for a named sosfuse2 kernel config (sosfuse2/backends/configs/<name>.json).
 
 usage: eval "$(python -m sosfuse2.backends.flags_env C3)"
-Checks: active flags are validated by kernel_config, none is automatic or diagnostic; retired names warn and disappear,
+Checks: active flags are validated by flags, none is automatic or diagnostic; retired names warn and disappear,
 block size 128/256, and the config's launch rule (single_launch) agrees with SOSFUSE2_LAUNCH_CELLS.
-Physical dependency checks run when fused.Kernel attaches the state."""
+Physical dependency checks run when source_solver.Kernel attaches the state."""
 
 import json, os, sys
 from pathlib import Path
-from ..foundation import paths
+from sosfuse2.foundation import paths
 
 HERE = paths.CONFIGS
 AUTOMATIC = {'STRATO', 'TROPO_MIE', 'AEROSOL_2L'}

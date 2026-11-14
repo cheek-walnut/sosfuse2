@@ -1,0 +1,6 @@
+# Commits that rewrite names and paths in bulk, so that `git blame` can skip them:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# Add the full commit hash of each such commit on its own line, with a comment line above it.
+#
+# 1.4.0 move of the modules into layer folders and the matching rename of imports and paths:
+eb313e6cc66fd74d4b7da5d19aa7d8b7ffc83332

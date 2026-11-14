@@ -1,7 +1,7 @@
 """sosfuse2 numerical gate v2. python -m sosfuse2.checks.gate ...
 
 G-R CUDA bytes (informational), G-P CUDA vs NumPy golden (rtol 1e-3 + atol), G-T ratchet against fixed anchors, G-A S2
-vs same-run exact, G-H reduced selftest vs record (old fixture delta informational), G-PS persistent test, G-F full-grid cold/warm (--gf, eda deploys).
+vs same-run exact, G-H reduced selftest vs record (old fixture delta informational), G-PS persistent test, G-F full-grid cold/warm (--gf, against the fixed reference table).
 Exit 0 pass, 1 numerical failure, 2 configuration/environment/exception; out/gate.json is always written.
 CUDA work only through the site's GPU queue: <python> -B -m sosfuse2.checks.gate --all --out DIR.
 """
@@ -211,13 +211,15 @@ def check_config(F, fx, meta):
 
 
 def toolkey(meta):
+    from ..backends.device_profile import ALIASES
     from ..backends.flags import resolve_config
 
     c = meta['config']
+    profile = meta['device'].get('profile')
     fields = dict(
         cc=meta['device'].get('cc'),
         nvrtc=meta['device'].get('nvrtc'),
-        profile=meta['device'].get('profile'),
+        profile=ALIASES.get(profile, profile),  # a reused run recorded with a former profile name keys like the new one
         flags=list(resolve_config(c['flags']).flags),
         stage1=c['stage1'],
         async_=c['async_'],
@@ -262,7 +264,7 @@ def worker(kind, fx, out, backend):
     cfg = v3.resolve_settings(cfg, state)  # A′ fixtures: FX-AP
     el, az = (np.asarray(F['directions'][n], float) for n in ('elevation_deg', 'azimuth_deg'))
     # The kernel specializes to 1 or 15 wavelengths: n-wavelength fixtures (band BM45, 45) run FW=15 chunks like
-    # run_gpu_state_v3 (last chunk padded, padding dropped); a single chunk keeps the paths and meta of the 15-wavelength gate.
+    # run_state (last chunk padded, padding dropped); a single chunk keeps the paths and meta of the 15-wavelength gate.
     wl = np.asarray(cfg['wavelengths_nm'])
     chunks = [wl] if len(wl) in (1, 15) else [wl[i : i + 15] for i in range(0, len(wl), 15)]
     sources, radiance, host_inputs, launch_max, launches = (
@@ -471,7 +473,7 @@ def run_fixture(F, fx, d, backend, solve, base=None):
 
 
 def solve_evaluations(ss):
-    """meta source_solve is one dict (1 or 15 wavelengths) or one per FW=15 chunk (n-wavelength, run_gpu_state_v3): int or list."""
+    """meta source_solve is one dict (1 or 15 wavelengths) or one per FW=15 chunk (n-wavelength, run_state): int or list."""
     return ss['evaluations'] if isinstance(ss, dict) else [c['evaluations'] for c in ss]
 
 
@@ -497,7 +499,7 @@ def load_run(d, fx):
     return r
 
 
-def outputs(r):
+def pinned_hashes(r):
     """name -> byte sha of everything G-R pins (② every apply, ① table/source/numeric solve history)."""
     o = {f'fixed.radiance.{i}': sha(x) for i, x in enumerate(r['radiance'])}
     o.update({f'fixed.source.{i}': sha(x) for i, x in enumerate(r['source'])})
@@ -533,7 +535,7 @@ def repeat_run(a, b):
         for k in fields
         if k in a or k in b
     }
-    same = outputs(a) == outputs(b)
+    same = pinned_hashes(a) == pinned_hashes(b)
     maxima = [v['max_rel'] for v in comparisons.values() if v['max_rel'] is not None]
     evaluations = [(r.get('solve') or {}).get('evaluations') for r in (a, b)]
     histories = [(r.get('solve') or {}).get('source_solve_sha256') for r in (a, b)]
@@ -708,7 +710,7 @@ def log_line(text):
 
 
 def commit():
-    """Source commit recorded with a run: GATE_SOURCE_COMMIT, else the package's own commit (run_gpu_state_v3.package_info:
+    """Source commit recorded with a run: GATE_SOURCE_COMMIT, else the package's own commit (run_state.package_info:
     SOSFUSE2_PACKAGE_COMMIT, direct_url.json, or the git checkout that IS this package; never a consumer checkout that merely
     holds an installed copy). None is a valid answer."""
     from sosfuse2.jobs.run_state import package_info
@@ -726,7 +728,7 @@ def load_anchors():
     if not p.is_file():
         raise GateError(
             'E_GATE_ANCHOR_MISSING',
-            'gate/anchors.json absent; measure once with --bless --measure-anchors (never auto-initialized)',
+            'checks/gate_data/anchors.json absent; measure once with --bless --measure-anchors (never auto-initialized)',
         )
     return json.loads(p.read_text())['anchors']
 
@@ -766,7 +768,7 @@ def evaluate(F, runs, golden, M, anchors, atol, report, regress_=True):
                 raise GateError('E_GATE_CONFIG', f'{fx} solve: {why}')
         keys[fx], fields = toolkey(r['meta'])
         report['fixtures'][fx] = dict(
-            toolkey=keys[fx], toolkey_fields=fields, meta=r['meta'], solve=s, outputs=outputs(r)
+            toolkey=keys[fx], toolkey_fields=fields, meta=r['meta'], solve=s, outputs=pinned_hashes(r)
         )
     G['R'], G['CUDA'] = {}, {}
     for fx, r in runs.items():
@@ -797,7 +799,7 @@ def evaluate(F, runs, golden, M, anchors, atol, report, regress_=True):
                 'E_GATE_BASELINE_MISSING', f'{fx}: no CUDA baseline for toolkey {keys[fx]} and no canonical one'
             )
         b = baseline_npz(e['file'], e['sha256'])
-        row = regress(e['outputs'], outputs(r), b['fixed_radiance'], r['radiance'])
+        row = regress(e['outputs'], pinned_hashes(r), b['fixed_radiance'], r['radiance'])
         deltas = dict(radiance=tolerance(r['radiance'], b['fixed_radiance'], 0.0))
         if 'table' in r and 'solve_table' in b:
             deltas['table'] = tolerance(r['table'], b['solve_table'], 0.0)
@@ -880,10 +882,10 @@ def run_all(F, names, out, backend, solve, base=None, reuse=None):
 
 
 def historical(out):
-    """G-H: cupy reduced selftest vs the record fixtures/selftest_ref_simpson.npz (1e-5);
+    """G-H: cupy reduced selftest vs the record checks/fixtures/selftest_ref_simpson.npz (1e-5);
     the old CPU-engine fixture is only the informational historical_delta (validate.reduced)."""
     if not (paths.FIXTURES / 'selftest_ref_simpson.npz').is_file():
-        raise GateError('E_GATE_CONFIG', 'fixtures/selftest_ref_simpson.npz (G-H record) missing')
+        raise GateError('E_GATE_CONFIG', 'checks/fixtures/selftest_ref_simpson.npz (G-H record) missing')
     # the old CPU-engine fixture (outside git) is optional: without it the informational historical_delta is omitted
     rc, _, code = child(
         [
@@ -1114,7 +1116,7 @@ def bless(F, names, args, report):
         )
     for fx in names:
         key, fields = toolkey(runs[fx]['meta'])
-        out = outputs(runs[fx])
+        out = pinned_hashes(runs[fx])
         entry = dict(
             toolkey=key,
             toolkey_fields=fields,
@@ -1182,7 +1184,7 @@ def bless_numpy(F, args, report):
 
 
 def plan_check(order, states, settings, reference):
-    """Before MPS/precompile: the first state is the product fixture state, settings {} and the eda reference table."""
+    """Before MPS/precompile: the first state is the product fixture state, settings {} and the fixed G-F reference table."""
     F = load_fixtures()
     M = manifest()
     want = F['state']['id']
@@ -1199,7 +1201,7 @@ def plan_check(order, states, settings, reference):
     if not ref:
         bad.append('manifest gf.radiance_sha256 missing')
     elif not Path(reference).is_file():
-        bad.append(f'{reference} missing (eda G-F table, R2)')
+        bad.append(f'{reference} missing (fixed G-F reference table)')
     else:
         with np.load(reference) as z:
             if sha(z['radiance']) != ref:
@@ -1209,7 +1211,7 @@ def plan_check(order, states, settings, reference):
 
 
 def first_state(table, reference, atol=0.0):
-    """After the first state: radiance vs the eda table, rtol 1e-3 + atol; S_max/S_rms per elevation recorded."""
+    """After the first state: radiance vs the fixed G-F reference table, rtol 1e-3 + atol; S_max/S_rms per elevation recorded."""
     with np.load(table) as a, np.load(reference) as b:
         x, r, hs = a['radiance'], b['radiance'], b['solar_elevation_deg']
     t = tolerance(x, r, atol)
@@ -1279,7 +1281,7 @@ def dispatch(args, report):
             key, fields = toolkey(a[fx]['meta'])
             report['fixtures'][fx] = dict(
                 toolkey=key, toolkey_fields=fields,
-                outputs=outputs(a[fx]), solve=a[fx].get('solve'), meta=a[fx]['meta'],
+                outputs=pinned_hashes(a[fx]), solve=a[fx].get('solve'), meta=a[fx]['meta'],
             )
         report['max_launch_seconds'] = max(
             [r['meta']['launch']['max_seconds'] for r in a.values()]

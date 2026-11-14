@@ -253,7 +253,7 @@ def kernel_settings():
     return settings
 
 
-# Height grid rules (settings key h_refine). The 20 base heights of solver_columns.grids have 14 intervals at or below
+# Height grid rules (settings key h_refine). The 20 base heights of shell_segments.grids have 14 intervals at or below
 # 13 km and 5 above. 'b<m>a<k>' splits every interval at or below 13 km into m parts and every interval above into k parts;
 # 'b<m>a<k1>.<k2>.<k3>.<k4>.<k5>' gives the five intervals above 13 km their own counts; m and k are 1-12. The names of
 # 1.3.4 and earlier are aliases and give the same heights.
@@ -762,7 +762,7 @@ def geometry_only(a):
         os.environ[k] = str(a.threads)
     import numpy as np
     from sosfuse2.solve.ray_geometry_cpu import build_cells, cache_complete, column_ready, ensure_column
-    from sosfuse2.checks.solver_diagnostics import monitor
+    from sosfuse2.foundation.host_limits import monitor
 
     for k in (
         'OMP_NUM_THREADS',
@@ -775,7 +775,7 @@ def geometry_only(a):
         os.environ[k] = str(a.threads)
     if a.polarization_model != 'depolarizing':
         raise RuntimeError(
-            'E_UNSUPPORTED_POL_MODEL: sosfuse2 fused.py/kernel.cu have no preserving aerosol tensor transport'
+            'E_UNSUPPORTED_POL_MODEL: sosfuse2 solve/source_solver.py and backends/kernel.cu have no preserving aerosol tensor transport'
         )
     if a.lease_pid is not None and (a.lease_pid < 1 or a.lease_pid == os.getpid() or not alive(str(a.lease_pid))):
         raise RuntimeError('E_PREFETCH_LEASE_PID')
@@ -880,7 +880,7 @@ def run(a):
     production_only()
     if a.polarization_model == 'preserving':
         raise RuntimeError(
-            'E_UNSUPPORTED_POL_MODEL: fused depolarizing HG only; sosfuse2 fused.py/kernel.cu need a preserving tensor transport'
+            'E_UNSUPPORTED_POL_MODEL: fused depolarizing HG only; sosfuse2 solve/source_solver.py and backends/kernel.cu need a preserving tensor transport'
         )
     if not shutil.which('zstd'):
         raise RuntimeError('E_ZSTD_MISSING: install zstd (required by pack and verify)')
@@ -907,7 +907,7 @@ def run(a):
     from sosfuse2.solve.source_solver import Solver
     from sosfuse2.solve.ray_geometry_cpu import build_cells, cache_complete, column_ready, ensure_column
     from sosfuse2.outputs import pack_state as pm
-    from sosfuse2.checks.solver_diagnostics import monitor, peak
+    from sosfuse2.foundation.host_limits import monitor, peak_rss_bytes as peak
 
     for k in (
         'OMP_NUM_THREADS',
@@ -933,7 +933,7 @@ def run(a):
     cfg = resolve_settings(settings_for(a), state)
     name = a.out_name or a.id
     if a.backend == 'cupy':
-        # Refuse a first light the device profile cannot split, before any geometry or CPU preparation (eda C2, 8.6 s).
+        # Refuse a first light the device profile cannot split, before any geometry or CPU preparation (split profile, C2 8.6 s).
         from sosfuse2.backends.device_profile import select, smi_device_name, first_light_split_error
         from sosfuse2.solve.source_solver import default_flags
         from sosfuse2.atmosphere.stratosphere import tau_of
@@ -1216,7 +1216,7 @@ def run(a):
         from sosfuse2.atmosphere.density import evidence as profile_evidence
 
         # ②b evidence: compiled/uploaded N, consumed mask, effective f8/f4 SHA, identity, policy,
-        # origin. consumed = this process's GPU upload (fused.constants_device); persistent runs log it from the service.
+        # origin. consumed = this process's GPU upload (source_solver.constants_device); persistent runs log it from the service.
         profile_meta = dict(
             host=profile_evidence(getattr(s, 'density_optics', None), s.kernel.profile_n),
             consumed=getattr(s.kernel, 'profile_consumed', None),
@@ -1332,7 +1332,7 @@ def run_extra(a):
     from sosfuse2.solve import ray_geometry as gm
     from sosfuse2.outputs import radiance_table as tf
     from sosfuse2.outputs import pack_state as pm
-    from sosfuse2.checks.solver_diagnostics import monitor, peak
+    from sosfuse2.foundation.host_limits import monitor, peak_rss_bytes as peak
 
     if a.polarization_model != 'depolarizing':
         raise RuntimeError('E_UNSUPPORTED_POL_MODEL')
@@ -1589,7 +1589,7 @@ def main():
         type=int,
         choices=(1, 2),
         default=2,
-        help='2 (default): common endpoint layer (geometry_contract signature, no scale height) + per-height aerosol column; a worker never removes the common layer',
+        help='2 (default): common endpoint layer (endpoint_contract signature, no scale height) + per-height aerosol column; a worker never removes the common layer',
     )
     p.add_argument(
         '--extra-elevations',

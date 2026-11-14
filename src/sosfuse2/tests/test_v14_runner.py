@@ -22,7 +22,8 @@ HARNESS = testkit.sky_sos('results/quad2_deep_twilight_20261020')
 sys.path.insert(0, str(HARNESS))
 spec = importlib.util.spec_from_file_location('v14_grid_harness', HARNESS / 'run_grid_eval.py')
 harness = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(harness)
+with testkit.legacy_module_aliases('host_cache', 'fused', 'run_gpu_state_v3'):
+    spec.loader.exec_module(harness)
 
 
 def settings(tmp_path, raw=None, reduced=False):
@@ -158,7 +159,8 @@ def test_rayleigh_settings_and_legacy_adapters_load(tmp_path, monkeypatch):
 
     spec = importlib.util.spec_from_file_location('rayleigh_replay', HARNESS / 'run_rayleigh_bias.py')
     bias = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(bias)
+    with testkit.legacy_module_aliases('geometry', 'host_cache', 'fused', 'run_gpu_state_v3'):
+        spec.loader.exec_module(bias)
     shutil.copytree(HARNESS / 'rayleigh_bias/settings', tmp_path / 'rayleigh_bias/settings')
     (tmp_path / 'states.json').write_text(
         json.dumps(
@@ -196,7 +198,8 @@ def test_rayleigh_settings_and_legacy_adapters_load(tmp_path, monkeypatch):
                 day=False,
                 backend='numpy',
             )
-            actual = grids(tmp_path, {}, creator=lambda *args, **kwargs: bias.run(a))
+            with testkit.legacy_module_aliases('run_gpu_state_v3'):
+                actual = grids(tmp_path, {}, creator=lambda *args, **kwargs: bias.run(a))
             assert (len(actual.h), len(actual.chi)) == (nr, nchi), name
             assert actual.cfg == dict(
                 nmu=24 if name == 'V2' else 12, nphi=64 if name == 'V1' else 16, path_n=24 if name == 'V3' else 12

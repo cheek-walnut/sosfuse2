@@ -8,57 +8,81 @@ to −18°. The package ships a NumPy reference implementation, an optional CUDA
 and NVRTC, numeric gates that compare against fixed references within tolerances, and a provenance record that signs
 every table with the hashes of the code and data that produced it.
 
-This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, and 1.3.3 is
-the current release. `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the
-configurations the releases were verified on. The change that matters most for default output is in 1.2.3: the bundled
-`states_v2.json` states now include the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option. The
-changelog explains how to reproduce the earlier output.
+## Start here
 
-![Engine and MYSTIC radiance spectra at solar zenith angles 93, 96 and 99 degrees, and their
-ratio](docs/validation/mystic_vs_engine.png)
+1. The input is one atmosphere state, an entry of `src/sosfuse2/assets/states_v2.json`, with settings for the grids.
+2. `create_configured` (`src/sosfuse2/jobs/run_state.py`) builds the solver for that state.
+3. `Solver.solve` (`src/sosfuse2/solve/source_solver.py`) iterates the source field to convergence.
+4. `make_table` (`src/sosfuse2/outputs/radiance_table.py`) turns the converged field into a radiance table.
+5. `python -m sosfuse2 walkthrough` runs a small example through these three calls. `docs/ARCHITECTURE.md` explains the
+   layers, and `AGENTS.md` lists the files to open first for each kind of task.
 
-Sun-side sky radiance at 20° elevation for solar elevations −3°, −6° and −9°, from the engine (lines) and from the Monte
-Carlo code MYSTIC (markers) on the same optical input, with their ratio and the MYSTIC standard error. The dip near 600 nm
-is the ozone Chappuis band. `docs/VALIDATION.md` gives the details.
+This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, the versions
+from 1.3.0 on were published one by one, and 1.4.0 is the current release. For users of 1.3.x, 1.4.0 moves the module
+paths into layer folders, with the old-to-new table in `docs/CHANGELOG.md`.
+`docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the configurations the releases
+were verified on. The change that matters most for default output is in 1.2.3: the bundled `states_v2.json` states now
+include the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option. The changelog explains how to
+reproduce the earlier output.
+
+![Engine and MYSTIC radiance and ratios for eight bundled states at solar zenith angles 93 and 96
+degrees](docs/validation/mystic_states.png)
+
+Radiance of the engine (1.2.3) and of the Monte Carlo code MYSTIC on the same optical input, for eight bundled states at
+solar zenith angles 93° and 96°: (a) L/E₀ of `clear_87` at the sun-side pixel 20.25° / 0.5°, (b) the ratio MYSTIC /
+engine for the eight states and their mean, (c) the luminance ratio at six pixels with 95 % intervals over 16 seeds.
+Over the 96 cases the ratio minus 1 has a mean of +0.10 % and a root mean square of 0.63 %. At 93° the mean is +0.13 %
+with a root mean square of 0.26 %, and 15 of the 48 intervals exclude 1; at 96° the root mean square of 0.85 % is of the
+size of the Monte Carlo error. `docs/VALIDATION.md` gives the details.
 
 ## Why a spherical-shell solver
 
-With the Sun 6° to 9° below the horizon, the sky overhead is lit only through the upper atmosphere: the Earth's shadow
-stands about 35 km above the observer at 6° and about 79 km at 9°. A plane-parallel atmosphere has no such shadow, so the
-model uses a spherical shell. Monte Carlo codes handle this geometry, but their radiances carry sampling noise. The MYSTIC
-runs for the comparison below, one direction at three solar elevations and 30 wavelengths, took 6.6 CPU-hours to reach a
-standard error of 0.5–2.4 % per value. sosfuse2 solves for a source field instead of sampling photons, so a table of
-100 × 180 directions and 45 bands is free of sampling noise and covers all solar elevations at once. `docs/MODEL.md`
-describes the physics, the grids and the iteration. `docs/PERFORMANCE.md` records where the GPU time goes, how far the
-kernels sit from the hardware limits, what was tried, and the question about the main kernel that is still open.
+With the Sun 6° to 9° below the horizon, the sky overhead is lit directly only above the Earth's shadow, which stands
+about 35 km above the observer at 6° and about 79 km at 9°. A plane-parallel atmosphere has no such shadow, so the model
+uses a spherical shell. Monte Carlo codes handle this geometry, but their radiances carry sampling noise. The 46,080
+MYSTIC runs for the comparison below, eight states at six pixels, two solar zenith angles and 30 wavelengths with 16
+seeds of 250,000 photons each, took 100.0 CPU-hours of `uvspec` time. Even so, the standard error of the luminance
+difference, as a median over the eight states, is 0.11–0.18 % at SZA 93° and 0.30–1.35 % at SZA 96°, depending on the
+pixel. sosfuse2 solves for a source field instead of sampling photons, so a table of 100 × 180 directions and 45 bands
+is free of sampling noise and covers all solar elevations at once. `docs/MODEL.md` describes the physics, the grids and
+the iteration. `docs/PERFORMANCE.md` records where the GPU time goes, how far the kernels sit from the hardware limits,
+what was tried, and the question about the main kernel that is still open.
 
 ## Validation
 
-On the same optical input, the engine and MYSTIC (libRadtran 2.0.6) agree to within 2.2 % per wavelength at solar zenith
-angles 93° and 96°, where the MYSTIC standard error is below 1 %. At 99° the ratios spread over 0.958–1.063, consistent
-with the 2.0–2.4 % MYSTIC error; at 99° the largest difference is 2.53 MYSTIC standard errors, and
-at 93° the 587.17 nm cell reaches 3.03. The colour differences are |Δu′| ≤ 0.0012
-and |Δv′| ≤ 0.00014, at most 1.7 standard errors. The MYSTIC build reproduces the 120 cells of the spherical Rayleigh
-benchmark of Korkin et al. (2020) to 0.27 %. This comparison covers one state, one direction and three solar elevations.
-It used a table baked with the research build, with the 1.0.0 physics and the legacy spectral inputs rather than the
-1.0.0 defaults, and because both codes read the same input it tests the transport rather than the input physics. For
-1.1.0, paired MYSTIC runs on the engine's input measure the change caused by NO₂ and O₄ at 12 pixels of two states and
-solar zenith angles 93°–99°. Of 108 values of u′, v′ and Y, 66 reproduce MYSTIC's change to 10 % or to 1e-4, none fails,
-and 42 are left unresolved by the Monte Carlo noise. `docs/VALIDATION.md` gives the set-up, the tables, the size of the
-1.1.0 changes, the sensitivity to the fixed choices listed below, and a qualitative check of the stratospheric aerosol
-input against measured zenith polarisation (Ugolnikov et al. 2004).
+On the same optical input at 30 single wavelengths, we compared 1.2.3 tables of eight bundled states with MYSTIC
+(libRadtran 2.0.6) at six pixels and solar zenith angles 93° and 96°. The tables use the three US Standard Atmosphere
+options listed under *Limitations* (`density_profile: usstd76`, `ozone_profile: usstd76` and `rayleigh_column: usstd`)
+and the default stratospheric layer of the bundled states, centred at 21 km with τ550 0.002–0.006. Because both codes
+read the same input, the comparison tests the transport rather than the input physics. At 93° the luminance agrees with
+MYSTIC to within 0.8 % (−0.30 % to +0.77 %) in all 48 combinations of state and pixel, with MYSTIC 0.18 % to 0.35 %
+brighter in the mean at elevations up to 20.25°, and a grid of 0.25° in solar zenith angle instead of 0.5° removes part
+of this difference. At 96° the 95 % interval of the luminance difference excludes 0 in 2 of 48 combinations, as many as
+chance would give; with the standard errors at 96° given above, a difference of the size seen at 93° would not be
+resolved there. The MYSTIC build reproduces the 120 cells of the spherical Rayleigh benchmark of Korkin et al. (2020) to
+0.27 %.
 
-In those two MYSTIC comparisons the stratospheric layer is centred at 19 km (τ550 0.0037 in the first state, 0.0022 in
-the second), and the polarisation check reads the input of the first state. The default layer of the bundled states is
-centred at 21 km with τ550 0.002–0.006. A third comparison uses 1.2.3 tables of eight bundled states with the three US
-Standard Atmosphere options listed under *Limitations*, at six pixels and solar zenith angles 93° and 96°. At 93° the
-luminance agrees with MYSTIC to within 0.8 % in all 48 combinations of state and pixel, with MYSTIC 0.18 % to 0.35 %
-brighter in the mean at elevations up to 20.25°, and a grid of 0.25° in solar zenith angle instead of 0.5° removes part of
-this difference. At 96° the 95 % interval of the luminance difference excludes 0 in 2 of
-48 combinations, as many as chance would give. `docs/VALIDATION.md` also reports two checks of deeper twilight, down to
-a solar elevation of −18°: second-order scattering against a direct quadrature, and a Rayleigh atmosphere against
-SASKTRAN2. In the IPRT spherical test case E1, at solar zenith angles 93° and 96°, the default quadrature does not meet
-the error limits we had set, which we attribute to the layered profile of the case. The numeric gates in
+Two earlier comparisons with MYSTIC use states whose stratospheric layer is centred at 19 km, with τ550 0.0037 in the
+first state and 0.0022 in the second. The first comparison covers one state, one direction and three solar elevations,
+with a table baked with the research build, the 1.0.0 physics and the legacy spectral inputs rather than the 1.0.0
+defaults. There the codes agree to within 2.2 % per wavelength at 93° and 96°, where the MYSTIC standard error is below
+1 %. At 99° the ratios spread over 0.958–1.063, consistent with the 2.0–2.4 % MYSTIC error; the largest difference is
+2.53 MYSTIC standard errors at 99° and 3.03 in the 587.17 nm cell at 93°. The colour differences are |Δu′| ≤ 0.0012
+and |Δv′| ≤ 0.00014, at most 1.7 standard errors. For 1.1.0, paired MYSTIC runs on the engine's input measure the change
+caused by NO₂ and O₄ at 12 pixels of the two states and solar zenith angles 93°–99°. Of 108 values of u′, v′ and Y, 66
+reproduce MYSTIC's change to 10 % or to 1e-4, none fails, and 42 are left unresolved by the Monte Carlo noise.
+
+`docs/VALIDATION.md` gives the set-up, the tables, the size of the 1.1.0 changes, the sensitivity to the fixed choices
+listed under *Limitations*, and a qualitative check of the stratospheric aerosol input of the first state against
+measured zenith polarisation (Ugolnikov et al. 2004). It also reports two checks of deeper twilight, down to a solar
+elevation of −18°: second-order scattering against a direct quadrature, and a Rayleigh atmosphere against SASKTRAN2.
+Against the zenith twilight at Paranal, given by the V-band fit of Patat et al. (2006) from −5° to −15°, 1.2.3 tables
+with the three options and a uniform night-sky floor of V = 21.61 mag arcsec⁻² give 0.72 to 0.89 times the fit for
+`clear_89` and 0.65 to 0.83 times for `clear_92` between −5° and −12°; both are bundled states that we did not fit to
+the site. Down to −12° a change of ±0.20 mag in the floor moves the ratio by less than 5 %. From −13° to −15° the floor
+is 31 % to 77 % of the fit and its uncertainty of 0.20 mag moves the ratio by 7 % to 17 %, so there the floor assumption
+sets the result. In the IPRT spherical test case E1, at solar zenith angles 93° and 96°, the default quadrature does not
+meet the error limits we had set, which we attribute to the layered profile of the case. The numeric gates in
 `docs/CHECKS.md` show that a change leaves the tables within tolerance of fixed references, which guards against
 regressions across refactors and other hardware; they do not measure physical accuracy.
 
@@ -103,16 +127,20 @@ pip install ".[gpu,test]"     # + CuPy (CUDA 12) and the NVIDIA runtime/NVRTC/cu
 ```
 
 The package needs Python ≥ 3.12, NumPy ≥ 2.0 and Pillow, plus two programs on `PATH`. A C++ compiler, `g++` or
-`clang++`, builds the CPU spherical-harmonics helper `native/sh_cpu.cpp` once into the work root; without one the run
-stops with `E_COMPILER_MISSING`, and the kernel syntax tests call `clang++` specifically. `zstd` packs state outputs as
+`clang++`, builds the CPU spherical-harmonics helper `backends/native/sh_cpu.cpp` once into the work root; without one the
+run stops with `E_COMPILER_MISSING`, and the kernel syntax tests call `clang++` specifically. `zstd` packs state outputs as
 `.tar.zst`; without it the run stops with `E_ZSTD_MISSING`.
 
-Downloaded inputs, the geometry cache and the CPU helper build go to `SOSFUSE2_WORK_ROOT`, by default
-`$XDG_CACHE_HOME/sosfuse2`. A solve (`run_gpu_state_v3`, `pipeline`) writes its tables, intermediate files and packs under
-the `--work-root` it is given, in `out/<id>`, `tmp/<id>` and `pack/`. The package directory is read-only data.
+Downloaded inputs, the CPU helper build and the geometry cache of calls outside a solve go to `SOSFUSE2_WORK_ROOT`, by
+default `$XDG_CACHE_HOME/sosfuse2`. A solve (`run_state`, `pipeline`) writes its tables, intermediate files and packs
+under the `--work-root` it is given, in `out/<id>`, `tmp/<id>` and `pack/`, and keeps its own geometry cache in
+`geometry_cache/` there unless `--geometry-cache` names another folder. The package directory is read-only data.
 
-On a CUDA machine, NVRTC compiles the kernels on first use. `SOSFUSE2_COMPILE_CACHE=<dir>` keeps them between runs, and
-`python -B -m sosfuse2.jobs.precompile --jobs 8` fills that cache before a queue starts.
+On a CUDA machine, NVRTC compiles the kernels on first use. Without `SOSFUSE2_COMPILE_CACHE`, the runner
+(`jobs/run_state.py`) keeps compiled kernels in `nvrtc_cache_shared` in the parent directory of its `--work-root`
+(`backends/compile_cache.py` `default_root`), while a persistent pipeline service and the gate use a folder of their own
+run. With `SOSFUSE2_COMPILE_CACHE=<dir>`, they all go to the given directory, and `python -B -m sosfuse2.jobs.precompile
+--jobs 8` fills that cache before a queue starts.
 
 ## Quick start
 
@@ -125,7 +153,7 @@ python -m sosfuse2.asset_tools.prepare_minor_absorbers --download
 python -B -m sosfuse2.jobs.run_state --id clear_34 --reduced --backend numpy --threads 2 --work-root ./work
 ```
 
-The table and its `meta.json` land under `./work/out/clear_34/`. `meta.json` carries `contract: "v4"`, the state, the
+The table and its `meta.json` land under `./work/out/clear_34/`. `meta.json` carries `contract: "v5"`, the state, the
 backend, the tolerance settings and the `code_hashes` of a fixed list of production modules, promoted solver definitions
 and data assets, plus a `signature` over them. `docs/PROVENANCE_V3.md` defines the record and explains how readers that
 also hold older `v3` tables compare them by logical key.
@@ -167,13 +195,23 @@ The following matters for production queues and gates rather than for a first so
   phase log and the pipeline summary, and the table metadata records `ksplit_effective`. On a 10 GB card the
   full-resolution gate state falls back, with a minimum peak of 7.06 GB against a budget of 6.74 GB.
 - `plan_queue` stops with `E_PLAN_CPU_BUDGET` when GPUs x workers per GPU x column workers exceed `pipeline.cpu_budget()`.
-  That bounds what the plan asks for; `pipeline.py` can still widen a state's column pool, so it is not a CPU quota.
+  That bounds what the plan asks for; `jobs/pipeline.py` can still widen a state's column pool, so it is not a CPU quota.
   The plan also lists the `ground_aerosol01` host cache that follows `ground`, with an unmeasured cost.
-- `tables_from_sources` holds `<out>/.worker.lock`, the lock that `run_gpu_state_v3` takes for the same output, while it
+- `tables_from_sources` holds `<out>/.worker.lock`, the lock that `run_state` takes for the same output, while it
   builds a state. It skips a state that a worker owns, and a worker that starts meanwhile stops with `E_OUTPUT_BUSY`.
 - Pipeline logs go to a separate `logs/<run>/` directory per invocation, referenced from `pipeline_summary.json`, so cold
   and warm runs keep both traces. Benchmark stage timers go to `timings-<run>.json`, with the file name recorded in
   `benchmark.json`.
+- Each CUDA entry point caps the CuPy default memory pool at `backends/device_profile.pool_limit_bytes(free)`, which is
+  the free device memory minus 1 GiB, or `SOSFUSE2_POOL_LIMIT_GIB` in GiB when that is smaller; a value that truncates
+  to less than one byte is rejected, and a card with less than 4 GiB free stops with `E_VRAM_FREE: need at least 4 GiB
+  free`. This replaces the 1.3.4 cap of min(20 GiB, free − 1 GiB), under which a state needing more than 20 GiB failed
+  admission on any card with `E_PERSISTENT_VRAM_ADMISSION`. Several pipeline processes on one GPU each size their pool
+  from the free memory they see at start, so set `SOSFUSE2_POOL_LIMIT_GIB` to split a card between them. When the
+  persistent service admits a state, it reserves `device_profile.reserved_field_bytes` for source fields, set by
+  `SOSFUSE2_FIELD_RESERVE` fields per state with default 30. A smaller reserve admits larger states or more states at
+  once, though because admission is a reservation, too small a value turns a wait into an out-of-memory error during the
+  solve. Neither variable is part of any identity, and numerics are unchanged.
 
 ## Numerical tolerances
 
@@ -182,14 +220,14 @@ The gates judge correctness by tolerances against fixed references rather than b
 | gate | compares | tolerance |
 |---|---|---|
 | G-P | CUDA kernel vs NumPy golden (fixed applies) | rtol 1e-3 |
-| G-T | anchor radiances (`gate/anchors.json`) | ratchet, recorded |
+| G-T | anchor radiances (`checks/gate_data/anchors.json`) | ratchet, recorded |
 | G-A / H / PS | queue parity, history, persistent service | per case |
 | repeat (`gate --stage`) | same build, cold vs warm, repeated runs | rtol 1e-5, max difference recorded |
 | G-F | full-grid fixed table (needs the research checkout) | rtol 1e-3 |
 
 Accumulation order, lane mapping and record layout may change between versions, and such changes are judged against the
 fixed references and their tolerances. `SOSFUSE2_DETERMINISTIC=1` selects deterministic accumulation for studies that
-need bit-stable repeats. The baseline log and the reference manifest live in `src/sosfuse2/gate/baselines/`.
+need bit-stable repeats. The baseline log and the reference manifest live in `src/sosfuse2/checks/gate_data/baselines/`.
 
 ## Tests and checks
 
@@ -200,10 +238,11 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
    absent and one of the three skips. Tests that need the research records
    skip unless `SOSFUSE2_SKY_SOS_ROOT` points at that checkout, and tests that need `clang++` skip when it is absent. The
    tests use a synthetic O₄ table in an isolated temporary root and download no HITRAN data; reproduction from the
-   original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied.
+   original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied. In 1.4.0
+   its NO₂ part fails (`docs/KNOWN_FAILURES.md`).
 2. A CUDA machine: `python -B -m sosfuse2.checks.gate --all --out <dir>` runs G-P, G-T, G-A, H and PS, and
    `gate --stage --out <dir>` runs the repeat checks.
-3. A CUDA machine with the research checkout: `gate --gf --out <dir>`.
+3. A CUDA machine with the research checkout: `gate --gf --reference <table.npz> --out <dir>` (`docs/CHECKS.md`).
 
 Three test cases fail in the research baseline the package was split from and are marked `xfail(strict=True)`. Their ids,
 causes and the rule for retiring them are in `docs/KNOWN_FAILURES.md`. Because the marker is strict, a case that starts
@@ -214,7 +253,18 @@ passing turns the run red until its entry is removed, so the failures stay visib
 1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply to them unchanged. The changed default v2 states in
 1.2.3 are covered by the separate installed-sdist checks below.
 
-1.3.3 changes documentation only. Its code is that of 1.3.2, and no test or gate was run again for it.
+1.3.3 and 1.3.4 change documentation only. Their code is that of 1.3.2, and apart from the continuous-integration run no
+test or gate was run again for them.
+
+Configurations verified for 1.4.0:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split` selected with its 1.3.x name `eda`: `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from the RTX 3080: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0; the state log of G-F shows the parallel geometry adapter in use |
+| Linux x86_64, NVIDIA RTX 5090, CUDA 12 | 3.12 | CuPy | wheel installed into a target directory placed first on `PYTHONPATH`: `checks.solver_diagnostics --backend cupy --solve --grid full --geometry-mode endpoints` exit 0, with the device memory reported; `clear_86` on the grid of *Finer grids with the 1.4.0 grid rules* in `docs/VALIDATION.md` (`h_refine` `b2a6`, `chi_refine_deg` `[88, 100]`, `L` 24) with device profile `rig`: at most 1.9e-7 of the largest value of each solar elevation and colour channel from the research-build table |
+| Linux x86_64, NVIDIA RTX 3080 (20 GB), CUDA 12 | 3.12 | CuPy | wheel installed in the same way, device profile `split`: `gate --stage` exit 0, and the two staged runs of every fixture agree in all 131 arrays compared (max difference 0.0) |
+| Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 869 passed, 99 skipped, 2 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 24 cases skip for the missing `clang` and `clang++`, among them D15, which leaves 2 of the 3 known failures; cached IPRT inputs and the prepared O₄ asset, offline |
+| macOS arm64 | 3.14, 3.12 | NumPy | sdist (3.14 and 3.12) and wheel (3.14) in fresh virtual environments outside the source tree: the 14 test modules on identity, grid rules, the pool limit, tables from sources, the command entry point, layers, names, imports, documentation pointers and the walkthrough, 301 passed, 8 skipped, 0 failed in each; the skips are the 7 documentation pointer cases, whose files are not in the installed package, and the slow walkthrough case |
 
 Configurations verified for 1.3.2. The kernel, the solver and the gate are those of 1.3.0, so the GPU row of 1.3.0
 applies to 1.3.2 and the gates were not run again:
@@ -235,7 +285,7 @@ Configurations verified for 1.3.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `eda` (the one the reference table was made with): `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from the RTX 3080: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `eda` (the 1.3.x name of `split`, the one the reference table was made with): `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from the RTX 3080: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
 | Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 529 passed, 87 skipped, 3 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 19 cases skip for the missing compiler, among them D15, which leaves 3 of the 4 known failures; cached IPRT inputs and synthetic O₄ test data, offline |
 
 Configurations verified for 1.2.3:
@@ -269,38 +319,44 @@ Configurations verified for 1.1.0:
 
 The package runs on Unix only, because the solver uses `resource`, and Python 3.11 is untested. The NumPy reference runs
 in FP32 flush-to-zero mode, which is available on Darwin arm64, Linux arm64 and Linux x86_64; other platforms, macOS
-x86_64 for example, stop with `E_FTZ_UNSUPPORTED`. The persistent-queue tests need a larger `PERSISTENT_TEST_DEADLINE`
-than the 60 s default: their setup queue took 462 s on a 12-core host, and CI uses 2400 s (`docs/CHECKS.md`).
+x86_64 for example, stop with `E_FTZ_UNSUPPORTED`. The persistent-queue tests default to a
+`PERSISTENT_TEST_DEADLINE` of 2400 s, which CI also uses. The 60 s of 1.3.1 and earlier was too short, since their setup
+queue took 462 s on a 12-core host (`docs/CHECKS.md`).
 
 ## Package layout
 
 ```
 src/sosfuse2/
-  fused.py, kernel.cu, kernel_config.py   CUDA kernel, launch configuration, NumPy reference (reference.py)
-  ksplit.py                               split transport (KSPLIT) host side of fused.Kernel
-  geometry*.py, ray_columns.py, ...       spherical-shell geometry, columns, caches
-  stratosphere.py, tropo_*.py, mie.py     aerosol layers and Mie tables
-  spectral.py, air_wavelength.py          spectra, colour weights
-  pipeline*.py, run_gpu_state_v3.py       state runner, production queue, provenance (v4)
-  gate.py, gate/                          numeric gates, fixtures, fixed references
-  accepted/                               CPU reference engine: per-state context factory (engine.py)
-  solver_*.py                             CPU solver modules; solver_render.py holds the preview definitions
-  host/, native/sh_cpu.cpp                host helpers, CPU spherical-harmonics kernel
-  assets/, configs/, fixtures/            data (see assets/README.md), kernel flag sets, test records
-  tests/, testing.py                      the packaged tests (pytest --pyargs sosfuse2) and their support module
-docs/                                     MODEL.md, VALIDATION.md (+ validation/ data and figure script), REFERENCES.md,
-                                          PERFORMANCE.md, CHECKS.md, KNOWN_FAILURES.md, PROVENANCE_V3.md
+  foundation/     paths and work root, content identity, host limits, timers
+  atmosphere/     a state and a wavelength to densities and optical coefficients
+  rays/           spherical ray segments, incoming-direction quadrature, columns
+  precompute/     reusable CPU arrays and their caches
+  backends/       one transport evaluation: numpy_reference.py, kernel.cu, native/sh_cpu.cpp, configs/
+  solve/          per-state solver objects and the source iteration (source_solver.py, engine.py, ksplit.py)
+  outputs/        radiance tables, previews, packs
+  jobs/           state runner, production queue, planner, cache store, walkthrough
+  checks/         numeric gates (gate.py, gate_data/), diagnostics, fixtures/, testkit.py
+  asset_tools/    generators of the data assets, O₄ preparation
+  assets/         data (see assets/README.md)
+  tests/          the packaged tests (pytest --pyargs sosfuse2)
+docs/             MODEL.md, VALIDATION.md (+ validation/ data and figure scripts), REFERENCES.md, PERFORMANCE.md,
+                  CHECKS.md, KNOWN_FAILURES.md, PROVENANCE_V3.md, ARCHITECTURE.md, ENVIRONMENT.md, WALKTHROUGH.md
 ```
 
-The CPU solver functions live in the importable `src/sosfuse2/solver_*.py` modules. `accepted/engine.py` creates an
-`EngineContext` for each state and binds only the inputs each function reads. `create()` returns `(solver, context,
-settings)`; use context attributes such as `context.b` and `context.Solver`. Read-only scope indexing is deprecated
-and retained for one release. `solver_render.py` is still read through its own loader in `host/pack_state.py`.
+`docs/ARCHITECTURE.md` gives the role of each folder, the direction of imports and where topics that cross folders live.
+A folder names the main duty of its modules; a few modules mix two.
+
+The CPU solver functions live in the importable modules `rays/shell_segments.py`, `rays/incoming_quadrature.py`,
+`rays/incoming_rings.py`, `rays/zenith_interpolation.py`, `atmosphere/extinction.py`, `solve/engine_core.py` and
+`outputs/preview_functions.py`. `solve/engine.py` creates an `EngineContext` for each state and binds only the inputs
+each function reads. `create()` returns `(solver, context, settings)`; use context attributes such as `context.b` and
+`context.Solver`. Read-only scope indexing is deprecated and retained for one release.
+`outputs/preview_functions.py` is still read through its own loader in `outputs/pack_state.py`.
 Optical coefficients are kept apart from the column and geometry producers, so coefficient edits do not invalidate
 geometry caches.
-`run_gpu_state_v3.create_configured` and `tropo_profile.engine_hooks` pass the production grid, spectrum, sun geometry,
-deferred ground preparation and two-layer aerosol profile to `create()` through keyword-only hooks; no source text is
-rewritten.
+`jobs/run_state.py::create_configured` and `atmosphere/tropo_profile.py::engine_hooks` pass the production grid, spectrum,
+sun geometry, deferred ground preparation and two-layer aerosol profile to `create()` through keyword-only hooks; no
+source text is rewritten.
 
 ## Related codes
 

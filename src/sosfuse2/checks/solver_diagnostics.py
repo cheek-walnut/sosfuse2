@@ -13,6 +13,7 @@ from pathlib import Path
 if __name__ == '__main__':
     sys.dont_write_bytecode = True
 from sosfuse2.foundation import paths
+from sosfuse2.foundation.host_limits import monitor
 
 for key in (
     'OMP_NUM_THREADS',
@@ -65,23 +66,11 @@ def peak():
     return peak_rss_bytes()
 
 
-def monitor(stop, limit):
-    last = time.monotonic()
-    while not stop.wait(0.5):
-        rss = peak()
-        if rss >= limit * 0.95:
-            print(f'E_RSS_LIMIT peak={rss} cap={limit}', flush=True)
-            os._exit(75)
-        if time.monotonic() - last >= 60:
-            print(f'SOSFUSE HEARTBEAT RSS_peak={rss / 1e9:.3f}GB', flush=True)
-            last = time.monotonic()
-
-
 def save(path, data):
     path.write_text(json.dumps(data, indent=2, allow_nan=False) + '\n')
 
 
-def run_state(args, output, wavelengths, state=None, cache=None):
+def probe_state(args, output, wavelengths, state=None, cache=None):
     if args.benchmark:
         os.environ.setdefault('SOSFUSE2_KSPLIT_FALLBACK', '0')
     import numpy as np
@@ -244,7 +233,7 @@ def main():
 
             if any(getattr(args, k, None) not in (None, v) for k, v in DEFAULTS.items()):
                 raise ValueError(
-                    'E_PROFILE_VALIDATION: validate-mac is the historical default gate; run enabled density profiles through run_gpu_state_v3 or gate.py'
+                    'E_PROFILE_VALIDATION: validate-mac is the historical default gate; run enabled density profiles through jobs/run_state.py or checks/gate.py'
                 )
             from sosfuse2.checks.validate import validate
 
@@ -278,7 +267,7 @@ def main():
             for state in states:
                 target = output / state['id']
                 target.mkdir(exist_ok=True)
-                report = run_state(args, target, wavelengths, state, output / 'geometry_cache')
+                report = probe_state(args, target, wavelengths, state, output / 'geometry_cache')
                 reports.append(report)
                 save(output / 'states_progress.json', reports)
                 gc.collect()
@@ -288,7 +277,7 @@ def main():
             report = dict(states=reports, seconds=time.perf_counter() - tt, peak_rss_bytes=peak())
             save(output / 'states.json', report)
         else:
-            report = run_state(args, output, wavelengths)
+            report = probe_state(args, output, wavelengths)
         print(json.dumps(report, indent=2), flush=True)
     finally:
         stop.set()

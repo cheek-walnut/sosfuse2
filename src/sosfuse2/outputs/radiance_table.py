@@ -396,7 +396,7 @@ def restored_table(path, state, cfg, prepare, backend, group, batch, log):
 
 
 def build_solver(state, prepare, reduced, backend):
-    """Same constructor call as run_gpu_state_v3 (optics, ground pool, sun columns)."""
+    """Same constructor call as run_state (optics, ground pool, sun columns)."""
     from sosfuse2.solve import ray_geometry as geometry_module
 
     if backend == 'numpy':

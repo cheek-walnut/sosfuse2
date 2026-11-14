@@ -1,7 +1,7 @@
-"""KSPLIT (split transport, SOSFUSE2_KSPLIT=1/2/3) host side of fused.Kernel: column records, the VPROD aerosol
+"""KSPLIT (split transport, SOSFUSE2_KSPLIT=1/2/3) host side of source_solver.Kernel: column records, the VPROD aerosol
 producer and its plan, the slimray consumer, the chunk projection and the VERIFY comparisons. Kernel inherits these
 methods from KsplitMixin; they use the shared Kernel members (raw_kernel, timed_launch, next_chunk_end, device state)
-through self. Moved verbatim from fused.py; fused re-exports the module constants below."""
+through self. Moved verbatim from fused.py; source_solver re-exports the module constants below."""
 
 import json
 import os
@@ -38,7 +38,7 @@ def aero_w(W):
 VPROD_SENTINEL = 0xFFFFFFFF  # SOSFUSE2_KSPLIT_VERIFY: unwritten aerosol words before each producer
 VPROD_VERIFY_STAGE = 16 << 20  # floats per device compare piece (64 MB)
 VPROD_VERIFY_WINDOW = 512 << 20  # bytes of aerosol words per verify window (pinned host snapshot; cells are not split)
-VPROD_STORE_BPP = 28  # stored plan estimate, B/point (measured 25.4 eda, 26.1 4090; vprod_budget)
+VPROD_STORE_BPP = 28  # stored plan estimate, B/point (measured 25.4 and 26.1 on two cards; vprod_budget)
 VPROD_COUNT_BLOCKS = 1024  # counting-sort blocks per plan (segment >= 4096 records; vprod_build_plan)
 VPROD_COUNT_SHARED = 48 << 10  # its per-block cell counters (4 B/cell) must fit the default dynamic shared limit
 VPROD_PLAN_SRC = r'''
@@ -126,7 +126,7 @@ extern "C" __global__ void vp_blocks(int ncell,const long long*cstart,const long
 
 
 class KsplitMixin:
-    """KSPLIT methods of fused.Kernel (see the module docstring)."""
+    """KSPLIT methods of source_solver.Kernel (see the module docstring)."""
 
     def ksplit_pointer_args(self, kb):
         """SINV_PARAM order. Resolve at launch time: aero can be resized by another bundle,
@@ -458,7 +458,7 @@ class KsplitMixin:
             kb['c0cp_dev'] = xp.full(2 * points, -1, 'i4')
             address = int(kb['c0cp_dev'].data.ptr)
         else:
-            # Not enough device memory (pool limit) for the records (eda 10 GB): the record pass writes them into mapped pinned
+            # Not enough device memory (pool limit) for the records (a 10 GB card): the record pass writes them into mapped pinned
             # host memory, and each chunk's points (8 B/point) are uploaded before its plan and VPROD launches.
             mem = kb['c0cp_mem'] = xp.cuda.PinnedMemory(8 * max(points, 1), xp.cuda.runtime.hostAllocMapped)
             kb['c0cp_host'] = np.ndarray((2 * max(points, 1),), np.int32, buffer=xp.cuda.PinnedMemoryPointer(mem, 0))

@@ -1,6 +1,6 @@
-"""Solver definitions loaded into per-call scopes by host.pack_state.render_functions.
+"""Solver definitions loaded into per-call scopes by outputs.pack_state.render_functions.
 
-The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by host.pack_state). The imports and
+The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by outputs.pack_state). The imports and
 placeholders below never run there; they name the injected globals for static analysis (ruff, pyright)."""
 
 import math
@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, PngImagePlugin
 
-Y: Any = None  # Rec. 709 luminance weights (host.pack_state)
+Y: Any = None  # Rec. 709 luminance weights (outputs.pack_state)
 
 
 def film(x):

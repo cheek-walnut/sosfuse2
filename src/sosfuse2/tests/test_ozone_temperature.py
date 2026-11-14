@@ -86,7 +86,8 @@ def research():
     ]  # the sky-sos checkout; its assets/ are the research inputs
     spec = importlib.util.spec_from_file_location('aprime_reference', ROOT / relative / 'model.py')
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with testkit.legacy_module_aliases('spectral', 'density'):
+        spec.loader.exec_module(module)
     # Only the ignored raw source may be absent in a worktree. Resolve that one manifest input from the main
     # checkout; still verify its full expected SHA. Model code and all numerical assets remain those of this tree.
     raw = relative / 'raw/serdyuchenkogorshelev5digits.dat'

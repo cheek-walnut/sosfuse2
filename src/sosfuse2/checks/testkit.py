@@ -7,6 +7,7 @@ Both unittest and pytest honour unittest.SkipTest, so the same helper serves the
 """
 
 import contextlib
+import importlib
 import os
 import shutil
 import sys
@@ -18,6 +19,46 @@ from ..foundation import paths
 
 ENV = 'SOSFUSE2_SKY_SOS_ROOT'
 KNOWN_FAILURES_DOC = 'docs/KNOWN_FAILURES.md'
+
+
+@contextlib.contextmanager
+def legacy_module_aliases(*names):
+    """Temporarily expose moved modules while a research record is loaded."""
+    targets = {
+        'reference': 'sosfuse2.backends.numpy_reference',
+        'arithmetic': 'sosfuse2.backends.arithmetic',
+        'timers': 'sosfuse2.foundation.timers',
+        'host_cache': 'sosfuse2.precompute.host_cache',
+        'fused': 'sosfuse2.solve.source_solver',
+        'run_gpu_state_v3': 'sosfuse2.jobs.run_state',
+        'geometry': 'sosfuse2.solve.ray_geometry',
+        'spectral': 'sosfuse2.atmosphere.spectral',
+        'density': 'sosfuse2.atmosphere.density',
+        'air_wavelength': 'sosfuse2.atmosphere.air_wavelength',
+    }
+    package = importlib.import_module('sosfuse2')
+    modules = {name: importlib.import_module(targets[name]) for name in names}
+    missing = object()
+    saved = {
+        name: (sys.modules.get('sosfuse2.' + name, missing), getattr(package, name, missing))
+        for name in modules
+    }
+    try:
+        for name, module in modules.items():
+            sys.modules['sosfuse2.' + name] = module
+            setattr(package, name, module)
+        yield
+    finally:
+        for name, (old_module, old_attr) in saved.items():
+            key = 'sosfuse2.' + name
+            if old_module is missing:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = old_module
+            if old_attr is missing:
+                package.__dict__.pop(name, None)
+            else:
+                setattr(package, name, old_attr)
 
 
 def require_tool(name):
@@ -140,7 +181,7 @@ def synthetic_o4(root):
     import json
     import numpy as np
     from ..asset_tools import generate_minor_absorbers as gen
-    from ..atmosphere.minor_absorbers import O4_NAME, UNITS
+    from ..atmosphere.minor_absorbers import CIA_SHA, O4_NAME, UNITS
 
     fine, grid = gen.fine_grid()
     values = np.where(grid <= 653.842, 1e-56 * (1 + np.exp(-(((grid - 577) / 12) ** 2))), 0.0)
@@ -149,7 +190,7 @@ def synthetic_o4(root):
         **gen.common(fine),
         o4=values.tolist(),
         units=dict(wavelength_nm='nm (air)', o4=UNITS['o4']),
-        source=dict(sha256=gen.CIA_SHA, note='SYNTHETIC TEST FIXTURE; not HITRAN measurements'),
+        source=dict(sha256=CIA_SHA, note='SYNTHETIC TEST FIXTURE; not HITRAN measurements'),
     )
     path = Path(root) / 'assets' / O4_NAME
     path.parent.mkdir(parents=True, exist_ok=True)

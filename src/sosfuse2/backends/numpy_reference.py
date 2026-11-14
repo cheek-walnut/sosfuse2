@@ -16,7 +16,7 @@ TRACE_MIN = np.float32(np.finfo(np.float32).tiny)
 
 
 # FP32 flush-to-zero of the device operations (2L): every CUDA build
-# runs with -ftz=true (CuPy RawKernel adds it, fused.py raw_kernel), so subnormal FP32 inputs and results are 0 on the device. The
+# runs with -ftz=true (CuPy RawKernel adds it, solve/source_solver.py raw_kernel), so subnormal FP32 inputs and results are 0 on the device. The
 # NumPy mirror computes transport() and project() in the same CPU mode (C99 fenv: AArch64 FPCR.FZ, x86-64 MXCSR FTZ+DAZ). Without
 # it, a corner trace just above FLT_MIN whose terms are subnormal takes the log path here and the linear fallback on CUDA
 # (C3+AEROSOL_2L 375.7 nm: +92 % in deep-shadow cells). Unsupported platforms stop (E_FTZ_UNSUPPORTED), never fall back to IEEE.
@@ -190,7 +190,7 @@ def profile_at(h, c):
     return prof
 
 
-def extinction(prof, c, st_prof=None):
+def extinction_profile(prof, c, st_prof=None):
     """Extinction [n, W] from five components and a separate stratosphere; kernel.cu extinction_at."""
     out = np.zeros((len(prof), c['W']), 'f4')
     for k in range(NCOMP):
@@ -217,7 +217,9 @@ class SimpsonPrefix:
     def beta(self, t):
         """Extinction [n, W] at DS path coordinates t."""
         h = path_height(path_point(self.pp, self.dd, t)[2])
-        return extinction(profile_at(h, self.c), self.c, strato_profile(h, self.c) if 'strato_ext' in self.c else None)
+        return extinction_profile(
+            profile_at(h, self.c), self.c, strato_profile(h, self.c) if 'strato_ext' in self.c else None
+        )
 
     def piece(self, t1, b1):
         """Simpson on [self.t, t1]; adds it to acc where the segment is valid and moves the panel start to (t1, b1)."""
@@ -238,7 +240,7 @@ class SimpsonPrefix:
 
     def node(self, q):
         """Optical depth [n, W] at the node of sample() result q."""
-        self.piece(q['t_DS'], extinction(q['prof'], self.c, q['st_prof']))
+        self.piece(q['t_DS'], extinction_profile(q['prof'], self.c, q['st_prof']))
         return (self.tau - self.tc) + self.acc
 
     def finish(self):

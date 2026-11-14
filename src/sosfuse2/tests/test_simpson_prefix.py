@@ -282,7 +282,7 @@ def production(g, c):
                 continue
             nodes[:, seg, step] = P.node(q)
             ds[:, seg, step] = q['ds']
-            beta[:, seg, step] = ref.extinction(q['prof'], c, q['st_prof'])
+            beta[:, seg, step] = ref.extinction_profile(q['prof'], c, q['st_prof'])
         P.finish()
         ends[:, seg] = P.tau - P.tc
     return nodes, ends, ds, beta
@@ -374,7 +374,7 @@ def test_node_profile_matches_sample(opt):
                 dt += (q['prof'][:, k] * q['ds'])[:, None] * c['ext'][k]
             if 'strato_ext' in c:
                 dt += (ref.strato_profile(q['h'], c) * q['ds'])[:, None] * c['strato_ext']
-            bds = ref.extinction(p4, c, q['st_prof']) * q['ds'][:, None]
+            bds = ref.extinction_profile(p4, c, q['st_prof']) * q['ds'][:, None]
             assert np.all(np.abs(bds.astype('f8') - dt) <= 4e-7 * np.abs(dt) + 1e-37)
             # the DS height helper of the prefix gives sample()'s node height bit for bit
             assert within_tol(ref.path_height(ref.path_point(pp, dd, q['t_DS'])[2]), q['h'])

@@ -1,4 +1,4 @@
-"""rss_cap_gb eda detection (host_limits.py). CPU only, stdlib + pytest.
+"""rss_cap_gb protection-marker detection (host_limits.py). CPU only, stdlib + pytest.
 
 HOME points at a temporary folder; sys.platform and physical_ram_gb are faked so the Linux host rule is reached.
 The protected profile is recognised by either supported marker.

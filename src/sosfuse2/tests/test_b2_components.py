@@ -203,7 +203,7 @@ def test_stratosphere_separate_from_minor_slots():
     st = numpy_reference.strato_profile(h, layer)
     prof = numpy_reference.profile_at(h, c)
     np.testing.assert_allclose(
-        numpy_reference.extinction(prof, layer, st) - numpy_reference.extinction(prof, c), 0.2 * st[:, None], rtol=2e-6, atol=1e-7
+        numpy_reference.extinction_profile(prof, layer, st) - numpy_reference.extinction_profile(prof, c), 0.2 * st[:, None], rtol=2e-6, atol=1e-7
     )
 
 
@@ -252,7 +252,7 @@ def test_zero_minor_coefficients_keep_legacy_values():
     old = np.zeros((len(h), 3), 'f4')
     for k in range(3):
         old += prof[:, k, None] * c['ext'][k]
-    np.testing.assert_array_equal(numpy_reference.extinction(prof, c), old)
+    np.testing.assert_array_equal(numpy_reference.extinction_profile(prof, c), old)
 
 
 def test_column_keys_depend_on_shapes_not_amounts():

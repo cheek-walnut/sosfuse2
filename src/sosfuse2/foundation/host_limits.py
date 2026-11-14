@@ -4,10 +4,13 @@ The default RSS ceiling is 6 GB. Linux hosts without a protection marker use
 RAM-dependent ceilings above 24 GB; hosts with at least 48 GB use at most 128 GB.
 default_workers (usable CPUs: affinity and cgroup-v2 cpu.max) moved here from column_parallel.py so the stdlib-only
 pipeline controller can size the per-state process pools with the same rule the children use.
+monitor (the RSS watchdog thread of the runners) moved here from checks/solver_diagnostics.py so the runners in jobs/ do
+not import a diagnostics module.
 """
 
 import os
 import sys
+import time
 from pathlib import Path
 
 PROTECTED_RSS_GB = 6.0
@@ -25,14 +28,14 @@ def physical_ram_gb():
         return 0.0
 
 
-EDA_MARKERS = ('tools/gpu_guard', 'gpu_guard')  # current marker first, then the older home-relative marker
+PROTECTION_MARKERS = ('tools/gpu_guard', 'gpu_guard')  # current marker first, then the older home-relative marker
 
 
 def rss_cap_gb():
     """6 on the Mac, on a host with a protection marker, and on any small/unknown host;
     min(128, physical RAM) on a Linux host with at least 48 GB RAM; 0.75 x RAM on one with 24-48 GB."""
     try:
-        markers = [Path.home() / marker for marker in EDA_MARKERS]
+        markers = [Path.home() / marker for marker in PROTECTION_MARKERS]
     except RuntimeError:
         markers = []  # no home directory (container user without a passwd entry): no marker, never an error
     if sys.platform != 'linux' or any(marker.exists() for marker in markers):
@@ -109,3 +112,17 @@ def peak_rss_bytes():
     import sys
 
     return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * (1 if sys.platform == 'darwin' else 1024)
+
+
+def monitor(stop, limit):
+    """RSS watchdog loop for a daemon thread: every 0.5 s until [stop] is set, exit the process with code 75 once the
+    peak RSS reaches 95 % of [limit] bytes; one heartbeat line per minute."""
+    last = time.monotonic()
+    while not stop.wait(0.5):
+        rss = peak_rss_bytes()
+        if rss >= limit * 0.95:
+            print(f'E_RSS_LIMIT peak={rss} cap={limit}', flush=True)
+            os._exit(75)
+        if time.monotonic() - last >= 60:
+            print(f'SOSFUSE HEARTBEAT RSS_peak={rss / 1e9:.3f}GB', flush=True)
+            last = time.monotonic()

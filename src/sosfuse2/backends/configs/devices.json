@@ -1,8 +1,8 @@
 {
  "schema": 1,
-  "note": "Per-device launch and overlap budgets. Environment overrides and device matching are defined by sosfuse2.backends.device_profile.",
+ "note": "Per-device launch and overlap budgets. Environment overrides and device matching are defined by sosfuse2.backends.device_profile.",
  "profiles": {
-  "eda": {
+  "split": {
    "gpu_names": [
     "NVIDIA GeForce RTX 3080"
    ],

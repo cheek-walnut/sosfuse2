@@ -2,12 +2,12 @@
 """Batch: stored fused sources -> table.npz + meta.json + previews + zstd pack.
 
 Scans <work-root>/tmp/<id>/source.npz; processes states whose
-<work-root>/out/<id>/table.npz or <work-root>/pack/<id>.tar.zst is missing and that no live run_gpu_state_v3
+<work-root>/out/<id>/table.npz or <work-root>/pack/<id>.tar.zst is missing and that no live run_state
 worker (script or `-m sosfuse2.jobs.run_state`) currently owns. Uses
-table_fast.make_table (same rays, same kernel, same post-processing as
-run_gpu_state_v3) and sosfuse2.outputs.pack_state.pack_state.
+radiance_table.make_table (same rays, same kernel, same post-processing as
+run_state) and sosfuse2.outputs.pack_state.pack_state.
 The meta signature is this batch's own hash (state, backend, grid, code_hashes), not
-run_gpu_state_v3.signed_contract: run_gpu_state_v3 refuses such an out_name
+run_state.signed_contract: run_state refuses such an out_name
 (E_OUTPUT_IDENTITY), so give these tables their own work root.
 """
 
@@ -29,7 +29,7 @@ THREAD_KEYS = (
 
 
 def live_workers():
-    """(work_root, id) pairs of running run_gpu_state*.py / `-m sosfuse2.jobs.run_state` processes (Linux /proc)."""
+    """(work_root, id) pairs of running state scripts or modules (Linux /proc)."""
     owned = set()
     for proc in Path('/proc').glob('[0-9]*'):
         try:
@@ -37,7 +37,7 @@ def live_workers():
         except OSError:
             continue
         args = [x.decode(errors='replace') for x in args if x]
-        if not any(re.search(r'(run_gpu_state(_v[23])?\.py|sosfuse2\.run_gpu_state_v3|sosfuse2\.jobs\.run_state)$', x) for x in args):
+        if not any(re.search(r'(run_gpu_state(_v[23])?\.py|sosfuse2\.run_gpu_state_v3|sosfuse2\.jobs\.run_state|(?:^|/)jobs/run_state\.py)$', x) for x in args):
             continue
         try:
             ident = args[args.index('--id') + 1]
@@ -211,7 +211,7 @@ def main():
             except BlockingIOError:
                 log(f'SKIP {root.name}/{ident}: locked by another batch')
                 continue
-            # run_gpu_state_v3 owns out/<id> through .worker.lock, and the live_workers() sample above is taken once and
+            # run_state owns out/<id> through .worker.lock, and the live_workers() sample above is taken once and
             # not on every host, so the batch takes the same lock for the whole of process() and looks again once it holds it.
             with (out / '.worker.lock').open('a') as owner:
                 try:

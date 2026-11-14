@@ -6,7 +6,11 @@ import json
 import numpy as np
 
 from ..foundation import paths, content_identity as source_identity
-from ..asset_tools.generate_minor_absorbers import CIA_SHA, RULES_VERSION
+
+# The O4 rules version and the SHA-256 of the HITRAN CIA source file. load() checks both on a prepared O4 asset;
+# asset_tools/generate_minor_absorbers.py imports them from here and writes them into the asset it builds.
+RULES_VERSION = 'b2-s2-v2'   # v2: missing-marker policy, interior gaps and unknown markers refused
+CIA_SHA = '0146acfe5c1414b8deaa56be9a63159154479d5804d1615855888a2e1efd4961'
 
 NO2 = paths.ASSETS / 'no2_vandaele1998_fine.json'
 O4_NAME = 'o4_hitran2024_fine.json'

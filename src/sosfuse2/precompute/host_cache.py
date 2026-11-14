@@ -91,7 +91,7 @@ def context(s, optics):
     # Include the complete common identity, not only its shortened directory name. Profile: effective table bytes,
     # grid N/step, mask, scale, normalization and origin; options/asset/mask alone do not separate injected tables.
     # Additional sources cover sun_parallel rows, ground_parallel cells, density corrections, column workers and methods,
-    # ray_columns' GL walk, density profiles and the solver_sky incoming quadrature. Common-identity sources are in common.
+    # ray_columns' GL walk, density profiles and the incoming_quadrature module. Common-identity sources are in common.
     key = dict(
         version=VERSION,
         common=common,
@@ -213,7 +213,7 @@ def cached(folder, key, build, compressed=False):
 
 
 def sun_geometry(old, scale, folder, height, shared=None):
-    # The SunGeometry file carries an identity (code, components, aerosol profile, scale; solver_columns.SunGeometry.identity) and a
+    # The SunGeometry file carries an identity (code, components, aerosol profile, scale; shell_segments.SunGeometry.identity) and a
     # mismatch rebuilds it, so the folders below are for reuse, not safety: they keep states from replacing one file in turn
     # when a caller reuses a prepare folder for a different state; scale 1 keeps its old folder.
     # shared = the job's geometry cache: one table per (table source, aerosol profile, scale, height) for every state.
@@ -222,7 +222,7 @@ def sun_geometry(old, scale, folder, height, shared=None):
 
     local = folder
     if shared is not None:
-        # Table identity: the code that computes it (old.total_columns is compiled from solver_columns.py), its
+        # Table identity: the code that computes it (old.total_columns is compiled from rays/shell_segments.py), its
         # dependencies and radius/top; scale and height key the folders below.
         # tropo_profile.py: the aerosol_profile tag hashes the profile config, not the code that evaluates it.
         files = sorted(
@@ -233,7 +233,7 @@ def sun_geometry(old, scale, folder, height, shared=None):
                 str(PKG / 'precompute/column_parallel.py'),
                 str(PKG / 'atmosphere/tropo_profile.py'),
                 str(PKG / 'rays/ray_columns.py'),
-                # solver_columns.profiles reads density.no2_profile, which interpolates this asset.
+                # shell_segments.profiles reads density.no2_profile, which interpolates this asset.
                 str(PKG / 'atmosphere/density.py'),
                 str(PKG / 'assets/no2_afglus_profile.json'),
             }

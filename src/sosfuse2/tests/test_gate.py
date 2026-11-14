@@ -52,7 +52,7 @@ def write_run(root, fx, rad, src, table, cc='8.6', evaluations=7, converged=True
         kind='fixed',
         fixture=fx,
         backend='cupy',
-        device=dict(profile='eda', cc=cc, nvrtc='12.9'),
+        device=dict(profile='split', cc=cc, nvrtc='12.9'),
         numpy='2.5.3',
         config=dict(
             flags=want['flags'],
@@ -134,7 +134,7 @@ def home(tmp_path, monkeypatch):
                 toolkey=key,
                 file=f'{key}/{fx}.npz',
                 sha256=gate.file_sha(g / f'baselines/{key}/{fx}.npz'),
-                outputs=gate.outputs(r),
+                outputs=gate.pinned_hashes(r),
                 canonical=True,
             )
         ]
@@ -634,3 +634,13 @@ def test_record_paths_follow_records_or_the_package(tmp_path, monkeypatch):
     monkeypatch.setattr(gate, 'RECORDS', None)
     assert [gate.record(r) for r in wanted] == [pkg / r for r in wanted]
     assert not any(p.is_file() for p in tmp_path.rglob('*'))  # paths only: no record file was written
+
+
+def test_toolkey_reads_the_former_profile_name_as_the_current_one():
+    meta = dict(
+        device=dict(profile='split', cc='8.6', nvrtc='12.9'),
+        config=dict(flags=['STRATO'], stage1=[], async_=False, L=16, block=256),
+    )
+    former = dict(meta, device=dict(meta['device'], profile='eda'))  # a reused run recorded by 1.3.x
+    assert gate.toolkey(former) == gate.toolkey(meta)
+    assert gate.toolkey(meta)[0] == '7de21e0b57f543b1'  # the folder of the FX-C3, FX-A and FX-AP baselines

@@ -56,6 +56,8 @@ the CIE data sets against the CIE site. Where no DOI exists the entry names the 
   445–457. https://doi.org/10.1364/AO.42.000445
 - Lee, R. L., Jr. (2026). Distributions of purple-light colors and spectra in clear twilights. Applied Optics, 65(9),
   C58–C65. https://doi.org/10.1364/AO.580943
+- Patat, F. (2003). UBVRI night sky brightness during sunspot maximum at ESO-Paranal. Astronomy & Astrophysics, 400(3),
+  1183–1198. https://doi.org/10.1051/0004-6361:20030030
 - Patat, F., Ugolnikov, O. S., Postylyakov, O. V. (2006). UBVRI twilight sky brightness at ESO-Paranal. Astronomy &
   Astrophysics, 455(1), 385–393. https://doi.org/10.1051/0004-6361:20064992
 - Ugolnikov, O. S., Maslov, I. A. (2018a). Investigations of the background stratospheric aerosol using multicolor

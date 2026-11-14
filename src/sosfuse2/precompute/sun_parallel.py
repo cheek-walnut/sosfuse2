@@ -122,7 +122,7 @@ def prebuild(old, scale, folder):
         stored = old.SunGeometry.stored_identity(path)
         if stored == ident:
             return
-        import warnings  # a table without (or with another) identity is rebuilt, never reused (solver_columns.SunGeometry)
+        import warnings  # a table without (or with another) identity is rebuilt, never reused (shell_segments.SunGeometry)
 
         warnings.warn(
             f"SUN_TABLE_STALE: {path}: {'no identity' if stored is None else 'identity differs'}; rebuilding",

@@ -4,21 +4,21 @@
 For every state it computes, with the calculator's own functions, the cold CPU work a queue would do and whether a
 cache already holds it:
   column   column_cache.cache_key(kernel, bundle, c, 'strato') of the main and ground bundles that
-           fused.Kernel.strato_end_columns integrates (rays from the packed geometry cache, installed by the
-           calculator's geometry.ResidentGeometry.install/prefix; c = the stratosphere profile and `old`);
-  attach   run_gpu_state_v3.attach_lock_name(state) (the group lock) and stratosphere._geometry_key (the file);
+           source_solver.Kernel.strato_end_columns integrates (rays from the packed geometry cache, installed by the
+           calculator's ray_geometry.ResidentGeometry.install/prefix; c = the stratosphere profile and `old`);
+  attach   run_state.attach_lock_name(state) (the group lock) and stratosphere._geometry_key (the file);
   host     the host_cache keys sun02 / ground / endpoint02 of density states, captured from the calculator's own
            corrected_sun / prepare_ground / endpoint_columns with the cache I/O replaced by a recorder;
   aerosol  the per-scale-height aerosol column file of the two-layer geometry.
 The state-dependent pieces come from one probe per class (parameters except aod550/stratosphere_tau550/albedo,
-density options): run_gpu_state_v3.create_configured with the stratosphere switched off (attach returns before its
+density options): run_state.create_configured with the stratosphere switched off (attach returns before its
 ground geometry) and the host-cache ground step skipped.  The table bundles (about 4,000 of 10 million rays per
 state) are not keyed here.
 
 Platform: the attach and sun02 keys hash floating-point arrays computed on the host (sun columns).  Mac and rig bytes
 differ (26,378 of 32,481 solar-grid entries, max_rel 2.7e-15), so their hit prediction is valid only when
 the planner runs on the queue's own host.  Column, ground, endpoint02 and aerosol keys hash cached geometry bytes,
-profile reprs and sources, and match across hosts (rig and eda keys reproduced on the Mac, test_plan_queue.py).
+profile reprs and sources, and match across hosts (keys recorded on two Linux GPU hosts reproduced on the Mac, test_plan_queue.py).
 
 Order: representatives of the missing items first, spread over GPUs and workers, then states with nothing to
 compute, then the remaining members of missing groups (they hit once their representative has published).  With
@@ -42,13 +42,14 @@ import tempfile
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from sosfuse2.backends.device_profile import ALIASES
 from sosfuse2.foundation import paths
 
 
 FULL_MAIN_RAYS = 9586008  # Packed geometry cache layout.json
 # Serial seconds of one cold item.  None = not measured: counted as 0 in the totals and listed as unmeasured.
 COST_PROFILES = {
-    'eda': dict(
+    'split': dict(
         strato_column_seconds_per_ray=118.0 / (9586008 + 404496),
         density_column_seconds_per_ray=21.0 / 9586008,
         attach_miss_seconds=51.3,
@@ -130,7 +131,7 @@ def resources(a, n_states):
         from sosfuse2.foundation import available_cpus
 
         cores = min(pipeline.cpu_budget(), available_cpus.cores()[0])
-    except Exception:  # host_cores reads Linux sources; the pipeline's own budget is the check it applies
+    except Exception:  # available_cpus reads Linux sources; the pipeline's own budget is the check it applies
         cores = pipeline.cpu_budget()
     per_gpu = -(-n_states // a.gpus)
     if a.workers_per_gpu is not None:
@@ -149,7 +150,7 @@ def resources(a, n_states):
         threads, tbasis = (
             1,
             (
-                'memory-protected host (host_limits.rss_cap_gb %g GB: Mac, eda): the eda slot PSS budget '
+                'memory-protected host (host_limits.rss_cap_gb %g GB: Mac or a protection marker): the split slot PSS budget '
                 '(configs/devices.json slot_pss_gb) does not count column worker processes' % rss_cap_gb()
             ),
         )
@@ -209,9 +210,11 @@ def parser():
         '--column-workers',
         type=int,
         help='column worker processes per state (pipeline --threads); default from '
-        'the cores left per concurrent state, 1 on memory-protected hosts (Mac, eda)',
+        'the cores left per concurrent state, 1 on memory-protected hosts (Mac, protection marker)',
     )
-    p.add_argument('--cost-profile', choices=sorted(COST_PROFILES), default='eda')
+    p.add_argument(
+        '--cost-profile', type=lambda name: ALIASES.get(name, name), choices=sorted(COST_PROFILES), default='split'
+    )
     p.add_argument('--costs', type=Path, help='JSON object overriding cost-profile fields')
     p.add_argument('--work-root', type=Path, help='work root for the printed commands (default <out dir>/work)')
     p.add_argument('--scratch', type=Path, help='probe folder (default: a temporary folder, removed)')

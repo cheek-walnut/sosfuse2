@@ -26,14 +26,13 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import numpy as np
 from sosfuse2.atmosphere.air_wavelength import standard_n
+from sosfuse2.atmosphere.minor_absorbers import CIA_SHA, RULES_VERSION  # defined by the loader, which checks them
 from sosfuse2.foundation import paths
 
 ASSETS = paths.ASSETS
 DEFAULT = ASSETS/'no2_vandaele1998_fine.json'
-RULES_VERSION = 'b2-s2-v2'   # v2: missing-marker policy, interior gaps and unknown markers refused
 BIRA_SHA = {'no2c_97.dat': '8fa43c685c070b7b1d19b24e4b8cbbc002fc4df2d6128feb8e8ddc2b4864f43d',
             'no2cp_97.dat': 'ce734d755bcd5953374e1157859247e469613ba7f7f212edfbf1c140456f57d3'}
-CIA_SHA = '0146acfe5c1414b8deaa56be9a63159154479d5804d1615855888a2e1efd4961'
 CIA_URL = 'https://hitran.org/data/CIA/main/O2-O2_2024.cia'
 NO2_BLEND_NM = (660.0, 666.0)
 O4_SEGMENTS = (('54', 293.0, 'blue', -np.inf, 'end54'), ('32', 293.0, 'blue', 'end54', 600.0), ('32', 287.0, 'red', 600.0, np.inf))

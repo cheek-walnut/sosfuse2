@@ -118,7 +118,7 @@ def promote_solver(s, geometry, backend, block_size, threads):
 
 
 def captured_queries(s, hs, part, ee, aa, dummy):
-    """table_fast._capture raws for the sun elevations hs[part], through host_cache.
+    """radiance_table._capture raws for the sun elevations hs[part], through host_cache.
 
     The query packs are pure geometry (observer, sun elevation, view grid, endpoint geometry;
     pack(ground=False) writes no columns), so one copy serves every state of a grid. Replay still
@@ -313,7 +313,7 @@ def device_payload(s, geometry):
 
                 optics = c['density_optics']
                 s.kernel.check_profile(optics, 'payload')
-                key = profile_identity(optics)['sha256']  # fused.density_end_columns key
+                key = profile_identity(optics)['sha256']  # source_solver.density_end_columns key
                 if key not in getattr(bundle, 'density_columns', {}):
                     raise RuntimeError('E_PREPARED_DENSITY_COLUMNS')
         constants[nq] = c
@@ -348,7 +348,7 @@ def install_constants(kernel, s, constants):
 
 
 def profile_service_event(kernel):
-    """Fields of the service 'profile' PHASE. CuPy: the upload record of fused.constants_device. NumPy (no
+    """Fields of the service 'profile' PHASE. CuPy: the upload record of source_solver.constants_device. NumPy (no
     upload, uploaded_n None): consumed mask, identity and N from the host table the reference transport reads."""
     from ..atmosphere.density import evidence
 
@@ -381,7 +381,7 @@ def restore_device_payload(payload, compiled):
         flags=payload['flags'],
         L=payload['L'],
         **kernel_kwargs(payload.get('profile_step_km', 0.5)),
-    )  # consumers re-check N (fused.check_profile)
+    )  # consumers re-check N (source_solver.check_profile)
     kernel.raw, kernel.attributes = compiled
     install_constants(kernel, s, payload['constants'])
     s.kernel = kernel
@@ -559,8 +559,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
     from ..atmosphere.density import kernel_kwargs
     from ..solve.ray_geometry import TransientGeometry
     from ..outputs.radiance_table import _evaluate
-    from ..checks.solver_diagnostics import monitor
-    from ..foundation.host_limits import rss_cap_gb
+    from ..foundation.host_limits import monitor, rss_cap_gb
     from ..backends.compile_cache import configure
     from .run_state import ANDERSON_TOLERANCE  # same solve tolerance as the gpu-lock path (byte parity)
 
@@ -595,7 +594,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
     token = GpuToken(lock, 'GPU_SERVICE', emit)
     xp = None
     pool_limit = None
-    ksplit_waiting = set()  # states whose KSPLIT allocation waits for room (fused.vprod_columns)
+    ksplit_waiting = set()  # states whose KSPLIT allocation waits for room (source_solver.vprod_columns)
 
     def handle(conn):
         nonlocal xp, pool_limit
@@ -622,7 +621,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
             from ..backends.device_profile import reserved_field_bytes
 
             required = sum(arrays) + reserved_field_bytes(field_bytes)
-            # KSPLIT (default on CuPy, fused.ksplit_setting) sizes its columns, plans and aerosol buffer from free VRAM. With
+            # KSPLIT (default on CuPy, source_solver.ksplit_setting) sizes its columns, plans and aerosol buffer from free VRAM. With
             # several resident states it stays out of the other states' reservations (ksplit_room) and adds what it holds to
             # its own (ksplit_hold), so a later state is admitted only into memory nobody claims.
             ksplit = (
@@ -728,7 +727,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                         return True
 
                     kernel.ksplit_room, kernel.ksplit_hold, kernel.ksplit_wait = ksplit_room, ksplit_hold, ksplit_wait
-                # RawKernel keys include flags, W, L and PROFILE_N (fused.kernel_key), but block size is per Kernel; attributes
+                # RawKernel keys include flags, W, L and PROFILE_N (source_solver.kernel_key), but block size is per Kernel; attributes
                 # are keyed without L (with a _profileN suffix for N != 161). Consumers re-check compiled/optics/table N.
                 kernel.raw, kernel.attributes = compiled.setdefault((block_size, payload['L']), ({}, {}))
                 s = payload['solver']

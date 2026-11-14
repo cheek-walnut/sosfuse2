@@ -117,7 +117,7 @@ def profile_n(step):
 
 
 def kernel_kwargs(step):
-    """fused.Kernel keyword for a resolved step: none at 0.5 km, so the default construction is the historical call."""
+    """source_solver.Kernel keyword for a resolved step: none at 0.5 km, so the default construction is the historical call."""
     return {} if profile_n(step) == PROFILE_STEPS[DEFAULT_STEP] else dict(profile_step_km=float(step))
 
 
@@ -514,8 +514,8 @@ def column_identity(optics):
 def check_consumed(optics, compiled_n=None, rows=None, where='consume'):
     """The one PROFILE N check before any consumer: the declared step (meta.profile_step_km, 0.5 when unstated)
     == table rows (shape (N,3)) [== uploaded rows] [== compiled PROFILE_N]. Every path calls it, whether or not setup()
-    ran and on either backend: fused.Kernel.check_profile (setup hit/miss, upload, launch, payload, installed constants),
-    reference.profile_at, profiles, profile_identity. Returns N; E_PROFILE_N_MISMATCH otherwise."""
+    ran and on either backend: source_solver.Kernel.check_profile (setup hit/miss, upload, launch, payload, installed constants),
+    numpy_reference.profile_at, profiles, profile_identity. Returns N; E_PROFILE_N_MISMATCH otherwise."""
     meta = optics.get('meta', {})
     declared = meta.get('profile_step_km', DEFAULT_STEP)
     n = (
@@ -544,7 +544,7 @@ optics_n = check_consumed  # Earlier name
 
 
 def upload_buffer(optics):
-    """The exact FP32 PROFILE upload (fused.constants_device): the f4 audit SHA is taken from this buffer."""
+    """The exact FP32 PROFILE upload (source_solver.constants_device): the f4 audit SHA is taken from this buffer."""
     return np.ascontiguousarray(optics['table'], 'f4')
 
 
@@ -681,7 +681,7 @@ def attach(s, scope, defer_ground=False):
     if optics['mask'] & 1:
         s.hr = profiles(s.geo.h, optics)[:, 0]
     method = sun_method()  # once for the sun table and the first-ground rays, cached or not
-    s.density_sun_method = method  # run record (run_gpu_state_v3 meta.json profile.sun_method); not part of optics
+    s.density_sun_method = method  # run record (run_state meta.json profile.sun_method); not part of optics
     from ..precompute import host_cache
 
     if host_cache.enabled():

@@ -47,7 +47,8 @@ def baseline_module():
     path = evidence() / 'prechange_source/fused.py'
     spec = importlib.util.spec_from_file_location('sosfuse2._clock_baseline', path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with testkit.legacy_module_aliases('reference', 'arithmetic', 'timers'):
+        spec.loader.exec_module(module)
     return module
 
 

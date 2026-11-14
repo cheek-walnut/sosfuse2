@@ -14,7 +14,7 @@ import numpy as np
 from ..foundation import content_identity as source_identity, paths
 
 DEFAULT = paths.ASSETS / 'strato_sulfate_rg0.08_sg1.6_n1.43.json'
-# State parameters the attach geometry never reads (_geometry_key, run_gpu_state_v3.attach_lock_name): optics
+# State parameters the attach geometry never reads (_geometry_key, run_state.attach_lock_name): optics
 # combined after attach; ssa/g/angstrom/ozone_du were byte-equal on the full grid.
 ATTACH_OPTICS_PARAMS = ('aod550', 'stratosphere_tau550', 'albedo', 'ssa', 'g', 'angstrom', 'ozone_du', 'no2_du', 'o4')
 

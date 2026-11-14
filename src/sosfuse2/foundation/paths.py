@@ -4,7 +4,7 @@ Three kinds of paths, never mixed:
   read-only package resources  -> PKG, ASSETS, FIXTURES, ACCEPTED, NATIVE, CONFIGS, GATE
   writable caches and outputs  -> work_root()  (SOSFUSE2_WORK_ROOT, else $XDG_CACHE_HOME/sosfuse2, else ~/.cache/sosfuse2)
   sky-sos research extras      -> sky_sos_root()  (SOSFUSE2_SKY_SOS_ROOT; None when the package runs on its own)
-Provenance keys are package-relative ('sosfuse2/fused.py'), see rel().
+Provenance keys are package-relative ('sosfuse2/solve/source_solver.py'), see rel().
 
 The package must be installed as regular files (no zip import): the native source is handed to a C++ compiler and the
 solver definitions are read as text. resource_root() raises E_PACKAGE_NOT_ON_DISK otherwise.
@@ -31,7 +31,7 @@ def resource_root():
 PKG = resource_root()
 ASSETS = PKG / 'assets'
 FIXTURES = PKG / 'checks/fixtures'
-ACCEPTED = PKG / 'solve'  # context factory location; fused.load_engine retains isolated engine module copies
+ACCEPTED = PKG / 'solve'  # context factory location; source_solver.load_engine retains isolated engine module copies
 NATIVE = PKG / 'backends/native'
 CONFIGS = PKG / 'backends/configs'
 GATE = PKG / 'checks/gate_data'
@@ -82,17 +82,18 @@ def child_env(env=None):
 def module_command(name, *args):
     import sys
 
-    return [sys.executable, '-B', '-m', '.'.join(('sosfuse2', name)), *map(str, args)]
+    return [sys.executable, '-B', '-m', 'sosfuse2.' + name, *map(str, args)]
 
 
-# Production modules that enter the provenance format (identity.package_hashes) and the gate bless identity
+# Production modules that enter the provenance format (content_identity.package_hashes) and the gate bless identity
 # (gate.code_identity): a fixed list, not a glob, so a file that goes missing is an error instead of a silently different
-# signature. Each module enters by its identity text (identity.python_text: the source without comments and
-# docstrings), not by its bytes. test_*.py and testing.py (test support) are excluded; numerical_checks stays
-# (validate_strato imports it). test_ozone_temperature.test_03c keeps this list equal to the tree: adding a module
+# signature. Each module enters by its identity text (content_identity.python_text: the source without comments and
+# docstrings), not by its bytes. test_*.py and checks/testkit.py (test support) are excluded; numerical_checks stays
+# (stratosphere_checks imports it). test_ozone_temperature.test_03c keeps this list equal to the tree: adding a module
 # means adding it here.
 PRODUCTION_MODULES = (
     '__init__',
+    '__main__',
     'foundation/__init__',
     'atmosphere/__init__',
     'rays/__init__',
@@ -159,6 +160,7 @@ PRODUCTION_MODULES = (
     'backends/numpy_reference',
     'checks/solver_diagnostics',
     'jobs/run_state',
+    'jobs/walkthrough',
     'backends/sh_layout',
     'atmosphere/spectral',
     'solve/strato_sh_aux',
@@ -180,7 +182,7 @@ PRODUCTION_MODULES = (
 def production_files(exclude=()):
     """Paths of PRODUCTION_MODULES (minus `exclude` names); a missing file is E_PACKAGE_FILE_MISSING, never a gap."""
     files = [PKG / f'{name}.py' for name in PRODUCTION_MODULES if name not in set(exclude)]
-    missing = [p.name for p in files if not p.is_file()]
+    missing = [p.relative_to(PKG).as_posix() for p in files if not p.is_file()]
     if missing:
         raise RuntimeError(f'E_PACKAGE_FILE_MISSING: production modules absent from the package: {missing}')
     return files

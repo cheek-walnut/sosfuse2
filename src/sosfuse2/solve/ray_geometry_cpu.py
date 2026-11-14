@@ -2,7 +2,7 @@
 
 layers=1: ResidentGeometry (cache identity v2, packed layout v3; signature includes the scale height).
 layers=2: ContractTwoLayerGeometry = TwoLayerGeometry whose COMMON-layer
-          signature hashes geometry_contract.py instead of geometry.py.
+          signature hashes precompute/endpoint_contract.py instead of solve/ray_geometry.py.
           ensure_column() writes this state's aerosol column before the worker
           (or the CPU prefetch helper) hands over, so prepare() only loads it.
 """

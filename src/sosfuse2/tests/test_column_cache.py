@@ -21,7 +21,7 @@ CASES = ((0.02, 0.003, 3.0), (0.0201, 0.004, 3.0), (0.02, 0.003, 3.01))  # aod, 
 class ColumnCacheTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.root = base.testing.scratch('column-tests')
+        cls.root = base.testkit.scratch('column-tests')
         if os.environ.get('SOSFUSE2_KEEP_TEST_OUTPUT') != '1':  # runs even if setUpClass fails later
             cls.addClassCleanup(shutil.rmtree, cls.root, ignore_errors=True)
         states = []

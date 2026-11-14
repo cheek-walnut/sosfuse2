@@ -48,7 +48,7 @@ from .ksplit import (  # noqa: E402,F401 (re-exported: KSPLIT host side, ksplit.
 )
 # A6 kernel variants (kernel.cu header); each independent, all off = original kernel.
 # Stage-1 compile options: SOSFUSE2_<NAME>=1/0 overrides,
-# unset = device profile stage1_defaults (configs/devices.json: rig FMAD+FASTMATH, eda/mac none).
+# unset = device profile stage1_defaults (configs/devices.json: rig FMAD+FASTMATH, split/mac none).
 # None active = the exact pre-r17 options, key and kernel tokens.
 KPAD = 576
 SECTION_CLOCK_NAMES = ('point', 'ground', 'sh_basis', 'transport', 'attenuation', 'projection', 'barrier', 'total')
@@ -349,7 +349,7 @@ class Kernel(KsplitMixin):
                 self.constants[key] = c
         c = self.constants[key]
         # Every setup() call, cache hit or miss and installed constants alike (NumPy transport, geometry,
-        # table_fast and the persistent service all read prepared constants through here).
+        # radiance_table and the persistent service all read prepared constants through here).
         if 'density_optics' in c:
             self.check_profile(c['density_optics'], 'setup')
         return c
@@ -388,7 +388,7 @@ class Kernel(KsplitMixin):
         name, p, _ = self.device()
         fixed = p['launch_cells_fixed']
         if p.get('requires_split') and ncell > 1:
-            # eda: never a whole-grid launch; SOSFUSE2_LAUNCH_CELLS is only an upper bound under the predictive cap.
+            # split profile: never a whole-grid launch; SOSFUSE2_LAUNCH_CELLS is only an upper bound under the predictive cap.
             if fixed:
                 return 'fixed', min(fixed, ncell)
             if p['launch_target_seconds']:
@@ -1066,12 +1066,12 @@ class Kernel(KsplitMixin):
         ray_mode = False
         if phase == 0 and ((self.config().split_first and first) or (self.config().split_warm and not first)):
             # FL_RAYSPLIT private scratch: per-ray rad rows and [ray queue, per-cell done] counters (zeroed).
-            # Cell-subset launches (eda): the kernel reads rays cell_off[0]..cell_off[cells] and indexes ray_rads
+            # Cell-subset launches (split profile): the kernel reads rays cell_off[0]..cell_off[cells] and indexes ray_rads
             # and the counters chunk-locally, so the counters are re-zeroed before every chunk.
             # WARM_RAYSPLIT is not ported to cell-subset launches.
             if mode != 'single' and (not first):
                 raise ValueError('E_FL_RAYSPLIT_LAUNCH_CELLS: WARM_RAYSPLIT needs one launch per cell grid')
-            # Split FL_RAYSPLIT first light goes by ray ranges over the whole cell grid (eda: 68 cells of first light
+            # Split FL_RAYSPLIT first light goes by ray ranges over the whole cell grid (split profile: 68 cells of first light
             # took 6.3 s, and fewer cells leave SMs idle because a block is a cell).
             # SOSFUSE2_FL_PROJECT=1 also runs one-launch first light as ray launch + fl_project (rig experiment: the
             # single-warp projections may dominate its 11.9 s first light on a 4090; not measured yet).
@@ -1117,7 +1117,7 @@ class Kernel(KsplitMixin):
             else ('launch_query' if phase == 2 else 'launch_ground' if phase == 1 else 'launch_warm')
         )
         with stage(name, device=True):
-            # Cell-subset launches (eda thermal/watchdog cap; device profile, device_profile.py): blocks are
+            # Cell-subset launches (split profile thermal/watchdog cap, device_profile.py): blocks are
             # independent, so only the cell-indexed pointers move: cell_off/starts/targets (inputs) and
             # moments/flux (outputs); per-chunk counters (FL_RAYSPLIT ray_sync, CELL_SPLIT split_count) are
             # re-zeroed. Numerically equivalent to one launch within gate tolerance. 'adaptive' sizes each chunk from the last
@@ -1136,7 +1136,7 @@ class Kernel(KsplitMixin):
                 nrays = len(cum) - 1
                 kind += '_rays'
                 # Ray ranges start (and are floored) at half the rays of the initial cells: first-light rays cost about
-                # 27 us each on the 3080 next to another GPU job (eda r4), so 24 cells' rays would be about 4 s.
+                # 27 us each on the 3080 next to another GPU job, so 24 cells' rays would be about 4 s.
                 initial = max(
                     1,
                     (step if mode == 'fixed' else self.device()[1]['launch_cells_initial'] or 1)
@@ -1470,7 +1470,7 @@ class Solver:
             ).astype('f4')
         if xp is np:
             out[np.abs(out) < numpy_reference.TRACE_MIN] = (
-                0  # FP32 flush-to-zero of the device composition (no subnormal source on CUDA, reference.flush_to_zero)
+                0  # FP32 flush-to-zero of the device composition (no subnormal source on CUDA, numpy_reference.flush_to_zero)
             )
         self.kernel.sync()
         self.kernel.memory()

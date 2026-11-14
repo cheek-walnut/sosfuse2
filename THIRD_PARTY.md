@@ -78,7 +78,7 @@ derivative works thereof, in binary and source code form.
 `src/sosfuse2/assets/lef_cie.json` holds the CIE 1924 photopic V(λ) and the CIE 1951 scotopic V′(λ) from 380 to 780 nm
 with their K_m constants. The values come from colour-science 0.4.7,
 `SDS_LEFS_PHOTOPIC["CIE 1924 Photopic Standard Observer"]` and `SDS_LEFS_SCOTOPIC["CIE 1951 Scotopic Standard Observer"]`.
-The scotopic V′(λ) weights the S′ channel of the colour weights (`spectral.channel_weights`); luminance Y comes from the
+The scotopic V′(λ) weights the S′ channel of the colour weights (`atmosphere/spectral.py::channel_weights`); luminance Y comes from the
 CIE 1931 ȳ instead, so the photopic V(λ) column is stored but never read. The numeric values are unchanged. We stored
 them as JSON, set them to zero outside 380–780 nm and appended mesopic cross-check values.
 

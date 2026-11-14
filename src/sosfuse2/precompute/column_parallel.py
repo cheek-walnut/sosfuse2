@@ -1,7 +1,7 @@
-"""Opt-in process parallelism for the cold column builds (fused.Kernel.strato_end_columns / density_end_columns
+"""Opt-in process parallelism for the cold column builds (source_solver.Kernel.strato_end_columns / density_end_columns
 and the host-cache endpoint02 build, host_cache.endpoint_columns).
 
-Numerical equivalence with the serial loop is checked at rtol 1e-6: the same 2048-ray chunks (fused.py build loops), the same
+Numerical equivalence with the serial loop is checked at rtol 1e-6: the same 2048-ray chunks (solve/source_solver.py build loops), the same
 per-chunk call (stratosphere.columns / density.correct_columns) on equal input bytes, and each chunk's result is
 placed at its own index; no sum crosses a chunk.  Workers are spawned processes (no GIL; never a fork of a parent
 that may hold CUDA or threads).  Module functions and minimal state bindings travel by pickle.
@@ -23,11 +23,11 @@ from pathlib import Path
 
 import numpy as np
 
-# Moved to host_limits (stdlib only, so pipeline.py can use it); re-exported for sun/ground/geometry_parallel.
+# Moved to host_limits (stdlib only, so pipeline.py can use it); re-exported for sun/ground/ray_geometry_parallel.
 from ..foundation.host_limits import _quota_limits, default_workers  # noqa: F401
 from ..foundation import paths
 
-CHUNK = 2048  # fused.py strato_end_columns / density_end_columns
+CHUNK = 2048  # solve/source_solver.py strato_end_columns / density_end_columns
 TASK_CHUNKS = 32  # chunks per task (65,536 rays)
 MIN_RAYS = 4 * TASK_CHUNKS * CHUNK  # smaller bundles (tables: tens of rays) stay serial; spawning costs ~0.5 s
 ENV = 'SOSFUSE2_COLUMN_WORKERS'

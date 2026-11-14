@@ -1,30 +1,41 @@
-# Provenance records: v3 → v4
+# Provenance records: v3 → v4 → v5
 
 The `meta.json` of every table carries `contract`, `signature` and `code_hashes`. Legacy tables in the research
-records are v3, and tables baked from the `sosfuse2` package are v4
-(`run_gpu_state_v3.CONTRACT_VERSION`). This note is for readers that hold both.
+records are v3, tables baked from the `sosfuse2` package up to 1.3.4 are v4, and tables baked from 1.4.0 on are v5
+(`jobs/run_state.py` `CONTRACT_VERSION`). This note is for readers that hold these provenance formats.
 
 ## Reader rule
 
-- `contract == 'v3'`: the reader keeps the existing reading and verification semantics, with the repository-relative keys
-  listed below. Such tables are verified in place; they are neither rejected nor accepted without checking, and they are
-  not re-baked or re-signed to v4.
-- `contract == 'v4'`: package-relative keys. Readers compare hashes by logical key rather than by file location.
-- Any other value on a signed table, that is a `meta.json` with `signature` written by `run_gpu_state_v3`, is an error
-  (`spectral.check_meta_contract`, E_PROVENANCE_CONTRACT).
+A reader accepts signed tables in provenance formats v3, v4 and v5 (`atmosphere/spectral.py`, the list next to
+`E_PROVENANCE_CONTRACT`).
+
+- When `contract == 'v3'`, the reader keeps the existing reading and verification semantics, with the
+  repository-relative keys in *Keys*. Such tables are verified in place; they are neither rejected nor accepted without
+  checking, and they are not re-baked or re-signed to v4 or v5.
+- When `contract == 'v4'`, `code_hashes` uses package-relative keys, and readers compare hashes by logical key rather
+  than by file location.
+- When `contract == 'v5'` (`jobs/run_state.py` `CONTRACT_VERSION`), `code_hashes` uses package-relative keys that carry
+  the folder and the content identities of `foundation/content_identity.py` under rule identifier
+  `sosfuse2-identity-2`.
+- Any other value on a signed table, that is a `meta.json` with `signature` written by `jobs/run_state.py`, is an error
+  (`atmosphere/spectral.py`, `spectral.check_meta_contract`, `E_PROVENANCE_CONTRACT`). Readers of 1.3.4 and earlier
+  refuse v5 tables with `E_PROVENANCE_CONTRACT`.
 - A derived table without a signature is not a signed provenance record. Merge tools, such as the table merge tool in the
-  research records, write their own descriptive text into `contract`. Readers apply the v3/v4 key rules to the
+  research records, write their own descriptive text into `contract`. Readers apply the v3, v4 or v5 key rules to the
   signed source tables of such a table rather than to the table itself, and may pair it with a signed table; the product
   twilight/day pair is exactly that.
 
 ## Keys
 
-| v3 (`code_hashes` key) | v4 key | note |
+The v4 and v5 keys below are those written by 1.4.0 (v5), which carry the layer folder. v4 tables of 1.3.4 and earlier
+have the same keys without it, for example `sosfuse2/paths.py`.
+
+| v3 (`code_hashes` key) | v4 and v5 key | note |
 |---|---|---|
-| `scripts/sosfuse2/<module>.py` (every `*.py`, tests included: 141 keys) | `sosfuse2/<module>.py` for the fixed list `paths.PRODUCTION_MODULES` | tests and `testing.py` are not provenance inputs in v4 |
-| — (not hashed) | `sosfuse2/accepted/<file>.py` (`run_gpu_state_v3.ACCEPTED_SOURCES`, 2) | the engine module and package initializer; the `solver_*.py` modules are in `PRODUCTION_MODULES` |
-| — | `sosfuse2/host/{__init__,host_cores,pack_state}.py`, `sosfuse2/native/sh_cpu.cpp` | host helpers and the CPU kernel source |
-| `scripts/sosfuse2/kernel.cu` | `sosfuse2/kernel.cu` | |
+| `scripts/sosfuse2/<module>.py` (every `*.py`, tests included: 141 keys) | `sosfuse2/<layer>/<module>.py` for the fixed list `paths.PRODUCTION_MODULES` | tests and `checks/testkit.py` are not provenance inputs in v4 |
+| — (not hashed) | `sosfuse2/solve/__init__.py` and `sosfuse2/solve/engine.py` (`content_identity.ACCEPTED_SOURCES`, 2) | the engine module and package initializer; the CPU solver modules (`rays/`, `atmosphere/extinction.py`, `solve/engine_core.py`, `outputs/preview_functions.py`) are in `PRODUCTION_MODULES` |
+| — | `sosfuse2/foundation/__init__.py`, `sosfuse2/foundation/available_cpus.py`, `sosfuse2/outputs/pack_state.py` (`content_identity.HOST_MODULES`), `sosfuse2/backends/native/sh_cpu.cpp` | host helpers and the CPU kernel source |
+| `scripts/sosfuse2/kernel.cu` | `sosfuse2/backends/kernel.cu` | |
 | `scripts/sosfuse2/assets/<data>` (when the block used it) | `sosfuse2/assets/<data>` for `DATA_ASSETS`, always | v3 hashed the fine spectral assets only when the spectral block used them |
 | `scripts/sosfuse2/assets/usstd76_profile.json` | `sosfuse2/assets/usstd76_profile.json` — a logical key (`density.ASSET_KEY`) | the file is generated into the work root on first use (IPRT inputs, pinned sha256); hashed only when the state uses `ozone_profile usstd76` |
 | `scripts/sosfuse2/assets/strato_*.json`, `tropo_*.json` (state dependent) | `sosfuse2/assets/...` (state dependent) | `stratosphere.path_label`, `tropo_mie.path_label` |
@@ -61,7 +72,7 @@ its hash. These differences lie nine orders of magnitude below the 1e-6 toleranc
 prepared quantities. v3 tables record `ozone_profile.asset_sha256 = a7ccf7b1…` in their resolved spectral block and v4
 tables record `05dfeb6e…`; readers compare asset hashes within the same `contract` version only.
 
-## Signature inputs (v4)
+## Signature inputs (v4 and v5)
 
 The signed dictionary has the keys `contract`, `physics`, `optics_state`, `state`, `backend`, `reduced`, `settings`,
 `polarization_model`, `tolerance`, `code_hashes` and `grid`, plus `derived` when a derived source is used. Its signature is
@@ -75,8 +86,8 @@ distribution's `sosfuse2/__init__.py` is this very package; the git HEAD of the 
 package, where a consumer checkout that merely holds an installed copy is not recorded; else `null`. `gate.commit()`
 records the same value, or `GATE_SOURCE_COMMIT`.
 
-The gate bless identity (`gate.code_identity`) is the same `package_hashes()` manifest minus `sosfuse2/gate.py`, plus
-`gate/fixtures.json`, `configs/{C3,C3_nostrato,devices}.json` and the ozone asset under its logical key, in one manifest
+The gate bless identity (`gate.code_identity`) is the same `package_hashes()` manifest minus `sosfuse2/checks/gate.py`, plus
+`checks/gate_data/fixtures.json`, `backends/configs/{C3,C3_nostrato,devices}.json` and the ozone asset under its logical key, in one manifest
 for both versions. A derived table (`--extra-elevations`) reuses a stored source only when
 `contract, id, settings, backend, polarization_model, mode, code_hashes` match; `package_version` and `package_commit`
 are recorded in its meta but are not a reuse condition.
@@ -84,12 +95,43 @@ are recorded in its meta but are not a reuse condition.
 ## v3 to v4: signatures, caches and regression evidence
 
 Every v4 signature differs from v3 for the same job, because the keys differ and more inputs are hashed.
-`geometry.identity` and the column and host caches also use package-relative keys, so the package does not reuse existing
+`ray_geometry.identity` and the column and host caches also use package-relative keys, so the package does not reuse existing
 packed geometry and column caches; they are rebuilt once.
 
 As regression evidence, a production state, `L19s3_tau0p01_aod0p15_g0p65`, was baked by the installed package
 on an RTX 3080 and compared with its v3 table: 0 of 20,250,000 values lie
 outside rtol 1e-5. The two tables happened to be byte-identical, which is an observation and not a requirement.
+
+## v4 to v5: identity rules
+
+In 1.4.0, `foundation/content_identity.py` defines content identity under the rule identifier `sosfuse2-identity-2`.
+Python sources are hashed without comments and docstrings, C and CUDA sources without comments, JSON files without their
+note keys, and numeric assets without their per-asset description fields. Changes of spacing inside a line or of
+indentation still change the identity, while trailing whitespace and blank lines do not. A comment inside an f-string
+replacement field stays in the identity, a comment line directly after a line continuation (`\`) leaves the blank line
+it needs, and a block comment in the middle of a C line leaves one space.
+
+State identity leaves out `description`, `note`, `notes`, `note_*`, `*_note`, `group`, `role`, `holdout`,
+`out_of_axis_range` and `q2d_override` and keeps `settings`, `parameters`, `stratosphere` and `density` whole. Every
+other top-level key of the state file counts as well, `REPORT`, `sampling` and `supported_physics` among them. Numeric
+assets record a computation identity apart from the sha256 of the file bytes: a spectral block is checked against the
+computation identity, so whitespace, indentation and description changes pass and changed numbers are refused. The
+density profile in `atmosphere/density.py` and the external source files in `asset_tools/iprt.py` and
+`asset_tools/generate_minor_absorbers.py` keep their byte pins, and the earlier hashes are registered so older records
+still match. `SOSFUSE2_POOL_LIMIT_GIB` and `SOSFUSE2_FIELD_RESERVE` are not part of any identity.
+
+In 1.4.0 the keys of `code_hashes` also carry the folder from the module move. Tables are written in provenance format
+v5 with `contract: "v5"` (`jobs/run_state.py` `CONTRACT_VERSION`). Readers still read v3 and v4 tables, whereas readers
+of 1.3.4 and earlier refuse v5 tables (`E_PROVENANCE_CONTRACT`). Every cache key changes once and is rebuilt on first
+use. Output folders and saved sources of earlier versions are not resumed or extended (`E_OUTPUT_IDENTITY`,
+`E_EXTRA_SOURCE`), while `outputs/radiance_table` and `jobs/tables_from_sources` keep reading older sources.
+
+## Folder layout of 1.4.0
+
+The modules moved into layer folders (`docs/ARCHITECTURE.md`), so the keys of `code_hashes` carry the folder, as in
+`sosfuse2/jobs/run_state.py`. The keys and hashes change with the move, and with them the signature, the geometry,
+column and host cache keys and the gate bless identity; caches are rebuilt on first use. The O₄ asset keeps the
+generator module name it records, `sosfuse2.generate_minor_absorbers`, which is part of its physical identity.
 
 ## Tag map
 

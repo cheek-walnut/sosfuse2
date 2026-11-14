@@ -53,11 +53,11 @@
  "cuda": {
   "FX-C3": [
    {
-    "toolkey": "ee7201be2db3ffb8",
+    "toolkey": "7de21e0b57f543b1",
     "toolkey_fields": {
      "cc": "8.6",
      "nvrtc": "12.9",
-     "profile": "eda",
+     "profile": "split",
      "flags": [
       "STRATO"
      ],
@@ -66,7 +66,7 @@
      "L": 16,
      "block": 256
     },
-    "file": "ee7201be2db3ffb8/FX-C3.b2-s2-gatev2-20261105.npz",
+    "file": "7de21e0b57f543b1/FX-C3.b2-s2-gatev2-20261105.npz",
     "sha256": "230b08318832519b206395b1377f5b737f0237105b16b34529ec2ef33b2fd2a7",
     "outputs": {
      "fixed.radiance.0": "2df673c48653dbb9e40d87046545cbc594434e636b3d9c796dc68721a07d3f60",
@@ -93,7 +93,7 @@
     },
     "metadata": {
      "device": {
-      "profile": "eda",
+      "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
       "gpu": "NVIDIA GeForce RTX 3080",
@@ -105,11 +105,11 @@
      "host_inputs": "a2dd21e36e04b71e17dbfd33e19ddb51e65e8aa086bf087b9175e5769569bad2"
     },
     "previous": {
-     "toolkey": "ee7201be2db3ffb8",
+     "toolkey": "7de21e0b57f543b1",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [
        "STRATO"
       ],
@@ -118,7 +118,7 @@
       "L": 16,
       "block": 256
      },
-     "file": "ee7201be2db3ffb8/FX-C3.d1v2-hsrs-20261031.npz",
+     "file": "7de21e0b57f543b1/FX-C3.d1v2-hsrs-20261031.npz",
      "sha256": "d52913b22f75e6efae91c894d383becb589dcfbb41a69363afa77d5fa459f45b",
      "outputs": {
       "fixed.radiance.0": "3f82952ff7ea046243f096ffe84e2c7dbeedf51404410a2876a367a8ecfdb2ff",
@@ -139,7 +139,7 @@
      "decision": "d1v2-hsrs-20261031",
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",
@@ -159,18 +159,18 @@
   ],
   "FX-N": [
    {
-    "toolkey": "13f50ed5affa220f",
+    "toolkey": "0fbb3921b0dbe0eb",
     "toolkey_fields": {
      "cc": "8.6",
      "nvrtc": "12.9",
-     "profile": "eda",
+     "profile": "split",
      "flags": [],
      "stage1": [],
      "async_": false,
      "L": 16,
      "block": 256
     },
-    "file": "13f50ed5affa220f/FX-N.b2-s2-gatev2-20261105.npz",
+    "file": "0fbb3921b0dbe0eb/FX-N.b2-s2-gatev2-20261105.npz",
     "sha256": "1253bdd95e430767ecd9956d7f2105de5881729b45b7830e5af7b84d75ba8c61",
     "outputs": {
      "fixed.radiance.0": "f996b336b4911a594ecfa487851712b8b978a6704975956b757eee6b796ef0b9",
@@ -197,7 +197,7 @@
     },
     "metadata": {
      "device": {
-      "profile": "eda",
+      "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
       "gpu": "NVIDIA GeForce RTX 3080",
@@ -209,18 +209,18 @@
      "host_inputs": "20d90f905a6b36b1d8696925b48fc18b40128799438731e142059f8a4c9ce024"
     },
     "previous": {
-     "toolkey": "13f50ed5affa220f",
+     "toolkey": "0fbb3921b0dbe0eb",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [],
       "stage1": [],
       "async_": false,
       "L": 16,
       "block": 256
      },
-     "file": "13f50ed5affa220f/FX-N.d1v2-hsrs-20261031.npz",
+     "file": "0fbb3921b0dbe0eb/FX-N.d1v2-hsrs-20261031.npz",
      "sha256": "fa1e5a8e8c905ee9c23984d9268e0af5addfc799917abbdae0658110f97f776d",
      "outputs": {
       "fixed.radiance.0": "23da9b4ccbff5a24536241c90e28d38ea2068561568aeedf3b10de664bd5b4af",
@@ -241,7 +241,7 @@
      "decision": "d1v2-hsrs-20261031",
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",
@@ -261,11 +261,11 @@
   ],
   "FX-S2": [
    {
-    "toolkey": "94d02b1d544e989a",
+    "toolkey": "e8ee3bcaaf06747b",
     "toolkey_fields": {
      "cc": "8.6",
      "nvrtc": "12.9",
-     "profile": "eda",
+     "profile": "split",
      "flags": [
       "STRATO"
      ],
@@ -277,7 +277,7 @@
      "L": 16,
      "block": 256
     },
-    "file": "94d02b1d544e989a/FX-S2.b2-s2-gatev2-20261105.npz",
+    "file": "e8ee3bcaaf06747b/FX-S2.b2-s2-gatev2-20261105.npz",
     "sha256": "5b80fb227aeca209cbfb8bbeac98108a8ebebf4ee771ca4bde345eb8f9a26ae9",
     "outputs": {
      "fixed.radiance.0": "d8cfeef7dcafc1c57645f2bfbebc861616c21a11676cb6f5621178571503d45b",
@@ -304,7 +304,7 @@
     },
     "metadata": {
      "device": {
-      "profile": "eda",
+      "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
       "gpu": "NVIDIA GeForce RTX 3080",
@@ -316,11 +316,11 @@
      "host_inputs": "a2dd21e36e04b71e17dbfd33e19ddb51e65e8aa086bf087b9175e5769569bad2"
     },
     "previous": {
-     "toolkey": "94d02b1d544e989a",
+     "toolkey": "e8ee3bcaaf06747b",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [
        "STRATO"
       ],
@@ -332,7 +332,7 @@
       "L": 16,
       "block": 256
      },
-     "file": "94d02b1d544e989a/FX-S2.d1v2-hsrs-20261031.npz",
+     "file": "e8ee3bcaaf06747b/FX-S2.d1v2-hsrs-20261031.npz",
      "sha256": "a01e1dd86649590a74b8f8726c86b2784ee7f14ad30694c1603a26836349952c",
      "outputs": {
       "fixed.radiance.0": "9688333fc983ee2db9d7fc84b9bf1385738aa6424ecb803a34bd0dd0975c37a1",
@@ -353,7 +353,7 @@
      "decision": "d1v2-hsrs-20261031",
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",
@@ -373,11 +373,11 @@
   ],
   "FX-A": [
    {
-    "toolkey": "ee7201be2db3ffb8",
+    "toolkey": "7de21e0b57f543b1",
     "toolkey_fields": {
      "cc": "8.6",
      "nvrtc": "12.9",
-     "profile": "eda",
+     "profile": "split",
      "flags": [
       "STRATO"
      ],
@@ -386,7 +386,7 @@
      "L": 16,
      "block": 256
     },
-    "file": "ee7201be2db3ffb8/FX-A.b2-s2-gatev2-20261105.npz",
+    "file": "7de21e0b57f543b1/FX-A.b2-s2-gatev2-20261105.npz",
     "sha256": "96dbc049d08a6ebfc2fb68e55f96051045c39df6b47781c9fc026d075de43d6b",
     "outputs": {
      "fixed.radiance.0": "17bfc4133d5bbabd92a8c6fcb76ba2ac58792f5eb92c98842bcfbdb029e56c75",
@@ -413,7 +413,7 @@
     },
     "metadata": {
      "device": {
-      "profile": "eda",
+      "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
       "gpu": "NVIDIA GeForce RTX 3080",
@@ -425,11 +425,11 @@
      "host_inputs": "966c270e79f3f871ecc89c26daa0289ad439def114d426fdacc550418f88f8fc"
     },
     "previous": {
-     "toolkey": "ee7201be2db3ffb8",
+     "toolkey": "7de21e0b57f543b1",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [
        "STRATO"
       ],
@@ -438,7 +438,7 @@
       "L": 16,
       "block": 256
      },
-     "file": "ee7201be2db3ffb8/FX-A.d1v2-hsrs-20261031.npz",
+     "file": "7de21e0b57f543b1/FX-A.d1v2-hsrs-20261031.npz",
      "sha256": "b0f8525f18a6825d2e11c1130abbed4f93110bf7b9cdd5af51bc18832b99abd8",
      "outputs": {
       "fixed.radiance.0": "10d957cef9b93a472b8031b200b65265224280263ed33cc09dcfb9c4b0224a92",
@@ -459,7 +459,7 @@
      "decision": "d1v2-hsrs-20261031",
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",
@@ -479,11 +479,11 @@
   ],
   "FX-AP": [
    {
-    "toolkey": "ee7201be2db3ffb8",
+    "toolkey": "7de21e0b57f543b1",
     "toolkey_fields": {
      "cc": "8.6",
      "nvrtc": "12.9",
-     "profile": "eda",
+     "profile": "split",
      "flags": [
       "STRATO"
      ],
@@ -492,7 +492,7 @@
      "L": 16,
      "block": 256
     },
-    "file": "ee7201be2db3ffb8/FX-AP.b2-s2-gatev2-20261105.npz",
+    "file": "7de21e0b57f543b1/FX-AP.b2-s2-gatev2-20261105.npz",
     "sha256": "158fa0c5f2312475886fcc787f47e8949c039aab66612b0a95004e93d0031392",
     "outputs": {
      "fixed.radiance.0": "9b2247e12eac734be54d877efc56b3f760e08f76d295286e8e38db55c29bfe2c",
@@ -519,7 +519,7 @@
     },
     "metadata": {
      "device": {
-      "profile": "eda",
+      "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
       "gpu": "NVIDIA GeForce RTX 3080",
@@ -531,11 +531,11 @@
      "host_inputs": "68f201681b003625132974335d55deb26a19cd588273f4930c7983cac1541eae"
     },
     "previous": {
-     "toolkey": "ee7201be2db3ffb8",
+     "toolkey": "7de21e0b57f543b1",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [
        "STRATO"
       ],
@@ -544,7 +544,7 @@
       "L": 16,
       "block": 256
      },
-     "file": "ee7201be2db3ffb8/FX-AP.p2-aprime-default-20261101.npz",
+     "file": "7de21e0b57f543b1/FX-AP.p2-aprime-default-20261101.npz",
      "sha256": "8b4c713e1f6d67f1e48fdcd922422d38510fec2e21ef4aee501cce7eb0a47f13",
      "outputs": {
       "fixed.radiance.0": "04840b663810c7ddef895ecb800d68861bd12eb0108c168777d861d33409e272",
@@ -565,7 +565,7 @@
      "decision": "p2-aprime-default-20261101",
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",
@@ -647,12 +647,12 @@
  "records": {
   "cuda": {
    "FX-C3": {
-    "ee7201be2db3ffb8": {
-     "toolkey": "ee7201be2db3ffb8",
+    "7de21e0b57f543b1": {
+     "toolkey": "7de21e0b57f543b1",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [
        "STRATO"
       ],
@@ -765,7 +765,7 @@
      },
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",
@@ -779,12 +779,12 @@
     }
    },
    "FX-N": {
-    "13f50ed5affa220f": {
-     "toolkey": "13f50ed5affa220f",
+    "0fbb3921b0dbe0eb": {
+     "toolkey": "0fbb3921b0dbe0eb",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [],
       "stage1": [],
       "async_": false,
@@ -895,7 +895,7 @@
      },
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",
@@ -909,12 +909,12 @@
     }
    },
    "FX-S2": {
-    "94d02b1d544e989a": {
-     "toolkey": "94d02b1d544e989a",
+    "e8ee3bcaaf06747b": {
+     "toolkey": "e8ee3bcaaf06747b",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [
        "STRATO"
       ],
@@ -1135,7 +1135,7 @@
      },
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",
@@ -1149,12 +1149,12 @@
     }
    },
    "FX-A": {
-    "ee7201be2db3ffb8": {
-     "toolkey": "ee7201be2db3ffb8",
+    "7de21e0b57f543b1": {
+     "toolkey": "7de21e0b57f543b1",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [
        "STRATO"
       ],
@@ -1219,7 +1219,7 @@
          "atol": 0.0
         }
        },
-       "baseline": "ee7201be2db3ffb8/FX-A.b2-s2-gatev2-20261105.npz",
+       "baseline": "7de21e0b57f543b1/FX-A.b2-s2-gatev2-20261105.npz",
        "code": null
       },
       "P": null,
@@ -1228,7 +1228,7 @@
      "ratchet": {},
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",
@@ -1242,12 +1242,12 @@
     }
    },
    "FX-AP": {
-    "ee7201be2db3ffb8": {
-     "toolkey": "ee7201be2db3ffb8",
+    "7de21e0b57f543b1": {
+     "toolkey": "7de21e0b57f543b1",
      "toolkey_fields": {
       "cc": "8.6",
       "nvrtc": "12.9",
-      "profile": "eda",
+      "profile": "split",
       "flags": [
        "STRATO"
       ],
@@ -1360,7 +1360,7 @@
      },
      "metadata": {
       "device": {
-       "profile": "eda",
+       "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
        "gpu": "NVIDIA GeForce RTX 3080",

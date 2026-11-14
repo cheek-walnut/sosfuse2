@@ -232,7 +232,7 @@ JSON_DROPPED = {
         'state.role',
     },
     'backends/configs/devices.json': {
-        'note', 'profiles.eda.note', 'profiles.eda.memory_note', 'profiles.eda.requires_split_note',
+        'note', 'profiles.split.note', 'profiles.split.memory_note', 'profiles.split.requires_split_note',
         'profiles.rig.note', 'profiles.mac.note',
     },
     'backends/configs/C3.json': {'notes'},
@@ -698,6 +698,7 @@ def test_package_hashes(monkeypatch):
     hashes = content_identity.package_hashes()
     expected = {
         'sosfuse2/__init__.py',
+        'sosfuse2/__main__.py',
         'sosfuse2/foundation/__init__.py',
         'sosfuse2/atmosphere/__init__.py',
         'sosfuse2/rays/__init__.py',
@@ -761,6 +762,7 @@ def test_package_hashes(monkeypatch):
         'sosfuse2/backends/numpy_reference.py',
         'sosfuse2/checks/solver_diagnostics.py',
         'sosfuse2/jobs/run_state.py',
+        'sosfuse2/jobs/walkthrough.py',
         'sosfuse2/backends/sh_layout.py',
         'sosfuse2/atmosphere/spectral.py',
         'sosfuse2/solve/strato_sh_aux.py',

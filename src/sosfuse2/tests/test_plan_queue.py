@@ -467,5 +467,13 @@ def test_ground_aerosol_record_has_unknown_cost_without_packed_geometry(tmp_path
     assert item['cost_seconds'] is None and item['file'] == str(tmp_path / 'host' / (token + '.hcache'))
 
 
+def test_cost_profile_default_split_and_former_name(tmp_path):
+    base = ['--states', str(tmp_path / 's.json'), '--geometry-cache', str(tmp_path / 'g'), '--out', str(tmp_path / 'p.json')]
+    default = plan_queue.parser().parse_args(base)
+    former = plan_queue.parser().parse_args(base + ['--cost-profile', 'eda'])  # the 1.3.x name stays accepted
+    assert default.cost_profile == former.cost_profile == 'split'  # the plan records the current name
+    assert plan_queue.cost_profile(former) == plan_queue.cost_profile(default)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

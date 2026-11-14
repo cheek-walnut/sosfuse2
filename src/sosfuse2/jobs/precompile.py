@@ -9,12 +9,12 @@ per deployment, e.g. while geometry is copied:
     SOSFUSE2_COMPILE_CACHE=<deployment>/caches/nvrtc python -B -m sosfuse2.jobs.precompile --jobs 8
 
 Each worker opens its own CUDA context (CuPy loads the module after compiling). The kernels and options are the ones
-fused.Kernel builds (raw_kernel, fl_project_kernel, strato_lut_kernel), so the cache entries are the ones a run hits.
+source_solver.Kernel builds (raw_kernel, fl_project_kernel, strato_lut_kernel), so the cache entries are the ones a run hits.
 STRATO is added for stratospheric states; density tables are a runtime pointer/mask, their node count a compile constant
 (--profile-step-km 0.25/0.125 adds -DPROFILE_N=321/641; 0.5 adds nothing). --W 1 warms the monochromatic (sigma C mode)
 specializations without the FW15-only KSPLIT kernels. Use --no-strato
 for C3_nostrato. Ray-range first light (LAUNCH_RAY_LIMIT + fl_project) is added when the device profile splits
-launches (eda) or SOSFUSE2_FL_PROJECT=1.
+launches (split profile) or SOSFUSE2_FL_PROJECT=1.
 """
 
 import argparse
@@ -44,7 +44,7 @@ def one(job):
         k.fl_project_kernel(W, 0)
     elif name[0] == 'ksplit':
         # KSPLIT=3 (production default): the column record pass and VPROD (PROD module: sos_vprod_y, sos_vprod) per pass, the warm ray consumer and
-        # projection on phase 0, per-cell SLIM on the ground phase, and the plan module (fused.Kernel.ksplit_* paths).
+        # projection on phase 0, per-cell SLIM on the ground phase, and the plan module (source_solver.Kernel.ksplit_* paths).
         _, phase, boundary = name
         k.raw_kernel(15, 0, phase, boundary, variant='record')
         k.vprod_kernels(15, phase, boundary)
@@ -66,7 +66,7 @@ def main():
     p.add_argument('--no-strato', action='store_true')
     p.add_argument('--ray-limit', choices=('auto', 'on', 'off'), default='auto')
     p.add_argument(
-        '--L', type=int, choices=(16, 24, 32), default=None, help='SH order (default: run_gpu_state_v3.SH_L)'
+        '--L', type=int, choices=(16, 24, 32), default=None, help='SH order (default: run_state.SH_L)'
     )
     p.add_argument(
         '--profile-step-km',
@@ -102,7 +102,7 @@ def main():
         jobs.append(('strato_lut_build', flags) + tail)
     if ray and resolve_config(flags, W=W).split_first:
         jobs.append(('fl_project', flags) + tail)
-    # KSPLIT kernels are FW15 only (fused.Kernel.setup: ksplit_supported); W=1 states run the unsplit kernel.
+    # KSPLIT kernels are FW15 only (source_solver.Kernel.setup: ksplit_supported); W=1 states run the unsplit kernel.
     if W == 15 and ksplit_setting('cupy', flags, L) == '3':
         jobs += [(('ksplit', phase, boundary), flags) + tail for phase, boundary in ((0, 0), (0, 1), (1, 0))]
     started = time.perf_counter()

@@ -24,7 +24,7 @@ walks about 2.4×10⁸ ray samples per chunk (the research records). One evaluat
 production grid takes 1.6–1.7 s on the RTX 3080 and a full state takes 53–57 s of kernel time per solve on either
 the 3080 or the L4.
 
-The CUDA implementation has one fused kernel, `sos_fused` in `src/sosfuse2/kernel.cu`, specialised into variants at
+The CUDA implementation has one fused kernel, `sos_fused` in `src/sosfuse2/backends/kernel.cu`, specialised into variants at
 NVRTC compile time, and four helpers. With the production configuration `KSPLIT=3`, each chunk of rays goes through
 the following kernels during an evaluation.
 
@@ -43,8 +43,8 @@ variant of `sos_fused` carries `__launch_bounds__(256,2)`. In 1.0.x, the slimray
 shared memory, limiting it to 4 blocks per SM, or 16 warps and 33 % of maximum occupancy.
 After 1.1.0 added NO₂ and O₄, it compiles to 141 registers, limiting it to 3 blocks per SM and 25 % occupancy, while
 shared memory would still allow 5.
-The kernel is about 2,000 lines of CUDA C, with host launch planning in `src/sosfuse2/fused.py` and, for the
-split path, `src/sosfuse2/ksplit.py`.
+The kernel is about 2,000 lines of CUDA C, with host launch planning in `src/sosfuse2/solve/source_solver.py` and, for
+the split path, `src/sosfuse2/solve/ksplit.py`.
 
 `KSPLIT=3` needs the column records of a whole bundle in device memory. Adding NO₂ and O₄ in 1.1.0 grew the records
 to 28 B per sample point from 20 B. The product state's minimum peak of 7.06 GB exceeds the 6.7 GB solo budget of a
@@ -111,8 +111,9 @@ Before the absorbers were added, we tried raising occupancy in every form
 the register budget allowed. A ray step at 15 wavelengths had a 127-register working set.
 Forcing 5 blocks per SM through `__launch_bounds__(128,5)` reduced the register count to 96 and gained 0.5 % of cycles.
 
-The release 1.2.0 probe used Nsight Compute 2025.3.1 on the RTX 3080, with `run_gpu_state_v3` running
-the full G-F state through the `KSPLIT=0` fused kernel after `gate --gf` refused the memory fallback.
+The release 1.2.0 probe used Nsight Compute 2025.3.1 on the RTX 3080, with `run_gpu_state_v3` (since 1.4.0
+`jobs/run_state.py`) running the full G-F state through the `KSPLIT=0` fused kernel after `gate --gf` refused the
+memory fallback.
 All four runs succeeded, but the launches captured from the small `gate --all` fixtures had 256-thread blocks and
 128 or 251 registers, so they did not measure the 127-register, 128-thread slimray variant.
 Timing used one pass per run, while PC sampling reports 2 aggregated passes per launch, and the production grids
@@ -153,8 +154,8 @@ This `FMUL` consumes a load result, and PC sampling attributes the wait to the c
 The probe does not establish slimray's current stall distribution: the 10 GB card no longer runs that variant.
 The L4 measurement follows.
 
-On the L4 (23 GB), the installed release 1.2.1 ran the `run_gpu_state_v3` G-F state with `KSPLIT=3` under Nsight Compute,
-with separate one-pass stall metric runs and one PC-sampling run.
+On the L4 (23 GB), the installed release 1.2.1 ran the `run_gpu_state_v3` (since 1.4.0 `jobs/run_state.py`) G-F state
+with `KSPLIT=3` under Nsight Compute, with separate one-pass stall metric runs and one PC-sampling run.
 The slimray launches use 128-thread blocks, 18.4 KB of dynamic shared memory and grids of 77k–81k blocks, with 141
 registers limiting residency to 3 blocks per SM while shared memory allows 5, giving 24.9 % occupancy, 52.2 % issue
 activity and 24.7 threads per instruction out of 32.

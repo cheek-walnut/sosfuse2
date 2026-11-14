@@ -4,9 +4,10 @@ Each profile sets a kernel launch budget and optional launch splitting.
 The budgets live in configs/devices.json.
 
 Selection order: SOSFUSE2_DEVICE_PROFILE, else the CUDA device name against each profile's gpu_names,
-else 'rig' for an unmatched CUDA device and 'mac' without CUDA. Single fields can be overridden by
-SOSFUSE2_LAUNCH_BUDGET_SECONDS, SOSFUSE2_LAUNCH_TARGET_SECONDS ('0' or '' = off), SOSFUSE2_LAUNCH_CELLS
-(fixed cells per launch, disables the adaptive split) and SOSFUSE2_LAUNCH_PAUSE_MS.
+else 'rig' for an unmatched CUDA device and 'mac' without CUDA. The profile 'split' (split launches for a card with a
+short launch budget) was called 'eda' up to 1.3.x; SOSFUSE2_DEVICE_PROFILE=eda still selects it (ALIASES).
+Single fields can be overridden by SOSFUSE2_LAUNCH_BUDGET_SECONDS, SOSFUSE2_LAUNCH_TARGET_SECONDS ('0' or '' = off),
+SOSFUSE2_LAUNCH_CELLS (fixed cells per launch, disables the adaptive split) and SOSFUSE2_LAUNCH_PAUSE_MS.
 """
 
 import json
@@ -15,6 +16,7 @@ import os
 from ..foundation import paths
 
 CONFIG = paths.CONFIGS / 'devices.json'
+ALIASES = {'eda': 'split'}  # former profile names, accepted by SOSFUSE2_DEVICE_PROFILE and plan_queue --cost-profile
 
 
 def _number(name, value, allow_none=True):
@@ -41,6 +43,7 @@ def select(device_name=None):
     """Return (name, profile dict with overrides applied, reason)."""
     table = profiles()
     forced = os.environ.get('SOSFUSE2_DEVICE_PROFILE', '').strip()
+    forced = ALIASES.get(forced, forced)
     if forced:
         if forced not in table:
             raise ValueError(f'E_DEVICE_PROFILE: unknown SOSFUSE2_DEVICE_PROFILE={forced!r}; choose {sorted(table)}')

@@ -13,19 +13,19 @@ Mirror : SKY_CACHE_MIRROR (default <work root>/sky-cache)/{geometry,attach,colum
 A unit is what is checked complete, transferred and never overwritten. Local layout = the pipeline's (paths relative
 to the root); in the store every unit is ONE object, so an interrupted upload leaves nothing that looks complete:
   geometry/endpoints_<20 hex>   local: identity.json, source_height.json, packed/* (complete = packed/complete.json,
-      layout.json and every packed/<field>.bin of the size layout.json names, geometry.py; users/, *.lock,
+      layout.json and every packed/<field>.bin of the size layout.json names, solve/ray_geometry.py; users/, *.lock,
       *.tmp never belong to it). Store: geometry/endpoints_<sig>.tar, MANIFEST.json first ([rel, bytes, sha256] per
       file + content_sha256), deterministic members. The signature leaves the scale height out
-      (geometry_contract.py) while end_col[:,1] and source_height.json come from the height that built it, so two
+      (precompute/endpoint_contract.py) while end_col[:,1] and source_height.json come from the height that built it, so two
       valid local copies of one key can differ: a store tar whose manifest differs from the local copy is
       E_CACHE_CONFLICT (kept, never overwritten or combined). Pull streams the tar, checks every member against the
       manifest and publishes the folder under the builder lock.
-  geometry/endpoints_<sig>/aerosol/<name>.f4  per-height column (tmp + os.replace, geometry_cpu.py); needs its endpoints.
+  geometry/endpoints_<sig>/aerosol/<name>.f4  per-height column (tmp + os.replace, solve/ray_geometry_cpu.py); needs its endpoints.
   geometry/endpoints_<sig>/host_cache/<64 hex>.hcache  one-file envelope (host_cache.py): header size check.
   geometry/host_sun/.../sun_columns.npz      sun table (tmp + os.replace, sun_parallel.py): zip directory check.
-  attach/attach_geometry_<24 hex>.npz        published by atomic rename only (run_gpu_state_v3.py,
+  attach/attach_geometry_<24 hex>.npz        published by atomic rename only (jobs/run_state.py,
       stratosphere.py): zip directory check. attach/attach_<16 hex>.done (group markers, a dedup hint:
-      run_gpu_state_v3.py) travel after every npz.
+      jobs/run_state.py) travel after every npz.
   columns/<64 hex>   <key>.npy + marker <key>.sha256 = sha256(npy) (column_cache.py). The marker is attached only
       to an npy this push uploaded or a stored npy whose bytes were downloaded and hashed equal; a stored marker that
       differs is E_CACHE_CONFLICT.
@@ -36,10 +36,10 @@ only by `pull --legacy` when no tar of the signature exists; `list` marks it. No
 Pull downloads into <root>/.cache_store/pull-* (same file system), re-checks every unit there, then publishes with the
 pipeline's own locks or no-clobber hard links, marker last; it never replaces a file the mirror already has.
 Concurrency: endpoints folders are leased under .v3-leases.lock and built under <sig>.lock
-(run_gpu_state_v3.py), and complete.json is written last (geometry.py). A caller sharing geometry must retain it;
+(jobs/run_state.py), and complete.json is written last (solve/ray_geometry.py). A caller sharing geometry must retain it;
 aerosol columns, host sidecars and sun tables take per-file locks and publish by
-os.replace (geometry_cpu.py, host_cache.py); attach files are computed in a private overlay and
-renamed in (run_gpu_state_v3.py); columns are read and written under a per-key lock (column_cache.py),
+os.replace (solve/ray_geometry_cpu.py, host_cache.py); attach files are computed in a private overlay and
+renamed in (jobs/run_state.py); columns are read and written under a per-key lock (column_cache.py),
 first-use markers stay in each job's work root; the geometry-only prefetch attaches through the same overlay.
 flock needs a local file system (keep the mirror on a local disk).
 Failures: CacheStoreError or row codes with stable E_CACHE_* names; rclone output is cut to its tail with URLs and
@@ -779,7 +779,7 @@ def publish(u, stage, root):
     if u.kind == 'endpoints':
         sig = u.key.split('endpoints_', 1)[1]
         dst = root / u.key
-        # Builder lock of run_gpu_state_v3.py (every build and completeness check of this signature holds it).
+        # Builder lock of jobs/run_state.py (every build and completeness check of this signature holds it).
         with flocked(root / 'geometry' / (sig + '.lock')):
             if (dst / 'packed/complete.json').exists():
                 return 'present'

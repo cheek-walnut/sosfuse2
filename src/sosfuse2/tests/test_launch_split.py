@@ -64,12 +64,18 @@ class LaunchSplit(unittest.TestCase):
         os.environ.update(self.saved)
 
     def test_profile_selection(self):
-        self.assertEqual(device_profile.select('NVIDIA GeForce RTX 3080')[0], 'eda')
+        self.assertEqual(device_profile.select('NVIDIA GeForce RTX 3080')[0], 'split')
         self.assertEqual(device_profile.select('NVIDIA GeForce RTX 4090')[0], 'rig')
         self.assertEqual(device_profile.select(None)[0], 'mac')
-        with mock.patch.dict(os.environ, {'SOSFUSE2_DEVICE_PROFILE': 'eda'}):
+        with mock.patch.dict(os.environ, {'SOSFUSE2_DEVICE_PROFILE': 'split'}):
             name, p, _ = device_profile.select('NVIDIA GeForce RTX 4090')
-            self.assertEqual((name, p['launch_budget_seconds']), ('eda', 30.0))
+            self.assertEqual((name, p['launch_budget_seconds']), ('split', 30.0))
+        with mock.patch.dict(os.environ, {'SOSFUSE2_DEVICE_PROFILE': 'eda'}):  # the 1.3.x name stays accepted
+            self.assertEqual(
+                device_profile.select('NVIDIA GeForce RTX 4090')[:2],
+                device_profile.select('NVIDIA GeForce RTX 3080')[:2],
+            )
+            self.assertEqual(device_profile.select(None)[0], 'split')
         with mock.patch.dict(os.environ, {'SOSFUSE2_DEVICE_PROFILE': 'nope'}):
             with self.assertRaises(ValueError):
                 device_profile.select(None)
@@ -77,7 +83,7 @@ class LaunchSplit(unittest.TestCase):
             self.assertEqual(device_profile.select('NVIDIA GeForce RTX 3080')[1]['launch_cells_fixed'], 408)
 
     def test_modes(self):
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'eda'})
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split'})
         self.assertEqual(k.launch_mode(1500), ('adaptive', None))
         k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'rig'})
         self.assertEqual(k.launch_mode(1500), ('single', 1500))
@@ -98,7 +104,7 @@ class LaunchSplit(unittest.TestCase):
         return sizes
 
     def test_adaptive_chunks_cover_grid_probe_first_and_bounded_growth(self):
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'eda'})
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split'})
         sizes = self.run_chunks(k, lambda u: 0.02 * u)
         self.assertEqual(sum(sizes), 1500)
         self.assertEqual(sizes[0], k.device()[1]['launch_cells_initial'] // Kernel.PROBE_DIVISOR)
@@ -107,15 +113,15 @@ class LaunchSplit(unittest.TestCase):
         self.assertLessEqual(k.launch_log['max_seconds'], k.device()[1]['launch_target_seconds'] * 1.5)
 
     def test_latency_floor_does_not_collapse_chunks(self):
-        # t = 0.8 s + 0.01 s/cell (eda r4: one cell ~0.8 s): chunks must grow past a few cells, not stay at 1.
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'eda'})
+        # t = 0.8 s + 0.01 s/cell (measured: one cell ~0.8 s): chunks must grow past a few cells, not stay at 1.
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split'})
         sizes = self.run_chunks(k, lambda u: 0.8 + 0.01 * u)
         self.assertGreater(max(sizes), 20)
         self.assertLess(len(sizes), 150)
         self.assertLessEqual(k.launch_log['max_seconds'], 4.0)
 
     def test_slow_measurement_halves_before_launch(self):
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'eda'}, seconds=[1.0, 4.5])
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split'}, seconds=[1.0, 4.5])
         cum = np.r_[0, np.cumsum(np.full(1500, 10.0))]
         c1 = k.next_chunk_end('kind', 0, 1500, None, cum)
         k.timed_launch('kind', lambda *a, **kw: None, (c1,), (256,), (), 0, c1, cum, 0, c1)
@@ -127,7 +133,7 @@ class LaunchSplit(unittest.TestCase):
 
     def test_one_unit_predicted_over_cap_stops_before_launch(self):
         k = kernel(
-            {'SOSFUSE2_DEVICE_PROFILE': 'eda', 'SOSFUSE2_LAUNCH_BUDGET_SECONDS': '5'}, seconds=[4.9]
+            {'SOSFUSE2_DEVICE_PROFILE': 'split', 'SOSFUSE2_LAUNCH_BUDGET_SECONDS': '5'}, seconds=[4.9]
         )  # 5 s: the fan-curve-off budget
         cum = np.r_[0, np.cumsum(np.full(100, 10.0))]
         c1 = k.next_chunk_end('kind', 0, 100, None, cum)
@@ -141,31 +147,31 @@ class LaunchSplit(unittest.TestCase):
             'GROUND_PHASE_BATCH,LANE_ATTEN,LANE_GROUND,LM_LUT,PHASE1_TRACE3,PHASE2_NOBARRIER,POINT_NOINLINE,'
             'RAY_CONST_SHARED,SH_AUX,SH_AUX_PAIR,SPECIALIZE,TRANSPORT_WAVE_LANES'
         ).split(',')
-        eda = device_profile.select('NVIDIA GeForce RTX 3080')
+        split = device_profile.select('NVIDIA GeForce RTX 3080')
         rig = device_profile.select('NVIDIA GeForce RTX 4090')
         err = device_profile.first_light_split_error
-        self.assertIsNone(err(c2, False, *eda[:2]))  # retired names select default split transport
-        self.assertIn('E_LAUNCH_BUDGET_CONFIG', err(['EXP_SECTION_CLOCKS'], False, *eda[:2]))
-        self.assertIsNone(err(c2 + ['ACC_GLOBAL', 'FL_RAYSPLIT'], False, *eda[:2]))
+        self.assertIsNone(err(c2, False, *split[:2]))  # retired names select default split transport
+        self.assertIn('E_LAUNCH_BUDGET_CONFIG', err(['EXP_SECTION_CLOCKS'], False, *split[:2]))
+        self.assertIsNone(err(c2 + ['ACC_GLOBAL', 'FL_RAYSPLIT'], False, *split[:2]))
         self.assertIsNone(err(c2, False, *rig[:2]))  # rig launches whole grids
         for name in ('C3', 'C3_nostrato'):
             import json
 
             flags = json.loads((paths.CONFIGS / f'{name}.json').read_text())['kernel_flags']
-            self.assertIsNone(err(flags, name == 'C3', *eda[:2]))
+            self.assertIsNone(err(flags, name == 'C3', *split[:2]))
 
     def test_eda_never_launches_whole_grid(self):
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'eda', 'SOSFUSE2_LAUNCH_TARGET_SECONDS': '0'})
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split', 'SOSFUSE2_LAUNCH_TARGET_SECONDS': '0'})
         with self.assertRaises(RuntimeError) as e:
             k.launch_mode(1500)
         self.assertIn('E_LAUNCH_BUDGET_CONFIG', str(e.exception))
         self.assertEqual(k.launch_mode(1), ('single', 1))
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'eda', 'SOSFUSE2_LAUNCH_CELLS': '408'})
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split', 'SOSFUSE2_LAUNCH_CELLS': '408'})
         self.assertEqual(k.launch_mode(1500), ('fixed', 408))
         self.assertEqual(k.launch_mode(300), ('fixed', 300))
 
     def test_fixed_step_is_only_an_upper_bound_on_eda(self):
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'eda', 'SOSFUSE2_LAUNCH_CELLS': '408'})
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split', 'SOSFUSE2_LAUNCH_CELLS': '408'})
         cum = np.r_[0, np.cumsum(np.full(1500, 10.0))]
         c0, sizes = 0, []
         while c0 < 1500:
@@ -179,7 +185,7 @@ class LaunchSplit(unittest.TestCase):
         self.assertLessEqual(k.launch_log['max_seconds'], 4.0)
 
     def test_budget_raises_after_the_launch(self):
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'eda', 'SOSFUSE2_LAUNCH_BUDGET_SECONDS': '5'}, seconds=[5.2])
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split', 'SOSFUSE2_LAUNCH_BUDGET_SECONDS': '5'}, seconds=[5.2])
         calls = []
         with self.assertRaises(RuntimeError) as e:
             k.timed_launch('kind', lambda *a, **kw: calls.append(a), (1,), (256,), (), 0, 1)

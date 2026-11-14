@@ -1,10 +1,10 @@
 """Geometry rules for the sosfuse2 two-layer COMMON endpoint cache.
 
 The common-layer signature hashes THIS file instead of the whole
-sosfuse2/geometry.py, so edits to timers, packing speed-ups or
-documentation in geometry.py no longer invalidate the ~0.87 GB common layer.
+sosfuse2/solve/ray_geometry.py, so edits to timers, packing speed-ups or
+documentation in solve/ray_geometry.py no longer invalidate the ~0.87 GB common layer.
 
-Bump VERSION (and re-run the local test) whenever geometry.py changes any of:
+Bump VERSION (and re-run the local test) whenever solve/ray_geometry.py changes any of:
   * endpoint generation in pack(): probe.boundaries, the extra shell crossings
     PACK_EXTRA_SHELLS_KM, the sort, the lower flag, end cell index/fraction,
     hits_ground (EARTH_RADIUS_KM + GROUND_TOLERANCE_KM);
@@ -80,7 +80,7 @@ ROOT = paths.PKG  # package dir (public split: upstream definitions are editable
 
 
 def check(gm):
-    """Fail if geometry.py visibly drifted from the constants above."""
+    """Fail if solve/ray_geometry.py visibly drifted from the constants above."""
     problems = []
     if tuple(gm.FIELDS) != FIELDS:
         problems.append('FIELDS')
@@ -113,7 +113,7 @@ def check(gm):
         raise RuntimeError(
             'E_GEOMETRY_CONTRACT_DRIFT: '
             + ', '.join(problems)
-            + ' (update sosfuse2/geometry_contract.py and bump VERSION)'
+            + ' (update sosfuse2/precompute/endpoint_contract.py and bump VERSION)'
         )
 
 

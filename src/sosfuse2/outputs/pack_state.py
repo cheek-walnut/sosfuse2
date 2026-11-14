@@ -4,7 +4,7 @@ import ast, json, math, os, shutil, subprocess, tarfile, time
 from pathlib import Path
 import numpy as np
 from PIL import Image, PngImagePlugin
-from ..foundation import paths
+from sosfuse2.foundation import paths
 
 ROOT = paths.PKG
 PREVIEW_PNG_LEVEL = 6

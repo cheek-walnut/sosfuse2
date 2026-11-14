@@ -49,7 +49,8 @@ def builder():
         'build_spectra_fine', testkit.sky_sos('scripts/build_spectra_fine.py')
     )
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with testkit.legacy_module_aliases('air_wavelength', 'spectral'):
+        spec.loader.exec_module(module)
     return module
 
 
@@ -111,7 +112,7 @@ def test_asset_declarations():
     assert asset_digest('spectra_fine.json', temp['frozen_source_sha256']) == SP.asset()['sha']
     assert temp['wavelength_nm'] == fine['wavelength_nm']
     assert all(temp[f'ozone_{t}K'] == fine[f'ozone_{t}K'] for t in (213, 233, 253)) and temp['solar'] == fine['solar']
-    assert fine['generator']['air_wavelength']['script'] == 'sosfuse2.atmosphere.air_wavelength'  # Public module provenance.
+    assert fine['generator']['air_wavelength']['script'] == 'sosfuse2.air_wavelength'  # Recorded in the asset bytes (module name before 1.4.0); not rewritten.
 
 
 @NEEDS_RAW
@@ -194,7 +195,8 @@ def test_cpu_check_thresholds():
     bins >= 5 nm 5e-3 (3.9e-3), Rayleigh 1e-4 (4.1e-5), sun |du'v'| 1e-5 (6.7e-7); a point-sampled column fails."""
     spec = importlib.util.spec_from_file_location('cpu_check', testkit.sky_sos('results/d1_axis_20261031/cpu_check.py'))
     C = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(C)
+    with testkit.legacy_module_aliases('spectral', 'air_wavelength'):
+        spec.loader.exec_module(C)
     res, _ = C.measure()
     assert C.failures(res) == []
     point = dict(

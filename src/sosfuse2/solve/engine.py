@@ -68,7 +68,7 @@ def peak():
 
 
 def fingerprint():
-    """Package-relative keys ('sosfuse2/solver_columns.py') of everything the accepted CPU engine reads or compiles."""
+    """Package-relative keys ('sosfuse2/rays/shell_segments.py') of everything the accepted CPU engine reads or compiles."""
     files = [ROOT / p for p in SOURCE_FILES] + [
         HERE / 'engine.py',
         ROOT / 'outputs/pack_state.py',
@@ -466,7 +466,7 @@ def create(
     kernel = (Kernel if kernel_factory is None else kernel_factory)(threads, H, gg)
     if (
         aerosol is not None and aerosol.vector is not None and isinstance(kernel, Kernel)
-    ):  # only the native kernel takes the vector; fused.Kernel reads the profile in setup()
+    ):  # only the native kernel takes the vector; source_solver.Kernel reads the profile in setup()
         kernel.aerosol_vector = np.ascontiguousarray(aerosol.vector, 'f8')
     cache.mkdir(parents=True, exist_ok=True)
     sun = old.SunGeometry(1, sun_cache) if sun_geometry is None else sun_geometry(old, sun_cache, H)

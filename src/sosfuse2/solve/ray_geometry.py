@@ -478,7 +478,7 @@ class PackedCache:
 
 def identity(s, version):
     """Cache identity.  version 1 is used for read-only legacy lookup;
-    version 2 is the sosfuse2 packed cache (hashes sosfuse2/geometry.py);
+    version 2 is the sosfuse2 packed cache (hashes sosfuse2/solve/ray_geometry.py);
     version 3 = sosfuse2 two-layer COMMON layer: identical but without the aerosol
     scale height (only end_columns[:,1] depends on it)."""
     from ..precompute.endpoint_contract import UPSTREAM
@@ -912,7 +912,7 @@ class TwoLayerGeometry(ResidentGeometry):
             # share those exact bytes, including the current state's col1.
             from ..atmosphere.density import profile_identity
 
-            key = profile_identity(optics)['sha256']  # same key as fused.density_end_columns and the IPC check
+            key = profile_identity(optics)['sha256']  # same key as source_solver.density_end_columns and the IPC check
             self.bundle.density_columns = {key: self.bundle.arrays['end_col']}
             self.ground_bundle.density_columns = {key: self.ground_bundle.arrays['end_col']}
 

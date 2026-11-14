@@ -29,7 +29,7 @@ THREAD_ENV = (
     'NUMEXPR_NUM_THREADS',
     'BLIS_NUM_THREADS',
 )
-# Process pools of one state's CPU preparation (column_parallel, sun_parallel, ground_parallel, geometry_parallel).
+# Process pools of one state's CPU preparation (column_parallel, sun_parallel, ground_parallel, ray_geometry_parallel).
 # Unset, each pool takes every usable CPU, so W states prepared at once started W x cores processes
 # (4 states x 12 workers, solar table 52 s).
 PREP_WORKER_ENV = (
@@ -53,7 +53,7 @@ RAM_SHARE = 0.8
 
 
 def slot_workers(states, persistent):
-    """States a memory-budgeted GPU slot holds (device profile slot_pss_gb, e.g. eda 5 GB): a persistent queue pays
+    """States a memory-budgeted GPU slot holds (device profile slot_pss_gb, e.g. split 5 GB): a persistent queue pays
     one service plus a worker per state, separate runners a full state process each. None if the profile sets no
     slot budget (rig). Measured: service PSS 2.99 GB, workers 1.46 and 1.01 GB, so 2 workers = 5.47 GB."""
     from sosfuse2.backends.device_profile import select
@@ -74,12 +74,12 @@ def auto_workers(states, threads, backend='numpy', persistent=False):
     """States prepared at once when --workers is not given: as many as the cores read right now allow with
     [CORES_LEFT_FREE] kept back, never more than the states or than [RAM_SHARE] of the RAM holds. A state's CPU
     preparation is single-threaded, so the cores are filled with states, not with threads (8 threads on one
-    state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). The Mac and eda keep 2."""
+    state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). The Mac and memory-protected hosts keep 2."""
     if backend == 'cupy':
         slot = slot_workers(states, persistent)
         if slot is not None:
             return max(1, min(slot, cpu_budget() // threads))
-    if rss_cap_gb() < RIG_MIN_RAM_GB:  # Mac, eda and the mid-size VMs keep 2
+    if rss_cap_gb() < RIG_MIN_RAM_GB:  # Mac, memory-protected hosts and the mid-size VMs keep 2
         return max(1, min(states, 2, cpu_budget() // threads))
     by_cores = max(1, (cpu_budget() - CORES_LEFT_FREE) // threads)
     by_ram = max(1, int(physical_ram_gb() * RAM_SHARE // WORKER_RSS_GB))
@@ -118,7 +118,7 @@ def gpu_memory():
 
 def auto_gpu_active(workers, backend):
     """Persistent-service states resident on the GPU at once when --gpu-active is not given: as many as [VRAM_SHARE]
-    of the free GPU memory holds at the device profile's state_vram_gb (configs/devices.json: eda 4.5, rig 3.7),
+    of the free GPU memory holds at the device profile's state_vram_gb (configs/devices.json: split 4.5, rig 3.7),
     never more than the workers, plus [KSPLIT_STATE_VRAM_GB] unless SOSFUSE2_KSPLIT=0. The NumPy path keeps the old
     default 2. (3 on an RTX 4090 ran the GPU 94 %; a 10 GB 3080 holds 1.)"""
     if backend != 'cupy':
@@ -128,7 +128,7 @@ def auto_gpu_active(workers, backend):
     name, free = gpu_memory()
     _, profile, _ = select(name)
     per = profile.get('state_vram_gb') or 3.7
-    if os.environ.get('SOSFUSE2_KSPLIT', '').strip() != '0':  # KSPLIT is the CuPy default (fused.ksplit_setting)
+    if os.environ.get('SOSFUSE2_KSPLIT', '').strip() != '0':  # KSPLIT is the CuPy default (source_solver.ksplit_setting)
         per += KSPLIT_STATE_VRAM_GB
     if free is None:
         return 1
@@ -267,7 +267,7 @@ def validate(a):
     except (OSError, KeyError, TypeError, AttributeError, json.JSONDecodeError) as e:
         raise ValueError('E_PIPELINE_STATES_INPUT: invalid states or parent input') from e
     if a.backend == 'cupy':
-        # Same first-light split rule as the runner, for every state before any process starts (eda: C2 8.6 s launches).
+        # Same first-light split rule as the runner, for every state before any process starts (split profile: C2 8.6 s launches).
         from sosfuse2.backends.device_profile import first_light_split_error, select, smi_device_name
 
         pname, profile, _ = select(smi_device_name())
@@ -595,7 +595,7 @@ def run_queue(a):
         states=rows,
     )
     counts = {r['id']: dict(hit=0, miss=0, invalid=0, disabled=0) for r in rows}
-    profiles = {r['id']: [] for r in rows}  # ②b PROFILE evidence (run_gpu_state_v3 host, persistent service upload)
+    profiles = {r['id']: [] for r in rows}  # ②b PROFILE evidence (run_state host, persistent service upload)
     attach = {r['id']: dict(hit=0, miss=0, unused=0, disabled=0) for r in rows}
     for path in [*(Path(r['log']) for r in rows), logs / 'GPU_SERVICE.log']:
         if not path.is_file() or (path.name == 'GPU_SERVICE.log' and not a.persistent):

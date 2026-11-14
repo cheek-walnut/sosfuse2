@@ -147,7 +147,7 @@ class ColumnCacheFirstUse(unittest.TestCase):
                 sorted(p.parent.parent.name for p in self.tmp.glob('*/.column_cache_checks/*.json')),
                 ['jobA', 'jobA', 'jobB', 'jobC'],
             )
-            self.assertFalse([p for p in (self.tmp / 'columns').glob('*') if p.suffix == '.json'])
+            self.assertFalse(list((self.tmp / 'columns').glob('*.json')))
 
 
 class PreviewReuse(unittest.TestCase):
@@ -359,13 +359,13 @@ class Stage1Wiring(unittest.TestCase):
         exact = ('--fmad=false', '--prec-div=true', '--prec-sqrt=true')
         s2 = ('--fmad=true', '--prec-div=false', '--prec-sqrt=false')
         base = lambda k: (tuple(k.flags), 15, 15, 0, 0, 0, ('L', k.L))
-        # eda profile: the exact pre-r17 options and key.
-        eda = self.kernel('eda')
+        # split profile: the exact pre-r17 options and key.
+        split = self.kernel('split')
         with patch.dict(os.environ, {}, clear=True):
-            raw_eda = eda.raw_kernel(15, 0, 0, 0)
-        self.assertEqual(raw_eda.options[1:4], exact)
-        self.assertEqual([o for o in raw_eda.options if o.startswith('-DSOSFUSE2_')], ['-DSOSFUSE2_DETERMINISTIC=0'])
-        self.assertEqual(list(eda.raw), [base(eda)])
+            raw_split = split.raw_kernel(15, 0, 0, 0)
+        self.assertEqual(raw_split.options[1:4], exact)
+        self.assertEqual([o for o in raw_split.options if o.startswith('-DSOSFUSE2_')], ['-DSOSFUSE2_DETERMINISTIC=0'])
+        self.assertEqual(list(split.raw), [base(split)])
         # rig profile, env unset: S2 from configs/devices.json stage1_defaults.
         rig = self.kernel('rig')
         with patch.dict(os.environ, {}, clear=True):
@@ -373,13 +373,13 @@ class Stage1Wiring(unittest.TestCase):
         self.assertEqual(raw_s2.options[1:4], s2)
         self.assertIn('-DSOSFUSE2_FASTMATH', raw_s2.options)
         self.assertNotIn('-DSOSFUSE2_FMAD', raw_s2.options)  # FMAD is the --fmad option only
-        self.assertEqual(set(raw_s2.options) - set(raw_eda.options), set(s2) | {'-DSOSFUSE2_FASTMATH'})
+        self.assertEqual(set(raw_s2.options) - set(raw_split.options), set(s2) | {'-DSOSFUSE2_FASTMATH'})
         attrs = rig.attributes[str(15)]
         self.assertEqual((attrs['implicit_fma'], attrs['stage1']), (True, ['FMAD', 'FASTMATH']))
         # Explicit 0 overrides the profile: exact options, the plain key, a separate memo entry.
         with patch.dict(os.environ, {'SOSFUSE2_FMAD': '0', 'SOSFUSE2_FASTMATH': '0'}, clear=True):
             raw_off = rig.raw_kernel(15, 0, 0, 0)
-        self.assertEqual(raw_off.options, raw_eda.options)
+        self.assertEqual(raw_off.options, raw_split.options)
         self.assertEqual(set(rig.raw), {(base(rig), ('FMAD', 'FASTMATH')), base(rig)})
         self.assertIsNot(rig.raw[base(rig)], rig.raw[(base(rig), ('FMAD', 'FASTMATH'))])
         with patch.dict(os.environ, {}, clear=True):  # memo hit, no recompilation

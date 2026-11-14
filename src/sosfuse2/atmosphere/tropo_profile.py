@@ -18,10 +18,10 @@ The engine normalization becomes NORMAL['aer'] = aod550/COLUMN (COLUMN = 1). par
 required state key but no longer shapes the aerosol (it remains the Kernel 'height' scalar that every path overrides).
 One parameter vector P = [bl_top-w/2, 1/w, a_bl, k_bl, a_ft, k_ft, bl_top] (k = 1/H, 0 for uniform), evaluated as
     x = clip((h-P0)*P1, 0, 1); s = x*x*(3-2*x); p = (P2*exp(-h*P3))*(1-s) + (P4*exp(-(max(h,P0)-P6)*P5))*s
-(max(h,P0) only keeps the free-troposphere exponent finite where s = 0) by: solver_columns.profiles / solver_core.Solver.ha /
-NORMAL (through accepted/engine.py create(aerosol=engine_hooks(state)), see engine_hooks below), geometry.aerosol_column,
+(max(h,P0) only keeps the free-troposphere exponent finite where s = 0) by: shell_segments.profiles / engine_core.Solver.ha /
+NORMAL (through solve/engine.py create(aerosol=engine_hooks(state)), see engine_hooks below), ray_geometry.aerosol_column,
 native/sh_cpu.cpp full_transport (aerosol_height < 0, parameters after asc[0..W)), kernel.cu -DAEROSOL_2L (parameters after
-sun_h[0..nsh)) and reference.sample (FP32 mirror of the kernel line).
+sun_h[0..nsh)) and numpy_reference.sample (FP32 mirror of the kernel line).
 
 DEFAULTS. Source: LOWTRAN7 lowtran7.f, https://raw.githubusercontent.com/space-physics/lowtran/main/src/lowtran/fortran/lowtran7.f
 (875,546 bytes, sha256 25e83d94e24b...): BLOCK DATA PRFDTA :13587-13630, AERPRF :3900-3938, season default :1068,
@@ -70,7 +70,7 @@ DEFAULTS = dict(
     ft_aod550=0.0797,
     ft_scale_height_km=1.85,
 )
-TOP_KM = 80.0  # solver_columns.Z (atmosphere top); the kernel clips sample heights to [0, 80]
+TOP_KM = 80.0  # shell_segments.Z (atmosphere top); the kernel clips sample heights to [0, 80]
 FLAG = 'AEROSOL_2L'
 
 # lowtran7.f BLOCK DATA PRFDTA (:13619-13630): 0.55 um extinction, km^-1.
@@ -371,7 +371,7 @@ def same_source(s, source, height):
 
 
 def column_function(s):
-    """profile callable for geometry.aerosol_column (None = historical exponential expression)."""
+    """profile callable for ray_geometry.aerosol_column (None = historical exponential expression)."""
     p = of(s)
     return None if p is None else TwoLayerProfile(p['vector'])
 
@@ -381,7 +381,7 @@ def metadata(s):
     return None if p is None else dict(p['meta'])
 
 
-# ---- accepted/engine.py create(aerosol=...): the enabled block as explicit engine hooks ------------------------------
+# ---- solve/engine.py create(aerosol=...): the enabled block as explicit engine hooks ------------------------------
 
 
 def engine_hooks(state):

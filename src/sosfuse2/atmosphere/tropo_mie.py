@@ -10,7 +10,7 @@ parameters (aod550, ssa, angstrom), so an HG/Mie pair differs in the phase funct
   * single scattering of the direct sun and of first-ground light (kernel.cu, -DTROPO_MIE): per-wavelength
     table of the full (untruncated) Mie phase function, per steradian, on the strato LUT grid
     u = -1 + i*2/TROPO_LUT_BINS (linear in u, same node formula as STRATO_MIE_LUT_FINE);
-  * multiple scattering (fused.Solver.apply): SH eigenvalues chi_l/(2l+1), l <= 32, per wavelength,
+  * multiple scattering (source_solver.Solver.apply): SH eigenvalues chi_l/(2l+1), l <= 32, per wavelength,
     replacing g**l. Plain truncation at L32, no delta-M (see generate_tropo_optics.py checks: the
     eigenvalue at l=33 is ~1.6-2 %).
 The kernel reads the table behind the asca pointer (asca[0:W] unchanged, table at asca+W), so the kernel

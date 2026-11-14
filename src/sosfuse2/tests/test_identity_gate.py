@@ -19,7 +19,6 @@ def inputs(tmp_path, monkeypatch):
     pkg = tmp_path / 'sosfuse2'
     shutil.copytree(paths.GATE, pkg / 'checks/gate_data')
     shutil.copytree(paths.CONFIGS, pkg / 'backends/configs')
-    monkeypatch.setattr(gate, 'HERE', pkg)
     monkeypatch.setattr(gate, 'GATE', pkg / 'checks/gate_data')
     monkeypatch.setattr(paths, 'CONFIGS', pkg / 'backends/configs')
     monkeypatch.setattr(gate, 'RECORDS', None)
@@ -38,7 +37,7 @@ def inputs(tmp_path, monkeypatch):
     ('checks/gate_data/fixtures.json', ('settings', 'wavelengths'), 30, True),
     ('checks/gate_data/fixtures.json', ('state', 'parameters', 'aod550'), 0.2, True),
     ('backends/configs/devices.json', ('note',), 'Updated explanation.', False),
-    ('backends/configs/devices.json', ('profiles', 'eda', 'launch_budget_seconds'), 20, True),
+    ('backends/configs/devices.json', ('profiles', 'split', 'launch_budget_seconds'), 20, True),
     ('backends/configs/C3.json', ('notes',), {'definition': 'Updated explanation.'}, False),
     ('backends/configs/C3.json', ('kernel_flags',), ['FMAD'], True),
 ])
@@ -134,7 +133,7 @@ def test_stage_toolkey_fields_and_old_staged_rejection(tmp_path, monkeypatch):
     row = dict(meta=meta)
     monkeypatch.setattr(gate, 'run_all', lambda *a, **k: {'FX-C3': row})
     monkeypatch.setattr(gate, 'repeat_run', lambda *a: dict(pass_=True, repeat_max_rel=0.0))
-    monkeypatch.setattr(gate, 'outputs', lambda r: {'radiance': 'test'})
+    monkeypatch.setattr(gate, 'pinned_hashes', lambda r: {'radiance': 'test'})
     args = NS(flagsets=None, fixtures='FX-C3', inject=None, bless_numpy=False, bless=False,
               stage=True, runs=2, out=tmp_path, no_historical=True, no_persistent=True)
     report = dict(gates={})

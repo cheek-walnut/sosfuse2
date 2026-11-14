@@ -56,7 +56,7 @@ $$
 
 where `σ_B` is the Rayleigh cross section of Bodhaine et al. (1999), their equations 18, 19, 5, 6, 23 and 22 with 360 ppm
 CO₂, evaluated at the vacuum wavelength of the engine's standard-air wavelength λ (Ciddor 1996). Because it includes the
-dispersion of the refractive index and the King factor of air, it is not a pure power law (`src/sosfuse2/rayleigh.py`).
+dispersion of the refractive index and the King factor of air, it is not a pure power law (`src/sosfuse2/atmosphere/rayleigh.py`).
 `β₄₅₀` is the coefficient of 1.0.0 at 450 nm, which 1.1.0 keeps. 1.0.0 used `β₅₅₀ (550 nm / λ)⁴`, and against that λ⁻⁴
 law the new coefficient is 1.037 times larger at 360 nm, equal at 450 nm, 0.973 times at 600 nm and 0.958 times at
 830 nm. The depolarisation factor of the phase function stays at 0.03 (see *Rayleigh scattering and polarisation*). The
@@ -250,21 +250,33 @@ field.
 
 A NumPy reference reproduces the arithmetic of the CUDA kernel in single precision, with double-single arithmetic for the
 ray geometry, and serves as the golden reference of the numeric gates; the README and `docs/CHECKS.md` describe the
-tolerances and gates. The solver definitions in `src/sosfuse2/solver_*.py` define the grids, the quadrature and the
-physical constants, while `src/sosfuse2/rayleigh.py` and `minor_absorbers.py` hold the Rayleigh and minor-absorber
-coefficients of 1.1.0.
+tolerances and gates. The solver definitions in `src/sosfuse2/rays/`, `src/sosfuse2/atmosphere/extinction.py` and
+`src/sosfuse2/solve/engine_core.py` define the grids, the quadrature and the physical constants, while
+`src/sosfuse2/atmosphere/rayleigh.py` and `src/sosfuse2/atmosphere/minor_absorbers.py` hold the Rayleigh and
+minor-absorber coefficients of 1.1.0.
 
 ## Production grid
 
 | quantity | value |
 |---|---|
 | heights | 44 nodes from 0 to 80 km: 20 base nodes (0, 0.05, 0.1, 0.2, 0.35, 0.55, 0.8, 1.1, 1.5, 2, 3, 4.5, 6.5, 9, 13, 18, 26, 40, 60, 80 km), their midpoints below 13 km, and two interior thirds of each interval above 13 km |
-| `χ` | 75 nodes: 10° steps to 80°, 1° to 85°, 0.5° from 85° to 109.5°, 2° to 118°, then 10° steps from 120° to 180° |
+| `χ` | 75 nodes: 10° steps to 80°, 1° to 85°, 0.5° from 85° to 110°, 2° to 118°, then 10° steps from 120° to 180° |
 | incident directions per cell | 12 Gauss–Legendre nodes per polar interval, 16 azimuth intervals over 0° to 180° |
 | line-of-sight nodes | 12 per piece for the source, 24 per piece for the output |
 | Legendre degree `L` | 16 |
 | solar-column table | resolution scale 4 |
 | Anderson tolerance, depth | 10⁻³, 4 |
+
+The table lists the default grid, and the settings `h_refine`, `nr`, `chi_step_deg`, `chi_refine_deg` and `nchi` change
+its height and `χ` axes. In the settings, `h_refine` takes `b<m>a<k>`, which splits each height interval at or below 13
+km into m parts and each interval above into k parts, or `b<m>a<k1>.<k2>.<k3>.<k4>.<k5>`, which gives the five intervals
+above 13 km their own counts, with m and k from 1 to 12. The names `none`, `mid` and `below13mid_above13thirds` are
+aliases of `b1a1`, `b2a2` and `b2a3`; the default 44 nodes are `b2a3`. For the `χ` grid, `chi_step_deg` takes 0.5 by
+default, 0.25 or 0.125, and the optional `chi_refine_deg` `[lo, hi]` adds the midpoint of every node pair inside that
+range of the 85–110° part of the `χ` grid. Both ends must be nodes of the chosen `chi_step_deg` grid, with 85 ≤ lo < hi
+≤ 110. The counts `nr` and `nchi` are filled from the rules when omitted and must match them when given, while the
+reduced grid stays fixed. For example, `b2a6` gives 59 nodes, and `chi_refine_deg` `[88, 100]` on the 0.5° grid gives 99
+`χ` nodes.
 
 The runner's reduced option uses 4 heights, 10 angles and one wavelength (550 nm). It is a software check, and its grid is
 too coarse for physical use.
@@ -284,7 +296,7 @@ ozone data carry the same relabelling. No correction for the distance between th
 legacy grid has 15 bands of equal width, with solar irradiance and ozone cross section interpolated from the
 48-wavelength table of `assets/spectra.json`.
 
-The table is spectral. To convert it to colour, `sosfuse2.spectral.table_weights` returns weights for the CIE 1931 2°
+The table is spectral. To convert it to colour, `sosfuse2.atmosphere.spectral.table_weights` returns weights for the CIE 1931 2°
 observer (X, Y, Z) and for the scotopic luminous efficiency V′ (S′) of a given band set. A table value `L_i` is the
 radiance in band `i`, and the weights assume that the ratio of radiance to solar irradiance is constant inside a band:
 
