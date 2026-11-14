@@ -15,7 +15,9 @@ import sys
 import numpy as np
 import pytest
 
-from sosfuse2 import air_wavelength as AW, paths, spectral as SP, testing  # noqa: E402
+from sosfuse2.atmosphere import air_wavelength as AW, spectral as SP
+from sosfuse2.foundation import paths
+from sosfuse2.checks import testkit  # noqa: E402
 
 # (t °C, p kPa, vacuum λ nm, n Ciddor) — NIST Table 1 rows with RH 0 %
 NIST_DRY = [
@@ -31,11 +33,11 @@ NIST_DRY = [
 ]
 # Research sources: the raw files are local copies (skip when absent), the builder and the source
 # listings are tracked records (skip without SOSFUSE2_SKY_SOS_ROOT, fail when it is set and they are missing).
-RAW = testing.sky_sos_optional('results/sigma_tz_20261028/raw/serdyuchenkogorshelev5digits.dat')
+RAW = testkit.sky_sos_optional('results/sigma_tz_20261028/raw/serdyuchenkogorshelev5digits.dat')
 NEEDS_RAW = pytest.mark.skipif(
     RAW is None, reason='raw Serdyuchenko file is a gitignored sky-sos local copy (SOSFUSE2_SKY_SOS_ROOT)'
 )
-HSRS = testing.sky_sos_optional('results/d1_axis_20261031/raw/tsis1_hsrs_355_845.csv')
+HSRS = testkit.sky_sos_optional('results/d1_axis_20261031/raw/tsis1_hsrs_355_845.csv')
 NEEDS_HSRS = pytest.mark.skipif(
     HSRS is None, reason='full-resolution TSIS-1 HSRS slice is a gitignored sky-sos local copy (SOSFUSE2_SKY_SOS_ROOT)'
 )
@@ -44,7 +46,7 @@ FINE = paths.ASSETS / 'spectra_fine.json'
 
 def builder():
     spec = importlib.util.spec_from_file_location(
-        'build_spectra_fine', testing.sky_sos('scripts/build_spectra_fine.py')
+        'build_spectra_fine', testkit.sky_sos('scripts/build_spectra_fine.py')
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -77,7 +79,7 @@ def test_standard_air_chain_and_edlen_record():
 
 def test_builder_refuses_other_sources(tmp_path):
     B = builder()
-    p1nm = testing.sky_sos('results/d1_axis_20261031/sources/hsrs_p1nm_355_845.csv')
+    p1nm = testkit.sky_sos('results/d1_axis_20261031/sources/hsrs_p1nm_355_845.csv')
     with pytest.raises(SystemExit, match='E_SPECTRA_SOURCE'):
         B.read_hsrs(p1nm)  # another HSRS product (p1nm) as the full-resolution source
     bad = tmp_path / 'hsrs.csv'
@@ -92,7 +94,7 @@ def test_builder_refuses_other_sources(tmp_path):
     assert B.read_hsrs(p1nm, B.P1NM_SHA, B.P1NM_HEADER).shape[1] == 4
     with pytest.raises(SystemExit, match='E_SPECTRA_SOURCE'):
         B.read_serdyuchenko(
-            testing.sky_sos('results/sigma_tz_20261028/out/aprime_p1/wavelength_axis_sources') / 'Spctrm_0.dat'
+            testkit.sky_sos('results/sigma_tz_20261028/out/aprime_p1/wavelength_axis_sources') / 'Spctrm_0.dat'
         )
 
 
@@ -103,13 +105,13 @@ def test_asset_declarations():
     assert (
         fine['wavelength_reference'].startswith('air') and temp['wavelength_reference'] == fine['wavelength_reference']
     )
-    from sosfuse2.identity import asset_digest
+    from sosfuse2.foundation.content_identity import asset_digest
 
     # The frozen reference pins published bytes; the loader exposes computation identity.
     assert asset_digest('spectra_fine.json', temp['frozen_source_sha256']) == SP.asset()['sha']
     assert temp['wavelength_nm'] == fine['wavelength_nm']
     assert all(temp[f'ozone_{t}K'] == fine[f'ozone_{t}K'] for t in (213, 233, 253)) and temp['solar'] == fine['solar']
-    assert fine['generator']['air_wavelength']['script'] == 'sosfuse2.air_wavelength'  # Public module provenance.
+    assert fine['generator']['air_wavelength']['script'] == 'sosfuse2.atmosphere.air_wavelength'  # Public module provenance.
 
 
 @NEEDS_RAW
@@ -190,7 +192,7 @@ def test_builder_provenance_refuses_bad_solar_columns():
 def test_cpu_check_thresholds():
     """The filtered solar column vs exact source integrals — BM45 1e-3 (measured 7.3e-4),
     bins >= 5 nm 5e-3 (3.9e-3), Rayleigh 1e-4 (4.1e-5), sun |du'v'| 1e-5 (6.7e-7); a point-sampled column fails."""
-    spec = importlib.util.spec_from_file_location('cpu_check', testing.sky_sos('results/d1_axis_20261031/cpu_check.py'))
+    spec = importlib.util.spec_from_file_location('cpu_check', testkit.sky_sos('results/d1_axis_20261031/cpu_check.py'))
     C = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(C)
     res, _ = C.measure()

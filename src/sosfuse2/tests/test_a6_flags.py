@@ -27,13 +27,13 @@ if '--host-only' in sys.argv:
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2.geometry import create, TransientGeometry
-from sosfuse2.fused import sh_aux, KPAD
-from sosfuse2 import reference
-from sosfuse2.reference import sample, hg
+from sosfuse2.solve.ray_geometry import create, TransientGeometry
+from sosfuse2.solve.source_solver import sh_aux, KPAD
+from sosfuse2.backends import numpy_reference
+from sosfuse2.backends.numpy_reference import sample, hg
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 F = np.float32
@@ -65,8 +65,8 @@ def check_transport(s, scope, src):
         g = geo.cell(cell)
         c = s.kernel.setup(s, g['nq'])
         field = np.ascontiguousarray(src, 'f4')
-        a = reference.transport(g, c, field, False)
-        b = reference.transport(g, c, field, False, sh_source=sh_aux(field))
+        a = numpy_reference.transport(g, c, field, False)
+        b = numpy_reference.transport(g, c, field, False, sh_source=sh_aux(field))
         res[str(cell)] = within_tol(a, b)
     return res
 

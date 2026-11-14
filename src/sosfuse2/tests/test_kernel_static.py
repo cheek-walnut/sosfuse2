@@ -6,7 +6,8 @@ Syntax and unsupported flag conflicts are checked; numerical tolerance is the
 requirement. Historical token identity is not a requirement.
 """
 
-from sosfuse2 import paths, testing
+from sosfuse2.foundation import paths
+from sosfuse2.checks import testkit
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import itertools
@@ -59,7 +60,7 @@ def run(out, jobs=8, baseline=None):
 
     stub = out / 'cuda_builtins_stub.h'
     stub.write_text(STUB + SYNTAX_STUB_EXTRA + 'float __expf(float);float __sinf(float);float __cosf(float);\n')
-    code = paths.PKG / 'kernel.cu'
+    code = paths.PKG / 'backends/kernel.cu'
     syntax = []
     legacy = [
         (),
@@ -143,7 +144,7 @@ def run(out, jobs=8, baseline=None):
 
 
 def test_run(tmp_path):
-    testing.require_tool('clang++')
+    testkit.require_tool('clang++')
     assert run(tmp_path, jobs=2)['pass_']
 
 

@@ -12,7 +12,8 @@ import tarfile
 
 import pytest
 
-from sosfuse2 import run_gpu_state_v3 as V3, testing
+from sosfuse2.jobs import run_state as V3
+from sosfuse2.checks import testkit
 
 MEMBERS = ('table.npz', 'meta.json', 'preview_m03.png', 'preview_m06.png')
 
@@ -58,7 +59,7 @@ def test_identity_error_is_not_masked_by_the_exit_code(tmp_path, monkeypatch):
 
 
 def test_real_zstd_round_trip(tmp_path):
-    testing.require_tool('zstd')
+    testkit.require_tool('zstd')
     import subprocess
 
     tar = plain_tar(tmp_path / 'p.tar', 'sig')

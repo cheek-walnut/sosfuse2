@@ -11,10 +11,10 @@ import numpy as np
 import pytest
 
 HERE = Path(__file__).resolve().parent
-from sosfuse2 import gate, testing, validate as v  # noqa: E402
+from sosfuse2.checks import gate, testkit, validate as v  # noqa: E402
 
 try:
-    from sosfuse2.numerical_checks import within_tol
+    from sosfuse2.checks.numerical_checks import within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import within_tol
 
@@ -27,7 +27,7 @@ needs_legacy = pytest.mark.skipif(
 
 def synthetic_o4():
     """True when this session's O4 asset is the synthetic test fixture (testing.synthetic_o4, written by conftest)."""
-    from sosfuse2 import minor_absorbers
+    from sosfuse2.atmosphere import minor_absorbers
 
     try:
         note = json.loads(minor_absorbers.o4_path().read_text()).get('source', {}).get('note', '')
@@ -135,11 +135,11 @@ def test_gate_historical_reports_delta_and_old_engine_fixture_unchanged(tmp_path
         == v.LEGACY_SHA256
         == 'a48688cdc86bf6cb88950944840b88bc846a813864a54ad4672c9ee034ef03be'
     )
-    boot = testing.sky_sos('rig/bootstrap_v3.sh').read_text().splitlines()
+    boot = testkit.sky_sos('rig/bootstrap_v3.sh').read_text().splitlines()
     assert (
         boot[84]
         == 'run_step selftest_reference "$PYTHON" -B rig/run_state.py --id normal --selftest --work-root "$work_root/reference_check" --threads 4'
     )
-    v3_text = testing.sky_sos('rig/run_state_v3.py').read_text()
+    v3_text = testkit.sky_sos('rig/run_state_v3.py').read_text()
     assert "np.load(HERE/'selftest_ref.npz')" in v3_text
-    assert 'selftest_ref_simpson' not in testing.sky_sos('rig/run_state.py').read_text() + v3_text
+    assert 'selftest_ref_simpson' not in testkit.sky_sos('rig/run_state.py').read_text() + v3_text

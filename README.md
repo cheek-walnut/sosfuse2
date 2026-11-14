@@ -112,7 +112,7 @@ Downloaded inputs, the geometry cache and the CPU helper build go to `SOSFUSE2_W
 the `--work-root` it is given, in `out/<id>`, `tmp/<id>` and `pack/`. The package directory is read-only data.
 
 On a CUDA machine, NVRTC compiles the kernels on first use. `SOSFUSE2_COMPILE_CACHE=<dir>` keeps them between runs, and
-`python -B -m sosfuse2.precompile --jobs 8` fills that cache before a queue starts.
+`python -B -m sosfuse2.jobs.precompile --jobs 8` fills that cache before a queue starts.
 
 ## Quick start
 
@@ -121,8 +121,8 @@ with the NumPy backend. The solve takes about a minute on a laptop, 36 s with tw
 
 ```sh
 pip install ".[test]"
-python -m sosfuse2.prepare_minor_absorbers --download
-python -B -m sosfuse2.run_gpu_state_v3 --id clear_34 --reduced --backend numpy --threads 2 --work-root ./work
+python -m sosfuse2.asset_tools.prepare_minor_absorbers --download
+python -B -m sosfuse2.jobs.run_state --id clear_34 --reduced --backend numpy --threads 2 --work-root ./work
 ```
 
 The table and its `meta.json` land under `./work/out/clear_34/`. `meta.json` carries `contract: "v4"`, the state, the
@@ -145,7 +145,7 @@ holds the 40 first-generation states. Solar depression is the runner's own axis,
 settings, and is not part of a state. All 64 states in `states_v2.json` mark the stratospheric layer `enabled`, so it
 is on when `--stratosphere` is omitted. The first-generation `states_v1.json` retains `unsupported`; its layer stays
 off unless `--stratosphere on` is given. A full-resolution table needs the CUDA backend (`--backend cupy`).
-The production queue that bakes many states with overlapping preparation is `python -B -m sosfuse2.pipeline`.
+The production queue that bakes many states with overlapping preparation is `python -B -m sosfuse2.jobs.pipeline`.
 
 ### Production queues and gates
 
@@ -201,7 +201,7 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
    skip unless `SOSFUSE2_SKY_SOS_ROOT` points at that checkout, and tests that need `clang++` skip when it is absent. The
    tests use a synthetic O₄ table in an isolated temporary root and download no HITRAN data; reproduction from the
    original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied.
-2. A CUDA machine: `python -B -m sosfuse2.gate --all --out <dir>` runs G-P, G-T, G-A, H and PS, and
+2. A CUDA machine: `python -B -m sosfuse2.checks.gate --all --out <dir>` runs G-P, G-T, G-A, H and PS, and
    `gate --stage --out <dir>` runs the repeat checks.
 3. A CUDA machine with the research checkout: `gate --gf --out <dir>`.
 

@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2 import host_cache as hc
+from sosfuse2.precompute import host_cache as hc
 
 
 def concurrent_writer(folder):
@@ -76,8 +76,8 @@ class CacheTests(unittest.TestCase):
 
     def test_reduced_accepted_bytes_and_height_reuse(self):
         from types import SimpleNamespace
-        from sosfuse2 import run_gpu_state_v3 as runner
-        from sosfuse2.geometry import normal_state
+        from sosfuse2.jobs import run_state as runner
+        from sosfuse2.solve.ray_geometry import normal_state
 
         cfg = runner.settings_for(SimpleNamespace(reduced=True, settings_json=None))
         with tempfile.TemporaryDirectory() as folder, patch.object(hc, 'ROOT', Path(folder) / 'cache'):
@@ -86,7 +86,7 @@ class CacheTests(unittest.TestCase):
             # A -> B -> A: the third case shares the first case's scale height with other optics, so its host
             # aerosol column must come from the cache (ground_parallel.aerosol is not called) and stay within tolerance.
             cases = [(1.2, 0.15, 15), (3.0, 0.02, 15), (1.2, 0.4, 15), (1.0, 0.0, 1)]
-            from sosfuse2 import ground_parallel
+            from sosfuse2.precompute import ground_parallel
 
             def no_aerosol(*_):
                 raise AssertionError('E_TEST_AEROSOL_RECOMPUTED')
@@ -122,12 +122,13 @@ class CacheTests(unittest.TestCase):
     def test_query_capture_cache_bytes(self):
         """Cached query packs equal a fresh _capture: field order, dtype, shape, bytes, nq; second call is a hit."""
         from types import SimpleNamespace
-        from sosfuse2 import run_gpu_state_v3 as runner, table_fast
-        from sosfuse2 import pipeline_execution as pe
-        from sosfuse2.geometry import normal_state
+        from sosfuse2.jobs import run_state as runner
+        from sosfuse2.outputs import radiance_table
+        from sosfuse2.jobs import pipeline_execution as pe
+        from sosfuse2.solve.ray_geometry import normal_state
 
         cfg = runner.settings_for(SimpleNamespace(reduced=True, settings_json=None))
-        wl, hs, el, az = table_fast.axes(True)
+        wl, hs, el, az = radiance_table.axes(True)
         ee, aa = np.meshgrid(el, az, indexing='ij')
         dummy = np.empty(0, 'f4')
         with tempfile.TemporaryDirectory() as folder:
@@ -139,9 +140,9 @@ class CacheTests(unittest.TestCase):
                     Path(folder) / f'p{i}', cfg, wl, 'numpy', state, geometry_cache=Path(folder) / 'geo'
                 )
                 if fresh is None:
-                    fresh = [table_fast._capture(s, hs[j], ee, aa, dummy) for j in range(len(hs))]
+                    fresh = [radiance_table._capture(s, hs[j], ee, aa, dummy) for j in range(len(hs))]
                 with (
-                    patch.object(table_fast, '_capture', side_effect=AssertionError('E_TEST_RECAPTURE'))
+                    patch.object(radiance_table, '_capture', side_effect=AssertionError('E_TEST_RECAPTURE'))
                     if i
                     else contextlib.nullcontext()
                 ):
@@ -221,8 +222,8 @@ class CacheTests(unittest.TestCase):
 
     def test_root_and_unwritable_fallback_bytes(self):
         from types import SimpleNamespace
-        from sosfuse2 import run_gpu_state_v3 as runner
-        from sosfuse2.geometry import normal_state
+        from sosfuse2.jobs import run_state as runner
+        from sosfuse2.solve.ray_geometry import normal_state
 
         host_cache = hc
         cfg = runner.settings_for(SimpleNamespace(reduced=True, settings_json=None))

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from sosfuse2 import host_limits as hl  # noqa: E402
+from sosfuse2.foundation import host_limits as hl  # noqa: E402
 
 RIG_RAM_GB = 64.0
 

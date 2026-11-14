@@ -11,7 +11,7 @@ if __name__ != '__main__':
     pytest.skip(
         'GPU occupancy CLI harness (python -m sosfuse2.tests.test_C_registers --out <dir>)', allow_module_level=True
     )
-from sosfuse2.fused import Kernel
+from sosfuse2.solve.source_solver import Kernel
 import cupy as cp
 
 A = 'LANE_GROUND,LM_LUT,PHASE2_NOBARRIER,SH_AUX,SPECIALIZE'

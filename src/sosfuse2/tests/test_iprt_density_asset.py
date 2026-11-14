@@ -15,7 +15,8 @@ import urllib.error
 
 import pytest
 
-from sosfuse2 import density, iprt
+from sosfuse2.atmosphere import density
+from sosfuse2.asset_tools import iprt
 
 NAME = 'tau_absorption_320nm_usstd.dat'
 
@@ -91,16 +92,16 @@ def test_session_without_inputs_skips_only_the_offline_stop(tmp_path):
     case.write_text(
         'import pytest\n'
         'def test_needs_inputs():\n'
-        '    from sosfuse2 import iprt\n'
+        '    from sosfuse2.asset_tools import iprt\n'
         '    iprt.inputs()\n'
         'def test_wrapped():\n'
-        '    from sosfuse2 import iprt\n'
+        '    from sosfuse2.asset_tools import iprt\n'
         '    try:\n'
         '        iprt.inputs()\n'
         '    except RuntimeError as e:\n'
         "        raise ValueError('wrapped') from e\n"
         'def test_handled_then_fails():\n'
-        '    from sosfuse2 import iprt\n'
+        '    from sosfuse2.asset_tools import iprt\n'
         '    try:\n'
         '        iprt.inputs()\n'
         '    except RuntimeError:\n'
@@ -108,7 +109,7 @@ def test_session_without_inputs_skips_only_the_offline_stop(tmp_path):
         'def test_other_failure():\n'
         "    raise RuntimeError('E_OTHER: not the inputs')\n"
         'def test_expects_the_stop():\n'
-        '    from sosfuse2 import iprt\n'
+        '    from sosfuse2.asset_tools import iprt\n'
         "    with pytest.raises(RuntimeError, match='E_IPRT_OFFLINE'):\n"
         '        iprt.inputs()\n'
     )

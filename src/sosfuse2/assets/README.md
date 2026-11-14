@@ -13,9 +13,9 @@ not paths in this package.
 
 | file | what | origin | terms |
 |---|---|---|---|
-| `tropo_rural_sf79_rh70.json` | tropospheric rural aerosol Mie table (phase matrix, cross sections) | this project (`generate_tropo_optics.py`, Bohren–Huffman spheres); input parameters from Shettle & Fenn 1979, validation rows from LOWTRAN7 | CC0 1.0 (project values); the `lowtran7.rows[*].*_lowtran` fields are LOWTRAN7 table values (U.S. Government work, THIRD_PARTY.md §6) |
-| `strato_sulfate_rg0.08_sg1.6_n1.43.json` | stratospheric sulfate Mie table | this project (`generate_strato_optics.py`) | CC0 1.0 |
-| `temperature_usstd76.json` | US Standard Atmosphere 1976 temperature profile | this project (`generate_density_profile.py`, US Standard Atmosphere 1976 formulas) | CC0 1.0 |
+| `tropo_rural_sf79_rh70.json` | tropospheric rural aerosol Mie table (phase matrix, cross sections) | this project (`asset_tools/generate_tropo_optics.py`, Bohren–Huffman spheres); input parameters from Shettle & Fenn 1979, validation rows from LOWTRAN7 | CC0 1.0 (project values); the `lowtran7.rows[*].*_lowtran` fields are LOWTRAN7 table values (U.S. Government work, THIRD_PARTY.md §6) |
+| `strato_sulfate_rg0.08_sg1.6_n1.43.json` | stratospheric sulfate Mie table | this project (`asset_tools/generate_strato_optics.py`) | CC0 1.0 |
+| `temperature_usstd76.json` | US Standard Atmosphere 1976 temperature profile | this project (`asset_tools/generate_density_profile.py`, US Standard Atmosphere 1976 formulas) | CC0 1.0 |
 | `states_v1.json`, `states_v2.json`, `states_v1_usstd.json` | state (parameter) sets of the baked tables | this project | CC0 1.0 |
 | `rgb_weights.npy` | 15-bin RGB weights derived from the CIE tables below | this project | CC0 1.0 (project contribution); derived from the CIE tables, see THIRD_PARTY.md §1–2 |
 | `kernel_C2_strato_base.cu`, `kernel_strato_off_baseline.cu` | frozen kernel snapshots used by the static kernel tests | this project | MIT (code) |
@@ -28,7 +28,7 @@ not paths in this package.
 
 Two inputs are not bundled. The IPRT files of the `usstd76` density asset, `tau_rayleigh_450nm_usstd.dat` and
 `tau_absorption_320nm_usstd.dat` from the phase E page of the IPRT intercomparisons, are downloaded from their original
-server on first use and verified by SHA-256 (`iprt.py`, `generate_density_profile.py`); their terms were not confirmed, so
-they are not redistributed here. The O₄ table is prepared with `python -m sosfuse2.prepare_minor_absorbers --cia FILE`, or
+server on first use and verified by SHA-256 (`asset_tools/iprt.py`, `asset_tools/generate_density_profile.py`); their terms were not confirmed, so
+they are not redistributed here. The O₄ table is prepared with `python -m sosfuse2.asset_tools.prepare_minor_absorbers --cia FILE`, or
 with an explicit `--download`, and is written into the work root rather than into the package; the HITRAN2024 original and
 the derived data are not redistributed (THIRD_PARTY.md §12).

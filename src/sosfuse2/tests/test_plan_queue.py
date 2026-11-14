@@ -14,7 +14,9 @@ import sys
 import tempfile
 import unittest
 
-from sosfuse2 import paths, pipeline, plan_queue, testing
+from sosfuse2.foundation import paths
+from sosfuse2.jobs import pipeline, plan_queue
+from sosfuse2.checks import testkit
 
 
 # Historical key -> r11 source-hash key.
@@ -52,7 +54,7 @@ COLUMN_KEY_UPDATES = {
 
 SIGNATURE = 'endpoints_bab3478c3f15b4d62418'
 LUT2 = paths.FIXTURES / 'states_lutv2_strato_usstd.json'
-_SKY = testing.sky_sos_root()
+_SKY = testkit.sky_sos_root()
 PURPLE = _SKY / 'results/purple_aod_axis_20261007/states/states_night.json' if _SKY is not None else None
 
 
@@ -109,7 +111,7 @@ def run_plan(out, states, **extra):
 class PlanQueueTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.root = testing.scratch('plan-tests')
+        cls.root = testkit.scratch('plan-tests')
         phi64 = cls.root / 'nphi64.json'
         phi64.write_text(json.dumps(dict(nr=20, h_refine="none", nphi=64)))
         cls.lut2 = run_plan(
@@ -316,7 +318,7 @@ def test_plan_setup_without_research_states(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(module, 'DATA', tmp_path)
     monkeypatch.setattr(module, 'PURPLE', None)
-    monkeypatch.setattr(testing, 'scratch', lambda prefix: tmp_path)
+    monkeypatch.setattr(testkit, 'scratch', lambda prefix: tmp_path)
     monkeypatch.setattr(module, 'run_plan', lambda output, states, **kwargs: calls.append(states) or {})
     probe = SimpleNamespace()
     PlanQueueTests.setUpClass.__func__(probe)
@@ -336,7 +338,7 @@ def test_plan_setup_without_research_states(tmp_path, monkeypatch):
 def test_missing_geometry_cache_is_reported(tmp_path, monkeypatch):
     import numpy as np
     from types import SimpleNamespace
-    from sosfuse2.geometry import normal_state
+    from sosfuse2.solve.ray_geometry import normal_state
 
     state = normal_state()
     state['runnable'] = True
@@ -391,9 +393,11 @@ def test_resources_counts_every_gpu_against_the_cpu_budget(monkeypatch):
 def test_planner_records_the_ground_keys_the_producer_asks_for(tmp_path, monkeypatch):
     import numpy as np
     import pytest
-    from sosfuse2 import density, geometry, host_cache
+    from sosfuse2.atmosphere import density
+    from sosfuse2.solve import ray_geometry
+    from sosfuse2.precompute import host_cache
 
-    s, scope, _ = geometry.create(tmp_path, 'selftest', [550.0], 'numpy')
+    s, scope, _ = ray_geometry.create(tmp_path, 'selftest', [550.0], 'numpy')
     optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
     real_cached = host_cache.cached
 
@@ -430,8 +434,8 @@ def test_planner_records_the_ground_keys_the_producer_asks_for(tmp_path, monkeyp
 def test_ground_aerosol_record_has_unknown_cost_without_packed_geometry(tmp_path, monkeypatch):
     import numpy as np
     from types import SimpleNamespace
-    from sosfuse2 import density
-    from sosfuse2.geometry import normal_state
+    from sosfuse2.atmosphere import density
+    from sosfuse2.solve.ray_geometry import normal_state
 
     state = normal_state()
     state['runnable'] = True

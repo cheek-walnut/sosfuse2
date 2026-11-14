@@ -12,7 +12,7 @@ Eight groups:
 The independent references are test-local; column_table.linear_columns is never used as one. About 30 s on a Mac.
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import copy
 import hashlib
 import json
@@ -26,11 +26,16 @@ import numpy as np
 import pytest
 
 HERE = paths.PKG  # the package directory (kernel, configs, assets)
-from sosfuse2 import column_table, density, fused, geometry, host_cache, reference, testing  # noqa: E402
-from sosfuse2.arithmetic import F  # noqa: E402
+from sosfuse2.rays import column_table
+from sosfuse2.atmosphere import density
+from sosfuse2.solve import source_solver, ray_geometry
+from sosfuse2.precompute import host_cache
+from sosfuse2.backends import numpy_reference
+from sosfuse2.checks import testkit  # noqa: E402
+from sosfuse2.backends.arithmetic import F  # noqa: E402
 
 try:
-    from sosfuse2.numerical_checks import within_tol
+    from sosfuse2.checks.numerical_checks import within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import within_tol
 
@@ -40,7 +45,7 @@ ASSET = dict(density_profile='usstd76', ozone_profile='usstd76', rayleigh_column
 
 
 def state(**extra):
-    s = copy.deepcopy(geometry.normal_state())
+    s = copy.deepcopy(ray_geometry.normal_state())
     s['density'] = dict(ASSET, **extra)
     return s
 
@@ -84,7 +89,7 @@ def env():
 
 
 def create(tmp_path, st):
-    return geometry.create(tmp_path, 'selftest', [550.0], 'numpy', state=st)
+    return ray_geometry.create(tmp_path, 'selftest', [550.0], 'numpy', state=st)
 
 
 # ------------------------------------------------------------------------------------------------ independent reference
@@ -227,8 +232,8 @@ def test_b_rejections_have_stable_codes(subtests):
 def test_c_native_profile_value_matches_interpolate32(n, tmp_path):
     """kernel.cu's own PROFILE_N block, clip() and profile_value (text cut from kernel.cu, not copied here) compiled by
     clang++ for the host (-DPROFILE_N only off 161) vs density.interpolate32, bit for bit."""
-    testing.require_tool('clang++')
-    src = (HERE / 'kernel.cu').read_text()
+    testkit.require_tool('clang++')
+    src = (HERE / 'backends/kernel.cu').read_text()
     clip = re.search(r'__device__ float clip\(.*\n', src)[0]
     start = src.index('#ifndef PROFILE_N')
     body = src[start : src.index('\n}\n', src.index('float profile_value(', start)) + 3]
@@ -278,16 +283,16 @@ def test_c_profile_at_masks_and_bad_n(subtests):
         tab = density.interpolate32(h, table)
         for mask in range(4):
             with subtests.test(n=n, mask=mask):
-                prof = reference.profile_at(
+                prof = numpy_reference.profile_at(
                     h, dict(height=F(1.2), density_optics=dict(table=table, mask=mask, meta=dict(profile_step_km=step)))
                 )
                 air = tab[:, 0] if mask & 1 else np.exp(-h / F(8))
                 oz = tab[:, 1] if mask & 2 else np.maximum(F(0), F(1) - abs(h - F(25)) / F(15))
                 assert (within_tol(prof[:, 0], air)) and (within_tol(prof[:, 2], oz))
-    testing.require_tool('clang')
+    testkit.require_tool('clang')
     r = subprocess.run(
         ['clang', '-E', '-P', '-x', 'c++', '-DFW=15', '-DPROFILE_N=200', '-'],
-        input=(HERE / 'kernel.cu').read_text(),
+        input=(HERE / 'backends/kernel.cu').read_text(),
         text=True,
         capture_output=True,
     )
@@ -328,7 +333,7 @@ def test_d_injected_values_used_as_given():
 
 def test_d_0125_state_round_trip(tmp_path, env):
     """with_profile -> effective_state -> build / signed_contract keeps the external table and step."""
-    from sosfuse2 import run_gpu_state_v3 as v3
+    from sosfuse2.jobs import run_state as v3
 
     st = external(641, mask=2)
     eff = v3.effective_state(st, SimpleNamespace())
@@ -378,7 +383,7 @@ def test_d_s1_qeff_adapter_keeps_air_mask_scale(tmp_path, env):
     assert (within_tol(s.ext[0], a.ext[0])) and (within_tol(s.hr, a.hr))  # Rayleigh scale and air consumed as before
     c = s.kernel.setup(s, 4)
     h = np.linspace(0, 80, 999).astype('f4')
-    assert within_tol(reference.profile_at(h, c)[:, 2], density.interpolate32(h, o['table'])[:, 1])
+    assert within_tol(numpy_reference.profile_at(h, c)[:, 2], density.interpolate32(h, o['table'])[:, 1])
     ev = density.evidence(s.density_optics, s.kernel.profile_n)
     assert (ev['compiled_n'], ev['uploaded_n'], ev['mask'], ev['origin']) == (641, 641, 3, 'external')
     assert ev['table_f8_sha256'] == hashlib.sha256(np.ascontiguousarray(o['table']).tobytes()).hexdigest()
@@ -428,13 +433,13 @@ def simpson_prefix(table, nq, edges=(0.0, 10.0, 25.0, 40.0, 80.0)):
         density_optics=dict(table=table, mask=2, meta=dict(profile_step_km=density.STEP_OF_N[len(table)])),
     )
     c['ext'][2] = 1.0
-    P = reference.SimpsonPrefix(g, c)
+    P = numpy_reference.SimpsonPrefix(g, c)
     out = []
     for seg in range(len(edges) - 1):
         P.begin(seg)
         a, b = edges[seg], edges[seg + 1]
         for step in range(nq):
-            q = reference.sample(g, seg, step, c)
+            q = numpy_reference.sample(g, seg, step, c)
             out.append((a + (b - a) * c['u'][step] ** 2, float(P.node(q)[0, 0])))
         P.finish()
     return out, float((P.tau - P.tc)[0, 0])
@@ -485,13 +490,13 @@ class Raw:
 
 
 def capture_kernel(step, W=15):
-    from sosfuse2.kernel_config import resolve_config
+    from sosfuse2.backends.flags import resolve_config
 
     runtime = SimpleNamespace(
         getDevice=lambda: 0,
         getDeviceProperties=lambda d: dict(sharedMemPerBlockOptin=1 << 30, sharedMemPerBlock=1 << 30),
     )
-    k = fused.Kernel(flags=resolve_config({'STRATO'}, W=W).flags, backend='numpy', L=16, **density.kernel_kwargs(step))
+    k = source_solver.Kernel(flags=resolve_config({'STRATO'}, W=W).flags, backend='numpy', L=16, **density.kernel_kwargs(step))
     k.xp = SimpleNamespace(RawKernel=Raw, cuda=SimpleNamespace(runtime=runtime))
     k.device = lambda: ('capture', {'stage1_defaults': ()}, 'test')
     return k
@@ -574,13 +579,13 @@ def test_g_consumption_checks_without_setup():
     """Fix #6: a restored/persistent kernel never runs setup(); upload and launch still check compiled == optics == table N."""
     s = SimpleNamespace()
     table = np.column_stack([np.ones(641), kink(density.grid(641)), density.no2_profile(density.grid(641))])
-    k = fused.Kernel(backend='numpy')
+    k = source_solver.Kernel(backend='numpy')
     k.constants[(id(s), 4)] = minimal_constants(table)
     with pytest.raises(RuntimeError, match='E_PROFILE_N_MISMATCH: setup'):  # constants_device reads setup() first
         k.constants_device(s, 4)
     with pytest.raises(RuntimeError, match='E_PROFILE_N_MISMATCH: upload'):
         k.check_profile(k.constants[(id(s), 4)]['density_optics'], 'upload', 641)
-    ok = fused.Kernel(backend='numpy', profile_step_km=0.125)
+    ok = source_solver.Kernel(backend='numpy', profile_step_km=0.125)
     ok.constants[(id(s), 4)] = minimal_constants(table)
     dc = ok.constants_device(s, 4)
     assert dc['profile_table'].shape == (641, 3) and ok.profile_consumed['uploaded_n'] == 641
@@ -596,7 +601,7 @@ def test_g_consumption_checks_without_setup():
 
 
 def test_g_promotion_payload_restore_carry_step():
-    from sosfuse2 import pipeline_execution as pe
+    from sosfuse2.jobs import pipeline_execution as pe
     from unittest import mock
 
     calls = []
@@ -621,7 +626,7 @@ def test_g_promotion_payload_restore_carry_step():
         s = SimpleNamespace(kernel=old, W=15, ext=0, rf=0, af=0, asca=0, geo=SimpleNamespace(ns=1, h=0, chi=0))
         geo = SimpleNamespace(s=None, bundle=None, ground_bundle=None)
         calls.clear()
-        with mock.patch.object(fused, 'Kernel', Recorder), mock.patch.object(pe, 'promote_bundle', lambda b, xp: b):
+        with mock.patch.object(source_solver, 'Kernel', Recorder), mock.patch.object(pe, 'promote_bundle', lambda b, xp: b):
             pe.promote_solver(s, geo, 'cupy', 256, 2)
             payload = pe.device_payload(s, geo)
             restored, _ = pe.restore_device_payload(payload, ({}, {}))
@@ -632,7 +637,8 @@ def test_g_promotion_payload_restore_carry_step():
 
 
 def test_g_precompile_jobs_and_gate_keys(monkeypatch, tmp_path):
-    from sosfuse2 import gate, precompile
+    from sosfuse2.checks import gate
+    from sosfuse2.jobs import precompile
 
     jobs = []
 
@@ -704,7 +710,7 @@ def test_h_identity_separates_tables_and_policies():
     assert column_table.table_key(column_table.molecular(a, 1)) != column_table.table_key(
         column_table.molecular(variants['shape'], 1)
     )
-    from sosfuse2.stratosphere import _geometry_key
+    from sosfuse2.atmosphere.stratosphere import _geometry_key
 
     sun = SimpleNamespace(h=np.zeros(2), x=np.zeros(2), col=np.zeros((2, 2, 3)))
     s = lambda o: SimpleNamespace(
@@ -724,7 +730,7 @@ def test_h_caches_A_B_A_cold_warm(tmp_path, env, monkeypatch):
     sb = external(321, q=qb)
     s, scope, _ = create(tmp_path / 'solver', sa)
     old = scope.b.sh.old
-    tg = geometry.TransientGeometry(s, scope)
+    tg = ray_geometry.TransientGeometry(s, scope)
     cells = [tg.cell(i) for i in (0, 9)]
     starts = np.stack([np.asarray(g['p'], 'f8').reshape(-1, 3)[0] for g in cells])  # one start per cell
     dirs = np.concatenate([g['d'] for g in cells])
@@ -759,8 +765,8 @@ def test_h_caches_A_B_A_cold_warm(tmp_path, env, monkeypatch):
 
 def test_h_outputs_independent_of_N(tmp_path, env):
     """Fix #10: (h, chi) values/order/dtype, cell order, source slots and the COMMON geometry identity do not depend on N."""
-    from sosfuse2.geometry_contract import identity
-    from sosfuse2.stratosphere import source_size
+    from sosfuse2.precompute.endpoint_contract import identity
+    from sosfuse2.atmosphere.stratosphere import source_size
 
     made = {step: create(tmp_path / str(step), state(profile_step_km=step)) for step in (0.5, 0.125)}
     (a, sa, _), (b, sb, _) = made[0.5], made[0.125]
@@ -769,14 +775,14 @@ def test_h_outputs_independent_of_N(tmp_path, env):
         x, y = getattr(a.geo, name), getattr(b.geo, name)
         assert (x.dtype.str, x.shape, x.tobytes()) == (y.dtype.str, y.shape, y.tobytes())
     assert (a.geo.ns, source_size(a), a.kernel.K, identity(a)) == (b.geo.ns, source_size(b), b.kernel.K, identity(b))
-    ta, tb = geometry.TransientGeometry(a, sa), geometry.TransientGeometry(b, sb)
+    ta, tb = ray_geometry.TransientGeometry(a, sa), ray_geometry.TransientGeometry(b, sb)
     for i in (0, 13, a.geo.ns - 1):
         ga, gb = ta.cell(i), tb.cell(i)
         assert all(
             (within_tol(np.asarray(ga[k]), np.asarray(gb[k]))) for k in ('p', 'd', 'edges', 'weight', 'end_index')
         )
     src = re.sub(
-        r'\s+', '', (HERE / 'run_gpu_state_v3.py').read_text()
+        r'\s+', '', (HERE / 'jobs/run_state.py').read_text()
     )  # whitespace-free: the call may be formatted over lines
     assert (
         src.count("np.savez(prepare/'moment.npz',moment=np.concatenate(moments,axis=-1),h=s.geo.h,chi=s.geo.chi") == 1
@@ -795,7 +801,7 @@ def review_bad_optics():
 def test_r1_declared_step_mismatch_rejected_on_every_path(subtests):
     """Fix #1: cached setup (NumPy transport, geometry, table_fast read it), reference.profile_at, profiles, identity,
     payload restore / persistent install: all refuse Kernel 161 + meta 0.5 + table 321x2 (no silent 0.25 reinterpretation)."""
-    from sosfuse2 import pipeline_execution as pe
+    from sosfuse2.jobs import pipeline_execution as pe
 
     bad = review_bad_optics()
     s = SimpleNamespace()
@@ -806,18 +812,18 @@ def test_r1_declared_step_mismatch_rejected_on_every_path(subtests):
             k.constants[(id(s), 4)].update(density_optics=bad),
             k.setup(s, 4),
         ),
-        reference_profile_at=lambda: reference.profile_at(h, dict(height=F(1.2), density_optics=bad)),
-        reference_transport_sample=lambda: reference.SimpsonPrefix(
+        reference_profile_at=lambda: numpy_reference.profile_at(h, dict(height=F(1.2), density_optics=bad)),
+        reference_transport_sample=lambda: numpy_reference.SimpsonPrefix(
             dict(p=np.array([[0, 0, R]]), d=np.array([[0, 0, 1.0]])),
             dict(W=1, height=F(1.2), ext=np.zeros((5, 1), 'f4'), density_optics=bad),
         ).beta((np.array([20.0], 'f4'), np.zeros(1, 'f4'))),
         profiles=lambda: density.profiles(np.array([20.0]), bad),
         profile_identity=lambda: density.profile_identity(bad),
         install=lambda: pe.install_constants(k, s, {4: dict(minimal_constants(bad['table']), density_optics=bad)}),
-        explicit_N_321_kernel=lambda: fused.Kernel(backend='numpy', profile_step_km=0.25).check_profile(bad, 'setup'),
+        explicit_N_321_kernel=lambda: source_solver.Kernel(backend='numpy', profile_step_km=0.25).check_profile(bad, 'setup'),
     )
     for name, call in calls.items():
-        k = fused.Kernel(backend='numpy')
+        k = source_solver.Kernel(backend='numpy')
         with subtests.test(path=name):
             with pytest.raises(RuntimeError, match='E_PROFILE_N_MISMATCH'):
                 call()
@@ -833,7 +839,7 @@ def test_r2_rebound_table_rejected_as_stale():
         )
     )
     optics = dict(a)  # attach-style: consumers hold this dict
-    k = fused.Kernel(backend='numpy')
+    k = source_solver.Kernel(backend='numpy')
     k.constants[(id(s), 4)] = dict(minimal_constants(a['table']), density_optics=optics)
     dc = k.constants_device(s, 4)
     assert k.constants_device(s, 4) is dc  # unchanged optics: the upload is reused
@@ -850,11 +856,11 @@ def test_r2_rebound_table_rejected_as_stale():
 
 def test_r5_numpy_service_event_records_consumed_profile():
     """Fix #5: a NumPy persistent service consumed the host table: mask, identity and N recorded, uploaded_n None."""
-    from sosfuse2 import pipeline_execution as pe
+    from sosfuse2.jobs import pipeline_execution as pe
 
     o = density.build(external(321, mask=2))
     s = SimpleNamespace()
-    k = fused.Kernel(backend='numpy', profile_step_km=0.25)
+    k = source_solver.Kernel(backend='numpy', profile_step_km=0.25)
     pe.install_constants(k, s, {4: dict(minimal_constants(o['table']), density_optics=o)})
     ev = pe.profile_service_event(k)
     assert (ev['where'], ev['compiled_n'], ev['optics_n'], ev['uploaded_n'], ev['mask']) == (
@@ -865,5 +871,5 @@ def test_r5_numpy_service_event_records_consumed_profile():
         2,
     )
     assert ev['profile_identity'] == density.profile_identity(o)['sha256'] and ev['origin'] == 'external'
-    none = pe.profile_service_event(fused.Kernel(backend='numpy'))
+    none = pe.profile_service_event(source_solver.Kernel(backend='numpy'))
     assert (none['mask'], none['uploaded_n'], none['profile_identity']) == (0, None, None)

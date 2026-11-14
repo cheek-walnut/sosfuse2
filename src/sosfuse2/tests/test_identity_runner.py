@@ -11,9 +11,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sosfuse2 import device_profile, host_limits, identity, paths, run_fuse, table_fast, tables_from_sources
-from sosfuse2 import run_gpu_state_v3 as runner
-from sosfuse2.components import canonical_state, optics_state, physics
+from sosfuse2.backends import device_profile
+from sosfuse2.foundation import host_limits, content_identity, paths
+from sosfuse2.checks import solver_diagnostics
+from sosfuse2.outputs import radiance_table
+from sosfuse2.jobs import tables_from_sources
+from sosfuse2.jobs import run_state as runner
+from sosfuse2.atmosphere.components import canonical_state, optics_state, physics
 
 
 @pytest.fixture
@@ -26,7 +30,7 @@ def settings(state):
 
 
 def test_shared_identity_and_comment_mutation(state, monkeypatch):
-    assert runner.package_hashes is identity.package_hashes
+    assert runner.package_hashes is content_identity.package_hashes
     assert runner.CONTRACT_VERSION == 'v5'
     cfg = settings(state)
     baseline_hashes = runner.package_hashes()
@@ -36,7 +40,7 @@ def test_shared_identity_and_comment_mutation(state, monkeypatch):
 
     def read(path):
         raw = original(path)
-        return raw + suffix if path == paths.PKG / 'host_limits.py' else raw
+        return raw + suffix if path == paths.PKG / 'foundation/host_limits.py' else raw
 
     monkeypatch.setattr(Path, 'read_bytes', read)
     assert runner.package_hashes() == baseline_hashes
@@ -73,18 +77,18 @@ def test_stored_labels_and_legacy_order(tmp_path, state, version, order):
     cfg['L'] = order
     path = tmp_path / 'source.npz'
     solver = source(path, state, cfg, version)
-    restored = table_fast.restored_settings(path, state, True, 'numpy')
+    restored = radiance_table.restored_settings(path, state, True, 'numpy')
     assert restored == (None if order == 32 else cfg)
-    assert table_fast.load_source(path, solver, [550.0], settings=cfg, backend='numpy',
+    assert radiance_table.load_source(path, solver, [550.0], settings=cfg, backend='numpy',
                                   full_settings=order == 16).shape == (1, 571, 1)
     changed = copy.deepcopy(state)
     changed['parameters']['aod550'] += 0.1
     solver.fuse_state = changed
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT: state differs'):
-        table_fast.load_source(path, solver, [550.0], settings=cfg, backend='numpy', full_settings=True)
+        radiance_table.load_source(path, solver, [550.0], settings=cfg, backend='numpy', full_settings=True)
     if order == 16:
         with pytest.raises(ValueError, match='E_SOURCE_CONTRACT: state differs'):
-            table_fast.restored_settings(path, changed, True, 'numpy')
+            radiance_table.restored_settings(path, changed, True, 'numpy')
 
 
 @pytest.mark.parametrize('platform,scale', [('darwin', 1), ('linux', 1024)])
@@ -92,7 +96,7 @@ def test_rss_units(monkeypatch, platform, scale):
     monkeypatch.setattr(resource, 'getrusage', lambda who: SimpleNamespace(ru_maxrss=12345))
     monkeypatch.setattr(sys, 'platform', platform)
     assert host_limits.peak_rss_bytes() == 12345 * scale
-    assert run_fuse.peak() == 12345 * scale
+    assert solver_diagnostics.peak() == 12345 * scale
     assert isinstance(host_limits.peak_rss_bytes(), int)
 
 
@@ -114,7 +118,7 @@ def test_apply_pool_limit(monkeypatch, free_gib):
         assert limits == [limit]
 
 
-@pytest.mark.parametrize('module', [table_fast, tables_from_sources])
+@pytest.mark.parametrize('module', [radiance_table, tables_from_sources])
 def test_cli_states_default_and_parent(tmp_path, state, monkeypatch, module):
     parent = dict(state, id='parent')
     own = dict(state, id='own')
@@ -126,7 +130,7 @@ def test_cli_states_default_and_parent(tmp_path, state, monkeypatch, module):
 
     def parse_args(parser):
         argv = (['--id', 'parent', '--source', str(tmp_path / 'source.npz'), '--prepare', str(tmp_path / 'prepare'),
-                 '--out', str(tmp_path / 'table.npz')] if module is table_fast else
+                 '--out', str(tmp_path / 'table.npz')] if module is radiance_table else
                 ['--work-roots', str(tmp_path), '--dry-run', '--threads', '2'])
         args = parse(parser, argv)
         assert args.states == tmp_path / 'states_v2.json'
@@ -143,7 +147,7 @@ def test_cli_states_default_and_parent(tmp_path, state, monkeypatch, module):
 
     monkeypatch.setattr(argparse.ArgumentParser, 'parse_args', parse_args)
     monkeypatch.setattr(runner, 'read_states', read_states)
-    if module is table_fast:
+    if module is radiance_table:
         class ReadComplete(Exception):
             pass
 
@@ -151,7 +155,7 @@ def test_cli_states_default_and_parent(tmp_path, state, monkeypatch, module):
             assert selected == parent
             raise ReadComplete
 
-        monkeypatch.setattr(table_fast, 'restored_settings', restored)
+        monkeypatch.setattr(radiance_table, 'restored_settings', restored)
         with pytest.raises(ReadComplete):
             module.main()
     else:
@@ -161,9 +165,9 @@ def test_cli_states_default_and_parent(tmp_path, state, monkeypatch, module):
 
 @pytest.fixture
 def run_args(tmp_path, state, monkeypatch):
-    from sosfuse2 import geometry
+    from sosfuse2.solve import ray_geometry
     # The runner's NumPy adapter changes this global; isolate the test's lifetime.
-    monkeypatch.setattr(geometry, 'Kernel', geometry.Kernel)
+    monkeypatch.setattr(ray_geometry, 'Kernel', ray_geometry.Kernel)
     monkeypatch.setattr(runner.shutil, 'which', lambda name: name)
     monkeypatch.setattr(runner, 'package_hashes', lambda: {'module': 'current'})
     states = tmp_path / 'states.json'
@@ -195,7 +199,7 @@ def test_old_output_rejected_before_work(run_args, state, version, entry, monkey
 
 @pytest.mark.parametrize('version', ['v3', 'v4'])
 def test_old_extra_source_rejected_with_reason(run_args, state, monkeypatch, version):
-    from sosfuse2 import compile_cache
+    from sosfuse2.backends import compile_cache
     monkeypatch.setattr(compile_cache, 'configure', lambda *args: None)
     monkeypatch.setattr(runner.threading, 'Thread', lambda **kw: SimpleNamespace(start=lambda: None))
     out = run_args.work_root / 'out' / 'source'
@@ -214,7 +218,7 @@ def test_old_extra_source_rejected_with_reason(run_args, state, monkeypatch, ver
 def test_script_path_peak():
     import runpy
 
-    namespace = runpy.run_path(str(paths.PKG / 'run_fuse.py'))
+    namespace = runpy.run_path(str(paths.PKG / 'checks/solver_diagnostics.py'))
     assert namespace['peak']() > 0
 
 
@@ -234,7 +238,8 @@ def test_batch_tolerance(state, monkeypatch):
 
 def test_persistent_disconnect_preserves_reason(tmp_path, monkeypatch):
     from multiprocessing import connection
-    from sosfuse2 import fused, pipeline_execution
+    from sosfuse2.solve import source_solver
+    from sosfuse2.jobs import pipeline_execution
 
     closed = []
     monkeypatch.setenv('SOS_PERSISTENT_ROOT', str(tmp_path))
@@ -245,17 +250,18 @@ def test_persistent_disconnect_preserves_reason(tmp_path, monkeypatch):
     def disconnected(*args, **kwargs):
         raise ConnectionResetError('connection reset')
 
-    monkeypatch.setattr(fused, 'Solver', disconnected)
+    monkeypatch.setattr(source_solver, 'Solver', disconnected)
     with pytest.raises(RuntimeError, match='E_PERSISTENT_SERVICE_LOST: ConnectionResetError: connection reset'):
         pipeline_execution.persistent_chunk(None, None, None, SimpleNamespace(), 'one', lambda *a, **kw: None)
     assert closed == [True]
 
 
 def test_query_cache_uses_source_identity(tmp_path, monkeypatch):
-    from sosfuse2 import geometry_contract, host_cache, pipeline_execution
+    from sosfuse2.precompute import endpoint_contract, host_cache
+    from sosfuse2.jobs import pipeline_execution
 
     monkeypatch.setattr(host_cache, 'enabled', lambda: True)
-    monkeypatch.setattr(geometry_contract, 'identity', lambda solver: ({}, 'geometry'))
+    monkeypatch.setattr(endpoint_contract, 'identity', lambda solver: ({}, 'geometry'))
     solver = SimpleNamespace(host_cache_root=tmp_path, geo=SimpleNamespace(),
                              ctx=SimpleNamespace(b=SimpleNamespace(sh=SimpleNamespace(OBS=0.1), R=6371.0)))
     observed = []
@@ -271,6 +277,6 @@ def test_query_cache_uses_source_identity(tmp_path, monkeypatch):
     with pytest.raises(KeyCaptured):
         pipeline_execution.captured_queries(solver, [-3.0], [0], np.array([1.0]), np.array([2.0]), None)
     assert observed[0]['sources'] == {
-        'sosfuse2/' + name: identity.file_sha(paths.PKG / name)
-        for name in ('table_fast.py', 'geometry.py', 'pipeline_execution.py')
+        'sosfuse2/' + name: content_identity.file_sha(paths.PKG / name)
+        for name in ('outputs/radiance_table.py', 'solve/ray_geometry.py', 'jobs/pipeline_execution.py')
     }

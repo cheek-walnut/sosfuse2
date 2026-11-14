@@ -4,7 +4,7 @@ Radiance parity and timing require the A0/A3/B GPU benchmark; these checks do
 not emulate warp execution or claim GPU numerical coverage.
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import json
 from pathlib import Path
 import subprocess
@@ -13,17 +13,17 @@ import sys
 import pytest
 
 HERE = paths.PKG  # the package directory (kernel, configs, assets)
-from sosfuse2 import testing
-from sosfuse2.fused import Kernel
-from sosfuse2.sh_layout import kernel_source, workspace
+from sosfuse2.checks import testkit
+from sosfuse2.solve.source_solver import Kernel
+from sosfuse2.backends.sh_layout import kernel_source, workspace
 from sosfuse2.tests.test_kernel_static import STUB, defines
 from sosfuse2.tests.test_tropo_mie import SYNTAX_STUB_EXTRA
 
 
 @pytest.mark.parametrize('L,W', [(16, 1), (16, 15), (32, 1), (32, 15)])
 def test_first_ground_syntax_and_scratch(tmp_path, L, W):
-    testing.require_tool('clang++')
-    flags = json.loads((HERE / 'configs/C3.json').read_text())['kernel_flags']
+    testkit.require_tool('clang++')
+    flags = json.loads((HERE / 'backends/configs/C3.json').read_text())['kernel_flags']
     flags += ['STRATO', 'PROFILE']
     stub = tmp_path / 'stub.h'
     stub.write_text(STUB + SYNTAX_STUB_EXTRA)

@@ -20,14 +20,15 @@ from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2 import paths, testing
-from sosfuse2 import spectral as SP
-from sosfuse2 import run_gpu_state_v3 as V3
+from sosfuse2.foundation import paths
+from sosfuse2.checks import testkit
+from sosfuse2.atmosphere import spectral as SP
+from sosfuse2.jobs import run_state as V3
 
-ROOT = testing.sky_sos_root()  # The legacy runs and builder rerun need the research data root.
+ROOT = testkit.sky_sos_root()  # The legacy runs and builder rerun need the research data root.
 CUR = paths.SRC  # 'current tree' marker for run(): the installed package
 try:
-    from sosfuse2.numerical_checks import within_tol
+    from sosfuse2.checks.numerical_checks import within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import within_tol
 LEGACY_BASELINE = '6a5c3f5'
@@ -195,13 +196,13 @@ def units():
     # without them the self-check the builder stored in the asset is read.
     doc = json.loads(SP.ASSET.read_text())
     sc = doc['self_check']
-    RAW = testing.sky_sos_optional('results/sigma_tz_20261028/raw/serdyuchenkogorshelev5digits.dat')
-    HSRS = testing.sky_sos_optional('results/d1_axis_20261031/raw/tsis1_hsrs_355_845.csv')
+    RAW = testkit.sky_sos_optional('results/sigma_tz_20261028/raw/serdyuchenkogorshelev5digits.dat')
+    HSRS = testkit.sky_sos_optional('results/d1_axis_20261031/raw/tsis1_hsrs_355_845.csv')
     if RAW is not None and HSRS is not None:
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
-            'build_spectra_fine', testing.sky_sos('scripts/build_spectra_fine.py')
+            'build_spectra_fine', testkit.sky_sos('scripts/build_spectra_fine.py')
         )
         B = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(B)
@@ -260,7 +261,7 @@ def units():
     if ROOT is not None:
         import importlib.util
 
-        spec = importlib.util.spec_from_file_location('bake_run', testing.sky_sos('rig/bake/bake_run.py'))
+        spec = importlib.util.spec_from_file_location('bake_run', testkit.sky_sos('rig/bake/bake_run.py'))
         BR = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(BR)
         with tempfile.TemporaryDirectory() as tmp:
@@ -284,7 +285,7 @@ def units():
             ok30 and not ok15 and not ok_none,
         )
     else:
-        print(f'bake_run.check_table: sky-sos rig/bake not available ({testing.ENV} unset), skipped')
+        print(f'bake_run.check_table: sky-sos rig/bake not available ({testkit.ENV} unset), skipped')
     other = dict(band, mode='point')
     check(
         'check_contract: equal passes, mode/legacy mismatch refused',
@@ -299,8 +300,8 @@ CHILD = r'''
 import sys,json
 from pathlib import Path
 sys.path[:0]=[sys.argv[1]]
-from sosfuse2 import spectral as SP
-from sosfuse2 import run_gpu_state_v3 as V3
+from sosfuse2.atmosphere import spectral as SP
+from sosfuse2.jobs import run_state as V3
 kind,k=sys.argv[2],1
 if kind!='none':
     orig=SP.spec_table
@@ -358,7 +359,7 @@ def load_hs(work, name):
 def runs(out, jobs):
     if ROOT is None:
         raise SystemExit(
-            f'E_SKY_SOS_ROOT: --runs extracts the legacy tree {LEGACY_BASELINE} from the sky-sos checkout ({testing.ENV})'
+            f'E_SKY_SOS_ROOT: --runs extracts the legacy tree {LEGACY_BASELINE} from the sky-sos checkout ({testkit.ENV})'
         )
     out = Path(out)
     if (out.exists() or out.is_symlink()) and not out.is_dir():
@@ -449,7 +450,7 @@ def test_check_meta_contract():
     """spectral.check_meta_contract: only a *signed* table (meta has `signature`) must name `contract` v3/v4; every table's physics
     must be known, and a table without physics (written before B2) reads as the legacy identity."""
     import pytest  # not at module level: this file is also a CLI harness (`python -m sosfuse2.tests.test_spectral`)
-    from sosfuse2.components import physics, optics_state
+    from sosfuse2.atmosphere.components import physics, optics_state
 
     for contract in ('v3', 'v4'):
         assert SP.check_meta_contract(dict(signature='s', contract=contract)) == contract

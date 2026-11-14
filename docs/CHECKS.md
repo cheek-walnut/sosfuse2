@@ -24,11 +24,11 @@ density asset, about 54 cases, skip with `E_IPRT_OFFLINE` and the command that f
 
 The check in a fresh virtual environment outside the source tree also runs one reduced NumPy solve, which takes a few
 minutes, after the one-time O₄ preparation from the README
-(`python -m sosfuse2.prepare_minor_absorbers --download`; without it the solve stops with
+(`python -m sosfuse2.asset_tools.prepare_minor_absorbers --download`; without it the solve stops with
 `E_O4_ASSET_MISSING`):
 
 ```sh
-python -B -m sosfuse2.run_gpu_state_v3 --id clear_34 --reduced --backend numpy --threads 2 --work-root <dir>
+python -B -m sosfuse2.jobs.run_state --id clear_34 --reduced --backend numpy --threads 2 --work-root <dir>
 ```
 
 This example uses the bundled `states_v2.json`, with the background stratospheric layer enabled even when
@@ -60,8 +60,8 @@ samples and the atan2 last bit, are ordinary tests on every platform.
 
 ```sh
 pip install ".[gpu,test]"        # from a checkout of the tagged commit; not on PyPI
-python -B -m sosfuse2.gate --all --out <dir>          # G-R per toolkey, G-P vs NumPy golden, G-T ratchet, G-A, H, PS
-python -B -m sosfuse2.gate --stage --out <dir>        # repeat runs, rtol 1e-5 (bytes only in SOSFUSE2_DETERMINISTIC=1)
+python -B -m sosfuse2.checks.gate --all --out <dir>          # G-R per toolkey, G-P vs NumPy golden, G-T ratchet, G-A, H, PS
+python -B -m sosfuse2.checks.gate --stage --out <dir>        # repeat runs, rtol 1e-5 (bytes only in SOSFUSE2_DETERMINISTIC=1)
 ```
 
 The `gpu` extra brings the CUDA libraries that CuPy loads at run time: NVRTC, the runtime, cuBLAS, cuSOLVER, cuSPARSE and
@@ -77,7 +77,7 @@ unless they are already in the work root.
 ## 3. CUDA machine with the sky-sos research checkout
 
 ```sh
-SOSFUSE2_SKY_SOS_ROOT=/path/to/sky-sos python -B -m sosfuse2.gate --gf --out <dir>
+SOSFUSE2_SKY_SOS_ROOT=/path/to/sky-sos python -B -m sosfuse2.checks.gate --gf --out <dir>
 ```
 
 G-F, the full-grid fixed table, reuses the bake template from the research records, a research-side dependency, and

@@ -9,8 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from sosfuse2 import pipeline as pl  # noqa: E402
-from sosfuse2.host_limits import default_workers  # noqa: E402
+from sosfuse2.jobs import pipeline as pl  # noqa: E402
+from sosfuse2.foundation.host_limits import default_workers  # noqa: E402
 
 NAMES = pl.PREP_WORKER_ENV
 

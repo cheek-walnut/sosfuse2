@@ -1,6 +1,6 @@
 """attach_lock_name (run_gpu_state_v3): synthetic state dicts, no solver, no CuPy."""
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import copy
 import json
 from pathlib import Path
@@ -8,8 +8,8 @@ import sys
 import types
 import unittest
 import numpy as np
-from sosfuse2.run_gpu_state_v3 import attach_lock_name
-from sosfuse2.stratosphere import _geometry_key, profile_config
+from sosfuse2.jobs.run_state import attach_lock_name
+from sosfuse2.atmosphere.stratosphere import _geometry_key, profile_config
 
 STATES = json.loads((paths.FIXTURES / 'states_lutv2_strato_usstd.json').read_text())['states']
 

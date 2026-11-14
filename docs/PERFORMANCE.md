@@ -234,7 +234,7 @@ instruction count suggests, so the table above quotes GPU totals.
 A full-resolution state on a CUDA machine:
 
 ```sh
-python -B -m sosfuse2.run_gpu_state_v3 --id clear_34 --backend cupy --work-root ./work
+python -B -m sosfuse2.jobs.run_state --id clear_34 --backend cupy --work-root ./work
 ```
 
 The state id is bundled in `assets/states_v2.json`; other ids from that file work the same way.

@@ -12,18 +12,18 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sosfuse2 import components as C
-from sosfuse2 import density as D
-from sosfuse2 import generate_minor_absorbers as G
-from sosfuse2 import minor_absorbers as M
-from sosfuse2 import rayleigh as R
-from sosfuse2 import spectral as SP
-from sosfuse2 import testing
+from sosfuse2.atmosphere import components as C
+from sosfuse2.atmosphere import density as D
+from sosfuse2.asset_tools import generate_minor_absorbers as G
+from sosfuse2.atmosphere import minor_absorbers as M
+from sosfuse2.atmosphere import rayleigh as R
+from sosfuse2.atmosphere import spectral as SP
+from sosfuse2.checks import testkit
 
 
 @pytest.fixture
 def asset(tmp_path, monkeypatch):
-    path = testing.synthetic_o4(tmp_path)
+    path = testkit.synthetic_o4(tmp_path)
     monkeypatch.setattr(M, 'o4_path', lambda: path)
     return path
 
@@ -31,7 +31,7 @@ def asset(tmp_path, monkeypatch):
 def coeff(state, wl=(450.0, 550.0, 577.0), sigma=None):
     from functools import partial
 
-    from sosfuse2.solver_optics import coefficients
+    from sosfuse2.atmosphere.extinction import coefficients
 
     wl = np.array(wl, dtype='f8')
     opt = D.build(state)
@@ -49,7 +49,7 @@ def coeff(state, wl=(450.0, 550.0, 577.0), sigma=None):
 
 
 def test_loader_normal_and_sampling(asset):
-    from sosfuse2.identity import asset_digest
+    from sosfuse2.foundation.content_identity import asset_digest
 
     published_raw_sha = '23bdb5fb1f8a2e99f968ad2d3ce8395c9e3190c0aa8fb2e30289beea37f0fb9e'
     no2 = M.load('no2')
@@ -88,7 +88,7 @@ def test_loader_rejects(asset, bad):
     asset.write_text(json.dumps(doc))
     with pytest.raises(ValueError, match='E_O4_ASSET_INVALID'):
         M.load('o4')
-    doc = json.loads(testing.synthetic_o4(asset.parent.parent).read_text())
+    doc = json.loads(testkit.synthetic_o4(asset.parent.parent).read_text())
     doc['o4'][123] = float('nan')
     asset.write_text(json.dumps(doc))
     with pytest.raises(ValueError, match='E_O4_ASSET_INVALID'):
@@ -188,11 +188,11 @@ def synthetic_cia(tmp_path, monkeypatch):
 
 
 def test_prepare_cia(asset, tmp_path, monkeypatch):
-    from sosfuse2.prepare_minor_absorbers import prepare
+    from sosfuse2.asset_tools.prepare_minor_absorbers import prepare
 
     cia = synthetic_cia(tmp_path, monkeypatch)
     # The preparation module imported o4_path by value.
-    from sosfuse2 import prepare_minor_absorbers as P
+    from sosfuse2.asset_tools import prepare_minor_absorbers as P
 
     monkeypatch.setattr(P, 'o4_path', lambda: asset)
     result = prepare(cia)
@@ -206,7 +206,7 @@ def test_prepare_cia(asset, tmp_path, monkeypatch):
 
 
 def test_prepare_offline(asset, monkeypatch):
-    from sosfuse2 import prepare_minor_absorbers as P
+    from sosfuse2.asset_tools import prepare_minor_absorbers as P
 
     monkeypatch.setenv('SOSFUSE2_OFFLINE', '1')
     monkeypatch.setattr(P.urllib.request, 'urlopen', lambda *a, **k: pytest.fail('network called offline'))
@@ -215,7 +215,7 @@ def test_prepare_offline(asset, monkeypatch):
 
 
 def test_prepare_mock_download(asset, tmp_path, monkeypatch, capsys):
-    from sosfuse2 import prepare_minor_absorbers as P
+    from sosfuse2.asset_tools import prepare_minor_absorbers as P
 
     cia = synthetic_cia(tmp_path, monkeypatch)
     calls = []
@@ -281,7 +281,7 @@ def test_o4_numeric_column_n0_square_and_float32(asset):
     np.testing.assert_allclose(ext2[4], 4 * ext[4], rtol=1e-14)
     assert np.float32(cross) == 0 and np.all(ext[4].astype('f4') > 0)
     np.testing.assert_allclose(ext[4].astype('f4'), ext[4], rtol=6e-8)
-    from sosfuse2.column_table import exact_columns, molecular
+    from sosfuse2.rays.column_table import exact_columns, molecular
 
     keep = D.build({})
     val = exact_columns(
@@ -315,7 +315,7 @@ def test_switches(asset, no2, o4):
 
 
 def test_optics_signature_resolved_defaults(asset, monkeypatch):
-    from sosfuse2 import run_gpu_state_v3 as v3
+    from sosfuse2.jobs import run_state as v3
 
     monkeypatch.setattr(v3, 'package_hashes', lambda: {})
     monkeypatch.setattr(v3, 'grid_metadata', lambda cfg: {})
@@ -330,7 +330,7 @@ def test_optics_signature_resolved_defaults(asset, monkeypatch):
 
 
 def test_identity_q16_sources_and_loss(asset, tmp_path):
-    from sosfuse2 import table_fast, table_q
+    from sosfuse2.outputs import radiance_table, quantized_table
 
     physical = C.physics()
     amounts = C.optics_state({})
@@ -354,7 +354,7 @@ def test_identity_q16_sources_and_loss(asset, tmp_path):
     with pytest.raises(ValueError, match='E_PHYSICS_CONTRACT'):
         SP.block_key(b)
     (tmp_path / 'meta.json').write_text(json.dumps(meta))
-    table_fast.save_table(
+    radiance_table.save_table(
         tmp_path / 'table.npz',
         np.arange(1, 9, dtype='f4').reshape(2, 2, 2, 1),
         np.array([550.0]),
@@ -362,9 +362,9 @@ def test_identity_q16_sources_and_loss(asset, tmp_path):
         np.array([10.0, 50.0]),
         np.array([0.0, 90.0]),
     )
-    table_q.save(tmp_path / 'table.npz', tmp_path / 'q.npz')
-    assert table_q.load(tmp_path / 'q.npz')['header']['optics_state'] == amounts
-    table_q.round_trip(tmp_path / 'table.npz', tmp_path / 'q.npz')
+    quantized_table.save(tmp_path / 'table.npz', tmp_path / 'q.npz')
+    assert quantized_table.load(tmp_path / 'q.npz')['header']['optics_state'] == amounts
+    quantized_table.round_trip(tmp_path / 'table.npz', tmp_path / 'q.npz')
     source = tmp_path / 'source.npz'
     state = dict(parameters=dict(o4=False))
     s = SimpleNamespace(fuse_state=state, geo=SimpleNamespace(h=np.array([0.0]), chi=np.array([0.0])))
@@ -378,7 +378,7 @@ def test_identity_q16_sources_and_loss(asset, tmp_path):
         optics_state=np.array(json.dumps(amounts)),
     )
     with pytest.raises(ValueError, match='E_OPTICS_STATE_MIXED'):
-        table_fast.load_source(source, s, [550.0])
+        radiance_table.load_source(source, s, [550.0])
     with C._s1_reference():
         assert C.physics() == C.S1_REFERENCE
         with pytest.raises(ValueError, match='E_PHYSICS_REFERENCE'):
@@ -386,7 +386,7 @@ def test_identity_q16_sources_and_loss(asset, tmp_path):
 
 
 def test_ksplit_fallback_strict_and_wait(monkeypatch, capsys):
-    from sosfuse2.fused import Kernel
+    from sosfuse2.solve.source_solver import Kernel
 
     for mode in (1, 2, 3):
 
@@ -468,10 +468,11 @@ def test_ksplit_fallback_strict_and_wait(monkeypatch, capsys):
 def test_lut_launch_only():
     import ast
 
-    from sosfuse2 import fused, kernel_config, ksplit
+    from sosfuse2.solve import source_solver, ksplit
+    from sosfuse2.backends import flags
 
     # Kernel's methods live in fused.py and, for the split transport, ksplit.py (KsplitMixin).
-    trees = [ast.parse(Path(m.__file__).read_text()) for m in (fused, ksplit)]
+    trees = [ast.parse(Path(m.__file__).read_text()) for m in (source_solver, ksplit)]
     users = []
     for node in (n for tree in trees for n in ast.walk(tree)):
         if isinstance(node, ast.FunctionDef) and any(
@@ -483,9 +484,9 @@ def test_lut_launch_only():
         ):
             users.append(node.name)
     assert users == ['strato_lut_kernel']
-    assert "'strato_lut_build'" in inspect.getsource(fused.Kernel.strato_lut_kernel)
-    assert 'strato_lut_kernel' in inspect.getsource(fused.Kernel.strato_lut_device)
-    assert kernel_config.resolve_config(('STRATO',), role='lut').role == 'lut'
+    assert "'strato_lut_build'" in inspect.getsource(source_solver.Kernel.strato_lut_kernel)
+    assert 'strato_lut_kernel' in inspect.getsource(source_solver.Kernel.strato_lut_device)
+    assert flags.resolve_config(('STRATO',), role='lut').role == 'lut'
     calls = []
 
     class Raw:
@@ -499,7 +500,7 @@ def test_lut_launch_only():
         def __call__(self, grid, block, args):
             calls.append(('launch', self.name, grid, block, args))
 
-    k = fused.Kernel.__new__(fused.Kernel)
+    k = source_solver.Kernel.__new__(source_solver.Kernel)
     k.xp = SimpleNamespace(empty=np.empty, RawKernel=Raw)
     k.flags = ('STRATO',)
     k.deterministic = True
@@ -522,16 +523,19 @@ def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
     import sys
     import time
 
-    from sosfuse2 import column_table, geometry, host_cache, paths
-    from sosfuse2 import pipeline_execution as pe
-    from sosfuse2 import run_gpu_state_v3 as v3
+    from sosfuse2.rays import column_table
+    from sosfuse2.solve import ray_geometry
+    from sosfuse2.precompute import host_cache
+    from sosfuse2.foundation import paths
+    from sosfuse2.jobs import pipeline_execution as pe
+    from sosfuse2.jobs import run_state as v3
 
     monkeypatch.setenv('SOSFUSE2_HOST_CACHE', '1')
     monkeypatch.setenv('SOSFUSE2_SUN_WORKERS', '1')
     monkeypatch.setenv('SOSFUSE2_GROUND_WORKERS', '1')
     # Same convergent reduced fixture as test_pipeline_persistent; its normal
     # high-AOD counterpart is unsuitable for this coarse convergence grid.
-    from sosfuse2.strato_states import build
+    from sosfuse2.asset_tools.strato_states import build
 
     state = build()['states'][1]
     cfg = v3.resolve_settings(v3.settings_for(SimpleNamespace(reduced=True, settings_json=None)), state)
@@ -545,7 +549,7 @@ def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
         )
         solvers.append(s)
         scopes.append(scope)
-    from sosfuse2.geometry_contract import identity
+    from sosfuse2.precompute.endpoint_contract import identity
 
     assert identity(solvers[0]) == identity(solvers[1]) == identity(solvers[2])
     for col in (0, 2, 3):
@@ -556,13 +560,13 @@ def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
     np.testing.assert_array_equal(solvers[0].ext, solvers[2].ext)
     cache = [host_cache.context(s, s.density_optics) for s in solvers]
     assert cache[0] == cache[1] == cache[2]
-    from sosfuse2.stratosphere import _geometry_key
+    from sosfuse2.atmosphere.stratosphere import _geometry_key
 
     attach_keys = [_geometry_key(s, scope, s.strato['profile']) for s, scope in zip(solvers, scopes)]
     assert attach_keys[0] == attach_keys[1] == attach_keys[2]
     # Exercise the actual IPC/service lifecycle in A -> B -> A order. The
     # service reuses its context but must install each state's fresh constants.
-    with testing.socket_root('s2-service-') as directory, (tmp_path / 'service.log').open('w') as log:
+    with testkit.socket_root('s2-service-') as directory, (tmp_path / 'service.log').open('w') as log:
         root = Path(directory)
         monkeypatch.setenv('SOS_PERSISTENT_ROOT', str(root))
         monkeypatch.setenv('SOS_PERSISTENT_KEY', os.urandom(32).hex())
@@ -571,7 +575,7 @@ def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
                 sys.executable,
                 '-B',
                 '-m',
-                'sosfuse2.pipeline_execution',
+                'sosfuse2.jobs.pipeline_execution',
                 str(root),
                 'numpy',
                 str(tmp_path / 'gpu.lock'),
@@ -590,7 +594,7 @@ def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
             results = []
             args = SimpleNamespace(backend='numpy', fixed_boxes=True, block_size=128, threads=1, max_eval=16)
             for i, (s, scope) in enumerate(zip(solvers, scopes)):
-                geom = geometry.TransientGeometry(s, scope)
+                geom = ray_geometry.TransientGeometry(s, scope)
                 pe.prepare_geometry(s, geom, True)
                 result = pe.persistent_chunk(
                     s, geom, dict(batches=[], group=32), args, f'ABA{i}', lambda *a, **kw: None

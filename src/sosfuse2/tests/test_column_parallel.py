@@ -24,11 +24,12 @@ from unittest import mock
 
 import numpy as np
 
-from sosfuse2 import column_parallel, plan_queue
+from sosfuse2.precompute import column_parallel
+from sosfuse2.jobs import plan_queue
 from sosfuse2.tests import test_plan_queue as tp
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
@@ -45,10 +46,10 @@ def flaky_segments(segments, p, d, n):
 class ColumnParallelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from sosfuse2 import geometry as gm
-        from sosfuse2 import run_gpu_state_v3 as rv
-        from sosfuse2.fused import Kernel
-        from sosfuse2.stratosphere import profile_config
+        from sosfuse2.solve import ray_geometry as gm
+        from sosfuse2.jobs import run_state as rv
+        from sosfuse2.solve.source_solver import Kernel
+        from sosfuse2.atmosphere.stratosphere import profile_config
 
         options = plan_queue.parser().parse_args(['--states', str(tp.LUT2), '--geometry-cache', '.', '--out', 'x'])
         options.reduced = False
@@ -79,8 +80,8 @@ class ColumnParallelTests(unittest.TestCase):
 
     def run_kind(self, kind, workers):
         """(array, column_parallel events) of one cold build through the production method."""
-        from sosfuse2 import geometry as gm
-        from sosfuse2 import host_cache
+        from sosfuse2.solve import ray_geometry as gm
+        from sosfuse2.precompute import host_cache
 
         bundle = gm.Bundle.__new__(gm.Bundle)
         bundle.arrays = self.arrays
@@ -136,8 +137,8 @@ class ColumnParallelTests(unittest.TestCase):
 
 
 def spawn_columns(tmp_path, monkeypatch, *, two_layer=False, drift=False):
-    from sosfuse2 import density
-    from sosfuse2.geometry import normal_state
+    from sosfuse2.atmosphere import density
+    from sosfuse2.solve.ray_geometry import normal_state
     from sosfuse2.tests.test_solver_promotion import context_solver
 
     state = normal_state()
@@ -159,7 +160,7 @@ def spawn_columns(tmp_path, monkeypatch, *, two_layer=False, drift=False):
     monkeypatch.setattr(column_parallel, 'TASK_CHUNKS', 1)
     if drift:
         monkeypatch.setattr(
-            column_parallel, 'SOURCE_HASHES', dict(column_parallel.SOURCE_HASHES, **{'solver_columns.py': 'drift'})
+            column_parallel, 'SOURCE_HASHES', dict(column_parallel.SOURCE_HASHES, **{'rays/shell_segments.py': 'drift'})
         )
     log = io.StringIO()
     with contextlib.redirect_stdout(log):

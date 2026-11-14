@@ -13,21 +13,21 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2 import testing
+from sosfuse2.checks import testkit
 
-_SKY = testing.sky_sos_root()
+_SKY = testkit.sky_sos_root()
 if _SKY is None:  # the v1 oracle lives in sky-sos scripts/sosfuse (manifest: sibling-import test)
     import pytest
 
-    pytest.skip(f'v1 oracle scripts/sosfuse needs {testing.ENV}', allow_module_level=True)
+    pytest.skip(f'v1 oracle scripts/sosfuse needs {testkit.ENV}', allow_module_level=True)
 sys.path.append(
-    str(testing.sky_sos('scripts', 'sosfuse').parent)
+    str(testkit.sky_sos('scripts', 'sosfuse').parent)
 )  # appended: the installed sosfuse2 package stays first
 from sosfuse.geometry import Bundle as OldBundle  # read-only oracle
-from sosfuse2.geometry import Bundle, create, TransientGeometry
+from sosfuse2.solve.ray_geometry import Bundle, create, TransientGeometry
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
@@ -151,7 +151,7 @@ def main(log):
     cells = [geo.cell(int(i)) for i in pick]
     rows.append(compare(cells, 'full_grid_40_cells'))
     # Table path shape: many tiny 4-ray subsets of one pack.
-    from sosfuse2.geometry import subset
+    from sosfuse2.solve.ray_geometry import subset
 
     tiny = [subset(cells[5], slice(k, min(k + 4, len(cells[5]['d'])))) for k in range(0, len(cells[5]['d']), 4)]
     rows.append(compare(tiny, 'table_like_4ray_groups'))

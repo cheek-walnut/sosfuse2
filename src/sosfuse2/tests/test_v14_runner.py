@@ -11,11 +11,14 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from sosfuse2 import fused, geometry, host_cache, run_gpu_state_v3 as v3, testing
+from sosfuse2.solve import source_solver, ray_geometry
+from sosfuse2.precompute import host_cache
+from sosfuse2.jobs import run_state as v3
+from sosfuse2.checks import testkit
 
-if testing.sky_sos_root() is None:  # the V14 grid harness is a sky-sos research record, loaded at import
-    pytest.skip(f'V14 harness results/quad2_deep_twilight_20261020 needs {testing.ENV}', allow_module_level=True)
-HARNESS = testing.sky_sos('results/quad2_deep_twilight_20261020')
+if testkit.sky_sos_root() is None:  # the V14 grid harness is a sky-sos research record, loaded at import
+    pytest.skip(f'V14 harness results/quad2_deep_twilight_20261020 needs {testkit.ENV}', allow_module_level=True)
+HARNESS = testkit.sky_sos('results/quad2_deep_twilight_20261020')
 sys.path.insert(0, str(HARNESS))
 spec = importlib.util.spec_from_file_location('v14_grid_harness', HARNESS / 'run_grid_eval.py')
 harness = importlib.util.module_from_spec(spec)
@@ -36,18 +39,18 @@ class Captured(Exception):
 
 
 def grids(tmp_path, cfg, creator=v3.create_configured):
-    engine = fused.load_engine()
-    from sosfuse2 import solver_core
+    engine = source_solver.load_engine()
+    from sosfuse2.solve import engine_core
 
     class StopSolver:
         def __init__(self, ctx, geo, *args):
             raise Captured(geo)
 
-    state = geometry.normal_state()
+    state = ray_geometry.normal_state()
     with (
-        patch.object(fused, 'load_engine', return_value=engine),
-        patch.object(solver_core, 'Solver', StopSolver),
-        patch.object(geometry, 'Kernel', return_value=None),
+        patch.object(source_solver, 'load_engine', return_value=engine),
+        patch.object(engine_core, 'Solver', StopSolver),
+        patch.object(ray_geometry, 'Kernel', return_value=None),
         patch.object(host_cache, 'sun_geometry', return_value=None),
         patch.dict('os.environ', SOSFUSE2_HOST_CACHE='0'),
     ):
@@ -86,7 +89,7 @@ def test_reject_incompatible_pairs(tmp_path):
 
 
 def test_actual_grids_match_original_harness_and_nr20(tmp_path):
-    from sosfuse2.solver_columns import grids as column_grids
+    from sosfuse2.rays.shell_segments import grids as column_grids
 
     h, chi = column_grids(1)
     # Frozen pre-port harness V14 rule (SPEC.md height definition), preserving operation order and float64 bytes.
@@ -127,7 +130,7 @@ def test_height_hash_in_metadata_and_signature(tmp_path):
         meta = v3.grid_metadata(cfg, actual.h)
         assert meta == v3.grid_metadata(cfg)
         assert meta['h_sha256'] == hashlib.sha256(actual.h.tobytes()).hexdigest()
-        state = geometry.normal_state()
+        state = ray_geometry.normal_state()
         dumps = json.dumps
         contracts = []
 
@@ -163,7 +166,7 @@ def test_rayleigh_settings_and_legacy_adapters_load(tmp_path, monkeypatch):
                 states=[
                     dict(
                         id='q2d_pure_rayleigh_control',
-                        parameters=dict(geometry.normal_state()['parameters'], stratosphere_tau550=0),
+                        parameters=dict(ray_geometry.normal_state()['parameters'], stratosphere_tau550=0),
                     )
                 ]
             )

@@ -4,7 +4,7 @@ Only the wrapper's unavailable relative imports are replaced. This deliberately
 supports testing flags/layouts on the supplied partial repository, not transport.
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import ast
 import contextlib
 import types
@@ -29,7 +29,7 @@ NEW = BYTE + ('STRATO_SH_AUX', 'STRATO_MIE_LUT', 'STRATO_MIE_LUT_FINE')
 
 
 def load_wrapper(path=None):
-    path = Path(path) if path else (paths.PKG / 'fused.py')
+    path = Path(path) if path else (paths.PKG / 'solve/source_solver.py')
     tree = ast.parse(path.read_text())
     # fused re-exports the KSPLIT host side (ksplit.KsplitMixin and its constants); take those names from the package.
     reexported = [
@@ -38,10 +38,10 @@ def load_wrapper(path=None):
     tree.body = [node for node in tree.body if not (isinstance(node, ast.ImportFrom) and node.level)]
     module = types.ModuleType('_strato_host_wrapper')
     module.__file__ = str(path.resolve())
-    module.__package__ = 'sosfuse2'
+    vars(module).update(__package__='sosfuse2.solve')
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location('_sh_layout', path.with_name('sh_layout.py'))
+    spec = importlib.util.spec_from_file_location('_sh_layout', paths.PKG / 'backends/sh_layout.py')
     layout = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(layout)
     module.__dict__.update(
@@ -55,16 +55,16 @@ def load_wrapper(path=None):
         TIMERS=types.SimpleNamespace(bind=lambda xp: None),
         stage=lambda *args, **kw: contextlib.nullcontext(),
     )
-    from sosfuse2 import kernel_config
+    from sosfuse2.backends import flags
 
     module.__dict__.update(
         {
-            name: getattr(kernel_config, name)
+            name: getattr(flags, name)
             for name in ('KERNEL_FLAGS', 'STAGE1_FLAGS', 'KSPLIT_VARIANTS', 'resolve_config', 'deterministic')
         }
     )
     if reexported:
-        from sosfuse2 import ksplit
+        from sosfuse2.solve import ksplit
 
         module.__dict__.update({name: getattr(ksplit, name) for name in reexported})
     exec(compile(tree, str(path), 'exec'), module.__dict__)

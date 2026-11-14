@@ -7,12 +7,13 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
-from sosfuse2 import stratosphere, device_profile
+from sosfuse2.atmosphere import stratosphere
+from sosfuse2.backends import device_profile
 
 
 class WallHost(unittest.TestCase):
     def test_noprefix_real_geometry_bytes(self):
-        from sosfuse2.testing import sun_scope
+        from sosfuse2.checks.testkit import sun_scope
 
         old = sun_scope()
         profile = stratosphere.profile_config({})

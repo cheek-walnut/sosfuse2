@@ -15,7 +15,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sosfuse2 import cache_store, column_parallel, column_table, density, gate, table_fast, table_q, tropo_profile
+from sosfuse2.jobs import cache_store
+from sosfuse2.precompute import column_parallel
+from sosfuse2.rays import column_table
+from sosfuse2.atmosphere import density, tropo_profile
+from sosfuse2.checks import gate
+from sosfuse2.outputs import radiance_table, quantized_table
 from sosfuse2.tests import (
     test_b2_components,
     test_cache_store,
@@ -24,7 +29,7 @@ from sosfuse2.tests import (
     test_strato_precision,
     test_tropo_mie,
 )
-from sosfuse2.components import canonical_state, optics_state, physics
+from sosfuse2.atmosphere.components import canonical_state, optics_state, physics
 
 
 def test_density_parallel_really_runs_and_matches_serial(monkeypatch):
@@ -112,7 +117,7 @@ def test_gate_refuses_empty_selection():
 
 
 def test_extra_source_file_is_work_root_relative():
-    tree = ast.parse(inspect.getsource(__import__('sosfuse2.run_gpu_state_v3', fromlist=['run_extra']).run_extra))
+    tree = ast.parse(inspect.getsource(__import__('sosfuse2.jobs.run_state', fromlist=['run_extra']).run_extra))
     value = next(
         k.value
         for node in ast.walk(tree)
@@ -152,23 +157,23 @@ def test_source_contract_rejects_wrong_state_settings_and_missing(tmp_path, monk
         monkeypatch.delenv(name, raising=False)
     path = tmp_path / 'source.npz'
     solver, settings, arrays, contract = _source_fixture(path)
-    assert table_fast.load_source(path, solver, [550.0], settings=settings, backend='numpy').shape == (1, 571, 1)
+    assert radiance_table.load_source(path, solver, [550.0], settings=settings, backend='numpy').shape == (1, 571, 1)
     for key, value in [('ozone_du', 600.0), ('aod550', 0.4)]:
         changed = json.loads(json.dumps(solver.fuse_state))
         changed['parameters'][key] = value
         with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
-            table_fast.load_source(
+            radiance_table.load_source(
                 path, SimpleNamespace(fuse_state=changed, geo=solver.geo), [550.0], settings=settings, backend='numpy'
             )
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
-        table_fast.load_source(path, solver, [550.0], settings=dict(settings, nphi=64), backend='numpy')
+        radiance_table.load_source(path, solver, [550.0], settings=dict(settings, nphi=64), backend='numpy')
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
-        table_fast.load_source(path, solver, [550.0], settings=settings, backend='cupy')
-    assert table_fast.load_source(
+        radiance_table.load_source(path, solver, [550.0], settings=settings, backend='cupy')
+    assert radiance_table.load_source(
         path, solver, [550.0], settings=settings, backend='numpy', full_settings=True
     ).shape == (1, 571, 1)
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
-        table_fast.load_source(
+        radiance_table.load_source(
             path,
             solver,
             [550.0],
@@ -179,10 +184,10 @@ def test_source_contract_rejects_wrong_state_settings_and_missing(tmp_path, monk
     contract['settings']['spectral'] = {'mode': 'different'}
     np.savez(path, **arrays, source_contract=np.array(json.dumps(contract)))
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
-        table_fast.load_source(path, solver, [550.0], settings=settings, backend='numpy')
+        radiance_table.load_source(path, solver, [550.0], settings=settings, backend='numpy')
     np.savez(path, **arrays)
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
-        table_fast.load_source(path, solver, [550.0], settings=settings, backend='numpy')
+        radiance_table.load_source(path, solver, [550.0], settings=settings, backend='numpy')
 
 
 def test_table_fast_cli_writes_current_physics_for_q16(tmp_path, monkeypatch):
@@ -190,9 +195,9 @@ def test_table_fast_cli_writes_current_physics_for_q16(tmp_path, monkeypatch):
     solver, settings, _, _ = _source_fixture(source)
     states = tmp_path / 'states.json'
     states.write_text(json.dumps({'states': [solver.fuse_state]}))
-    monkeypatch.setattr(table_fast, 'build_solver', lambda *args: (solver, {}, settings))
+    monkeypatch.setattr(radiance_table, 'build_solver', lambda *args: (solver, {}, settings))
     monkeypatch.setattr(
-        table_fast, 'make_table', lambda s, f, hs, el, az, *args: (np.arange(1, 49, dtype='f4').reshape(2, 4, 6, 1), [])
+        radiance_table, 'make_table', lambda s, f, hs, el, az, *args: (np.arange(1, 49, dtype='f4').reshape(2, 4, 6, 1), [])
     )
     monkeypatch.setattr(
         sys,
@@ -214,10 +219,10 @@ def test_table_fast_cli_writes_current_physics_for_q16(tmp_path, monkeypatch):
             '--reduced',
         ],
     )
-    table_fast.main()
-    table_q.save(tmp_path / 'table.npz', tmp_path / 'q.npz')
-    assert table_q.load(tmp_path / 'q.npz')['header']['physics'] == physics()
-    assert table_q.round_trip(tmp_path / 'table.npz', tmp_path / 'q.npz')['max_rel'] <= table_q.MAX_REL
+    radiance_table.main()
+    quantized_table.save(tmp_path / 'table.npz', tmp_path / 'q.npz')
+    assert quantized_table.load(tmp_path / 'q.npz')['header']['physics'] == physics()
+    assert quantized_table.round_trip(tmp_path / 'table.npz', tmp_path / 'q.npz')['max_rel'] <= quantized_table.MAX_REL
 
 
 def test_spectral_child_forwards_state():
@@ -280,7 +285,7 @@ def test_density_native_uses_all_three_profile_columns(tmp_path):
         float(optics['air_surface']),
         output.ctypes.data,
     )
-    from sosfuse2.reference import profile_at
+    from sosfuse2.backends.numpy_reference import profile_at
 
     expected = profile_at(output[:1], dict(height=np.float32(1.2), density_optics=optics))[0, :3]
     np.testing.assert_allclose(output[1:], expected, rtol=1e-6, atol=0)
@@ -289,7 +294,7 @@ def test_density_native_uses_all_three_profile_columns(tmp_path):
 @pytest.mark.skipif(shutil.which('clang++') is None, reason='clang++ required')
 @pytest.mark.parametrize('waves', [1, 15])
 def test_strato_native_lut_has_full_allocation_and_exact_path(tmp_path, waves):
-    from sosfuse2 import paths
+    from sosfuse2.foundation import paths
 
     root = paths.PKG  # the package directory: kernel.cu, assets/kernel_C2_strato_base.cu
     coeff = np.zeros((33, waves), 'f4')
@@ -350,7 +355,7 @@ with patch.object(t.shutil, 'which', return_value='tool'), patch.object(t, 'base
 
 @pytest.mark.parametrize('energy_ok', [False, True])
 def test_strato_v3_affects_overall_verdict(tmp_path, monkeypatch, energy_ok):
-    from sosfuse2 import validate_strato as v
+    from sosfuse2.checks import stratosphere_checks as v
 
     monkeypatch.setattr(v, 'zero_bytes', lambda *args: {'pass_': True})
     monkeypatch.setattr(v, 'thin_case', lambda *args: ({'pass_': True}, None, None, None))
@@ -365,7 +370,7 @@ def test_strato_v3_affects_overall_verdict(tmp_path, monkeypatch, energy_ok):
 
 
 def test_common_geometry_identity_tracks_endpoint_sources(tmp_path, monkeypatch):
-    from sosfuse2 import geometry_contract as gc
+    from sosfuse2.precompute import endpoint_contract as gc
 
     monkeypatch.setenv('SOSFUSE2_COLUMN_METHOD', 'gl24')
     original_root = gc.ROOT
@@ -377,12 +382,12 @@ def test_common_geometry_identity_tracks_endpoint_sources(tmp_path, monkeypatch)
     solver = SimpleNamespace(geo=SimpleNamespace(h=np.array([0.0, 80.0]), chi=np.array([0.0, 1.0]), cfg={}))
     content, baseline = gc.identity(solver)
     for name in (
-        'ray_columns.py',
-        'density.py',
-        'components.py',
-        'geometry_parallel.py',
-        'column_parallel.py',
-        'run_gpu_state_v3.py',
+        'rays/ray_columns.py',
+        'atmosphere/density.py',
+        'atmosphere/components.py',
+        'solve/ray_geometry_parallel.py',
+        'precompute/column_parallel.py',
+        'jobs/run_state.py',
     ):
         target = tmp_path / name
         before = target.read_bytes()
@@ -408,11 +413,12 @@ def test_source_wavelength_shape_and_values_are_checked(tmp_path, stored, reques
     arrays['wavelength_nm'] = stored
     np.savez(path, **arrays, source_contract=np.array(json.dumps(contract)))
     with pytest.raises(ValueError, match='^E_SOURCE_WAVELENGTH$'):
-        table_fast.load_source(path, solver, requested, settings=settings, backend='numpy')
+        radiance_table.load_source(path, solver, requested, settings=settings, backend='numpy')
 
 
 def _multispectral_source(tmp_path, monkeypatch, count, block_size=128, strato=False):
-    from sosfuse2 import paths, run_gpu_state_v3 as run
+    from sosfuse2.foundation import paths
+    from sosfuse2.jobs import run_state as run
 
     for name in ('SOSFUSE2_KERNEL_FLAGS', 'SOSFUSE2_BLOCK_SIZE'):
         monkeypatch.delenv(name, raising=False)
@@ -449,22 +455,22 @@ def _multispectral_source(tmp_path, monkeypatch, count, block_size=128, strato=F
 
 def test_restored_source_rejects_changed_settings_and_shape(tmp_path, monkeypatch):
     state, cfg, arrays, contract, path = _multispectral_source(tmp_path, monkeypatch, 45)
-    assert table_fast.restored_settings(path, state, False, 'cupy') == cfg
+    assert radiance_table.restored_settings(path, state, False, 'cupy') == cfg
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
-        table_fast.restored_settings(path, state, False, 'numpy')
+        radiance_table.restored_settings(path, state, False, 'numpy')
     bad_contract = json.loads(json.dumps(contract))
     bad_contract['settings']['spectral']['asset_sha256'] = 'changed'
     np.savez(path, **arrays, source_contract=np.array(json.dumps(bad_contract)))
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
-        table_fast.restored_settings(path, state, False, 'cupy')
+        radiance_table.restored_settings(path, state, False, 'cupy')
     arrays['wavelength_nm'] = arrays['wavelength_nm'][:-1]
     np.savez(path, **arrays, source_contract=np.array(json.dumps(contract)))
     with pytest.raises(ValueError, match='E_SOURCE_WAVELENGTH'):
-        table_fast.restored_settings(path, state, False, 'cupy')
+        radiance_table.restored_settings(path, state, False, 'cupy')
 
 
 def test_restored_source_rejects_field_shape_before_slicing(tmp_path, monkeypatch):
-    from sosfuse2 import run_gpu_state_v3 as run
+    from sosfuse2.jobs import run_state as run
 
     state, cfg, arrays, contract, path = _multispectral_source(tmp_path, monkeypatch, 45)
     arrays['source'] = arrays['source'][..., :-1]
@@ -480,15 +486,15 @@ def test_restored_source_rejects_field_shape_before_slicing(tmp_path, monkeypatc
 
     monkeypatch.setattr(run, 'create_configured', create)
     with pytest.raises(ValueError, match='E_SOURCE_SHAPE'):
-        table_fast.restored_table(path, state, cfg, tmp_path / 'prepare', 'cupy', 1, 1, lambda message: None)
+        radiance_table.restored_table(path, state, cfg, tmp_path / 'prepare', 'cupy', 1, 1, lambda message: None)
 
 
 @pytest.mark.parametrize(
     'count,block_size,strato', [(45, 128, False), (31, 128, False), (15, 128, False), (45, 256, False), (45, 128, True)]
 )
 def test_multispectral_sources_replay_and_batch_preview(tmp_path, monkeypatch, count, block_size, strato):
-    from sosfuse2 import run_gpu_state_v3 as run, tables_from_sources as batch
-    from sosfuse2.host import pack_state as pm
+    from sosfuse2.jobs import run_state as run, tables_from_sources as batch
+    from sosfuse2.outputs import pack_state as pm
 
     state, cfg, arrays, _, source = _multispectral_source(tmp_path, monkeypatch, count, block_size, strato)
     seen = []
@@ -514,7 +520,7 @@ def test_multispectral_sources_replay_and_batch_preview(tmp_path, monkeypatch, c
         return np.broadcast_to(field[0, 0], (len(hs), len(el), len(az), solver.W)).copy(), []
 
     monkeypatch.setattr(run, 'create_configured', create)
-    monkeypatch.setattr(table_fast, 'make_table', make)
+    monkeypatch.setattr(radiance_table, 'make_table', make)
     rendered = []
 
     def save(path, rgb):
@@ -585,7 +591,7 @@ def test_multispectral_sources_replay_and_batch_preview(tmp_path, monkeypatch, c
             'cupy',
         ],
     )
-    table_fast.main()
+    radiance_table.main()
     with np.load(out) as table:
         np.testing.assert_array_equal(table['radiance'][0, 0, 0], arrays['source'][0, 0])
 
@@ -612,7 +618,7 @@ def test_host_harness_link_flags(tmp_path, monkeypatch, platform, flags):
 
 
 def test_batch_failure_status_and_continue(tmp_path, monkeypatch, capsys):
-    from sosfuse2 import tables_from_sources as batch
+    from sosfuse2.jobs import tables_from_sources as batch
 
     states = tmp_path / 'states.json'
     states.write_text(json.dumps({'states': [dict(id=name, runnable=True) for name in ('bad1', 'bad2', 'good')]}))
@@ -645,7 +651,7 @@ def test_batch_failure_status_and_continue(tmp_path, monkeypatch, capsys):
             sys.executable,
             '-B',
             '-m',
-            'sosfuse2.tables_from_sources',
+            'sosfuse2.jobs.tables_from_sources',
             '--work-roots',
             str(tmp_path),
             '--states',
@@ -735,7 +741,7 @@ def test_rclone_failure_redacts_connection(monkeypatch, binary):
 @pytest.mark.parametrize('invalid', [b'', b'{broken', b'null', b'[]', b'\xff'])
 def test_kernel_stamp_rebuild_and_atomic_publication(tmp_path, monkeypatch, invalid):
     import hashlib
-    from sosfuse2.accepted import engine
+    from sosfuse2.solve import engine
 
     monkeypatch.setattr(engine.paths, 'work_root', lambda: tmp_path)
     monkeypatch.setattr(engine.shutil, 'which', lambda name: 'fake-compiler')
@@ -839,7 +845,7 @@ def _batch_roots(tmp_path, names):
 
 def test_batch_skips_worker_owned_output(tmp_path, monkeypatch, capsys):
     import fcntl
-    from sosfuse2 import tables_from_sources as batch
+    from sosfuse2.jobs import tables_from_sources as batch
 
     argv = _batch_roots(tmp_path, ['owned'])
     monkeypatch.setattr(batch, 'process', lambda *args: pytest.fail('process() ran on an output a worker owns'))
@@ -852,7 +858,7 @@ def test_batch_skips_worker_owned_output(tmp_path, monkeypatch, capsys):
 
 def test_batch_holds_worker_lock_through_process(tmp_path, monkeypatch):
     import fcntl
-    from sosfuse2 import tables_from_sources as batch
+    from sosfuse2.jobs import tables_from_sources as batch
 
     argv = _batch_roots(tmp_path, ['fine', 'broken'])
     seen = {}
@@ -879,7 +885,7 @@ def test_batch_holds_worker_lock_through_process(tmp_path, monkeypatch):
 
 def test_batch_rechecks_completed_outputs_after_lock(tmp_path, monkeypatch, capsys):
     import fcntl
-    from sosfuse2 import tables_from_sources as batch
+    from sosfuse2.jobs import tables_from_sources as batch
 
     argv = _batch_roots(tmp_path, ['late', 'half'])
     ran = []
@@ -906,8 +912,11 @@ def test_batch_rechecks_completed_outputs_after_lock(tmp_path, monkeypatch, caps
 def test_legacy_batch_records_computed_stratosphere(tmp_path, monkeypatch, computed):
     """A source on the legacy wavelength grid (restored_settings -> None) records the stratosphere the legacy solver
     built, not 'unsupported'."""
-    from sosfuse2 import components, paths, table_fast as tf, tables_from_sources as batch
-    from sosfuse2.host import pack_state as pm
+    from sosfuse2.atmosphere import components
+    from sosfuse2.foundation import paths
+    from sosfuse2.outputs import radiance_table as tf
+    from sosfuse2.jobs import tables_from_sources as batch
+    from sosfuse2.outputs import pack_state as pm
 
     state = json.loads((paths.ASSETS / 'states_v2.json').read_text())['states'][0]
     assert state['stratosphere']['status'] == 'enabled'

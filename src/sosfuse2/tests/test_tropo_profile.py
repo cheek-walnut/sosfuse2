@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-from sosfuse2 import testing as T
+from sosfuse2.checks import testkit as T
 
 ROOT = T.sky_sos_root()  # Optional research data for two-layer states and legacy entry points.
 
@@ -23,8 +23,8 @@ ROOT = T.sky_sos_root()  # Optional research data for two-layer states and legac
 
 def host(out):
     import numpy as np
-    from sosfuse2 import tropo_profile as tp
-    from sosfuse2.geometry import create, normal_state
+    from sosfuse2.atmosphere import tropo_profile as tp
+    from sosfuse2.solve.ray_geometry import create, normal_state
 
     base = copy.deepcopy(normal_state())
     good = dict(status='enabled', model='two_layer')
@@ -57,7 +57,7 @@ def host(out):
             rows.append(dict(case=name, expected=code, got=None, pass_=False))
         except ValueError as e:
             rows.append(dict(case=name, expected=code, got=str(e)[:100], pass_=str(e).split(':')[0] == code))
-    from sosfuse2 import tropo_mie
+    from sosfuse2.atmosphere import tropo_mie
 
     for name, block, code in (
         ('phase explicit null', None, 'E_TROPO_PHASE'),
@@ -228,8 +228,8 @@ LEGACY_GUARDED = (
 
 
 def legacy(out):
-    from sosfuse2 import tropo_profile as tp
-    from sosfuse2.geometry import normal_state
+    from sosfuse2.atmosphere import tropo_profile as tp
+    from sosfuse2.solve.ray_geometry import normal_state
 
     folder = out / 'legacy'
     folder.mkdir(parents=True, exist_ok=True)

@@ -25,7 +25,9 @@ def _chain(error):
 
 @pytest.fixture(scope='session', autouse=True)
 def synthetic_minor_work(tmp_path_factory):
-    from sosfuse2 import iprt, paths, testing
+    from sosfuse2.asset_tools import iprt
+    from sosfuse2.foundation import paths
+    from sosfuse2.checks import testkit
 
     original = paths.work_root()
     if os.environ.get('SOSFUSE2_OFFLINE', '') in ('', '0'):
@@ -38,7 +40,7 @@ def synthetic_minor_work(tmp_path_factory):
     root = tmp_path_factory.mktemp('synthetic-optics')
     if (original / 'iprt').is_dir():
         shutil.copytree(original / 'iprt', root / 'iprt')
-    testing.synthetic_o4(root)
+    testkit.synthetic_o4(root)
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv('SOSFUSE2_WORK_ROOT', str(root))
         patch.setenv('SOSFUSE2_OFFLINE', '1')
@@ -59,7 +61,7 @@ def pytest_runtest_makereport(item, call):
         return
     reason = (
         f'E_IPRT_OFFLINE: {", ".join(IPRT_MISSING)} not in the work root; fetch with '
-        '`python -B -c "from sosfuse2 import iprt; iprt.inputs()"`'
+        '`python -B -c "from sosfuse2.asset_tools import iprt; iprt.inputs()"`'
     )
     if FETCH_FAILURE:
         reason += '; the fetch of this session failed: ' + FETCH_FAILURE[0][:300]

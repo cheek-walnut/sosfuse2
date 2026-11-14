@@ -29,7 +29,7 @@ from types import SimpleNamespace as NS
 
 import numpy as np
 
-from sosfuse2 import gate, testing
+from sosfuse2.checks import gate, testkit
 
 FW = 15  # wavelengths per kernel chunk
 
@@ -63,10 +63,10 @@ def replay(fx, chunk, applies, out, cache):
     Shape (applies, solar elevation, direction, band, 1) = (applies, 4, 15, 15, 1). `out` receives the settings file and
     the prepare folder, `cache` is the host geometry cache (shareable between calls).
     """
-    from sosfuse2 import run_gpu_state_v3 as v3
-    from sosfuse2.fused import Solver
-    from sosfuse2.geometry import TransientGeometry
-    from sosfuse2.stratosphere import source_size
+    from sosfuse2.jobs import run_state as v3
+    from sosfuse2.solve.source_solver import Solver
+    from sosfuse2.solve.ray_geometry import TransientGeometry
+    from sosfuse2.atmosphere.stratosphere import source_size
 
     F = gate.load_fixtures()
     out = Path(out)
@@ -146,7 +146,7 @@ def main(argv=None):
     p.add_argument('--rtol', type=float, default=gate.RTOL)
     p.add_argument('--out', type=Path, help='work folder outside the package (default: a new scratch folder)')
     a = p.parse_args(argv)
-    out = testing.outside_package(a.out) if a.out else Path(tempfile.mkdtemp(dir=testing.scratch_parent()))
+    out = testkit.outside_package(a.out) if a.out else Path(tempfile.mkdtemp(dir=testkit.scratch_parent()))
     fixtures = gate.load_fixtures()['fixtures']
     ok = True
     for fx in a.fixture:

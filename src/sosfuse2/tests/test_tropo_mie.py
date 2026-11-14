@@ -12,18 +12,18 @@
 usage: python -B -m sosfuse2.tests.test_tropo_mie --static --host --out <dir>   |   ... --gpu --out <dir>
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import argparse, copy, itertools, json, os, re, shutil, subprocess, sys, time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
 HERE = paths.PKG  # the package directory (kernel, configs, assets)
 import numpy as np
-from sosfuse2 import testing
+from sosfuse2.checks import testkit
 
-ROOT = testing.sky_sos_root()  # The HG-baseline comparison needs the research data root.
+ROOT = testkit.sky_sos_root()  # The HG-baseline comparison needs the research data root.
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
@@ -38,7 +38,7 @@ def base_ref():
         return 'main'
 
 
-C3 = tuple(json.loads((HERE / 'configs/C3.json').read_text())['kernel_flags'])
+C3 = tuple(json.loads((HERE / 'backends/configs/C3.json').read_text())['kernel_flags'])
 C2OFF = (
     'GROUND_PHASE_BATCH',
     'LANE_ATTEN',
@@ -96,13 +96,13 @@ def preprocess(path, flags, spec):
 
 def static(out):
     if shutil.which('clang++') is None or shutil.which('git') is None or ROOT is None:
-        return dict(pass_=None, reason=f'clang++/git/sky-sos checkout ({testing.ENV}) missing')
+        return dict(pass_=None, reason=f'clang++/git/sky-sos checkout ({testkit.ENV}) missing')
     BASE = base_ref()
     base = out / f'kernel_{BASE}.cu'
     base.write_text(
         subprocess.check_output(['git', '-C', str(ROOT), 'show', f'{BASE}:scripts/sosfuse2/kernel.cu'], text=True)
     )
-    new = HERE / 'kernel.cu'
+    new = HERE / 'backends/kernel.cu'
     sets = {
         'C3_strato': C3 + ('STRATO', 'PROFILE'),
         'C3_strato_raylimit': C3 + ('STRATO', 'PROFILE', 'LAUNCH_RAY_LIMIT'),
@@ -209,8 +209,8 @@ def static(out):
 
 
 def hg_lut(g, W, bins=16384):
-    from sosfuse2.tropo_mie import lut_nodes
-    from sosfuse2.reference import hg
+    from sosfuse2.atmosphere.tropo_mie import lut_nodes
+    from sosfuse2.backends.numpy_reference import hg
 
     u = lut_nodes(bins).astype('f4')
     return np.ascontiguousarray(np.repeat(hg(u, np.float32(g))[:, None], W, 1), 'f4')
@@ -218,7 +218,7 @@ def hg_lut(g, W, bins=16384):
 
 def rejects(out):
     """Every malformed block or asset is refused with its code; the shipped asset, "default" and "disabled" pass."""
-    from sosfuse2 import tropo_mie as tm
+    from sosfuse2.atmosphere import tropo_mie as tm
 
     rows = []
 
@@ -294,9 +294,9 @@ def rejects(out):
 
 
 def host(out):
-    from sosfuse2 import tropo_mie as tm
-    from sosfuse2.geometry import create, TransientGeometry, normal_state
-    from sosfuse2 import reference
+    from sosfuse2.atmosphere import tropo_mie as tm
+    from sosfuse2.solve.ray_geometry import create, TransientGeometry, normal_state
+    from sosfuse2.backends import numpy_reference
 
     r = {}
     # 1. table/LUT
@@ -342,16 +342,16 @@ def host(out):
     g = geo.cell(12)
     c = s.kernel.setup(s, g['nq'])
     field = np.zeros((s.geo.ns, 571, s.W), 'f4')
-    a = reference.transport(g, c, field, True)
+    a = numpy_reference.transport(g, c, field, True)
     cm = dict(c, tropo_lut=hg_lut(float(c['g']), s.W).ravel(), tropo_bins=16384)
-    b = reference.transport(g, cm, field, True)
+    b = numpy_reference.transport(g, cm, field, True)
     rel = float(np.max(abs(b - a)) / np.max(abs(a)))
     mstate = copy.deepcopy(normal_state())
     mstate['troposphere_phase'] = dict(MIE)
     sm, scope_m, _ = create(out / 'host_geometry_mie', 'selftest', WL15, 'numpy', 128, state=mstate)
     gm_ = TransientGeometry(sm, scope_m).cell(12)
     cmie = sm.kernel.setup(sm, gm_['nq'])
-    mie = reference.transport(gm_, cmie, field, True)
+    mie = numpy_reference.transport(gm_, cmie, field, True)
     r['reference'] = dict(
         hg_table_vs_hg_max_rel_to_peak=rel,
         mie_state_flags_has_TROPO_MIE='TROPO_MIE' in sm.kernel.flags,
@@ -362,8 +362,8 @@ def host(out):
         mie_vs_hg_first_light_ratio_median=float(np.median(mie[..., 0][a[..., 0] > 0] / a[..., 0][a[..., 0] > 0])),
     )
     # 3. fused.Solver.apply multiplies the aerosol SH moments by the per-wavelength Mie eigenvalues (HG: g**l)
-    from sosfuse2.fused import Solver
-    from sosfuse2.tropo_mie import eigen_by_sh
+    from sosfuse2.solve.source_solver import Solver
+    from sosfuse2.atmosphere.tropo_mie import eigen_by_sh
 
     class Unit:
         def evaluate(self, s_, field_, first=False, phase=0, boundary=None, ground_only=False):
@@ -399,10 +399,10 @@ C2OFF_RAY = C2OFF + (
 
 
 def gpu(out, only=None):
-    from sosfuse2.geometry import create, TransientGeometry, normal_state, Bundle
-    from sosfuse2 import reference
-    from sosfuse2.validate import relative, moment_comparison
-    from sosfuse2.stratosphere import source_size
+    from sosfuse2.solve.ray_geometry import create, TransientGeometry, normal_state, Bundle
+    from sosfuse2.backends import numpy_reference
+    from sosfuse2.checks.validate import relative, moment_comparison
+    from sosfuse2.atmosphere.stratosphere import source_size
 
     rows = []
     cases = [
@@ -433,8 +433,8 @@ def gpu(out, only=None):
             src[:, 571:] = src[:, 10:571] * np.float32(0.1)
         bundle = Bundle([g], s.kernel.xp)
         for first in (True, False):
-            ref, Y = reference.transport(g, c, src, first, return_basis=True)
-            moment, flux = reference.project(g, ref, c, Y)
+            ref, Y = numpy_reference.transport(g, c, src, first, return_basis=True)
+            moment, flux = numpy_reference.project(g, ref, c, Y)
             _, _, gq = s.kernel.launch(bundle, s, s.kernel.xp.asarray(src), first, phase=2)
             qerr = relative(s.kernel.host(gq), ref)
             gmom, gf, _ = s.kernel.launch(bundle, s, s.kernel.xp.asarray(src), first, phase=0)

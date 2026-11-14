@@ -4,7 +4,7 @@ CPU only; every cache root is a temporary folder. The reference is GL64/GL128 be
 tangent point (no antiderivative), as measured in a larger sweep (observed maxima).
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import contextlib
 import copy
 import io
@@ -18,10 +18,12 @@ import unittest
 from unittest import mock
 
 import numpy as np
-from sosfuse2.numerical_checks import assert_equivalent
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
-from sosfuse2 import density, geometry, ground_parallel as gp, host_cache, stratosphere as st, sun_parallel as sp
-from sosfuse2.strato_states import build as strato_states
+from sosfuse2.atmosphere import density, stratosphere as st
+from sosfuse2.solve import ray_geometry
+from sosfuse2.precompute import ground_parallel as gp, host_cache, sun_parallel as sp
+from sosfuse2.asset_tools.strato_states import build as strato_states
 
 R = 6371.0
 SERIAL = {sp.ENV: '1', gp.ENV: '1', 'SOSFUSE2_COLUMN_WORKERS': '1', 'SOSFUSE2_GEOMETRY_WORKERS': '1'}
@@ -106,7 +108,7 @@ class SunMethodTests(unittest.TestCase):
         cls.root = Path(cls.tmp.name)
         with mock.patch.dict(os.environ, SERIAL), mock.patch.object(host_cache, 'ROOT', cls.root / 'hc'):
             os.environ.pop(density.SUN_METHOD_ENV, None)
-            s, cls.scope, _ = geometry.create(cls.root / 'prepare', 'selftest', [550.0], 'numpy')
+            s, cls.scope, _ = ray_geometry.create(cls.root / 'prepare', 'selftest', [550.0], 'numpy')
         cls.old = cls.scope.b.sh.old
         s.geo.h = np.array([0.0, 0.1, 25.0])
         s.geo.chi = np.deg2rad([0.0, 80.0, 93.0])
@@ -278,7 +280,7 @@ class SunMethodTests(unittest.TestCase):
             with contextlib.ExitStack() as stack:
                 for patch in patches:
                     stack.enter_context(patch)
-                s, _, _ = geometry.create(self.root / name, 'selftest', [550.0], 'numpy', state=state)
+                s, _, _ = ray_geometry.create(self.root / name, 'selftest', [550.0], 'numpy', state=state)
             return {k: getattr(s, k) for k in ('gm', 'goff', 'gdir', 'gval', 'ext', 'hr')} | dict(
                 sun=s.geo.sun.col, method=s.density_sun_method
             )
@@ -287,7 +289,7 @@ class SunMethodTests(unittest.TestCase):
             for k in keys:
                 assert_equivalent(a[k], b[k])
 
-        normal = dict(geometry.normal_state(), density=USSTD)
+        normal = dict(ray_geometry.normal_state(), density=USSTD)
         gl = create(normal, 'gl', '1', 'gl_cold')
         n = len(tokens)
         exact = create(normal, 'exact', '1', 'exact_cold')

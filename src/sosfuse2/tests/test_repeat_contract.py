@@ -2,15 +2,16 @@
 
 import numpy as np
 import pytest
-from sosfuse2 import gate, kernel_config, compile_cache
+from sosfuse2.checks import gate
+from sosfuse2.backends import flags, compile_cache
 
 
 def test_mode_and_cache_key(monkeypatch):
     monkeypatch.delenv('SOSFUSE2_DETERMINISTIC', raising=False)
-    assert kernel_config.deterministic() is False
+    assert flags.deterministic() is False
     off = compile_cache.cache_key('test', {})
     monkeypatch.setenv('SOSFUSE2_DETERMINISTIC', '1')
-    assert kernel_config.deterministic() is True
+    assert flags.deterministic() is True
     assert compile_cache.cache_key('test', {}) != off
     monkeypatch.setenv('SOSFUSE2_DETERMINISTIC', 'true')
     with pytest.raises(ValueError, match='E_DETERMINISTIC'):

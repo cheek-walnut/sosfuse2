@@ -11,13 +11,13 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2 import reference
-from sosfuse2.geometry import create, TransientGeometry
-from sosfuse2.fused import Solver
-from sosfuse2.strato_states import build
+from sosfuse2.backends import numpy_reference
+from sosfuse2.solve.ray_geometry import create, TransientGeometry
+from sosfuse2.solve.source_solver import Solver
+from sosfuse2.asset_tools.strato_states import build
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 CPP = r'''
@@ -41,7 +41,7 @@ def numpy_seq(g, rad, Y):
     weight = g['weight'].astype('f4')
     st = np.sqrt(np.maximum(0.0, 1 - g['d'][:, 2] ** 2))
     cp = np.where(st > 1e-12, g['d'][:, 0] / np.maximum(st, 1e-30), 1.0).astype('f4')
-    cm = reference.cosine(cp)
+    cm = numpy_reference.cosine(cp)
     levels = np.array([m for l in range(33) for m in range(l + 1)])
     out = np.zeros((565, rad.shape[1]), 'f8')
     for ray in range(len(rad)):
@@ -82,7 +82,7 @@ def run(out):
     field[:, :3] = abs(field[:, :3])
     rows = []
     for first in (True, False):
-        rad, Y = reference.transport(g, c, field, first, return_basis=True)
+        rad, Y = numpy_reference.transport(g, c, field, first, return_basis=True)
         seq, cm = numpy_seq(g, rad, Y)
         native = np.empty_like(seq)
         wt = np.ascontiguousarray(g['weight'], 'f4')
@@ -91,7 +91,7 @@ def run(out):
         rad = np.ascontiguousarray(rad)
         fn(len(rad), 15, rad.ctypes.data, wt.ctypes.data, Y.ctypes.data, cm.ctypes.data, native.ctypes.data)
         per = np.concatenate([numpy_seq(g, rad[:, w : w + 1], Y)[0] for w in range(15)], axis=1)
-        production, _ = reference.project(g, rad, c, Y)
+        production, _ = numpy_reference.project(g, rad, c, Y)
         rows.append(
             dict(
                 first=first,

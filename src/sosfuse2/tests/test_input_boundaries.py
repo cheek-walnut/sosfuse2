@@ -3,8 +3,9 @@
 import sys
 import numpy as np
 import pytest
-from sosfuse2 import pipeline, table_fast
-from sosfuse2.host.pack_state import render_functions
+from sosfuse2.jobs import pipeline
+from sosfuse2.outputs import radiance_table
+from sosfuse2.outputs.pack_state import render_functions
 
 
 def test_preview_dark_centre():
@@ -31,13 +32,13 @@ def test_pipeline_zero_threads(tmp_path):
 def test_table_nonpositive_batch(monkeypatch, tmp_path, capsys):
     for batch in (0, -1):
         with pytest.raises(ValueError, match='E_TABLE_BATCH'):
-            table_fast.make_table(None, None, [], [], [], batch=batch)
+            radiance_table.make_table(None, None, [], [], [], batch=batch)
         monkeypatch.setattr(sys, 'argv', [
             'table_fast', '--id', 'A', '--source', str(tmp_path / 'missing.npz'),
             '--prepare', str(tmp_path), '--out', str(tmp_path / 'table.npz'),
             '--batch', str(batch),
         ])
         with pytest.raises(SystemExit) as exc:
-            table_fast.main()
+            radiance_table.main()
         assert exc.value.code == 2 and 'E_TABLE_BATCH' in capsys.readouterr().err
         assert not (tmp_path / 'table.npz').exists()

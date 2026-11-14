@@ -6,8 +6,10 @@ import json
 import numpy as np
 import pytest
 
-from sosfuse2 import components, density, identity as I, minor_absorbers as MA
-from sosfuse2 import ozone_temperature as OT, paths, spectral as SP
+from sosfuse2.atmosphere import components, density, minor_absorbers as MA
+from sosfuse2.foundation import content_identity as I
+from sosfuse2.atmosphere import ozone_temperature as OT, spectral as SP
+from sosfuse2.foundation import paths
 
 
 INPUTS = {
@@ -123,7 +125,7 @@ def test_generator_records_are_not_cross_section_identity(tmp_path):
 
 
 def test_o4_validation_and_generator_boundary(tmp_path):
-    from sosfuse2.generate_minor_absorbers import CIA_SHA, RULES_VERSION
+    from sosfuse2.asset_tools.generate_minor_absorbers import CIA_SHA, RULES_VERSION
 
     doc = dict(format='o4-fine-v1', wavelength_nm=SP.asset()['wl'].tolist(), o4=[1e-46] * len(SP.asset()['wl']),
                units=dict(wavelength_nm='nm (air)', o4=MA.UNITS['o4']),
@@ -220,7 +222,8 @@ def test_asset_strict_json_before_exclusions(raw):
 @pytest.mark.parametrize('version', ['v3', 'v4'])
 def test_saved_source_restores_registered_assets(tmp_path, version):
     from types import SimpleNamespace
-    from sosfuse2 import run_gpu_state_v3 as runner, table_fast
+    from sosfuse2.jobs import run_state as runner
+    from sosfuse2.outputs import radiance_table
 
     state = {'id': 'asset-test', 'parameters': {'aod550': 0.1, 'o4': False}}
     # Build full settings through the same public adapter used by restoration.
@@ -238,8 +241,8 @@ def test_saved_source_restores_registered_assets(tmp_path, version):
                    source=np.ones((1, 1, 45), 'f4'), physics=json.dumps(old['spectral']['physics']),
                    optics_state=json.dumps(components.optics_state(state)))
     np.savez(path, **payload, source_contract=json.dumps(contract))
-    assert table_fast.restored_settings(path, state, True, 'numpy') == old
-    np.testing.assert_array_equal(table_fast.load_source(path, solver, cfg['wavelengths_nm'], settings=cfg,
+    assert radiance_table.restored_settings(path, state, True, 'numpy') == old
+    np.testing.assert_array_equal(radiance_table.load_source(path, solver, cfg['wavelengths_nm'], settings=cfg,
                                                        backend='numpy', full_settings=True), payload['source'])
     assert SP.same_settings(old, cfg)
     changed = copy.deepcopy(old)
@@ -250,4 +253,4 @@ def test_saved_source_restores_registered_assets(tmp_path, version):
     contract['settings'] = changed
     np.savez(path, **payload, source_contract=json.dumps(contract))
     with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
-        table_fast.restored_settings(path, state, True, 'numpy')
+        radiance_table.restored_settings(path, state, True, 'numpy')

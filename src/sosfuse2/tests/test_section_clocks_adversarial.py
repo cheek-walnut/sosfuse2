@@ -23,17 +23,19 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2.numerical_checks import assert_equivalent
-from sosfuse2 import fused, testing
+from sosfuse2.foundation import paths
+from sosfuse2.checks.numerical_checks import assert_equivalent
+from sosfuse2.solve import source_solver
+from sosfuse2.checks import testkit
 
 
 def evidence():
     """The kernel_ab rig evidence pack (sky-sos record; skipped without SOSFUSE2_SKY_SOS_ROOT, failed when it is set and missing)."""
-    return testing.sky_sos('rig/docker/received_pack/kernel_ab')
+    return testkit.sky_sos('rig/docker/received_pack/kernel_ab')
 
 
 def campaign_checks():
-    return testing.sky_sos('rig/campaign_usstd/campaign_checks.py')
+    return testkit.sky_sos('rig/campaign_usstd/campaign_checks.py')
 
 
 FLAG = 'EXP_SECTION_CLOCKS'
@@ -109,7 +111,7 @@ class FakeRaw:
                 counters[c, tile, warp] = values + [sum(values) + 3]
 
 
-def launch_fixture(module=fused, flags=(), W=15, cells=5, block=256):
+def launch_fixture(module=source_solver, flags=(), W=15, cells=5, block=256):
     kernel = module.Kernel(flags=flags, block_size=block)
     xp = FakeXP()
     kernel.xp = xp
@@ -172,7 +174,7 @@ def launch_fixture(module=fused, flags=(), W=15, cells=5, block=256):
     return kernel, xp, raw, state, bundle, field
 
 
-def run_launch(fixture, directory, *, module=fused, chunk=0, phase=0, first=False, timed=False):
+def run_launch(fixture, directory, *, module=source_solver, chunk=0, phase=0, first=False, timed=False):
     kernel, xp, raw, state, bundle, field = fixture
     text = io.StringIO()
     with (
@@ -196,13 +198,13 @@ def run_launch(fixture, directory, *, module=fused, chunk=0, phase=0, first=Fals
 
 class SummaryAdversarial(unittest.TestCase):
     def test_exact_schema_names(self):
-        self.assertEqual(fused.SECTION_CLOCK_NAMES, NAMES)
+        self.assertEqual(source_solver.SECTION_CLOCK_NAMES, NAMES)
 
     def test_large_uint64_sums_are_lossless_and_not_wall_time(self):
         counters = np.zeros((2, 3, 8, 8), dtype='uint64')
         counters[..., 0] = 2**63 + 17
         counters[..., 7] = 2**63 + 39
-        report = fused.section_clock_summary(counters)
+        report = source_solver.section_clock_summary(counters)
         self.assertEqual(report['observer_cycles']['point'], 48 * (2**63 + 17))
         self.assertEqual(report['observer_cycles']['total'], 48 * (2**63 + 39))
         self.assertEqual(report['residual_observer_cycles'], 48 * 22)
@@ -216,7 +218,7 @@ class SummaryAdversarial(unittest.TestCase):
         counters[..., :2] = 2**63
         counters[..., 7] = np.iinfo(np.uint64).max
         with self.assertRaisesRegex(ValueError, 'E_SECTION_CLOCK_OVERLAP'):
-            fused.section_clock_summary(counters)
+            source_solver.section_clock_summary(counters)
 
     def test_per_observer_overlap_cannot_hide_in_aggregate(self):
         counters = np.zeros((1, 1, 2, 8), dtype='uint64')
@@ -224,14 +226,14 @@ class SummaryAdversarial(unittest.TestCase):
         counters[0, 0, 0, 7] = 20
         counters[0, 0, 1, 7] = 1000
         with self.assertRaisesRegex(ValueError, 'E_SECTION_CLOCK_OVERLAP'):
-            fused.section_clock_summary(counters)
+            source_solver.section_clock_summary(counters)
 
     def test_disjoint_sections_residual_and_zero_total(self):
         counters = np.zeros((1, 1, 1, 8), dtype='uint64')
-        zero = fused.section_clock_summary(counters)
+        zero = source_solver.section_clock_summary(counters)
         self.assertTrue(all(value is None for value in zero['fractions'].values()))
         counters[0, 0, 0] = [1, 2, 3, 4, 5, 6, 7, 30]
-        report = fused.section_clock_summary(counters)
+        report = source_solver.section_clock_summary(counters)
         self.assertEqual(report['residual_observer_cycles'], 2)
         self.assertAlmostEqual(sum(report['fractions'].values()), 28 / 30)
 
@@ -245,14 +247,14 @@ class SummaryAdversarial(unittest.TestCase):
         ):
             with self.subTest(shape=value.shape, dtype=value.dtype):
                 with self.assertRaisesRegex(ValueError, 'E_SECTION_CLOCK_BUFFER'):
-                    fused.section_clock_summary(value)
+                    source_solver.section_clock_summary(value)
 
     def test_noncontiguous_schema_is_summed_without_mutating_input(self):
         counters = np.zeros((2, 3, 8, 8), dtype='uint64')[:, ::2]
         counters[..., 0] = 3
         counters[..., 7] = 5
         before = counters.copy()
-        report = fused.section_clock_summary(counters)
+        report = source_solver.section_clock_summary(counters)
         self.assertEqual(report['observer_cycles']['point'], 2 * 2 * 8 * 3)
         np.testing.assert_array_equal(counters, before)
 
@@ -260,7 +262,7 @@ class SummaryAdversarial(unittest.TestCase):
 class FlagAdversarial(unittest.TestCase):
     def test_explicit_environment_token_existing_grammar(self):
         with patch.dict(os.environ, {'SOSFUSE2_KERNEL_FLAGS': ' SH_AUX, EXP_SECTION_CLOCKS,, '}):
-            kernel = fused.Kernel()
+            kernel = source_solver.Kernel()
         self.assertEqual(kernel.flags, (FLAG,))
 
     def test_lookalikes_are_rejected_and_never_enabled(self):
@@ -272,12 +274,12 @@ class FlagAdversarial(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 with self.assertRaisesRegex(ValueError, 'E_KERNEL_FLAG'):
-                    fused.Kernel(flags=(token,))
+                    source_solver.Kernel(flags=(token,))
 
     def test_empty_explicit_flags_override_environment_and_duplicates_are_idempotent(self):
         with patch.dict(os.environ, {'SOSFUSE2_KERNEL_FLAGS': FLAG}):
-            self.assertEqual(fused.Kernel(flags=()).flags, ())
-            self.assertEqual(fused.Kernel(flags=(FLAG, FLAG)).flags, (FLAG,))
+            self.assertEqual(source_solver.Kernel(flags=()).flags, ())
+            self.assertEqual(source_solver.Kernel(flags=(FLAG, FLAG)).flags, (FLAG,))
 
     def test_compile_options_and_cache_isolate_clock_flag_and_tile_stage(self):
         compiled = []
@@ -297,9 +299,9 @@ class FlagAdversarial(unittest.TestCase):
             getDevice=lambda: 0, getDeviceProperties=lambda device: {'sharedMemPerBlock': 200000}
         )
         flags = A + ('LANE_ATTEN',)  # Current Simpson path; keep immutable baseline A/B unchanged.
-        kernel = fused.Kernel(flags=flags)
+        kernel = source_solver.Kernel(flags=flags)
         kernel.xp = xp
-        with patch.object(fused, 'stage', lambda *a, **k: contextlib.nullcontext()):
+        with patch.object(source_solver, 'stage', lambda *a, **k: contextlib.nullcontext()):
             off_first = kernel.raw_kernel(15, first=1, phase=0)
             self.assertNotIn('-D' + FLAG, off_first.options)
             kernel.flags = tuple(sorted(flags + (FLAG,)))
@@ -330,7 +332,7 @@ class LaunchAdversarial(unittest.TestCase):
             for flags, chunk in itertools.product(((), A), (0, 2)):
                 with self.subTest(flags=flags, chunk=chunk):
                     before = launch_fixture(original, flags)
-                    after = launch_fixture(fused, flags)
+                    after = launch_fixture(source_solver, flags)
                     bo, br = run_launch(before, Path(directory) / 'before', module=original, chunk=chunk)
                     ao, ar = run_launch(after, Path(directory) / 'after', chunk=chunk)
                     self.assertEqual((br, ar), ([], []))
@@ -443,7 +445,7 @@ class IndependentEvidence(unittest.TestCase):
         Strip entire observer-only blocks, including their off branches, and supply
         independent no-ops. This cannot detect numerical edits common to both copies.
         """
-        source = Path(fused.__file__).with_name('kernel.cu').read_text()
+        source = paths.KERNEL_CU.read_text()
 
         def without_clocks(code):
             lines = code.splitlines(keepends=True)
@@ -469,7 +471,7 @@ class IndependentEvidence(unittest.TestCase):
             out = subprocess.check_output(['clang++', '-E', '-P', '-x', 'c++', *options, '-'], input=code, text=True)
             return re.findall(r'\w+|[^\s]', out)
 
-        testing.require_tool('clang++')
+        testkit.require_tool('clang++')
         reference = without_clocks(source)
         specs = ((1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, 0), (1, 2, 0), (0, 2, 0))
         for W, strato, spec in itertools.product((1, 15), (False, True), specs):
@@ -496,8 +498,8 @@ class IndependentEvidence(unittest.TestCase):
 
     def test_real_clock_macros_wrap_guard_and_actual_slot_expression(self):
         """Execute actual macros/index on host; synchronization remains a device limitation."""
-        testing.require_tool('clang++')
-        source = Path(fused.__file__).with_name('kernel.cu').read_text()
+        testkit.require_tool('clang++')
+        source = paths.KERNEL_CU.read_text()
         start = source.index('#ifdef EXP_SECTION_CLOCKS\n#define SECTION_PARAM')
         macros = source[start : source.index('#endif', start) + len('#endif')]
         slot = re.search(r'int64_t slot=([^;]+);', source).group(1)

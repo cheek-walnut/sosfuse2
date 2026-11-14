@@ -12,14 +12,14 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 
 STATE = json.loads((paths.FIXTURES / 'states_lutv2_strato_usstd.json').read_text())['states'][0]
 PUBLISHED = 'attach_geometry_' + 'a' * 24 + '.npz'
 
 
 def attach_once(root, record, start, out):
-    from sosfuse2 import run_gpu_state_v3 as V3
+    from sosfuse2.jobs import run_state as V3
 
     os.environ['STRATO_ATTACH_CACHE'] = root
     records = []

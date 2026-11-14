@@ -18,13 +18,13 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2 import validate
-from sosfuse2 import table_fast as tf
-from sosfuse2.geometry import create, TransientGeometry, Bundle, normal_state
-from sosfuse2.fused import Solver
+from sosfuse2.checks import validate
+from sosfuse2.outputs import radiance_table as tf
+from sosfuse2.solve.ray_geometry import create, TransientGeometry, Bundle, normal_state
+from sosfuse2.solve.source_solver import Solver
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 

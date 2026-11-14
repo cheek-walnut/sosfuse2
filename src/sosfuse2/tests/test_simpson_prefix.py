@@ -21,19 +21,19 @@ import math
 import numpy as np
 import pytest
 
-from sosfuse2 import reference as ref  # noqa: E402
-from sosfuse2 import tropo_profile, density  # noqa: E402
-from sosfuse2.arithmetic import F, split, kahan  # noqa: E402
+from sosfuse2.backends import numpy_reference as ref  # noqa: E402
+from sosfuse2.atmosphere import tropo_profile, density  # noqa: E402
+from sosfuse2.backends.arithmetic import F, split, kahan  # noqa: E402
 
 try:
-    from sosfuse2.numerical_checks import within_tol
+    from sosfuse2.checks.numerical_checks import within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import within_tol
 
 RE = 6371.0
-from sosfuse2 import testing  # noqa: E402
+from sosfuse2.checks import testkit  # noqa: E402
 
-FROZEN = testing.sky_sos_optional(
+FROZEN = testkit.sky_sos_optional(
     'results/taskB_simpson_20261022/e1_frozen_small.npz'
 )  # Optional research record.
 Z05 = np.arange(161) * 0.5
@@ -316,7 +316,7 @@ def old_inline_profile(h, c):
     """Historical sample() profile block, copied verbatim."""
     prof = np.stack([np.exp(-h / F(8)), np.exp(-h / c['height']), np.maximum(F(0), F(1) - abs(h - F(25)) / F(15))], -1)
     if 'density_optics' in c:
-        from sosfuse2.density import interpolate32
+        from sosfuse2.atmosphere.density import interpolate32
 
         optics = c['density_optics']
         tab = interpolate32(h, optics['table'])
@@ -325,7 +325,7 @@ def old_inline_profile(h, c):
         if optics['mask'] & 2:
             prof[:, 2] = tab[:, 1]
     if 'aer2' in c:
-        from sosfuse2.tropo_profile import profile32
+        from sosfuse2.atmosphere.tropo_profile import profile32
 
         prof[:, 1] = profile32(h, c['aer2'])
     return prof

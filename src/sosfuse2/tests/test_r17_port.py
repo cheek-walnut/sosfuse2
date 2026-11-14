@@ -11,7 +11,7 @@ Run: python -B -m sosfuse2.tests.test_r17_port
 7 stage1 wiring: rig S2 NVRTC options/keys, env 0 override, separate memo, fl_project options.
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import contextlib
 import copy
 import hashlib
@@ -32,10 +32,13 @@ from unittest.mock import patch
 import warnings
 
 import numpy as np
-from sosfuse2.numerical_checks import assert_equivalent
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 HERE = paths.PKG  # the package directory (kernel, configs, assets)
-from sosfuse2 import column_cache, fused, paths, stratosphere
+from sosfuse2.precompute import column_cache
+from sosfuse2.solve import source_solver
+from sosfuse2.foundation import paths
+from sosfuse2.atmosphere import stratosphere
 
 
 def phase_events(text):
@@ -56,7 +59,7 @@ class ColumnCacheFirstUse(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix='r17-colcache-'))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        from sosfuse2.testing import sun_scope
+        from sosfuse2.checks.testkit import sun_scope
 
         self.old = sun_scope()
         rng = np.random.default_rng(23)
@@ -84,7 +87,7 @@ class ColumnCacheFirstUse(unittest.TestCase):
             warnings.catch_warnings(record=True) as caught,
         ):
             warnings.simplefilter('always')
-            out = fused.Kernel.strato_end_columns(SimpleNamespace(host=np.asarray, xp=np), bundle, self.c)
+            out = source_solver.Kernel.strato_end_columns(SimpleNamespace(host=np.asarray, xp=np), bundle, self.c)
         os.environ.pop('SOSFUSE2_COLUMN_CACHE', None)
         os.environ.pop('SOSFUSE2_COLUMN_CACHE_JOB', None)
         events = phase_events(stdout.getvalue())
@@ -144,12 +147,12 @@ class ColumnCacheFirstUse(unittest.TestCase):
                 sorted(p.parent.parent.name for p in self.tmp.glob('*/.column_cache_checks/*.json')),
                 ['jobA', 'jobA', 'jobB', 'jobC'],
             )
-            self.assertFalse(list((self.tmp / 'columns').glob('*.json')))
+            self.assertFalse([p for p in (self.tmp / 'columns').glob('*') if p.suffix == '.json'])
 
 
 class PreviewReuse(unittest.TestCase):
     def test_repack_renders_once_same_products(self):
-        spec = importlib.util.spec_from_file_location('r17_pack_state', paths.PKG / 'host/pack_state.py')
+        spec = importlib.util.spec_from_file_location('r17_pack_state', paths.PKG / 'outputs/pack_state.py')
         pm = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(pm)
         tmp = Path(tempfile.mkdtemp(prefix='r17-preview-'))
@@ -165,7 +168,7 @@ class PreviewReuse(unittest.TestCase):
             out = tmp / label / 'state'
             out.mkdir(parents=True)
             np.savez(out / 'table.npz', **table)
-            from sosfuse2.components import physics, optics_state
+            from sosfuse2.atmosphere.components import physics, optics_state
 
             (out / 'meta.json').write_text(
                 json.dumps(dict(complete=True, contract='v4', physics=physics(), optics_state=optics_state({})))
@@ -189,9 +192,9 @@ class PreviewReuse(unittest.TestCase):
 
 class Nphi(unittest.TestCase):
     def test_default_32_explicit_64_generates(self):
-        from sosfuse2 import run_gpu_state_v3 as rv
-        from sosfuse2 import geometry as gm
-        from sosfuse2.strato_states import build
+        from sosfuse2.jobs import run_state as rv
+        from sosfuse2.solve import ray_geometry as gm
+        from sosfuse2.asset_tools.strato_states import build
 
         # accepted/engine.py keeps 64 (it is in the geometry signature, geometry_contract.UPSTREAM);
         # the v3 adapter replaces its grid counts with settings_for (run_gpu_state_v3.py create_configured, the create() grid hook).
@@ -230,8 +233,8 @@ SPECS = ((1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, 0), (1, 2, 0), (0, 2, 0))  # pr
 
 
 def flag_sets():
-    c3 = json.loads((HERE / 'configs/C3.json').read_text())['kernel_flags']
-    off = json.loads((HERE / 'configs/C3_nostrato.json').read_text())['kernel_flags']
+    c3 = json.loads((HERE / 'backends/configs/C3.json').read_text())['kernel_flags']
+    off = json.loads((HERE / 'backends/configs/C3_nostrato.json').read_text())['kernel_flags']
     return dict(
         c3=c3 + ['STRATO', 'PROFILE'],
         c3_nostrato=off + ['PROFILE'],
@@ -241,7 +244,7 @@ def flag_sets():
 
 
 def cases():
-    from sosfuse2.kernel_config import resolve_config
+    from sosfuse2.backends.flags import resolve_config
 
     for name, flags in flag_sets().items():
         for W in (1, 15):
@@ -275,7 +278,7 @@ def token_digest(kernel, jobs=8):
 @unittest.skipIf(shutil.which('clang++') is None, 'clang++ required for lexical preprocessing')
 class KernelFlagsParse(unittest.TestCase):
     def test_production_and_new_flags_parse(self):
-        _, rows = token_digest(HERE / 'kernel.cu')
+        _, rows = token_digest(HERE / 'backends/kernel.cu')
         self.assertEqual(len(rows), 56)  # four physical sets x FW1/FW15 x six roles + ray-limit
         # Each r17 macro changes the token stream (it is reachable) and still passes a host syntax check.
         from sosfuse2.tests.test_kernel_static import STUB
@@ -292,10 +295,10 @@ class KernelFlagsParse(unittest.TestCase):
             '-DK_PHASE=0',
             '-DK_BOUNDARY=0',
         ]
-        plain = subprocess.check_output(['clang++', '-E', '-P', '-x', 'c++', *base, str(HERE / 'kernel.cu')], text=True)
+        plain = subprocess.check_output(['clang++', '-E', '-P', '-x', 'c++', *base, str(HERE / 'backends/kernel.cu')], text=True)
         for name in ('SOSFUSE2_FASTMATH',):
             on = subprocess.check_output(
-                ['clang++', '-E', '-P', '-x', 'c++', *base, '-D' + name, str(HERE / 'kernel.cu')], text=True
+                ['clang++', '-E', '-P', '-x', 'c++', *base, '-D' + name, str(HERE / 'backends/kernel.cu')], text=True
             )
             self.assertNotEqual(on, plain, name)
             result = subprocess.run(
@@ -310,7 +313,7 @@ class KernelFlagsParse(unittest.TestCase):
                     str(stub / 'stub.h'),
                     *base,
                     '-D' + name,
-                    str(HERE / 'kernel.cu'),
+                    str(HERE / 'backends/kernel.cu'),
                 ],
                 capture_output=True,
                 text=True,
@@ -337,10 +340,10 @@ class Stage1Wiring(unittest.TestCase):
     separate memo entries, identical fl_project options. Fake RawKernel; no CUDA."""
 
     def kernel(self, profile_name):
-        from sosfuse2 import device_profile
+        from sosfuse2.backends import device_profile
 
-        flags = sorted(set(json.loads((HERE / 'configs/C3.json').read_text())['kernel_flags']) | {'STRATO', 'PROFILE'})
-        k = fused.Kernel(1, backend='numpy', block_size=256, flags=flags)
+        flags = sorted(set(json.loads((HERE / 'backends/configs/C3.json').read_text())['kernel_flags']) | {'STRATO', 'PROFILE'})
+        k = source_solver.Kernel(1, backend='numpy', block_size=256, flags=flags)
         props = dict(sharedMemPerBlockOptin=1 << 20, sharedMemPerBlock=49152, multiProcessorCount=68)
         k.xp = SimpleNamespace(
             RawKernel=FakeRawKernel,
@@ -405,7 +408,7 @@ class Stage1Wiring(unittest.TestCase):
 RECORDER = '''import json, os, sys
 from pathlib import Path
 sys.path.insert(0, {src!r})
-from sosfuse2 import run_gpu_state_v3 as rv
+from sosfuse2.jobs import run_state as rv
 def record(a):
     keys = ('SOSFUSE2_COLUMN_CACHE', 'SOSFUSE2_COLUMN_CACHE_JOB', 'SOSFUSE2_STATE_ID', 'SOSFUSE2_FMAD',
             'SOSFUSE2_STRATO_HOST_COMPONENT_RADIUS', 'SOSFUSE2_STRATO_ASYNC', 'SOSFUSE2_COLUMN_WORKERS')
@@ -420,7 +423,7 @@ rv.main()
 
 class PipelineRunnerSeam(unittest.TestCase):
     def test_persistent_auto_passes_runner_arguments(self):
-        from sosfuse2.strato_states import build
+        from sosfuse2.asset_tools.strato_states import build
 
         tmp = Path(tempfile.mkdtemp(prefix='r17-seam-')).resolve()
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
@@ -443,7 +446,7 @@ class PipelineRunnerSeam(unittest.TestCase):
         )
         work, geometry, columns = tmp / 'work', tmp / 'geometry', tmp / 'columns'
         cmd = [
-            *paths.module_command('pipeline'),
+            *paths.module_command('jobs.pipeline'),
             '--states',
             str(tmp / 'states.json'),
             '--ids',
@@ -476,7 +479,7 @@ class PipelineRunnerSeam(unittest.TestCase):
             doc = json.loads((tmp / 'calls' / f'R{i}.json').read_text())
             argv = doc['argv']
             # pipeline.py: --threads 1, the column pool keeps cpu_budget() // states prepared at once (pipeline.prep_workers).
-            from sosfuse2.pipeline import cpu_budget
+            from sosfuse2.jobs.pipeline import cpu_budget
 
             columns_expected = str(max(1, cpu_budget() // summary['workers']))
             for flag, value in (('--work-root', work), ('--geometry-cache', geometry), ('--column-cache', columns)):

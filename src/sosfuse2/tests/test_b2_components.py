@@ -5,11 +5,14 @@ import json
 
 import numpy as np
 import pytest
-from sosfuse2.testing import sun_scope
+from sosfuse2.checks.testkit import sun_scope
 
-from sosfuse2 import column_table as ct
-from sosfuse2 import density, paths, ray_columns, reference, spectral
-from sosfuse2.components import COMPONENTS, NCOMP, SINV_F, physics
+from sosfuse2.rays import column_table as ct
+from sosfuse2.atmosphere import density, spectral
+from sosfuse2.foundation import paths
+from sosfuse2.rays import ray_columns
+from sosfuse2.backends import numpy_reference
+from sosfuse2.atmosphere.components import COMPONENTS, NCOMP, SINV_F, physics
 
 
 def atmosphere(table=False, step=0.5):
@@ -67,10 +70,10 @@ def functions(o):
 
 
 def test_fixed_component_and_kernel_layout():
-    from sosfuse2.fused import Kernel
-    from sosfuse2.geometry_contract import HEIGHT_DEPENDENT_END_COLUMNS, PACKED_LAYOUT_VERSION, TRAIL
+    from sosfuse2.solve.source_solver import Kernel
+    from sosfuse2.precompute.endpoint_contract import HEIGHT_DEPENDENT_END_COLUMNS, PACKED_LAYOUT_VERSION, TRAIL
 
-    cu = (paths.PKG / 'kernel.cu').read_text()
+    cu = (paths.PKG / 'backends/kernel.cu').read_text()
     assert COMPONENTS == ('air', 'tropo_aerosol', 'o3', 'no2', 'o4')
     assert f'#define NCOMP {NCOMP}' in cu and SINV_F == 7
     assert 'prof[NCOMP]' in cu and 'sc[NCOMP]' in cu and 'st_prof,st_sc' in cu
@@ -138,7 +141,7 @@ def test_minor_columns_independent_and_refinement(ray, monkeypatch):
 
 @pytest.mark.parametrize('path', ['sun', 'endpoint', 'ground', 'interior'])
 def test_all_column_consumers(path, monkeypatch):
-    from sosfuse2.sun_parallel import _row
+    from sosfuse2.precompute.sun_parallel import _row
 
     monkeypatch.setenv('SOSFUSE2_COLUMN_METHOD', 'exact')
     old = old_solver()
@@ -156,7 +159,7 @@ def test_all_column_consumers(path, monkeypatch):
             end = 20.0 if path == 'ground' else 60.0
             if path == 'interior':
                 end = 0.5
-                prof = reference.profile_at(
+                prof = numpy_reference.profile_at(
                     np.array([20.0, 20.25, 20.5], 'f4'), dict(height=np.float32(1.2), density_optics=o)
                 )
                 got = end * (prof[0] + 4 * prof[1] + prof[2]) / 6
@@ -177,7 +180,7 @@ def test_one_component_optical_depth(component):
     e[component] = 0.03
     g = dict(p=np.array([[0.0, 0.0, 6371.0]]), d=np.array([[0.0, 0.0, 1.0]]), edges=np.arange(641)[None] * 0.125)
     c = dict(W=1, height=np.float32(1.2), ext=e, density_optics=o)
-    prefix = reference.SimpsonPrefix(g, c)
+    prefix = numpy_reference.SimpsonPrefix(g, c)
     for seg in range(640):
         prefix.begin(seg)
         prefix.finish()
@@ -196,18 +199,18 @@ def test_stratosphere_separate_from_minor_slots():
     h = np.array([0.0, 10.0, 20.0, 30.0], 'f4')
     c = dict(W=1, height=np.float32(1.2), ext=np.ones((5, 1), 'f4'), density_optics=atmosphere())
     layer = dict(c, strato_ext=np.array([0.2], 'f4'), strato_profile=dict(center=20.0, sigma=3.0, norm=7.5))
-    np.testing.assert_array_equal(reference.profile_at(h, c), reference.profile_at(h, layer))
-    st = reference.strato_profile(h, layer)
-    prof = reference.profile_at(h, c)
+    np.testing.assert_array_equal(numpy_reference.profile_at(h, c), numpy_reference.profile_at(h, layer))
+    st = numpy_reference.strato_profile(h, layer)
+    prof = numpy_reference.profile_at(h, c)
     np.testing.assert_allclose(
-        reference.extinction(prof, layer, st) - reference.extinction(prof, c), 0.2 * st[:, None], rtol=2e-6, atol=1e-7
+        numpy_reference.extinction(prof, layer, st) - numpy_reference.extinction(prof, c), 0.2 * st[:, None], rtol=2e-6, atol=1e-7
     )
 
 
 def test_prepared_endpoint_without_solver_module():
     import pickle
 
-    from sosfuse2.pipeline_execution import PreparedSegments
+    from sosfuse2.jobs.pipeline_execution import PreparedSegments
 
     old = old_solver()
     o = atmosphere(True)
@@ -223,13 +226,13 @@ def test_prepared_endpoint_without_solver_module():
 def test_zero_minor_coefficients_keep_legacy_values():
     from functools import partial
 
-    from sosfuse2.solver_optics import coefficients
+    from sosfuse2.atmosphere.extinction import coefficients
 
     p = paths.ASSETS / 'spectra.json'
     f = partial(coefficients, json.loads(p.read_text()))
     params = dict(aer=0.1, ang=1.3, ozone_DU=280.0)
     w = np.array([400.0, 550.0, 700.0])
-    from sosfuse2.components import _s1_reference
+    from sosfuse2.atmosphere.components import _s1_reference
 
     with _s1_reference():
         e = f(w, params)
@@ -245,11 +248,11 @@ def test_zero_minor_coefficients_keep_legacy_values():
     assert not e[3:].any()
     h = np.linspace(0, 80, 129).astype('f4')
     c = dict(W=3, height=np.float32(1.2), ext=e.astype('f4'), density_optics=atmosphere())
-    prof = reference.profile_at(h, c)
+    prof = numpy_reference.profile_at(h, c)
     old = np.zeros((len(h), 3), 'f4')
     for k in range(3):
         old += prof[:, k, None] * c['ext'][k]
-    np.testing.assert_array_equal(reference.extinction(prof, c), old)
+    np.testing.assert_array_equal(numpy_reference.extinction(prof, c), old)
 
 
 def test_column_keys_depend_on_shapes_not_amounts():
@@ -275,7 +278,7 @@ def test_column_keys_depend_on_shapes_not_amounts():
 def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
     """A product without physics reads as the legacy identity on its own; combining it
     with current physics is E_PHYSICS_MIXED; an identity this code does not know is E_PHYSICS_CONTRACT."""
-    from sosfuse2.components import LEGACY, canonical_state, check_same, identity, optics_state
+    from sosfuse2.atmosphere.components import LEGACY, canonical_state, check_same, identity, optics_state
 
     b = spectral.block(dict(spectral_mode='band'), np.array([550.0]), False)
     assert b['physics'] == physics()
@@ -321,14 +324,14 @@ def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
     # q16: the header records the identity (legacy for a table without physics or without meta.json)
     from types import SimpleNamespace
 
-    from sosfuse2 import table_fast, table_q
+    from sosfuse2.outputs import radiance_table, quantized_table
 
     def q16(name, meta):
         folder = tmp_path / name
         folder.mkdir()
         if meta is not None:
             (folder / 'meta.json').write_text(meta if isinstance(meta, str) else json.dumps(meta))
-        table_fast.save_table(
+        radiance_table.save_table(
             folder / 'table.npz',
             np.arange(1, 9, dtype='f4').reshape(2, 2, 2, 1),
             np.array([550.0]),
@@ -336,15 +339,15 @@ def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
             np.array([10.0, 50.0]),
             np.array([0.0, 90.0]),
         )
-        table_q.save(folder / 'table.npz', folder / 'q.npz')
-        table_q.round_trip(folder / 'table.npz', folder / 'q.npz')
+        quantized_table.save(folder / 'table.npz', folder / 'q.npz')
+        quantized_table.round_trip(folder / 'table.npz', folder / 'q.npz')
         return folder / 'q.npz'
 
     current = q16('new', dict(contract='v4', physics=physics(), optics_state=optics_state({})))
-    assert table_q.load(current)['header']['physics'] == physics()
+    assert quantized_table.load(current)['header']['physics'] == physics()
     for name, meta in (('old', dict(contract='v4')), ('bare', None)):
-        assert table_q.load(q16(name, meta))['header']['physics'] == LEGACY
-    with pytest.raises(table_q.TableQError, match='E_PHYSICS_CONTRACT'):
+        assert quantized_table.load(q16(name, meta))['header']['physics'] == LEGACY
+    with pytest.raises(quantized_table.TableQError, match='E_PHYSICS_CONTRACT'):
         q16('unreadable', '{not json')
     with np.load(current) as z:
         q = dict(z)
@@ -356,19 +359,19 @@ def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
         if value is not None:
             h['physics'] = value
         np.savez(tmp_path / name, **dict(q, header=np.array(json.dumps(h))))
-    old_header = table_q.load(tmp_path / 'old_header.npz')['header']
+    old_header = quantized_table.load(tmp_path / 'old_header.npz')['header']
     assert check_same(old_header.get('physics'), LEGACY) == LEGACY
     with pytest.raises(ValueError, match='E_PHYSICS_MIXED'):
         check_same(old_header.get('physics'), physics(), what='q16 pair')
     with pytest.raises(ValueError, match='E_PHYSICS_CONTRACT'):
-        table_q.load(tmp_path / 'unknown_header.npz')
+        quantized_table.load(tmp_path / 'unknown_header.npz')
     # round_trip is a comparison: a legacy q16 against a table whose meta now says current physics is refused
     legacy_q = tmp_path / 'old' / 'q.npz'
     (tmp_path / 'old' / 'meta.json').write_text(
         json.dumps(dict(contract='v4', physics=physics(), optics_state=optics_state({})))
     )
     with pytest.raises(ValueError, match='E_PHYSICS_MIXED'):
-        table_q.round_trip(tmp_path / 'old' / 'table.npz', legacy_q)
+        quantized_table.round_trip(tmp_path / 'old' / 'table.npz', legacy_q)
     # a source re-queried by this solver must carry this code's physics
     s = SimpleNamespace(fuse_state={}, geo=SimpleNamespace(h=np.array([0.0]), chi=np.array([0.0])))
     base = dict(source=np.zeros(1), h=np.array([0.0]), chi=np.array([0.0]), wavelength_nm=np.array([550.0]))
@@ -383,8 +386,8 @@ def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
         ),
     )
     with pytest.raises(ValueError, match='E_PHYSICS_MIXED'):
-        table_fast.load_source(tmp_path / 'source_old.npz', s, [550.0])
-    assert table_fast.load_source(
+        radiance_table.load_source(tmp_path / 'source_old.npz', s, [550.0])
+    assert radiance_table.load_source(
         tmp_path / 'source_new.npz', s, [550.0], settings={}, backend='numpy', full_settings=True
     ).shape == (1,)
 
@@ -393,7 +396,7 @@ def test_sun_table_identity_rebuilds_stale_and_reuses_current(tmp_path, monkeypa
     """An unkeyed 3-column sun table must not reach the 5-column solver."""
     import warnings
 
-    from sosfuse2 import sun_parallel
+    from sosfuse2.precompute import sun_parallel
 
     monkeypatch.setenv('SOSFUSE2_SUN_WORKERS', '1')
     old = sun_scope()
@@ -433,7 +436,7 @@ def test_sun_table_identity_rebuilds_stale_and_reuses_current(tmp_path, monkeypa
 
 def test_legacy_spectral_block_never_signs_a_new_run(monkeypatch):
     """A block copied from an old meta (no physics) must not sign current physics."""
-    from sosfuse2 import run_gpu_state_v3 as v3
+    from sosfuse2.jobs import run_state as v3
 
     monkeypatch.setattr(v3, 'package_hashes', lambda: {})
     monkeypatch.setattr(v3, 'grid_metadata', lambda cfg: {})
@@ -451,7 +454,7 @@ def test_legacy_spectral_block_never_signs_a_new_run(monkeypatch):
 
 def test_accepted_cells_folder_keyed_by_code_layout_grid(tmp_path, monkeypatch):
     """Pre-B2 blocks/cell_*.npz rows are 14 floats, the native transport reads 18."""
-    from sosfuse2.accepted import engine
+    from sosfuse2.solve import engine
 
     (tmp_path / 'blocks').mkdir()
     np.savez(tmp_path / 'blocks' / 'cell_00000.npz', point=np.zeros((1, 14), 'f4'))  # pre-B2 layout
@@ -466,12 +469,12 @@ def test_accepted_cells_folder_keyed_by_code_layout_grid(tmp_path, monkeypatch):
         and engine.cell_folder(tmp_path, h, chi, dict(cfg, path_n=6)) != a
     )
     real = engine.fingerprint
-    monkeypatch.setattr(engine, 'fingerprint', lambda: dict(real(), **{'sosfuse2/solver_core.py': 'edited'}))
+    monkeypatch.setattr(engine, 'fingerprint', lambda: dict(real(), **{'sosfuse2/solve/engine_core.py': 'edited'}))
     assert engine.cell_folder(tmp_path, h, chi, cfg) != a
 
 
 def test_no2_amount_signature_and_validation(monkeypatch):
-    from sosfuse2 import run_gpu_state_v3 as v3
+    from sosfuse2.jobs import run_state as v3
 
     monkeypatch.setattr(v3, 'package_hashes', lambda: {})
     monkeypatch.setattr(v3, 'grid_metadata', lambda cfg: {})

@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sosfuse2 import gate, testing  # noqa: E402
+from sosfuse2.checks import gate, testkit  # noqa: E402
 
 REAL = gate.GATE
 K, H, D, W = 4, 4, 15, 15
@@ -299,19 +299,19 @@ def test_injected_or_reused_runs_cannot_bless(home):
 
 
 def test_gate_flags_exception_writes_json(tmp_path, monkeypatch):
-    from sosfuse2 import gate_flags
+    from sosfuse2.checks import kernel_diagnostics
 
     def boom(*a, **k):
         raise RuntimeError('no GPU')
 
-    monkeypatch.setattr(gate_flags, 'controls', lambda *a, **k: [])  # no os.environ writes in-process
-    monkeypatch.setattr(gate_flags, 'reduced', boom)
+    monkeypatch.setattr(kernel_diagnostics, 'controls', lambda *a, **k: [])  # no os.environ writes in-process
+    monkeypatch.setattr(kernel_diagnostics, 'reduced', boom)
     monkeypatch.setattr(sys, 'argv', ['g', '--out', str(tmp_path / 'a')])
-    assert gate_flags.main() == 2 and json.loads((tmp_path / 'a/gate.json').read_text())['code'] == 'E_GATE_EXCEPTION'
-    monkeypatch.setattr(gate_flags, 'reduced', lambda *a: (dict(pass_=True), None))
-    monkeypatch.setattr(gate_flags, 'evaluate', boom)
+    assert kernel_diagnostics.main() == 2 and json.loads((tmp_path / 'a/gate.json').read_text())['code'] == 'E_GATE_EXCEPTION'
+    monkeypatch.setattr(kernel_diagnostics, 'reduced', lambda *a: (dict(pass_=True), None))
+    monkeypatch.setattr(kernel_diagnostics, 'evaluate', boom)
     monkeypatch.setattr(sys, 'argv', ['g', '--out', str(tmp_path / 'b')])
-    assert gate_flags.main() == 2  # was KeyError 'pass' (gate_flags.py:108-109)
+    assert kernel_diagnostics.main() == 2  # was KeyError 'pass' (gate_flags.py:108-109)
     g = json.loads((tmp_path / 'b/gate.json').read_text())
     assert g['pass'] is False and g['exact']['C3']['code'] == 'E_GATE_EXCEPTION'
 
@@ -319,8 +319,8 @@ def test_gate_flags_exception_writes_json(tmp_path, monkeypatch):
 def test_boundary_ftz_numpy_matches_cuda_contract():
     """G-B: production reference.sun_columns lit at the FTZ boundary = the CUDA -ftz table
     (-FLT_MIN 0, -min subnormal 1, -0 1, +0 1, +min subnormal 1, +FLT_MIN 1)."""
-    from sosfuse2 import reference as ref
-    from sosfuse2.arithmetic import F, R
+    from sosfuse2.backends import numpy_reference as ref
+    from sosfuse2.backends.arithmetic import F, R
 
     tiny = np.finfo('f4').tiny
     sub = np.nextafter(F(0), F(1))
@@ -346,7 +346,7 @@ def test_boundary_ftz_numpy_matches_cuda_contract():
 
 def _log_blend_corners(traces, weights):
     """Exercise the reference's corner moments and scale, retaining its linear tensor accumulation."""
-    from sosfuse2 import reference as ref
+    from sosfuse2.backends import numpy_reference as ref
 
     traces, weights = np.broadcast_arrays(np.asarray(traces, 'f4'), np.asarray(weights, 'f4'))
     traces = traces.reshape(-1, 4)
@@ -413,7 +413,7 @@ def test_log_blend_continuity(pair, axis):
 )
 def test_log_blend_adversarial(traces, weights):
     """Invalid and subnormal traces cannot poison the scale; only the original val may propagate NaN."""
-    from sosfuse2 import reference as ref
+    from sosfuse2.backends import numpy_reference as ref
 
     with np.errstate(invalid='raise', divide='raise', over='raise'):
         val, result, scale = _log_blend_corners(traces, weights)
@@ -434,7 +434,7 @@ def test_log_blend_adversarial(traces, weights):
 @pytest.mark.parametrize('perturbation', ['atan2-bit0', 'on-grid'])
 def test_log_blend_removes_one_ulp_sensitivity(tmp_path, monkeypatch, perturbation):
     """The log-space blend keeps FX-N radiance at -9/-12 deg within 2e-4 under bit-selected or exact-grid +1 ULP perturbations."""
-    from sosfuse2 import reference as ref
+    from sosfuse2.backends import numpy_reference as ref
 
     F = gate.load_fixtures()
     env = gate.fixture_env(F, 'FX-N')
@@ -554,7 +554,7 @@ def test_required_ratchet_pair_missing(home):
     'delta,decision,expected', [(5e-4, None, True), (2e-3, 'approved-id', False), (2e-3, None, False)]
 )
 def test_gf_fixed_tolerance_and_decision_no_bypass(home, monkeypatch, delta, decision, expected):
-    testing.sky_sos(
+    testkit.sky_sos(
         'rig/bake/bake_run.py'
     )  # G-F loads the sky-sos bake template (research consumer): skip without the checkout
     F = gate.load_fixtures()
@@ -607,7 +607,7 @@ def test_main_restores_records_and_checks_writable_baselines(home, monkeypatch):
 
 def test_commit_and_portable_reference(monkeypatch, tmp_path):
     """C-03/C-05: the recorded commit is GATE_SOURCE_COMMIT or the package's own; a reference path never records a host path."""
-    from sosfuse2 import run_gpu_state_v3 as v3
+    from sosfuse2.jobs import run_state as v3
 
     monkeypatch.setattr(v3, 'package_info', lambda: dict(package_version='9.9.9', package_commit='feedface'))
     monkeypatch.delenv('GATE_SOURCE_COMMIT', raising=False)

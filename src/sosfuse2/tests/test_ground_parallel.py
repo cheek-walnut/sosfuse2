@@ -10,18 +10,13 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest import mock
 import numpy as np
-from sosfuse2 import (
-    column_parallel as cp,
-    density,
-    geometry,
-    ground_parallel as gp,
-    host_cache,
-    host_limits as hl,
-    stratosphere as st,
-)
+from sosfuse2.precompute import column_parallel as cp, ground_parallel as gp, host_cache
+from sosfuse2.atmosphere import density, stratosphere as st
+from sosfuse2.solve import ray_geometry
+from sosfuse2.foundation import host_limits as hl
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
@@ -68,7 +63,7 @@ class GroundTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         with mock.patch.dict(os.environ, {'SOSFUSE2_SUN_WORKERS': '1', gp.ENV: '1'}):
-            s, cls.scope, _ = geometry.create(Path(cls.tmp.name) / 'prepare', 'selftest', [550.0], 'numpy')
+            s, cls.scope, _ = ray_geometry.create(Path(cls.tmp.name) / 'prepare', 'selftest', [550.0], 'numpy')
         # Real incoming quadratures at illuminated, terminator, shadow and altitude cells.
         s.geo.h = np.array([0.1, 25.0])
         s.geo.chi = np.deg2rad([80.0, 93.0])

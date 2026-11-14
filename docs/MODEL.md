@@ -126,7 +126,7 @@ declares as `air_surface_number_density_m3`. The state parameter `parameters.o4`
 switches O₄ on and off. The cross section is the HITRAN 2024 collision-induced absorption (Gordon et al. 2026; Terragni
 et al. 2025): data set 54 at 293 K up to 499.861 nm, then data set 32 at 293 K up to 600 nm and at 287 K up to 653.842 nm,
 resampled to 0.1 nm cells and zero outside that range. The O₂ A- and B-band sets are excluded. Like NO₂, `σ̄` is a band or
-point value with no temperature dependence. The O₄ data are not bundled; `python -m sosfuse2.prepare_minor_absorbers`
+point value with no temperature dependence. The O₄ data are not bundled; `python -m sosfuse2.asset_tools.prepare_minor_absorbers`
 prepares them once in the work root (README, *Quick start*; sources and changes in `THIRD_PARTY.md` §12).
 
 ### Tropospheric aerosol

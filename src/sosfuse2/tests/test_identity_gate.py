@@ -8,18 +8,22 @@ from types import SimpleNamespace as NS
 import numpy as np
 import pytest
 
-from sosfuse2 import density, gate, identity, paths, run_gpu_state_v3 as v3
+from sosfuse2.atmosphere import density
+from sosfuse2.checks import gate
+from sosfuse2.foundation import content_identity, paths
+from sosfuse2.jobs import run_state as v3
 
 
 @pytest.fixture
 def inputs(tmp_path, monkeypatch):
     pkg = tmp_path / 'sosfuse2'
-    shutil.copytree(paths.GATE, pkg / 'gate')
-    shutil.copytree(paths.CONFIGS, pkg / 'configs')
+    shutil.copytree(paths.GATE, pkg / 'checks/gate_data')
+    shutil.copytree(paths.CONFIGS, pkg / 'backends/configs')
     monkeypatch.setattr(gate, 'HERE', pkg)
-    monkeypatch.setattr(gate, 'GATE', pkg / 'gate')
+    monkeypatch.setattr(gate, 'GATE', pkg / 'checks/gate_data')
+    monkeypatch.setattr(paths, 'CONFIGS', pkg / 'backends/configs')
     monkeypatch.setattr(gate, 'RECORDS', None)
-    monkeypatch.setattr(v3, 'package_hashes', lambda: {'sosfuse2/fused.py': 'source'})
+    monkeypatch.setattr(v3, 'package_hashes', lambda: {'sosfuse2/solve/source_solver.py': 'source'})
     asset = pkg / 'ozone.bin'
     asset.write_bytes(b'profile')
     monkeypatch.setattr(density, 'asset_path', lambda: asset)
@@ -27,16 +31,16 @@ def inputs(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('name,keys,value,changed', [
-    ('gate/fixtures.json', ('note',), 'Updated explanation.', False),
-    ('gate/fixtures.json', ('settings_note',), 'Updated explanation.', False),
-    ('gate/fixtures.json', ('state', 'description'), 'Updated explanation.', False),
-    ('gate/fixtures.json', ('state', 'q2d_override'), 'Updated explanation.', False),
-    ('gate/fixtures.json', ('settings', 'wavelengths'), 30, True),
-    ('gate/fixtures.json', ('state', 'parameters', 'aod550'), 0.2, True),
-    ('configs/devices.json', ('note',), 'Updated explanation.', False),
-    ('configs/devices.json', ('profiles', 'eda', 'launch_budget_seconds'), 20, True),
-    ('configs/C3.json', ('notes',), {'definition': 'Updated explanation.'}, False),
-    ('configs/C3.json', ('kernel_flags',), ['FMAD'], True),
+    ('checks/gate_data/fixtures.json', ('note',), 'Updated explanation.', False),
+    ('checks/gate_data/fixtures.json', ('settings_note',), 'Updated explanation.', False),
+    ('checks/gate_data/fixtures.json', ('state', 'description'), 'Updated explanation.', False),
+    ('checks/gate_data/fixtures.json', ('state', 'q2d_override'), 'Updated explanation.', False),
+    ('checks/gate_data/fixtures.json', ('settings', 'wavelengths'), 30, True),
+    ('checks/gate_data/fixtures.json', ('state', 'parameters', 'aod550'), 0.2, True),
+    ('backends/configs/devices.json', ('note',), 'Updated explanation.', False),
+    ('backends/configs/devices.json', ('profiles', 'eda', 'launch_budget_seconds'), 20, True),
+    ('backends/configs/C3.json', ('notes',), {'definition': 'Updated explanation.'}, False),
+    ('backends/configs/C3.json', ('kernel_flags',), ['FMAD'], True),
 ])
 def test_identity_json_changes(inputs, name, keys, value, changed):
     before = gate.code_identity()
@@ -52,7 +56,7 @@ def test_identity_json_changes(inputs, name, keys, value, changed):
 
 def test_identity_indentation(inputs):
     before = gate.code_identity()
-    p = inputs / 'gate/fixtures.json'
+    p = inputs / 'checks/gate_data/fixtures.json'
     p.write_text(json.dumps(json.loads(p.read_text()), indent=4))
     assert gate.code_identity() == before
 
@@ -117,9 +121,9 @@ def test_config_prose_is_notes():
         for row in rows:
             for key, value in row.items():
                 if isinstance(value, str):
-                    assert identity.is_note(key) or key == 'flagset'
+                    assert content_identity.is_note(key) or key == 'flagset'
                 if isinstance(value, list) and any(isinstance(v, str) for v in value):
-                    assert key in ('kernel_flags', 'gpu_names', 'stage1_defaults') or identity.is_note(key)
+                    assert key in ('kernel_flags', 'gpu_names', 'stage1_defaults') or content_identity.is_note(key)
 
 
 def test_stage_toolkey_fields_and_old_staged_rejection(tmp_path, monkeypatch):

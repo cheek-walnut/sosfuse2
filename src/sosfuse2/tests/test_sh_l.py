@@ -1,31 +1,31 @@
 """SH truncation invariants, storage and translation-unit compatibility."""
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import subprocess
 import numpy as np
 import pytest
-from sosfuse2 import testing
-from sosfuse2.sh_layout import count, padded, workspace, kernel_source
-from sosfuse2.arithmetic import basis
-from sosfuse2.fused import sh_aux, sh_aux_pair
-from sosfuse2.strato_parallel import strato_sh_aux
+from sosfuse2.checks import testkit
+from sosfuse2.backends.sh_layout import count, padded, workspace, kernel_source
+from sosfuse2.backends.arithmetic import basis
+from sosfuse2.solve.source_solver import sh_aux, sh_aux_pair
+from sosfuse2.solve.strato_sh_aux import strato_sh_aux
 
 try:
-    from sosfuse2.numerical_checks import within_tol
+    from sosfuse2.checks.numerical_checks import within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import within_tol
 
 
 def test_default_source_is_current_kernel():
     # L=32 must not rewrite the current kernel; historical source bytes need not match.
-    assert kernel_source() == (paths.PKG / 'kernel.cu').read_text()
+    assert kernel_source() == (paths.PKG / 'backends/kernel.cu').read_text()
 
 
 @pytest.mark.parametrize('L', [16, 24, 32])
 @pytest.mark.parametrize('combine', [False, True])
 def test_kernel_source_only_defines(L, combine):
     # SH order and combined plane are preprocessor symbols of kernel.cu; kernel_source only prepends them.
-    code = (paths.PKG / 'kernel.cu').read_text()
+    code = (paths.PKG / 'backends/kernel.cu').read_text()
     head = (f'#define SH_L {L}\n' if L != 32 else '') + ('#define SH_COMBINE\n' if combine else '')
     assert kernel_source(L, combine=combine) == head + code
 
@@ -35,7 +35,7 @@ def test_no_layout_literals():
     # wrong at L16/24 without any compile error.
     import re
 
-    code = (paths.PKG / 'kernel.cu').read_text()
+    code = (paths.PKG / 'backends/kernel.cu').read_text()
     found = sorted({m.group(0) for m in re.finditer(r'\b(1132|1131|571|570|565|561|576)\b', code)})
     assert found == []
 
@@ -62,7 +62,7 @@ def test_basis_and_layout(L):
 
 @pytest.mark.parametrize('L', [16, 24, 32])
 def test_lower_source_syntax(tmp_path, L):
-    testing.require_tool('clang++')
+    testkit.require_tool('clang++')
     from sosfuse2.tests.test_kernel_static import STUB, defines
     from sosfuse2.tests.test_tropo_mie import SYNTAX_STUB_EXTRA
     import json
@@ -105,12 +105,13 @@ def test_lower_source_syntax(tmp_path, L):
 def test_configured_numpy_transport_matches_mask(tmp_path, monkeypatch, L, strato):
     import json
     from types import SimpleNamespace
-    from sosfuse2.run_gpu_state_v3 import settings_for, create_configured
-    from sosfuse2.geometry import TransientGeometry
-    from sosfuse2 import reference, host_cache
+    from sosfuse2.jobs.run_state import settings_for, create_configured
+    from sosfuse2.solve.ray_geometry import TransientGeometry
+    from sosfuse2.backends import numpy_reference
+    from sosfuse2.precompute import host_cache
 
     monkeypatch.setattr(host_cache, 'ROOT', tmp_path / 'host_cache')
-    from sosfuse2 import paths
+    from sosfuse2.foundation import paths
 
     path = paths.FIXTURES / 'states_dual_strato_usstd.json' if strato else paths.ASSETS / 'states_v1_usstd.json'
     states = json.loads(path.read_text())['states']
@@ -130,17 +131,17 @@ def test_configured_numpy_transport_matches_mask(tmp_path, monkeypatch, L, strat
     if strato:
         full[:, 571 + K :] = 0
     small = np.concatenate((full[:, : 10 + K], full[:, 571 : 571 + K]), axis=1) if strato else full[:, : 10 + K].copy()
-    x = reference.transport(g, c, small)
-    y = reference.transport(g, dict(c, L=32), full)
+    x = numpy_reference.transport(g, c, small)
+    y = numpy_reference.transport(g, dict(c, L=32), full)
     assert within_tol(x, y)
     if strato:
-        combined = reference.transport(g, dict(c, sh_combine=True), small)
+        combined = numpy_reference.transport(g, dict(c, sh_combine=True), small)
         assert np.all(abs(combined - x) <= 1e-5 * abs(x))
 
 
 @pytest.mark.parametrize('nh', [3, 33, 44, 65])
 def test_combine_species_masks_and_source_preservation(nh):
-    from sosfuse2.sh_layout import combined_coefficients, combined_aux
+    from sosfuse2.backends.sh_layout import combined_coefficients, combined_aux
 
     K = count(16)
     src = np.ones((nh * 2, 10 + 2 * K, 1), 'f4')

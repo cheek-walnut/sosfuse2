@@ -21,11 +21,11 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2 import geometry as G
-from sosfuse2.timers import TIMERS
+from sosfuse2.solve import ray_geometry as G
+from sosfuse2.foundation.timers import TIMERS
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 

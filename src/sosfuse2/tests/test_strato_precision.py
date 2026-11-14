@@ -6,7 +6,7 @@ claim is made. Requires clang++ and NumPy, works on macOS/Linux. Values are
 normal FP32 in the supplied optical fixture; CPU FTZ/CUDA expf are not tested.
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import argparse
 import ctypes
 import hashlib
@@ -19,7 +19,7 @@ import sys
 import numpy as np
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
@@ -72,7 +72,7 @@ class NativePhase:
         self.variant = variant
         self.bins = 16384 if variant == 'lut' else 0
         base = (root / 'assets/kernel_C2_strato_base.cu').read_text()
-        current = (root / 'kernel.cu').read_text()
+        current = (root / 'backends/kernel.cu').read_text()
         if variant == 'base':
             body = extract_function(base, 'mie_phase')
             flags = []

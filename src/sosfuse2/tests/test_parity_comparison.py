@@ -2,7 +2,7 @@
 
 import unittest
 import numpy as np
-from sosfuse2.validate import moment_comparison
+from sosfuse2.checks.validate import moment_comparison
 
 
 class MomentComparisonTests(unittest.TestCase):

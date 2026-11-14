@@ -11,8 +11,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from sosfuse2 import geometry as gm, geometry_parallel as gp
-from sosfuse2.numerical_checks import assert_equivalent
+from sosfuse2.solve import ray_geometry as gm, ray_geometry_parallel as gp
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 
 def fail_after_prefix(i):
@@ -29,7 +29,7 @@ class GeometryParallelTests(unittest.TestCase):
     def test_lazy_imports(self):
         env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2]))
         subprocess.run(
-            [sys.executable, '-S', '-c', "import sys, sosfuse2.host_limits; assert 'numpy' not in sys.modules"],
+            [sys.executable, '-S', '-c', "import sys, sosfuse2.foundation.host_limits; assert 'numpy' not in sys.modules"],
             env=env,
             check=True,
         )
@@ -37,7 +37,7 @@ class GeometryParallelTests(unittest.TestCase):
             [
                 sys.executable,
                 '-c',
-                "import sosfuse2.geometry_parallel as p; from sosfuse2.geometry import PackedCache; "
+                "import sosfuse2.solve.ray_geometry_parallel as p; from sosfuse2.solve.ray_geometry import PackedCache; "
                 "assert PackedCache is p.PackedCache",
             ],
             env=env,

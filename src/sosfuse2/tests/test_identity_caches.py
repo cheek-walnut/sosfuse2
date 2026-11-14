@@ -11,10 +11,17 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from sosfuse2 import column_cache, column_parallel, column_table, density, geometry, geometry_contract
-from sosfuse2 import geometry_cpu, host_cache, paths, solver_columns, stratosphere, sun_parallel, tropo_profile
-from sosfuse2 import identity as source_identity
-from sosfuse2.accepted import engine
+from sosfuse2.precompute import column_cache, column_parallel, endpoint_contract
+from sosfuse2.rays import column_table
+from sosfuse2.atmosphere import density
+from sosfuse2.solve import ray_geometry
+from sosfuse2.solve import ray_geometry_cpu
+from sosfuse2.precompute import host_cache, sun_parallel
+from sosfuse2.foundation import paths
+from sosfuse2.rays import shell_segments
+from sosfuse2.atmosphere import stratosphere, tropo_profile
+from sosfuse2.foundation import content_identity as source_identity
+from sosfuse2.solve import engine
 
 
 def solver():
@@ -72,8 +79,8 @@ def cache_keys(tmp_path, monkeypatch):
     })
     config = {'strato_profile': {'center': 21.0, 'sigma': 3.0, 'norm': 1.0}}
     return {
-        'geometry': geometry_contract.identity(s)[1],
-        'legacy_geometry': geometry.identity(s, 2)[1],
+        'geometry': endpoint_contract.identity(s)[1],
+        'legacy_geometry': ray_geometry.identity(s, 2)[1],
         'host': host_cache.digest(host_cache.context(s, optics)[1]),
         'sun': sun_folder(tmp_path, monkeypatch),
         'column': column_cache.cache_key(s.kernel, bundle, config, 'strato'),
@@ -84,7 +91,7 @@ def cache_keys(tmp_path, monkeypatch):
 def test_shared_cache_keys_follow_source_identity(tmp_path, monkeypatch, edit):
     monkeypatch.delenv('SOSFUSE2_SKY_SOS_ROOT', raising=False)
     baseline = cache_keys(tmp_path, monkeypatch)
-    target = paths.PKG / 'solver_columns.py'
+    target = paths.PKG / 'rays/shell_segments.py'
     with patch_source(target, lambda data: source_edit(data, edit)):
         changed = cache_keys(tmp_path, monkeypatch)
     for name in baseline:
@@ -92,64 +99,64 @@ def test_shared_cache_keys_follow_source_identity(tmp_path, monkeypatch, edit):
 
 
 def test_geometry_contract_upstream_comment_and_code(tmp_path, monkeypatch):
-    for name in geometry_contract.UPSTREAM:
+    for name in endpoint_contract.UPSTREAM:
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes((geometry_contract.ROOT / name).read_bytes())
-    monkeypatch.setattr(geometry_contract, 'ROOT', tmp_path)
-    target = tmp_path / 'solver_columns.py'
+        target.write_bytes((endpoint_contract.ROOT / name).read_bytes())
+    monkeypatch.setattr(endpoint_contract, 'ROOT', tmp_path)
+    target = tmp_path / 'rays/shell_segments.py'
     original = target.read_bytes()
-    baseline = geometry_contract.identity(solver())[1]
+    baseline = endpoint_contract.identity(solver())[1]
     for edit in ('comment', 'middle', 'docstring', 'code'):
         target.write_bytes(source_edit(original, edit))
-        assert (geometry_contract.identity(solver())[1] != baseline) is (edit == 'code')
+        assert (endpoint_contract.identity(solver())[1] != baseline) is (edit == 'code')
 
 
 @pytest.mark.parametrize('version', [1, 2, 3])
 def test_geometry_versions_use_source_identity(monkeypatch, version):
     monkeypatch.delenv('SOSFUSE2_SKY_SOS_ROOT', raising=False)
     s = solver()
-    content, baseline = geometry.identity(s, version)
+    content, baseline = ray_geometry.identity(s, version)
     if version == 1:
         assert content['files']['sosfuse/geometry.py'] == 'unavailable'
-    target = paths.PKG / 'solver_columns.py'
+    target = paths.PKG / 'rays/shell_segments.py'
     for edit in ('comment', 'middle', 'docstring', 'code'):
         with patch_source(target, lambda data: source_edit(data, edit)):
-            changed = geometry.identity(s, version)[1]
+            changed = ray_geometry.identity(s, version)[1]
         assert (changed != baseline) is (edit == 'code')
 
 
 def test_geometry_legacy_source_uses_source_identity(tmp_path, monkeypatch):
-    target = tmp_path / 'scripts' / 'sosfuse' / 'geometry.py'
+    target = tmp_path / 'scripts/sosfuse/geometry.py'
     target.parent.mkdir(parents=True)
     target.write_bytes(b'"""Legacy geometry."""\nVALUE = 1\n')
     monkeypatch.setenv('SOSFUSE2_SKY_SOS_ROOT', str(tmp_path))
-    baseline = geometry.identity(solver(), 1)[1]
+    baseline = ray_geometry.identity(solver(), 1)[1]
     with patch_source(target, lambda data: data + b'\n# note\n'):
-        assert geometry.identity(solver(), 1)[1] == baseline
+        assert ray_geometry.identity(solver(), 1)[1] == baseline
     with patch_source(target, lambda data: data + b'\nIDENTITY_PROBE = 1\n'):
-        assert geometry.identity(solver(), 1)[1] != baseline
+        assert ray_geometry.identity(solver(), 1)[1] != baseline
 
 
 @pytest.mark.parametrize('version', [2, 3])
 def test_geometry_own_source(monkeypatch, version):
     monkeypatch.delenv('SOSFUSE2_SKY_SOS_ROOT', raising=False)
-    target = paths.PKG / 'geometry.py'
-    baseline = geometry.identity(solver(), version)[1]
+    target = paths.PKG / 'solve/ray_geometry.py'
+    baseline = ray_geometry.identity(solver(), version)[1]
     for suffix, different in ((b'\n# note\n', False), (b'\nIDENTITY_PROBE = 1\n', True)):
         with patch_source(target, lambda data: data + suffix):
-            assert (geometry.identity(solver(), version)[1] != baseline) is different
+            assert (ray_geometry.identity(solver(), version)[1] != baseline) is different
 
 
 def test_geometry_contract_own_source():
-    target = paths.PKG / 'geometry_contract.py'
-    baseline = geometry_contract.identity(solver())[1]
+    target = paths.PKG / 'precompute/endpoint_contract.py'
+    baseline = endpoint_contract.identity(solver())[1]
     for suffix, different in ((b'\n# note\n', False), (b'\nIDENTITY_PROBE = 1\n', True)):
         with patch_source(target, lambda data: data + suffix):
-            assert (geometry_contract.identity(solver())[1] != baseline) is different
+            assert (endpoint_contract.identity(solver())[1] != baseline) is different
 
 
-@pytest.mark.parametrize('name', ['column_table.py', 'tropo_profile.py'])
+@pytest.mark.parametrize('name', ['rays/column_table.py', 'atmosphere/tropo_profile.py'])
 def test_column_table_sources(monkeypatch, name):
     target = paths.PKG / name
     column_table.source_hash.cache_clear()
@@ -163,9 +170,9 @@ def test_column_table_sources(monkeypatch, name):
         column_table.source_hash.cache_clear()
 
 
-@pytest.mark.parametrize('name', ['density.py', 'components.py'])
+@pytest.mark.parametrize('name', ['atmosphere/density.py', 'atmosphere/components.py'])
 def test_engine_fingerprint_and_cell_folder(tmp_path, name):
-    target = paths.PKG / 'solver_columns.py'
+    target = paths.PKG / 'rays/shell_segments.py'
     baseline = engine.fingerprint()
     for edit in ('comment', 'middle', 'docstring', 'code'):
         with patch_source(target, lambda data: source_edit(data, edit)):
@@ -178,7 +185,7 @@ def test_engine_fingerprint_and_cell_folder(tmp_path, name):
 
 
 def test_engine_fingerprint_native_source_and_asset():
-    native = paths.PKG / 'native' / 'sh_cpu.cpp'
+    native = paths.PKG / 'backends/native/sh_cpu.cpp'
     asset = paths.PKG / 'assets' / 'rgb_weights.npy'
     baseline = engine.fingerprint()
     with patch_source(native, lambda data: data + b'\n// note\n'):
@@ -190,20 +197,21 @@ def test_engine_fingerprint_native_source_and_asset():
 
 
 def test_worker_source_drift_uses_raw_bytes():
-    target = paths.PKG / 'solver_columns.py'
+    target = paths.PKG / 'rays/shell_segments.py'
     original = column_parallel.source_hashes()
-    assert original[target.name] == hashlib.sha256(target.read_bytes()).hexdigest()
+    name = target.relative_to(paths.PKG).as_posix()
+    assert original[name] == hashlib.sha256(target.read_bytes()).hexdigest()
     with patch_source(target, lambda data: data + b'\n# note\n'):
-        assert column_parallel.source_hashes()[target.name] != original[target.name]
-        assert column_parallel.source_drift(original) == target.name
+        assert column_parallel.source_hashes()[name] != original[name]
+        assert column_parallel.source_drift(original) == name
 
 
 @pytest.mark.parametrize('kind,name', [
-    ('strato', 'stratosphere.py'),
-    ('strato', 'solver_columns.py'),
-    ('strato', 'ray_columns.py'),
-    ('strato', 'accepted/engine.py'),
-    ('density', 'density.py'),
+    ('strato', 'atmosphere/stratosphere.py'),
+    ('strato', 'rays/shell_segments.py'),
+    ('strato', 'rays/ray_columns.py'),
+    ('strato', 'solve/engine.py'),
+    ('density', 'atmosphere/density.py'),
 ])
 def test_column_cache_sources(kind, name):
     s = solver()
@@ -218,7 +226,7 @@ def test_column_cache_sources(kind, name):
             assert (column_cache.cache_key(s.kernel, bundle, config, kind) != baseline) is different
 
 
-@pytest.mark.parametrize('name', ['host_cache.py', 'solver_sky.py', 'sun_parallel.py', 'ground_parallel.py'])
+@pytest.mark.parametrize('name', ['precompute/host_cache.py', 'rays/incoming_quadrature.py', 'precompute/sun_parallel.py', 'precompute/ground_parallel.py'])
 def test_host_context_additional_sources(name):
     s, optics = solver(), density.build({})
     baseline = host_cache.context(s, optics)[1]
@@ -230,14 +238,14 @@ def test_host_context_additional_sources(name):
 def test_sun_source_and_host_geometry_keys(monkeypatch):
     s = solver()
     profile = {'center': 21.0, 'sigma': 3.0, 'norm': 1.0}
-    target = paths.PKG / 'tropo_profile.py'
-    baseline = solver_columns.SunGeometry.identity(1, 1.2, None)
+    target = paths.PKG / 'atmosphere/tropo_profile.py'
+    baseline = shell_segments.SunGeometry.identity(1, 1.2, None)
     aerosol = host_cache.aerosol_identity(s)
     for suffix, different in ((b'\n# note\n', False), (b'\nIDENTITY_PROBE = 1\n', True)):
         with patch_source(target, lambda data: data + suffix):
-            assert (solver_columns.SunGeometry.identity(1, 1.2, None) != baseline) is different
+            assert (shell_segments.SunGeometry.identity(1, 1.2, None) != baseline) is different
             assert (host_cache.aerosol_identity(s) != aerosol) is different
-    target = paths.PKG / 'ground_parallel.py'
+    target = paths.PKG / 'precompute/ground_parallel.py'
     baseline = stratosphere._geometry_key(s, None, profile)
     for suffix, different in ((b'\n# note\n', False), (b'\nIDENTITY_PROBE = 1\n', True)):
         with patch_source(target, lambda data: data + suffix):
@@ -260,14 +268,14 @@ def test_shared_sun_asset_uses_content_identity(tmp_path, monkeypatch):
 def test_source_digest_encodings(tmp_path, monkeypatch):
     column_table.source_hash.cache_clear()
     expected = hashlib.sha256()
-    for path in (paths.PKG / 'column_table.py', paths.PKG / 'tropo_profile.py'):
+    for path in (paths.PKG / 'rays/column_table.py', paths.PKG / 'atmosphere/tropo_profile.py'):
         expected.update(path.name.encode())
         expected.update(source_identity.file_sha(path).encode())
     assert column_table.source_hash() == expected.hexdigest()
 
     names = (
-        'solver_columns.py', 'accepted/engine.py', 'sun_parallel.py', 'column_parallel.py',
-        'tropo_profile.py', 'ray_columns.py', 'density.py', 'assets/no2_afglus_profile.json',
+        'rays/shell_segments.py', 'solve/engine.py', 'precompute/sun_parallel.py', 'precompute/column_parallel.py',
+        'atmosphere/tropo_profile.py', 'rays/ray_columns.py', 'atmosphere/density.py', 'assets/no2_afglus_profile.json',
     )
     expected = hashlib.sha256(json.dumps({'R': 6371.0, 'Z': 80.0}).encode())
     for name in sorted(str(paths.PKG / name) for name in names):
@@ -281,7 +289,8 @@ def test_source_digest_encodings(tmp_path, monkeypatch):
     expected = hashlib.sha256()
     for array in (s.geo.h, s.geo.chi, s.geo.sun.h, s.geo.sun.x, s.geo.sun.col):
         expected.update(np.ascontiguousarray(array).tobytes())
-    for name in ('stratosphere.py', 'ground_parallel.py', 'ray_columns.py', 'density.py', 'column_table.py', 'column_parallel.py'):
+    for name in ('atmosphere/stratosphere.py', 'precompute/ground_parallel.py', 'rays/ray_columns.py',
+                 'atmosphere/density.py', 'rays/column_table.py', 'precompute/column_parallel.py'):
         expected.update(name.encode())
         expected.update(bytes.fromhex(source_identity.file_sha(paths.PKG / name)))
     expected.update(json.dumps({
@@ -328,7 +337,7 @@ def test_tropo_profile_rejects_zero_integrals(monkeypatch, basis):
 
 
 def test_geometry_prepare_publishes_process_specific_temp(tmp_path, monkeypatch):
-    instance = geometry.TwoLayerGeometry.__new__(geometry.TwoLayerGeometry)
+    instance = ray_geometry.TwoLayerGeometry.__new__(ray_geometry.TwoLayerGeometry)
     instance.bundle = None
     instance.s = solver()
     instance.cache = tmp_path
@@ -347,15 +356,15 @@ def test_geometry_prepare_publishes_process_specific_temp(tmp_path, monkeypatch)
         moves.append((source, destination))
         replace(source, destination)
 
-    monkeypatch.setattr(geometry.os, 'replace', record)
+    monkeypatch.setattr(ray_geometry.os, 'replace', record)
     instance.prepare()
     assert moves == [(target.with_name(f'{target.name}.{os.getpid()}.tmp'), target)]
     np.testing.assert_array_equal(np.fromfile(target, dtype='f4'), [2.0])
 
 
 def test_geometry_cpu_import_does_not_change_bytecode_setting(monkeypatch):
-    source = Path(geometry_cpu.__file__)
-    namespace = {'__name__': 'sosfuse2.geometry_cpu', '__package__': 'sosfuse2', '__file__': str(source)}
+    source = Path(ray_geometry_cpu.__file__)
+    namespace = dict(__name__='sosfuse2.solve.ray_geometry_cpu', __package__=ray_geometry_cpu.__package__, __file__=str(source))
     monkeypatch.setattr(sys, 'dont_write_bytecode', False)
     exec(compile(source.read_bytes(), str(source), 'exec'), namespace)
     assert sys.dont_write_bytecode is False

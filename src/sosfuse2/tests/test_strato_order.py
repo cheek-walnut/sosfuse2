@@ -6,30 +6,31 @@ stubbed. No GPU transport is executed. Per-wave NumPy compares first, warm,
 SH_AUX and boundary operations including tensor/SH/ground projections.
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import argparse, ctypes, json, subprocess, sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2 import reference, testing
-from sosfuse2.geometry import create, TransientGeometry
-from sosfuse2.fused import Solver, sh_aux
-from sosfuse2.strato_states import build
+from sosfuse2.backends import numpy_reference
+from sosfuse2.checks import testkit
+from sosfuse2.solve.ray_geometry import create, TransientGeometry
+from sosfuse2.solve.source_solver import Solver, sh_aux
+from sosfuse2.asset_tools.strato_states import build
 from sosfuse2.tests.test_kernel_static import STUB
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
 
 def run(out):
-    testing.require_tool(
+    testkit.require_tool(
         'clang++'
     )  # host build of the CUDA phase helper; SkipTest under pytest (D15), a readable stop in the CLI
     out.mkdir(parents=True, exist_ok=True)
-    kernel = (paths.PKG / 'kernel.cu').resolve()
+    kernel = (paths.PKG / 'backends/kernel.cu').resolve()
     cpp = out / 'phase_host.cpp'
     lib = out / ('phase_host.dylib' if sys.platform == 'darwin' else 'phase_host.so')
     cpp.write_text(
@@ -64,7 +65,7 @@ def run(out):
     c = s.kernel.setup(s, g['nq'])
     chi = np.ascontiguousarray(c['strato_chi'])
     mu = np.linspace(-1, 1, 133, dtype='f4')
-    actual = reference.mie_phase(mu, chi)
+    actual = numpy_reference.mie_phase(mu, chi)
     expected = np.array([[native.phase_c(float(v), w, chi.ctypes.data) for w in range(15)] for v in mu], 'f4')
     rows = dict(
         phase_native_within_tol=(within_tol(actual, expected)),
@@ -86,10 +87,10 @@ def run(out):
         (False, boundary, False),
         (False, boundary, True),
     ):
-        full, Y = reference.transport(
+        full, Y = numpy_reference.transport(
             g, c, field, first, boundary=bd, return_basis=True, sh_source=sh_aux(field) if aux else None
         )
-        m, f = reference.project(g, full, c, Y)
+        m, f = numpy_reference.project(g, full, c, Y)
         lanes = []
         lm = []
         lf = []
@@ -99,10 +100,10 @@ def run(out):
                 one[name] = np.ascontiguousarray(c[name][..., w : w + 1])
             src = np.ascontiguousarray(field[..., w : w + 1])
             b = None if bd is None else bd[:, w : w + 1]
-            value, y = reference.transport(
+            value, y = numpy_reference.transport(
                 g, one, src, first, boundary=b, return_basis=True, sh_source=sh_aux(src) if aux else None
             )
-            mm, ff = reference.project(g, value, one, y)
+            mm, ff = numpy_reference.project(g, value, one, y)
             lanes.append(value)
             lm.append(mm)
             lf.append(ff)

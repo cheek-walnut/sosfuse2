@@ -54,12 +54,12 @@ jobs:
       - run: zstd --version
       - name: IPRT inputs (network, pinned sha256)
         working-directory: ${{ runner.temp }}
-        run: python -B -c "from sosfuse2 import iprt; iprt.inputs()"
+        run: python -B -c "from sosfuse2.asset_tools import iprt; iprt.inputs()"
       - name: Installed package smoke (resources readable)
         working-directory: ${{ runner.temp }}
         run: |
           python -B -c "import sosfuse2, importlib.resources as r; p=r.files('sosfuse2'); \
-            [ (p/f).read_bytes() for f in ('kernel.cu','native/sh_cpu.cpp','assets/rgb_weights.npy','gate/baselines/numpy/FX-C3.npz') ]; \
+            [ (p/f).read_bytes() for f in ('backends/kernel.cu','backends/native/sh_cpu.cpp','assets/rgb_weights.npy','checks/gate_data/baselines/numpy/FX-C3.npz') ]; \
             print(sosfuse2.__name__, p)"
       - name: Runner CPU and NumPy SIMD dispatch
         # NumPy picks its float32 kernels by CPU (X86_V3 = AVX2, X86_V4 = AVX-512); a failure seen on only some runners

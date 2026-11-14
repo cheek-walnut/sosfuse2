@@ -2,7 +2,7 @@
 Run with a NumPy/Pillow Python: python -B -m sosfuse2.tests.test_pipeline_persistent
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import copy
 import json
 import os
@@ -20,10 +20,11 @@ if __name__ == '__main__':
     for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
         os.environ[key] = '1'
 import numpy as np
-from sosfuse2.numerical_checks import assert_equivalent
-from sosfuse2 import paths, testing
-from sosfuse2.strato_states import build
-from sosfuse2.pipeline import cpu_budget
+from sosfuse2.checks.numerical_checks import assert_equivalent
+from sosfuse2.foundation import paths
+from sosfuse2.checks import testkit
+from sosfuse2.asset_tools.strato_states import build
+from sosfuse2.jobs.pipeline import cpu_budget
 
 TAUS = (0.003, 0.004, 0.005, 0.006)
 BACKEND = os.environ.get('PERSISTENT_TEST_BACKEND', 'numpy')
@@ -36,7 +37,7 @@ def child_environment():
     for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
         env[key] = '1'
     if BACKEND == 'cupy':
-        config = json.loads((HERE / 'configs/C3.json').read_text())
+        config = json.loads((HERE / 'backends/configs/C3.json').read_text())
         env.update(
             SOSFUSE2_KERNEL_FLAGS=','.join(config['kernel_flags']), SOSFUSE2_BLOCK_SIZE=str(config['block_size'])
         )
@@ -45,7 +46,7 @@ def child_environment():
 
 def interleave_env():
     """Allow multiple states to run for the scheduler interleaving check when GPU memory is limited."""
-    from sosfuse2 import device_profile
+    from sosfuse2.backends import device_profile
 
     device = device_profile.smi_device_name() if BACKEND == 'cupy' else None
     if device is None and BACKEND == 'cupy':
@@ -79,7 +80,7 @@ def numeric(value):
 class PersistentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.root = testing.scratch('persistent-tests')
+        cls.root = testkit.scratch('persistent-tests')
         if os.environ.get('SOSFUSE2_KEEP_TEST_OUTPUT') != '1':  # runs even if setUpClass fails later
             cls.addClassCleanup(shutil.rmtree, cls.root, ignore_errors=True)
         cls.states = cls.root / 'states.json'
@@ -96,7 +97,7 @@ class PersistentTests(unittest.TestCase):
     @classmethod
     def command(cls, label, count, persistent=True):
         return [
-            *paths.module_command('pipeline'),
+            *paths.module_command('jobs.pipeline'),
             '--states',
             str(cls.states),
             '--ids',
@@ -251,8 +252,8 @@ class PersistentTests(unittest.TestCase):
         ]
         runs = [s for i, s in enumerate(pieces) if i == 0 or s != pieces[i - 1]]
         self.assertGreater(len(runs), len(set(runs)), 'no return to a previous state')
-        if testing.sky_sos_root() is not None:  # Optional timeline check.
-            trace = testing.sky_sos_optional(
+        if testkit.sky_sos_root() is not None:  # Optional timeline check.
+            trace = testkit.sky_sos_optional(
                 'scripts', 'sosfuse2_dev', 'pipeline_trace.py'
             )  # Skip if the renderer is absent.
             if trace is None:

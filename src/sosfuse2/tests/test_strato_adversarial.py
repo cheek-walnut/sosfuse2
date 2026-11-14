@@ -4,7 +4,7 @@
 Run: python -B -m sosfuse2.tests.test_strato_adversarial --out <dir>
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import argparse
 import copy
 import hashlib
@@ -21,14 +21,17 @@ if __name__ == '__main__':
     for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'MKL_NUM_THREADS'):
         os.environ[key] = '4'
 import numpy as np
-from sosfuse2 import stratosphere as st, mie, reference, testing
+from sosfuse2.atmosphere import stratosphere as st
+from sosfuse2.asset_tools import mie
+from sosfuse2.backends import numpy_reference
+from sosfuse2.checks import testkit
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent
+    from sosfuse2.checks.numerical_checks import assert_equivalent
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent
 
-OUT = testing.scratch_parent() / 'strato/adversarial'
+OUT = testkit.scratch_parent() / 'strato/adversarial'
 
 
 def _strato_colors(test):
@@ -212,7 +215,7 @@ class OpticalContract(unittest.TestCase):
         mu = np.array([-1.0, -0.72, 0.1, 0.65, 1.0], 'f4')
         expected = np.polynomial.legendre.legval(mu.astype('f8'), chi) / (4 * np.pi)
         np.testing.assert_allclose(
-            reference.mie_phase(mu, opt['chi'].astype('f4'))[:, 0], expected, rtol=8e-7, atol=1e-8
+            numpy_reference.mie_phase(mu, opt['chi'].astype('f4'))[:, 0], expected, rtol=8e-7, atol=1e-8
         )
         mu, w = np.polynomial.legendre.leggauss(128)
         phase = np.polynomial.legendre.legval(mu, chi)
@@ -294,8 +297,8 @@ class OpticalContract(unittest.TestCase):
 class TransportContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from sosfuse2.geometry import create, normal_state, TransientGeometry
-        from sosfuse2.fused import Solver
+        from sosfuse2.solve.ray_geometry import create, normal_state, TransientGeometry
+        from sosfuse2.solve.source_solver import Solver
 
         cfg = copy.deepcopy(normal_state())
         cfg['stratosphere']['status'] = 'enabled'
@@ -354,7 +357,7 @@ class TransportContract(unittest.TestCase):
         c['strato_ext'] = np.array([1e-6], 'f4')
         c['strato_sca'] = np.array([1e-6], 'f4')
         zero = np.zeros((self.s.geo.ns, 1132, 1), 'f4')
-        actual = float(reference.transport(g, c, zero, True)[0, 0, :3].sum(dtype='f8'))
+        actual = float(numpy_reference.transport(g, c, zero, True)[0, 0, :3].sum(dtype='f8'))
         independent = []
         for n in (16001, 32001):
             t, q, den = self.independent_path(g['p'][0], g['d'][0], n)
@@ -378,7 +381,7 @@ class TransportContract(unittest.TestCase):
         self.assertLessEqual(residual, 0.01)
 
     def test_A12_FP32_common_operator_additivity(self):
-        from sosfuse2.validate_strato import additivity
+        from sosfuse2.checks.stratosphere_checks import additivity
 
         result = additivity(self.s, self.scope)
         MEASUREMENTS['V4_production'] = result
@@ -396,7 +399,7 @@ class TransportContract(unittest.TestCase):
         for altitude in (5.0, 25.0, 35.0):
             with self.subTest(altitude=altitude):
                 g = self.pack(el=-90.0, altitude=altitude)
-                value = reference.transport(g, c, field, False, boundary=boundary)
+                value = numpy_reference.transport(g, c, field, False, boundary=boundary)
                 t, q, den = self.independent_path(g['p'][0], g['d'][0])
                 expected = np.exp(-0.03 * np.trapezoid(den, t))
                 actual = float(value[0, 0, :3].sum(dtype='f8'))
@@ -409,10 +412,10 @@ class TransportContract(unittest.TestCase):
         c['strato_ext'] = np.array([0.03], 'f4')
         g = self.pack()
         zero = np.zeros((self.s.geo.ns, 1132, 1), 'f4')
-        a = reference.transport(g, c, zero, True)
+        a = numpy_reference.transport(g, c, zero, True)
         extra = dict(c)
         extra['strato_sun_col'] = c['strato_sun_col'] + np.float32(2.0)
-        b = reference.transport(g, extra, zero, True)
+        b = numpy_reference.transport(g, extra, zero, True)
         np.testing.assert_allclose(b, a * np.exp(-0.06), rtol=5e-7, atol=1e-12)
 
     def test_A16_ground_uses_L32_not_HG(self):
@@ -426,11 +429,11 @@ class TransportContract(unittest.TestCase):
         c['strato_chi'][0] = 1
         g = self.pack(el=90.0)
         zero = np.zeros((self.s.geo.ns, 1132, 1), 'f4')
-        a = reference.transport(g, c, zero, True)
+        a = numpy_reference.transport(g, c, zero, True)
         changed = dict(c)
         changed['strato_chi'] = c['strato_chi'].copy()
         changed['strato_chi'][32] = 0.5
-        b = reference.transport(g, changed, zero, True)
+        b = numpy_reference.transport(g, changed, zero, True)
         np.testing.assert_allclose(b, 1.5 * a, rtol=2e-5, atol=1e-10)
         self.assertGreater(float(np.max(a)), 0.0)
 
@@ -484,15 +487,15 @@ class TransportContract(unittest.TestCase):
                 a[:, 10 + k] = 1
                 b = np.zeros_like(a)
                 b[:, 571 + k] = 1
-                trop = reference.transport(g, c, a, False)
-                strat = reference.transport(g, c, b, False)
+                trop = numpy_reference.transport(g, c, a, False)
+                strat = numpy_reference.transport(g, c, b, False)
                 self.assertGreater(float(np.max(abs(strat))), 0.0)
                 np.testing.assert_array_equal(trop, strat)
 
     def test_A12_apply_uses_separate_eigenvalues(self):
         # Fixed artificial moments isolate the public source contraction from
         # transport interpolation; each component has its own known phase.
-        from sosfuse2.fused import Solver
+        from sosfuse2.solve.source_solver import Solver
 
         moment = np.arange(1, self.s.geo.ns * 565 + 1, dtype='f8').reshape(self.s.geo.ns, 565, 1) * 1e-6
 
@@ -519,14 +522,14 @@ class TransportContract(unittest.TestCase):
     def test_A15_Rayleigh_ground_recomputed_with_layer(self):
         # Set column coefficients to zero on a fresh solver with unchanged
         # scattering strengths: attach must recover the original ground tensor.
-        from sosfuse2.geometry import create, normal_state
+        from sosfuse2.solve.ray_geometry import create, normal_state
 
         cfg = copy.deepcopy(normal_state())
         cfg['stratosphere']['status'] = 'enabled'
         cfg['parameters']['stratosphere_tau550'] = 0.03
         # create() now eagerly attaches. Bypass only that call to preserve the
         # pre-attach fixture whose ground tensor this test must compare.
-        from sosfuse2 import density
+        from sosfuse2.atmosphere import density
 
         attach_density = density.attach
         # With strato attach bypassed, also disable its deferred-ground optimization:
@@ -555,7 +558,7 @@ class TransportContract(unittest.TestCase):
         self.assertGreater(float(np.max(base - attenuated)), 0.0)
 
     def test_A19_failed_attach_is_retryable(self):
-        from sosfuse2.geometry import create, normal_state
+        from sosfuse2.solve.ray_geometry import create, normal_state
 
         cfg = copy.deepcopy(normal_state())
         cfg['stratosphere']['status'] = 'enabled'
@@ -581,10 +584,10 @@ class BaselineContract(unittest.TestCase):
     def test_A20_frozen_math_tokens_all_declared_variants(self):
         import subprocess, re, itertools
 
-        current = paths.PKG / 'kernel.cu'
+        current = paths.PKG / 'backends/kernel.cu'
         baseline = paths.ASSETS / 'kernel_strato_off_baseline.cu'
         self.assertTrue(baseline.exists(), 'original CUDA fixture required; no silent skip')
-        testing.require_tool(
+        testkit.require_tool(
             'clang++'
         )  # the fixture is required; the compiler is an environment dependency (CHECKS.md tier 1)
         flags = [
@@ -746,7 +749,7 @@ class ColorContract(unittest.TestCase):
         MEASUREMENTS['declared_patch_sr'] = float(patch_area)
 
     def test_A21_numpy_scalar_host(self):
-        from sosfuse2.fused import Kernel
+        from sosfuse2.solve.source_solver import Kernel
 
         value = np.trace(np.eye(2))
         self.assertEqual(float(Kernel(backend='numpy').host(value)), 2.0)
@@ -911,8 +914,9 @@ class AggregateArtifacts(unittest.TestCase):
                         path = color.ROOT / path
                     optics = path.read_bytes()
                 paths = [
-                    Path(color.__file__).with_name(name)
-                    for name in ('reference.py', 'stratosphere.py', 'fused.py', 'kernel.cu', 'geometry.py')
+                    color.ROOT / name
+                    for name in ('backends/numpy_reference.py', 'atmosphere/stratosphere.py',
+                                 'solve/source_solver.py', 'backends/kernel.cu', 'solve/ray_geometry.py')
                 ]
                 identity = hashlib.sha256(
                     json.dumps(state_cfg, sort_keys=True).encode() + b''.join(p.read_bytes() for p in paths) + optics

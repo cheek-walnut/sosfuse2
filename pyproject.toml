@@ -47,8 +47,8 @@ only-include = ["src/sosfuse2", "pyproject.toml", "docs", "CITATION.cff"]
 # VCS ignore files are not consulted, so a developer's local or global ignore rules (for instance *.npz for research outputs)
 # cannot drop tracked package data such as the gate baselines. Exclusions are explicit below.
 ignore-vcs = true
-# Everything under src/sosfuse2 ships as package data (assets, fixtures, accepted sources, native/sh_cpu.cpp, configs,
-# gate baselines, kernel.cu, docs) except bytecode caches and test scratch. The tests (tests/, testing.py) ship too:
+# Everything under src/sosfuse2 ships as package data (assets, checks/fixtures, solve, backends/native/sh_cpu.cpp, backends/configs,
+# checks/gate_data baselines, backends/kernel.cu, docs) except bytecode caches and test scratch. The tests (tests/, checks/testkit.py) ship too:
 # the clean-room check installs the sdist outside the source tree and runs them from the installed package.
 exclude = [
   "**/__pycache__",
@@ -65,13 +65,13 @@ addopts = "-p no:cacheprovider"
 line-length = 120
 # pre-commit passes file names; force-exclude keeps the excluded paths out anyway.
 force-exclude = true
-# docs/ holds records. solver_render.py declares the globals its loader injects as placeholders (never executed by
+# docs/ holds records. outputs/preview_functions.py declares the globals its loader injects as placeholders (never executed by
 # the loader), so it is checked like every other module.
 extend-exclude = ["docs"]
 
 [tool.ruff.format]
 # One statement per line, 120 columns; quotes stay as written (tests and provenance strings quote source text).
 quote-style = "preserve"
-# generate_minor_absorbers.py hashes its own bytes into the generated O4 asset (generator.sha256): formatting it would change
+# asset_tools/generate_minor_absorbers.py hashes its own bytes into the generated O4 asset (generator.sha256): formatting it would change
 # the O4 asset identity that provenance records and the research harness pins, so it keeps its 1.1.x text.
-exclude = ["src/sosfuse2/generate_minor_absorbers.py"]
+exclude = ["src/sosfuse2/asset_tools/generate_minor_absorbers.py"]

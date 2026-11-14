@@ -9,9 +9,10 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from sosfuse2 import fused, geometry, host_cache
-from sosfuse2 import run_gpu_state_v3 as v3
-from sosfuse2.solver_columns import grids as base_grids
+from sosfuse2.solve import source_solver, ray_geometry
+from sosfuse2.precompute import host_cache
+from sosfuse2.jobs import run_state as v3
+from sosfuse2.rays.shell_segments import grids as base_grids
 
 H, CHI = base_grids(1)
 DEGREES = np.round(np.rad2deg(CHI), 12)
@@ -32,19 +33,19 @@ class Captured(Exception):
 
 def solver_grid(tmp_path, cfg):
     """The h and chi that create_configured hands to the solver."""
-    from sosfuse2 import solver_core
+    from sosfuse2.solve import engine_core
 
     class StopSolver:
         def __init__(self, ctx, geo, *args):
             raise Captured(geo)
 
-    engine = fused.load_engine()
-    state = geometry.normal_state()
+    engine = source_solver.load_engine()
+    state = ray_geometry.normal_state()
     cfg = v3.resolve_settings(cfg, state)  # the product band block takes its ozone identity from the state
     with (
-        patch.object(fused, 'load_engine', return_value=engine),
-        patch.object(solver_core, 'Solver', StopSolver),
-        patch.object(geometry, 'Kernel', return_value=None),
+        patch.object(source_solver, 'load_engine', return_value=engine),
+        patch.object(engine_core, 'Solver', StopSolver),
+        patch.object(ray_geometry, 'Kernel', return_value=None),
         patch.object(host_cache, 'sun_geometry', return_value=None),
         patch.dict('os.environ', SOSFUSE2_HOST_CACHE='0'),
         pytest.raises(Captured) as caught,
@@ -191,8 +192,9 @@ def test_reduced_grid_is_fixed(tmp_path):
 
 def test_saved_source_settings_round_trip(tmp_path):
     # table_fast.restored_settings rebuilds the settings of a saved source through settings_for and compares the dict
-    from sosfuse2 import paths, table_fast
-    from sosfuse2.components import canonical_state
+    from sosfuse2.foundation import paths
+    from sosfuse2.outputs import radiance_table
+    from sosfuse2.atmosphere.components import canonical_state
 
     state = next(s for s in json.loads((paths.ASSETS / 'states_v1.json').read_text())['states'] if s.get('runnable'))
     for raw in ({}, {'chi_refine_deg': None}, {'h_refine': 'b2a6', 'L': 24, 'chi_refine_deg': [88, 100]}):
@@ -202,7 +204,7 @@ def test_saved_source_settings_round_trip(tmp_path):
         contract = dict(state=canonical_state(state), settings=cfg, backend='cupy', polarization_model='depolarizing')
         path = tmp_path / 'source.npz'
         np.savez(path, wavelength_nm=cfg['wavelengths_nm'], source_contract=np.array(json.dumps(contract)))
-        assert table_fast.restored_settings(path, state, False, 'cupy') == cfg, raw
+        assert radiance_table.restored_settings(path, state, False, 'cupy') == cfg, raw
 
 
 def test_solver_grid_matches_settings_and_signature(tmp_path):
@@ -222,13 +224,13 @@ def test_solver_grid_matches_settings_and_signature(tmp_path):
 
 def test_same_size_grids_stay_apart(tmp_path):
     # Two windows with the same node count give different nodes, so the geometry identity (coordinates included) differs.
-    from sosfuse2 import geometry_contract
+    from sosfuse2.precompute import endpoint_contract
 
     a, b = (settings(tmp_path, {'chi_refine_deg': w}) for w in ([88, 100], [86, 98]))
     assert a['nchi'] == b['nchi'] == 99
     geo_a, geo_b = solver_grid(tmp_path, a), solver_grid(tmp_path, b)
     assert not np.array_equal(geo_a.chi, geo_b.chi)
     assert (
-        geometry_contract.identity(SimpleNamespace(geo=geo_a))[1]
-        != geometry_contract.identity(SimpleNamespace(geo=geo_b))[1]
+        endpoint_contract.identity(SimpleNamespace(geo=geo_a))[1]
+        != endpoint_contract.identity(SimpleNamespace(geo=geo_b))[1]
     )

@@ -26,7 +26,9 @@ import warnings
 import numpy as np
 import pytest
 
-from sosfuse2 import gate, minor_absorbers, paths
+from sosfuse2.checks import gate
+from sosfuse2.atmosphere import minor_absorbers
+from sosfuse2.foundation import paths
 from sosfuse2.tests.cpu_replay import canonical_slice, compare, golden_slice, replay
 
 # Work root at import (collection) time: the session fixture of conftest.py has not yet pointed SOSFUSE2_WORK_ROOT at
@@ -121,18 +123,18 @@ def test_comparison_rejects_other_fixture(runs):
 
 
 def test_thin_stratosphere_limit_and_column(tmp_path):
-    from sosfuse2 import validate_strato
+    from sosfuse2.checks import stratosphere_checks
 
-    report, _, scope, _ = validate_strato.thin_case(tmp_path)
+    report, _, scope, _ = stratosphere_checks.thin_case(tmp_path)
     assert report['pass_'], report  # single scattering of a thin layer against an independent quadrature, 1 %
-    grid = validate_strato.profile_grid(scope)
+    grid = stratosphere_checks.profile_grid(scope)
     assert grid['pass_'], grid  # column of the cell-averaged profile, 1e-6
 
 
 def test_stratosphere_source_normalised_no_absorption():
-    from sosfuse2 import validate_strato
+    from sosfuse2.checks import stratosphere_checks
 
-    report = validate_strato.energy()
+    report = stratosphere_checks.energy()
     assert report['source_integral_pass_'], report
 
 

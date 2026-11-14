@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent round-3 bounded DELTA tests; no production writes or CUDA claim."""
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import argparse
 import copy
 import hashlib
@@ -25,23 +25,25 @@ if __name__ == '__main__':
         os.environ[key] = '2'
 MODULE = paths.PKG  # the package directory (kernel, configs, assets)
 import numpy as np
-from sosfuse2 import paths, stratosphere as st, testing
-from sosfuse2.strato_states import build
-from sosfuse2.fused import Kernel, Solver
-from sosfuse2.geometry import create, TransientGeometry
+from sosfuse2.foundation import paths
+from sosfuse2.atmosphere import stratosphere as st
+from sosfuse2.checks import testkit
+from sosfuse2.asset_tools.strato_states import build
+from sosfuse2.solve.source_solver import Kernel, Solver
+from sosfuse2.solve.ray_geometry import create, TransientGeometry
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent
+    from sosfuse2.checks.numerical_checks import assert_equivalent
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent
 
 # The CLI harness (main --out) replaces this; under pytest/unittest collection the cases write into the test scratch instead of
 # failing with OUT=None (harness semantics unchanged).
-OUT = testing.scratch_parent() / 'strato_revision/delta'
+OUT = testkit.scratch_parent() / 'strato_revision/delta'
 OUT.mkdir(parents=True, exist_ok=True)
 MEASUREMENTS = {}
 ARTIFACT = (
-    testing.scratch_parent() / 'strato_revision'
+    testkit.scratch_parent() / 'strato_revision'
 )  # earlier harness runs (runner_enabled, val_zero) are read from here
 
 
@@ -59,7 +61,7 @@ def optics(s=None, h=None, wl=None):
 
 
 def test_parity_covers_stratosphere_and_lane_variants():
-    from sosfuse2.validate import parity
+    from sosfuse2.checks.validate import parity
 
     assert '((False, 1), (False, 15), (True, 1), (True, 15))' in inspect.getsource(parity)
 
@@ -219,12 +221,12 @@ class Delta(unittest.TestCase):
             self.assertNotIn('optics_table', meta['stratosphere'])
             self.assertNotIn('optics_sha256', meta['stratosphere'])
 
-    @testing.known_failure(
+    @testkit.known_failure(
         'D11',
         'st.source_size(s) is 316, the harness expects the pre-kclean 1132; kernel/harness mismatch since the baseline',
     )
     def test_D11_initialize_1_15_lanes_and_source_widths(self):
-        from sosfuse2.run_gpu_state_v3 import settings_for, create_configured
+        from sosfuse2.jobs.run_state import settings_for, create_configured
 
         a = types.SimpleNamespace(reduced=True, settings_json=None)
         cfg = settings_for(a)
@@ -243,7 +245,7 @@ class Delta(unittest.TestCase):
         MEASUREMENTS['initialized_widths'] = rows
 
     def test_D13_D14_independent_FP32_ray_additivity(self):
-        from sosfuse2 import reference
+        from sosfuse2.backends import numpy_reference
 
         s, scope, _ = create(OUT / 'fp32_geometry', 'selftest', [550.0], state=state(1e-6))
         Solver(s, TransientGeometry(s, scope))
@@ -262,9 +264,9 @@ class Delta(unittest.TestCase):
         for name in ('gm', 'gv', 'gval'):
             c[name] = np.zeros_like(c[name])
         field = np.zeros((s.geo.ns, 1132, 1), 'f4')
-        both = reference.transport(g, c, field, True)
-        trop = reference.transport(g, dict(c, strato_sca=np.zeros(1, 'f4')), field, True)
-        strat = reference.transport(g, dict(c, asca=np.zeros(1, 'f4')), field, True)
+        both = numpy_reference.transport(g, c, field, True)
+        trop = numpy_reference.transport(g, dict(c, strato_sca=np.zeros(1, 'f4')), field, True)
+        strat = numpy_reference.transport(g, dict(c, asca=np.zeros(1, 'f4')), field, True)
         expected = (trop + strat).astype('f4')
         delta = abs(both.astype('f8') - expected.astype('f8'))
         spacing = np.maximum(abs(np.spacing(expected)).astype('f8'), float(np.nextafter(np.float32(0), np.float32(1))))
@@ -273,7 +275,7 @@ class Delta(unittest.TestCase):
         self.assertEqual(both.dtype, np.dtype('f4'))
         self.assertGreaterEqual(len(d), 64)
         self.assertTrue(((ulp <= 1) | (relative <= 1e-6)).all())
-        doubled = reference.transport(
+        doubled = numpy_reference.transport(
             g, dict(c, asca=np.zeros(1, 'f4'), strato_sca=c['strato_sca'] * np.float32(2)), field, True
         )
         self.assertGreater(np.count_nonzero(strat), 0)
@@ -290,18 +292,18 @@ class Delta(unittest.TestCase):
         bd = abs(bad.astype('f8') - expected.astype('f8'))
         self.assertFalse(((bd / spacing <= 1) | (bd / np.maximum(abs(expected.astype('f8')), 1e-30) <= 1e-6)).all())
 
-    @testing.known_failure(
+    @testkit.known_failure(
         'D15',
         'test_strato_order host build of kernel.cu lacks -DK_FIRST/-DK_PHASE/-DK_BOUNDARY (clang error since the specialised kernel); skips without clang++',
     )
     def test_D15_SH_gate_accepts_absolute_rejects_material_mismatch(self):
         from sosfuse2.tests import test_strato_order as order
 
-        with patch.object(order.reference, 'project', wraps=order.reference.project) as projection:
+        with patch.object(order.numpy_reference, 'project', wraps=order.numpy_reference.project) as projection:
             report = order.run(OUT / 'independent_order')
         self.assertTrue(report['pass_'])
         self.assertGreater(projection.call_count, 0)
-        original = order.reference.project
+        original = order.numpy_reference.project
         calls = [0]
 
         def corrupt(*args, **kwargs):
@@ -312,12 +314,12 @@ class Delta(unittest.TestCase):
                 moment[0, 0] += 1e-5
             return moment, flux
 
-        with patch.object(order.reference, 'project', side_effect=corrupt):
+        with patch.object(order.numpy_reference, 'project', side_effect=corrupt):
             self.assertFalse(order.run(OUT / 'mismatched_order')['pass_'])
         MEASUREMENTS['SH_max_absolute'] = max(r['moment_max_absolute'] for r in report['cases'])
         MEASUREMENTS['SH_gate_injected_mismatch_rejected'] = True
 
-    @testing.known_failure(
+    @testkit.known_failure(
         'D16',
         "kernel_static.json rows carry no 'strato' key any more (KeyError); harness predates the kclean kernel_static report",
     )
@@ -354,11 +356,11 @@ class Delta(unittest.TestCase):
 
         def mismatched_candidate(command, *args, **kwargs):
             value = original(command, *args, **kwargs)
-            return value + ' verifier_deliberate_mismatch ' if command[-1] == str(MODULE / 'kernel.cu') else value
+            return value + ' verifier_deliberate_mismatch ' if command[-1] == str(MODULE / 'backends/kernel.cu') else value
 
         with patch.object(static.subprocess, 'check_output', side_effect=mismatched_candidate):
             self.assertFalse(static.run(OUT / 'deliberate_candidate_mismatch')['pass_'])
-        source = (MODULE / 'kernel.cu').read_text()
+        source = (MODULE / 'backends/kernel.cu').read_text()
         macro = next(x for x in source.splitlines() if x.startswith('#define COPY_STRATO') and 'scache' in x)
         self.assertEqual(macro.count('_Pragma("unroll")'), 2)
         MEASUREMENTS['static_cases'] = len(report['cases'])
@@ -502,7 +504,7 @@ class Delta(unittest.TestCase):
                 self.assertEqual(data['source'].shape, (40, 1132, 1))
         validation = json.loads((ARTIFACT / 'val_zero/validation.json').read_text())
         self.assertTrue(validation['pass'])
-        from sosfuse2.validate_strato import zero_bytes
+        from sosfuse2.checks.stratosphere_checks import zero_bytes
 
         baseline = os.environ.get(
             'SOSFUSE2_STRATO_BASELINE', ''
@@ -522,7 +524,7 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--case', help='exact unittest method name')
     args = parser.parse_args()
-    OUT = testing.outside_package(args.out)
+    OUT = testkit.outside_package(args.out)
     OUT.mkdir(parents=True, exist_ok=True)
     suite = (
         unittest.TestSuite([Delta(args.case)]) if args.case else unittest.defaultTestLoader.loadTestsFromTestCase(Delta)

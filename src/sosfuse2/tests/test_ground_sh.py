@@ -1,13 +1,13 @@
 """Ground SH normalization/mirroring and actual-LUT quadrature tests (CPU only)."""
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import numpy as np
 import pytest
-from sosfuse2 import testing
-from sosfuse2.ground_sh import configured_order, lut_eigenvalues, project, real_basis
+from sosfuse2.checks import testkit
+from sosfuse2.solve.ground_sh import configured_order, lut_eigenvalues, project, real_basis
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
@@ -106,7 +106,7 @@ def test_setting_is_opt_in_and_rejects_bad_order(monkeypatch):
 
 
 def test_synthesized_grid_and_ghosts_against_direct_legendre():
-    from sosfuse2.ground_sh import synthesize, GRID_INTERVALS
+    from sosfuse2.solve.ground_sh import synthesize, GRID_INTERVALS
 
     d = np.array([[0.3, 0.4, np.sqrt(0.75)]])
     eigen = (0.4 ** np.arange(17))[:, None]
@@ -134,7 +134,7 @@ def test_synthesized_grid_and_ghosts_against_direct_legendre():
 
 
 def test_runtime_metadata_separates_opt_in_outputs(monkeypatch):
-    from sosfuse2.run_gpu_state_v3 import kernel_settings
+    from sosfuse2.jobs.run_state import kernel_settings
 
     monkeypatch.delenv('SOSFUSE2_KERNEL_FLAGS', raising=False)
     monkeypatch.delenv('SOSFUSE2_BLOCK_SIZE', raising=False)
@@ -148,7 +148,7 @@ def test_angular_cache_shared_across_quadratures_but_not_states(monkeypatch):
     import json
     from pathlib import Path
     from types import SimpleNamespace
-    from sosfuse2.fused import Kernel
+    from sosfuse2.solve.source_solver import Kernel
 
     monkeypatch.setenv('SOSFUSE2_GROUND_SH_L', '16')
     flags = json.loads(paths.CONFIGS.joinpath('C3.json').read_text())['kernel_flags']
@@ -194,22 +194,22 @@ def test_angular_cache_shared_across_quadratures_but_not_states(monkeypatch):
 
 
 def test_disabled_ground_sh_preserves_ground_convolution_tokens(tmp_path):
-    testing.require_tool('clang++')
+    testkit.require_tool('clang++')
     import json
     import re
     import subprocess
     from pathlib import Path
     from unittest.mock import patch
-    from sosfuse2 import sh_layout
+    from sosfuse2.backends import sh_layout
 
     here = paths.PKG  # kernel.cu and configs/ live in the package directory
-    flags = json.loads((here / 'configs/C3.json').read_text())['kernel_flags'] + ['PROFILE', 'STRATO']
+    flags = json.loads((here / 'backends/configs/C3.json').read_text())['kernel_flags'] + ['PROFILE', 'STRATO']
     try:  # HEAD's kernel.cu of whichever checkout holds the package (sky-sos monorepo or the public repo)
         prefix = subprocess.check_output(
             ['git', '-C', str(here), 'rev-parse', '--show-prefix'], text=True, stderr=subprocess.DEVNULL
         ).strip()
         before = subprocess.check_output(
-            ['git', '-C', str(here), 'show', f'HEAD:{prefix}kernel.cu'], text=True, stderr=subprocess.DEVNULL
+            ['git', '-C', str(here), 'show', f'HEAD:{prefix}backends/kernel.cu'], text=True, stderr=subprocess.DEVNULL
         )
     except (OSError, subprocess.CalledProcessError):
         pytest.skip('kernel.cu HEAD baseline needs a git checkout of the package')

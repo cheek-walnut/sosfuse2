@@ -7,9 +7,11 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sosfuse2 import column_cache, density, geometry_contract, host_cache, paths, spectral, sun_parallel
-from sosfuse2 import geometry as gm
-from sosfuse2 import run_gpu_state_v3 as runner
+from sosfuse2.precompute import column_cache, endpoint_contract, host_cache, sun_parallel
+from sosfuse2.atmosphere import density, spectral
+from sosfuse2.foundation import paths
+from sosfuse2.solve import ray_geometry as gm
+from sosfuse2.jobs import run_state as runner
 
 
 def prepare(tmp_path, monkeypatch, state=None, cfg=None):
@@ -78,7 +80,7 @@ def test_column_producers_invalidate_caches_but_coefficients_only_sign_products(
         ):
             host_cache.sun_geometry(old, 1, tmp_path / 'local', 1.2, shared=tmp_path / 'shared')
         return dict(
-            geometry=geometry_contract.identity(s)[1],
+            geometry=endpoint_contract.identity(s)[1],
             legacy_geometry=gm.identity(s, 2)[1],
             host=host_cache.digest(host_cache.context(s, optics)[1]),
             sun=folders[0],
@@ -87,7 +89,7 @@ def test_column_producers_invalidate_caches_but_coefficients_only_sign_products(
         )
 
     original = keys()
-    for name, invalidates in (('solver_columns.py', True), ('solver_optics.py', False)):
+    for name, invalidates in (('rays/shell_segments.py', True), ('atmosphere/extinction.py', False)):
         target = paths.PKG / name
         with patch.object(Path, 'read_bytes', lambda p: actual_read(p) + (b'\nIDENTITY_PROBE = 1\n' if p == target else b'')):
             changed = keys()
@@ -97,8 +99,8 @@ def test_column_producers_invalidate_caches_but_coefficients_only_sign_products(
 
 
 def context_solver(tmp_path, *, prepare_ground=False, state=None):
-    from sosfuse2 import tropo_profile
-    from sosfuse2.accepted.engine import create
+    from sosfuse2.atmosphere import tropo_profile
+    from sosfuse2.solve.engine import create
 
     state = state or gm.normal_state()
     state['parameters']['o4'] = False
@@ -182,7 +184,7 @@ def test_ground_deferred_until_context_enabled(tmp_path):
 def test_total_columns_replacement_is_late_only_outside_module(tmp_path, monkeypatch):
     import pytest
 
-    from sosfuse2 import solver_columns
+    from sosfuse2.rays import shell_segments
 
     s, ctx, _ = context_solver(tmp_path)
     old = ctx.b.sh.old
@@ -196,10 +198,10 @@ def test_total_columns_replacement_is_late_only_outside_module(tmp_path, monkeyp
         s.prepare_ground()
     with pytest.raises(RuntimeError, match='replacement reached'):
         s.geo.build(0, s)
-    with patch.object(solver_columns, 'total_columns', wraps=solver_columns.total_columns) as direct:
+    with patch.object(shell_segments, 'total_columns', wraps=shell_segments.total_columns) as direct:
         sun = old.SunGeometry(1, tmp_path)
     assert direct.call_count == len(sun.h)
-    assert type(sun) is solver_columns.SunGeometry
+    assert type(sun) is shell_segments.SunGeometry
     old.total_columns = original
     assert ctx.b.sh.NORMAL is old.NORMAL
     normal = ctx.b.sh.NORMAL
@@ -229,10 +231,12 @@ def test_density_attach_restores_columns_on_ground_failure(tmp_path, monkeypatch
 
 
 def test_geometry_worker_preserves_aerosol_descriptors(tmp_path, monkeypatch):
-    from sosfuse2 import column_parallel, column_table, geometry_parallel
+    from sosfuse2.precompute import column_parallel
+    from sosfuse2.rays import column_table
+    from sosfuse2.solve import ray_geometry_parallel
 
-    monkeypatch.setattr(geometry_parallel, '_GEOMETRY', None)  # _init below sets worker globals in this process
-    monkeypatch.setattr(geometry_parallel, '_SOURCE_DRIFT', None)
+    monkeypatch.setattr(ray_geometry_parallel, '_GEOMETRY', None)  # _init below sets worker globals in this process
+    monkeypatch.setattr(ray_geometry_parallel, '_SOURCE_DRIFT', None)
     descriptors = []
     for i, (height, two_layer) in enumerate(((1.2, False), (2.4, False), (1.2, True))):
         state = gm.normal_state()
@@ -240,10 +244,10 @@ def test_geometry_worker_preserves_aerosol_descriptors(tmp_path, monkeypatch):
         if two_layer:
             state['troposphere_profile'] = {'status': 'enabled', 'model': 'two_layer'}
         s, ctx, _ = context_solver(tmp_path / str(i), state=state)
-        frozen = geometry_parallel.freeze(SimpleNamespace(scope=ctx))
+        frozen = ray_geometry_parallel.freeze(SimpleNamespace(scope=ctx))
         geo = SimpleNamespace(h=s.geo.h, chi=s.geo.chi, cfg=s.geo.cfg)
-        geometry_parallel._init(frozen, geo, False, None, None, column_parallel.SOURCE_HASHES)
-        worker = geometry_parallel._GEOMETRY.scope.b.sh.old
+        ray_geometry_parallel._init(frozen, geo, False, None, None, column_parallel.SOURCE_HASHES)
+        worker = ray_geometry_parallel._GEOMETRY.scope.b.sh.old
         actual = column_table.aerosol(worker)
         assert actual == column_table.aerosol(ctx.b.sh.old)
         descriptors.append(actual)

@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
 """Actual PROFILE C++ helper/sample path vs operation-matched NumPy; lane parity."""
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import argparse, copy, ctypes, itertools, json, subprocess, sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2 import reference, testing
-from sosfuse2.density import interpolate32
-from sosfuse2.geometry import create, TransientGeometry, normal_state
-from sosfuse2.fused import sh_aux
-from sosfuse2.strato_states import build
+from sosfuse2.backends import numpy_reference
+from sosfuse2.checks import testkit
+from sosfuse2.atmosphere.density import interpolate32
+from sosfuse2.solve.ray_geometry import create, TransientGeometry, normal_state
+from sosfuse2.solve.source_solver import sh_aux
+from sosfuse2.asset_tools.strato_states import build
 from sosfuse2.tests.test_kernel_static import STUB
 from sosfuse2.tests.test_tropo_mie import SYNTAX_STUB_EXTRA
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
 
 def compile_native(out):
-    kernel = (paths.PKG / 'kernel.cu').resolve()
+    kernel = (paths.PKG / 'backends/kernel.cu').resolve()
     stub_text = STUB + SYNTAX_STUB_EXTRA + 'float __expf(float);float __sinf(float);float __cosf(float);\n'
     cpp = out / 'profile_host.cpp'
     lib = out / 'profile_host.dylib'
@@ -74,8 +75,8 @@ extern "C" void sample_c(const double*p,const double*d,const float*B,const float
 
 def run(out):
     out.mkdir(parents=True, exist_ok=True)
-    kernel = (paths.PKG / 'kernel.cu').resolve()
-    testing.require_tool('clang++')
+    kernel = (paths.PKG / 'backends/kernel.cu').resolve()
+    testkit.require_tool('clang++')
     stub = out / 'stub.h'
     stub.write_text(STUB + SYNTAX_STUB_EXTRA + 'float __expf(float);float __sinf(float);float __cosf(float);\n')
     static = []
@@ -124,7 +125,7 @@ def run(out):
         maxh = 0.0
         for seg in range(g['edges'].shape[1] - 1):
             for step in range(len(c['u'])):
-                q = reference.sample(g, seg, step, c)
+                q = numpy_reference.sample(g, seg, step, c)
                 for row in range(len(g['d'])):
                     if not q['valid'][row]:
                         continue
@@ -178,10 +179,10 @@ def run(out):
             (False, boundary, False),
             (False, boundary, True),
         ):
-            full, Y = reference.transport(
+            full, Y = numpy_reference.transport(
                 g, c, field, first, boundary=bd, return_basis=True, sh_source=sh_aux(field) if aux else None
             )
-            m, f = reference.project(g, full, c, Y)
+            m, f = numpy_reference.project(g, full, c, Y)
             rays = []
             moments = []
             flux = []
@@ -192,10 +193,10 @@ def run(out):
                         one[key] = np.ascontiguousarray(c[key][..., w : w + 1])
                 src = np.ascontiguousarray(field[..., w : w + 1])
                 b = None if bd is None else bd[:, w : w + 1]
-                value, y = reference.transport(
+                value, y = numpy_reference.transport(
                     g, one, src, first, boundary=b, return_basis=True, sh_source=sh_aux(src) if aux else None
                 )
-                mm, ff = reference.project(g, value, one, y)
+                mm, ff = numpy_reference.project(g, value, one, y)
                 rays.append(value)
                 moments.append(mm)
                 flux.append(ff)

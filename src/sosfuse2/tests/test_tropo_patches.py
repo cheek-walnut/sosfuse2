@@ -15,9 +15,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sosfuse2 import geometry as gm
-from sosfuse2 import tropo_profile as tp
-from sosfuse2.fused import load_engine
+from sosfuse2.solve import ray_geometry as gm
+from sosfuse2.atmosphere import tropo_profile as tp
+from sosfuse2.solve.source_solver import load_engine
 
 TWO_LAYER = dict(status='enabled', model='two_layer')
 
@@ -28,7 +28,7 @@ class Stop(Exception):
 
 def stopping_engine(captured, monkeypatch):
     """Capture context and geometry at the module Solver boundary."""
-    from sosfuse2 import solver_core
+    from sosfuse2.solve import engine_core
 
     class StopSolver:
         def __init__(self, ctx, geo, kernel, *args):
@@ -38,7 +38,7 @@ def stopping_engine(captured, monkeypatch):
         def prepare_ground(self):
             return 'original'
 
-    monkeypatch.setattr(solver_core, 'Solver', StopSolver)
+    monkeypatch.setattr(engine_core, 'Solver', StopSolver)
     return load_engine()
 
 
@@ -143,7 +143,8 @@ def profile_scope(state, cache, monkeypatch):
 
 
 def test_two_layer_column_callables_freeze_and_pickle(tmp_path, monkeypatch):
-    from sosfuse2 import column_parallel, column_table
+    from sosfuse2.precompute import column_parallel
+    from sosfuse2.rays import column_table
 
     state = copy.deepcopy(gm.normal_state())
     state['troposphere_profile'] = dict(TWO_LAYER)
@@ -175,7 +176,7 @@ def test_two_layer_column_callables_freeze_and_pickle(tmp_path, monkeypatch):
 
 
 def test_profile_identities_keep_state_dependencies(tmp_path, monkeypatch):
-    from sosfuse2 import column_table
+    from sosfuse2.rays import column_table
 
     states = [copy.deepcopy(gm.normal_state()) for _ in range(3)]
     states[1]['parameters']['scale_height_km'] = 2.4

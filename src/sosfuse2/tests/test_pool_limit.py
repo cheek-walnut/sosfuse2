@@ -9,7 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from sosfuse2 import device_profile
+from sosfuse2.backends import device_profile
+from sosfuse2.foundation import paths
 
 GIB = 1024**3
 
@@ -59,16 +60,16 @@ class PoolLimit(unittest.TestCase):
         for value in ('0', '-1', 'abc', 'inf', 'nan', 'off', '1e300'):  # 1e300 x field overflows to inf
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'E_DEVICE_PROFILE'):
                 reserved(1_790_000_000, value)
-        root = Path(device_profile.__file__).resolve().parent
-        source = (root / 'pipeline_execution.py').read_text()
+        source = (paths.PKG / 'jobs/pipeline_execution.py').read_text()
         self.assertNotIn('30 * field_bytes', source)
         self.assertIn('reserved_field_bytes(field_bytes)', source)
 
     def test_no_fixed_cap_left_in_the_package(self):
-        root = Path(device_profile.__file__).resolve().parent
-        left = [p.name for p in root.glob('*.py') if '20 * 1024**3' in p.read_text()]
+        root = paths.PKG
+        modules = paths.production_files()
+        left = [p.relative_to(root).as_posix() for p in modules if '20 * 1024**3' in p.read_text()]
         self.assertEqual(left, [])
-        users = sorted(p.name for p in root.glob('*.py') if 'set_limit(size=' in p.read_text())
+        users = sorted(p.relative_to(root).as_posix() for p in modules if 'set_limit(size=' in p.read_text())
         for name in users:
             with self.subTest(file=name):
                 self.assertIn('pool_limit_bytes', (root / name).read_text())

@@ -12,10 +12,12 @@ from unittest import mock
 
 import numpy as np
 
-from sosfuse2 import density, geometry, host_cache, sun_parallel as sp
+from sosfuse2.atmosphere import density
+from sosfuse2.solve import ray_geometry
+from sosfuse2.precompute import host_cache, sun_parallel as sp
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
@@ -31,7 +33,7 @@ class SunParallelTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         with mock.patch.dict(os.environ, {sp.ENV: '1'}):
-            _, scope, _ = geometry.create(Path(cls.tmp.name) / 'prepare', 'selftest', [550.0], 'numpy')
+            _, scope, _ = ray_geometry.create(Path(cls.tmp.name) / 'prepare', 'selftest', [550.0], 'numpy')
         cls.old = scope.b.sh.old
         cls.h = np.array([0.0, 0.1, 13.0, 40.0, 80.0])
         cls.x = np.linspace(0, 1, 21)

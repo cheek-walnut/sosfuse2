@@ -8,10 +8,11 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
-from sosfuse2 import column_table as ct, density, stratosphere
+from sosfuse2.rays import column_table as ct
+from sosfuse2.atmosphere import density, stratosphere
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
@@ -46,7 +47,7 @@ def boundary_rays():
 
 def supported_profiles():
     opt = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
-    from sosfuse2 import tropo_profile
+    from sosfuse2.atmosphere import tropo_profile
 
     two_layer = [
         tropo_profile.build(
@@ -171,7 +172,7 @@ class ColumnTableTests(unittest.TestCase):
         assert_equivalent(outputs[0], outputs[2])
 
     def test_method_separation_disk_and_memory(self):
-        from sosfuse2.geometry import Bundle
+        from sosfuse2.solve.ray_geometry import Bundle
 
         bundle = Bundle.__new__(Bundle)
         keys = []
@@ -198,7 +199,7 @@ class ColumnTableTests(unittest.TestCase):
 
     def test_promoted_bundle_does_not_overwrite_host_memo(self):
         import copy
-        from sosfuse2.geometry import Bundle
+        from sosfuse2.solve.ray_geometry import Bundle
 
         host = Bundle.__new__(Bundle)
         host.strato_columns = {'x': np.array([1.0])}

@@ -1,6 +1,6 @@
 """PHASE event fields and serialization of concurrent solar table builds."""
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import re
 import sys
 import threading
@@ -12,15 +12,13 @@ from unittest import mock
 import pytest
 
 HERE = paths.PKG  # the package directory (kernel, configs, assets)
-from sosfuse2 import host_cache, sun_parallel  # noqa: E402
+from sosfuse2.precompute import host_cache, sun_parallel  # noqa: E402
 
 
 def test_every_phase_line_carries_trace_fields():
     # Every PHASE event needs the fields used to identify and order it.
     missing = []
-    for path in sorted(HERE.glob('*.py')):
-        if path.name.startswith('test_'):
-            continue
+    for path in sorted(paths.production_files()):
         text = path.read_text()
         for m in re.finditer(r"event='PHASE'", text):
             # the rest of the enclosing call: scan to the bracket that closes it (the dict spans several lines)
@@ -134,7 +132,7 @@ def test_profile_code_change_misses_the_shared_table(tmp_path):
     for edit in (b'', b'\nIDENTITY_PROBE = 1\n'):
 
         def read_bytes(self, edit=edit):
-            return real(self) + edit if self.name == 'tropo_profile.py' else real(self)
+            return real(self) + edit if self == paths.PKG / 'atmosphere/tropo_profile.py' else real(self)
 
         with mock.patch.object(sun_parallel, 'prebuild', prebuild), mock.patch.object(Path, 'read_bytes', read_bytes):
             host_cache.sun_geometry(old, 4, state, 1.2, shared=shared)

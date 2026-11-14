@@ -1,12 +1,12 @@
 """CPU seams for role resolution and the retained production sidecar ABI."""
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import json
 from pathlib import Path
 import numpy as np
-from sosfuse2 import testing
-from sosfuse2.fused import Kernel
-from sosfuse2.kernel_config import resolve_config
+from sosfuse2.checks import testkit
+from sosfuse2.solve.source_solver import Kernel
+from sosfuse2.backends.flags import resolve_config
 
 
 def test_section_clocks_force_unsplit_and_preserve_production(monkeypatch):
@@ -40,7 +40,7 @@ def test_paired_sidecar_occupies_exactly_one_argument(tmp_path, monkeypatch):
 
 
 def test_instrumented_precompile_does_not_schedule_split_kernels(tmp_path, monkeypatch):
-    from sosfuse2 import precompile
+    from sosfuse2.jobs import precompile
 
     flags = json.loads(paths.CONFIGS.joinpath('C3.json').read_text())['kernel_flags']
     monkeypatch.setenv('SOSFUSE2_KERNEL_FLAGS', ','.join(flags + ['EXP_SECTION_CLOCKS']))
@@ -72,7 +72,7 @@ def test_instrumented_precompile_does_not_schedule_split_kernels(tmp_path, monke
 def test_retired_sigma_invocation_and_fw1_preprocess():
     import subprocess
     import pytest
-    from sosfuse2.kernel_config import RETIRED_FLAGS
+    from sosfuse2.backends.flags import RETIRED_FLAGS
 
     flags = json.loads(paths.CONFIGS.joinpath('C3.json').read_text())['kernel_flags']
     sigma = [f for f in flags if f not in ('REG_LEAN', 'TRANSPORT_RS2', 'SH_COMBINE', 'CELL_SPLIT2')]
@@ -82,8 +82,8 @@ def test_retired_sigma_invocation_and_fw1_preprocess():
         old_call = resolve_config(legacy + ('STRATO',), W=1)
     empty_call = resolve_config(('STRATO',), W=1)
     assert old_call == empty_call and not empty_call.c3_fw15
-    source = (paths.PKG / 'kernel.cu').read_text()
-    testing.require_tool('clang')
+    source = (paths.PKG / 'backends/kernel.cu').read_text()
+    testkit.require_tool('clang')
     for role in ('transport', 'lut'):
         cfg = resolve_config(('STRATO',), role=role, W=1)
         cmd = ['clang', '-E', '-P', '-x', 'c++', '-DFW=1', '-DK_FIRST=0', '-DK_PHASE=0', '-DK_BOUNDARY=0']
@@ -101,7 +101,7 @@ def test_sinv_reserved_argument_removed():
 
 
 def test_physical_scope_and_default_ksplit(monkeypatch):
-    from sosfuse2.fused import ksplit_setting
+    from sosfuse2.solve.source_solver import ksplit_setting
 
     monkeypatch.delenv('SOSFUSE2_KSPLIT', raising=False)
     assert ksplit_setting('cupy', ('STRATO',), 16) == '3'
@@ -116,8 +116,8 @@ def test_physical_scope_and_default_ksplit(monkeypatch):
 
 def test_retired_names_do_not_change_cache_or_toolkey(monkeypatch):
     import pytest
-    from sosfuse2.compile_cache import cache_key
-    from sosfuse2.gate import toolkey
+    from sosfuse2.backends.compile_cache import cache_key
+    from sosfuse2.checks.gate import toolkey
 
     monkeypatch.setenv('SOSFUSE2_KERNEL_FLAGS', '')
     plain = cache_key('synthetic', {'nvrtc': [12, 8]}, 256)

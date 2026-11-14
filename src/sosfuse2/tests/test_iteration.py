@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 import numpy as np
-from sosfuse2.fused import Solver
+from sosfuse2.solve.source_solver import Solver
 
 
 class DummyKernel:

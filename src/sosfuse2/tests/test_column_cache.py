@@ -1,6 +1,6 @@
 """Reduced queue runs of the column cache; shares PERSISTENT_TEST_BACKEND/DEADLINE knobs."""
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import copy
 import json
 import os
@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from sosfuse2.tests import test_pipeline_persistent as base
 import numpy as np
-from sosfuse2.numerical_checks import assert_equivalent
+from sosfuse2.checks.numerical_checks import assert_equivalent
 
 # Tiny changes around the known original; convergence still needs a measurement.
 CASES = ((0.02, 0.003, 3.0), (0.0201, 0.004, 3.0), (0.02, 0.003, 3.01))  # aod, tau, sigma
@@ -46,7 +46,7 @@ class ColumnCacheTests(unittest.TestCase):
         env = base.child_environment()
         env.pop('SOSFUSE2_COLUMN_CACHE', None)
         cmd = [
-            *base.paths.module_command('pipeline'),
+            *base.paths.module_command('jobs.pipeline'),
             '--states',
             str(cls.states),
             '--ids',

@@ -9,8 +9,9 @@ without a spectral block fall back to equal widths, edges that do not bracket th
 import numpy as np
 import pytest
 
-from sosfuse2 import paths, spectral
-from sosfuse2.host import pack_state as V3
+from sosfuse2.foundation import paths
+from sosfuse2.atmosphere import spectral
+from sosfuse2.outputs import pack_state as V3
 
 BASE = np.load(paths.ASSETS / 'rgb_weights.npy')
 CENTRES15 = 360 + (np.arange(15) + 0.5) * 470 / 15

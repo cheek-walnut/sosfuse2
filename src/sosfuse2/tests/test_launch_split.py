@@ -3,7 +3,7 @@
 Run: python -B -m sosfuse2.tests.test_launch_split
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import os
 from pathlib import Path
 import sys
@@ -12,8 +12,8 @@ import unittest
 from unittest import mock
 
 import numpy as np
-from sosfuse2 import device_profile
-from sosfuse2.fused import Kernel
+from sosfuse2.backends import device_profile
+from sosfuse2.solve.source_solver import Kernel
 
 
 class FakeXP:

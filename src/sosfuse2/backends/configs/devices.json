@@ -1,0 +1,51 @@
+{
+ "schema": 1,
+  "note": "Per-device launch and overlap budgets. Environment overrides and device matching are defined by sosfuse2.backends.device_profile.",
+ "profiles": {
+  "eda": {
+   "gpu_names": [
+    "NVIDIA GeForce RTX 3080"
+   ],
+   "launch_budget_seconds": 30.0,
+   "launch_target_seconds": 2.5,
+   "launch_cells_initial": 24,
+   "launch_pause_ms": 0,
+   "stage1_defaults": [],
+   "strato_async": 0,
+   "state_vram_gb": 4.5,
+   "slot_pss_gb": 5.0,
+   "service_pss_gb": 3.0,
+   "worker_pss_gb": 1.5,
+   "state_process_pss_gb": 2.8,
+   "requires_split": true,
+   "note": "CUDA launch and memory budgets.",
+   "memory_note": "PSS budgets cover the service, workers and state process separately.",
+   "requires_split_note": "First-light ray ranges split launches below one cell."
+  },
+  "rig": {
+   "gpu_names": [],
+   "launch_budget_seconds": 60.0,
+   "launch_target_seconds": null,
+   "launch_cells_initial": 0,
+   "launch_pause_ms": 0,
+   "stage1_defaults": [
+    "FMAD",
+    "FASTMATH"
+   ],
+   "strato_async": 1,
+   "state_vram_gb": 3.7,
+   "note": "CUDA launch and memory budgets."
+  },
+  "mac": {
+   "gpu_names": [],
+   "launch_budget_seconds": null,
+   "launch_target_seconds": null,
+   "launch_cells_initial": 0,
+   "launch_pause_ms": 0,
+   "stage1_defaults": [],
+   "strato_async": 0,
+   "state_vram_gb": null,
+   "note": "NumPy reference backend; no GPU launches."
+  }
+ }
+}

@@ -1,4 +1,4 @@
-"""sosfuse2.identity: fixed samples of the three normalizers, the refused inputs, and package-wide checks.
+"""sosfuse2.foundation.content_identity: fixed samples of the three normalizers, the refused inputs, and package-wide checks.
 
 CPU only. The case tables below are plain literals (source, expected identity text) so that they can be replayed under
 another interpreter without pytest. The clang++ comparison is skipped when the compiler is not on PATH.
@@ -12,8 +12,10 @@ import subprocess
 
 import pytest
 
-from sosfuse2 import identity, paths, spectral, testing
-from sosfuse2.components import canonical_state
+from sosfuse2.foundation import content_identity, paths
+from sosfuse2.atmosphere import spectral
+from sosfuse2.checks import testkit
+from sosfuse2.atmosphere.components import canonical_state
 
 # (source, identity text). Python 3.12 syntax only.
 PYTHON_CASES = [
@@ -214,7 +216,7 @@ JSON_DROPPED = {
     'assets/states_v1.json': {'states[].description', 'states[].group'},
     'assets/states_v2.json': {'REPORT.note', 'states[].description', 'states[].group'},
     'assets/states_v1_usstd.json': {'note', 'states[].description', 'states[].group'},
-    'gate/fixtures.json': {
+    'checks/gate_data/fixtures.json': {
         'note',
         'settings_note',
         'solve_parameters_note',
@@ -229,12 +231,12 @@ JSON_DROPPED = {
         'state.q2d_override',
         'state.role',
     },
-    'configs/devices.json': {
+    'backends/configs/devices.json': {
         'note', 'profiles.eda.note', 'profiles.eda.memory_note', 'profiles.eda.requires_split_note',
         'profiles.rig.note', 'profiles.mac.note',
     },
-    'configs/C3.json': {'notes'},
-    'configs/C3_nostrato.json': {'notes'},
+    'backends/configs/C3.json': {'notes'},
+    'backends/configs/C3_nostrato.json': {'notes'},
 }
 VERBATIM = ('settings', 'parameters', 'stratosphere', 'density')
 
@@ -261,15 +263,15 @@ KERNEL_FLAGS = (
 def python_sources():
     """Every Python file package_hashes() lists."""
     P = paths.PKG
-    return [
+    return list(dict.fromkeys([
         *paths.production_files(),
-        *[P / 'accepted' / n for n in identity.ACCEPTED_SOURCES],
-        *[P / 'host' / n for n in identity.HOST_MODULES],
-    ]
+        *[P / n for n in content_identity.ACCEPTED_SOURCES],
+        *[P / n for n in content_identity.HOST_MODULES],
+    ]))
 
 
 def c_sources():
-    return [paths.PKG / 'kernel.cu', paths.PKG / 'native/sh_cpu.cpp']
+    return [paths.PKG / 'backends/kernel.cu', paths.PKG / 'backends/native/sh_cpu.cpp']
 
 
 def without_docstrings(tree):
@@ -298,21 +300,21 @@ def sha(kind, text):
 @pytest.mark.parametrize('index', range(len(PYTHON_CASES)))
 def test_python_text_fixed_samples(index):
     source, expected = PYTHON_CASES[index]
-    assert identity.python_text(source.encode()) == expected
+    assert content_identity.python_text(source.encode()) == expected
 
 
 def test_python_text_distinct_and_equal_pairs():
     for a, b in PYTHON_DISTINCT:
         ast.parse(a), ast.parse(b)  # both are valid programs
-        assert identity.python_text(a.encode()) != identity.python_text(b.encode()), (a, b)
+        assert content_identity.python_text(a.encode()) != content_identity.python_text(b.encode()), (a, b)
     for a, b in PYTHON_EQUAL:
-        assert identity.python_text(a.encode()) == identity.python_text(b.encode()), (a, b)
+        assert content_identity.python_text(a.encode()) == content_identity.python_text(b.encode()), (a, b)
 
 
 @pytest.mark.parametrize('raw', PYTHON_REFUSED)
 def test_python_text_refuses(raw):
     with pytest.raises(ValueError, match=r'^E_IDENTITY_SOURCE: probe\.py: '):
-        identity.python_text(raw, 'probe.py')
+        content_identity.python_text(raw, 'probe.py')
 
 
 def test_python_sources_comment_and_code_edits(tmp_path):
@@ -321,12 +323,12 @@ def test_python_sources_comment_and_code_edits(tmp_path):
         raw = path.read_bytes()
         copy_path = tmp_path / f'{i}_{path.name}'
         copy_path.write_bytes(raw)
-        base = identity.file_sha(copy_path)
-        assert base == identity.file_sha(path) == sha('python', identity.python_text(raw))
+        base = content_identity.file_sha(copy_path)
+        assert base == content_identity.file_sha(path) == sha('python', content_identity.python_text(raw))
         copy_path.write_bytes(raw + b'\n# x\n')
-        assert identity.file_sha(copy_path) == base, path.name
+        assert content_identity.file_sha(copy_path) == base, path.name
         copy_path.write_bytes(raw + b'\nIDENTITY_PROBE = 1\n')
-        assert identity.file_sha(copy_path) != base, path.name
+        assert content_identity.file_sha(copy_path) != base, path.name
 
 
 def test_python_sources_edits_inside_the_file():
@@ -354,7 +356,7 @@ def test_python_sources_edits_inside_the_file():
             lines[l0 - 1 : l1] = [head + b'"""rewritten', b'', b'  # not a comment', b'"""' + tail]
         rewritten = b'\n'.join(lines)
         assert without_docstrings(ast.parse(rewritten))[0] == reference, path.name
-        assert identity.python_text(rewritten) == identity.python_text(raw), path.name
+        assert content_identity.python_text(rewritten) == content_identity.python_text(raw), path.name
 
         lines = raw.split(b'\n')
         firsts = {node.lineno for node in ast.walk(tree) if isinstance(node, ast.stmt)}
@@ -362,7 +364,7 @@ def test_python_sources_edits_inside_the_file():
             lines.insert(lineno - 1, b'  # inserted comment')
         commented = b'\n'.join(lines)
         assert without_docstrings(ast.parse(commented))[0] == reference, path.name
-        assert identity.python_text(commented) == identity.python_text(raw), path.name
+        assert content_identity.python_text(commented) == content_identity.python_text(raw), path.name
         edited += len(docstrings) + len(firsts)
     assert edited > 5000
 
@@ -378,7 +380,7 @@ def test_python_text_keeps_the_ast():
         if only_docstring:
             expected_unparsable.add(key)
         try:
-            tree = ast.parse(identity.python_text(raw))
+            tree = ast.parse(content_identity.python_text(raw))
         except SyntaxError:
             unparsable.add(key)
             continue
@@ -409,20 +411,20 @@ def test_docstrings_are_not_read_at_run_time():
 @pytest.mark.parametrize('index', range(len(C_CASES)))
 def test_c_text_fixed_samples(index):
     source, expected = C_CASES[index]
-    assert identity.c_text(source.encode()) == expected
+    assert content_identity.c_text(source.encode()) == expected
 
 
 def test_c_text_distinct_and_equal_pairs():
     for a, b in C_DISTINCT:
-        assert identity.c_text(a.encode()) != identity.c_text(b.encode()), (a, b)
+        assert content_identity.c_text(a.encode()) != content_identity.c_text(b.encode()), (a, b)
     for a, b in C_EQUAL:
-        assert identity.c_text(a.encode()) == identity.c_text(b.encode()), (a, b)
+        assert content_identity.c_text(a.encode()) == content_identity.c_text(b.encode()), (a, b)
 
 
 @pytest.mark.parametrize('raw', C_REFUSED)
 def test_c_text_refuses(raw):
     with pytest.raises(ValueError, match=r'^E_IDENTITY_SOURCE: probe\.cu: '):
-        identity.c_text(raw, 'probe.cu')
+        content_identity.c_text(raw, 'probe.cu')
 
 
 def with_comments(raw, comment=b'// x\n'):
@@ -438,27 +440,27 @@ def test_c_sources_comment_and_code_edits(tmp_path):
         raw = path.read_bytes()
         copy_path = tmp_path / path.name
         copy_path.write_bytes(raw)
-        base = identity.file_sha(copy_path)
-        assert base == identity.file_sha(path) == sha('c', identity.c_text(raw))
+        base = content_identity.file_sha(copy_path)
+        assert base == content_identity.file_sha(path) == sha('c', content_identity.c_text(raw))
         for comment in (b'// x\n', b'/* it\'s "x\n */\n'):
             copy_path.write_bytes(raw + comment)
-            assert identity.file_sha(copy_path) == base, path.name
+            assert content_identity.file_sha(copy_path) == base, path.name
             copy_path.write_bytes(with_comments(raw, comment))
-            assert identity.file_sha(copy_path) == base, path.name
+            assert content_identity.file_sha(copy_path) == base, path.name
         copy_path.write_bytes(raw + b'int identity_probe;\n')
-        assert identity.file_sha(copy_path) != base, path.name
-        assert identity.raw_sha(copy_path) != identity.raw_sha(path)
+        assert content_identity.file_sha(copy_path) != base, path.name
+        assert content_identity.raw_sha(copy_path) != content_identity.raw_sha(path)
 
 
 def test_every_listed_source_is_accepted():
     """No file that enters a signature, and no C or CUDA file of the package, is refused by its normalizer."""
-    assert len(identity.package_hashes()) == len(python_sources()) + len(c_sources()) + len(identity.DATA_ASSETS)
+    assert len(content_identity.package_hashes()) == len(python_sources()) + len(c_sources()) + len(content_identity.DATA_ASSETS)
     others = sorted(p for p in paths.PKG.rglob('*') if p.suffix in ('.cu', '.cpp', '.h'))
     assert set(c_sources()) <= set(others)
     for path in others:
-        assert identity.file_sha(path) != identity.raw_sha(path)
+        assert content_identity.file_sha(path) != content_identity.raw_sha(path)
     for name in JSON_DROPPED:
-        identity.file_sha(paths.PKG / name, 'json')
+        content_identity.file_sha(paths.PKG / name, 'json')
 
 
 def preprocessed(clang, source, flags, tmp_path, name):
@@ -476,12 +478,12 @@ def test_c_text_preprocesses_like_the_source(tmp_path):
     The kernel (three flag sets) and the native kernel are compared byte for byte, also against their copies with
     added comments. The fixed samples are compared as token sequences: clang prints a token on the line it came from,
     and the identity text has fewer lines where a comment or a continuation spanned several."""
-    clang = testing.require_tool('clang++')
-    kernel = (paths.PKG / 'kernel.cu').read_bytes()
-    native = (paths.PKG / 'native/sh_cpu.cpp').read_bytes()
+    clang = testkit.require_tool('clang++')
+    kernel = (paths.PKG / 'backends/kernel.cu').read_bytes()
+    native = (paths.PKG / 'backends/native/sh_cpu.cpp').read_bytes()
     for i, (raw, flags) in enumerate([*[(kernel, flags) for flags in KERNEL_FLAGS], (native, ())]):
         source = preprocessed(clang, raw.decode(), flags, tmp_path, f'source_{i}.cpp')
-        for name, text in (('identity', identity.c_text(raw)), ('commented', with_comments(raw).decode())):
+        for name, text in (('identity', content_identity.c_text(raw)), ('commented', with_comments(raw).decode())):
             assert preprocessed(clang, text, flags, tmp_path, f'{name}_{i}.cpp') == source, (name, i, flags)
     compared = 0
     for i, (source, text) in enumerate(C_CASES):
@@ -516,7 +518,7 @@ def test_state_identity_and_canonical_state():
         stratosphere=dict(enabled=False, note_enable='stays'),
     )
     before = copy.deepcopy(state)
-    got = identity.state_identity(state)
+    got = content_identity.state_identity(state)
     assert state == before
     assert got == dict(
         id='s',
@@ -527,11 +529,11 @@ def test_state_identity_and_canonical_state():
     )
     got['parameters']['aod'] = 9
     assert state['parameters']['aod'] == 0.1  # a deep copy
-    assert identity.STATE_LABELS == ('group', 'role', 'holdout', 'out_of_axis_range', 'q2d_override')
+    assert content_identity.STATE_LABELS == ('group', 'role', 'holdout', 'out_of_axis_range', 'q2d_override')
     for key in ('description', 'note', 'notes', 'note_x', 'x_note'):
-        assert identity.is_note(key), key
+        assert content_identity.is_note(key), key
     for key in ('notebook', 'annotation', 'noted', 'descriptions', 'id', 'Note', 7):
-        assert not identity.is_note(key), key
+        assert not content_identity.is_note(key), key
 
     real = json.loads((paths.ASSETS / 'states_v2.json').read_text())['states'][0]
     base = canonical_state(real)
@@ -577,21 +579,21 @@ def test_json_identity_rule():
         profiles=[dict(name='a', note='n'), dict(name='b')],
     )
     before = copy.deepcopy(doc)
-    got = identity.json_identity(doc)
+    got = content_identity.json_identity(doc)
     assert doc == before
     assert got == dict(
         version=1,
         REPORT=dict(rows=[dict(value=1)]),
         settings=dict(note='stays', tol=1e-3, inner=dict(description='stays')),
         density=dict(notes='stays'),
-        state=identity.state_identity(state),
-        states=[identity.state_identity(state), identity.state_identity(dict(state, id='t'))],
+        state=content_identity.state_identity(state),
+        states=[content_identity.state_identity(state), content_identity.state_identity(dict(state, id='t'))],
         profiles=[dict(name='a'), dict(name='b')],
     )
     assert list(got) == ['version', 'REPORT', 'settings', 'density', 'state', 'states', 'profiles']
     # A state has one identity, whether it is read from a file or held in memory.
-    assert identity.json_identity(dict(states=[state]))['states'][0] == identity.state_identity(state)
-    assert identity.json_identity(dict(state=state))['state'] == identity.state_identity(state)
+    assert content_identity.json_identity(dict(states=[state]))['states'][0] == content_identity.state_identity(state)
+    assert content_identity.json_identity(dict(state=state))['state'] == content_identity.state_identity(state)
 
 
 def test_json_dropped_keys_are_the_fixed_list():
@@ -599,13 +601,13 @@ def test_json_dropped_keys_are_the_fixed_list():
     holds inputs of the computation."""
     for name, expected in JSON_DROPPED.items():
         doc = json.loads((paths.PKG / name).read_text())
-        got = dropped_paths(doc, identity.json_identity(doc))
+        got = dropped_paths(doc, content_identity.json_identity(doc))
         assert got == expected, (name, got ^ expected)
         for path in got:
             assert not set(path.replace('[]', '').split('.')[:-1]) & set(VERBATIM), (name, path)
         states = doc['states'] if 'states' in doc else [doc['state']] if 'state' in doc else []
         for state in states:
-            kept = identity.state_identity(state)
+            kept = content_identity.state_identity(state)
             assert all(kept[key] == state[key] for key in kept)
             assert set(state) - set(kept) <= {p.rsplit('.', 1)[-1] for p in expected}
     assert {p for p in JSON_DROPPED['assets/states_v1.json']} == {f'states[].{k}' for k in STATE_KEYS_DROPPED}
@@ -616,7 +618,7 @@ def test_json_file_sha(tmp_path):
 
     def digest(text):
         path.write_bytes(text if isinstance(text, bytes) else text.encode())
-        return identity.file_sha(path, 'json')
+        return content_identity.file_sha(path, 'json')
 
     base = digest('{"a": 1, "b": {"c": [1.5, "é"], "note": "x"}, "states": [{"id": "s", "group": "g"}]}')
     assert base == sha('json', '{"a":1,"b":{"c":[1.5,"\\u00e9"]},"states":[{"id":"s"}]}')
@@ -630,22 +632,22 @@ def test_json_file_sha(tmp_path):
     assert digest('{"a": 1.0, "b": {"c": [1.5, "é"]}, "states": [{"id": "s"}]}') != base  # 1 and 1.0 are kept apart
     assert digest('{"a": 1, "b": {"c": [1.5, "é"]}, "states": [{"id": "s", "extra": null}]}') != base
     # Without kind='json' the suffix decides, and a .json file is raw bytes.
-    assert identity.file_sha(path) == identity.raw_sha(path) == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert content_identity.file_sha(path) == content_identity.raw_sha(path) == hashlib.sha256(path.read_bytes()).hexdigest()
     for raw in JSON_REFUSED:
         path.write_bytes(raw)
         with pytest.raises(ValueError, match='^E_IDENTITY_SOURCE: '):
-            identity.file_sha(path, 'json')
+            content_identity.file_sha(path, 'json')
     with pytest.raises(ValueError, match='^E_IDENTITY_KIND'):
-        identity.file_sha(path, 'yaml')
+        content_identity.file_sha(path, 'yaml')
 
 
 def test_state_labels_are_not_read():
     """Auxiliary check, not a proof: no hashed Python file subscripts or .get()s a state label key. It finds literal
     keys only; a key built at run time is outside its reach. The listed uses are not state dicts."""
     allowed = {
-        ('pipeline_execution.py', 'group', 'prepared'): 'the prepared launch bundle, not a state',
-        ('plan_queue.py', 'role', 'r'): 'a plan row written by the planner',
-        ('plan_queue.py', 'role', 'by_id[i]'): 'a plan row written by the planner',
+        ('jobs/pipeline_execution.py', 'group', 'prepared'): 'the prepared launch bundle, not a state',
+        ('jobs/plan_queue.py', 'role', 'r'): 'a plan row written by the planner',
+        ('jobs/plan_queue.py', 'role', 'by_id[i]'): 'a plan row written by the planner',
     }
     found = set()
     for path in python_sources():
@@ -661,8 +663,8 @@ def test_state_labels_are_not_read():
                 and isinstance(node.args[0], ast.Constant)
             ):
                 key, holder = node.args[0].value, node.func.value
-            if isinstance(key, str) and key in identity.STATE_LABELS:
-                found.add((path.name, key, ast.unparse(holder)))
+            if isinstance(key, str) and key in content_identity.STATE_LABELS:
+                found.add((path.relative_to(paths.PKG).as_posix(), key, ast.unparse(holder)))
     assert found <= set(allowed), sorted(found - set(allowed))
 
 
@@ -670,106 +672,115 @@ def test_state_labels_are_not_read():
 
 
 def test_file_sha_kinds_and_memo(tmp_path):
-    assert identity.RULES == 'sosfuse2-identity-2'
+    assert content_identity.RULES == 'sosfuse2-identity-2'
     a, b = tmp_path / 'a.py', tmp_path / 'b.txt'
     a.write_text('x = 1  # c\n')
     b.write_text('x = 1  # c\n')
-    assert identity.file_sha(a) == sha('python', 'x = 1\n')
-    assert identity.file_sha(b) == identity.raw_sha(b) == hashlib.sha256(b'x = 1  # c\n').hexdigest()
-    assert identity.file_sha(b, 'python') == identity.file_sha(a)  # the content decides, not the path
-    assert identity.file_sha(a, 'raw') == identity.raw_sha(a)
+    assert content_identity.file_sha(a) == sha('python', 'x = 1\n')
+    assert content_identity.file_sha(b) == content_identity.raw_sha(b) == hashlib.sha256(b'x = 1  # c\n').hexdigest()
+    assert content_identity.file_sha(b, 'python') == content_identity.file_sha(a)  # the content decides, not the path
+    assert content_identity.file_sha(a, 'raw') == content_identity.raw_sha(a)
     a.write_text('x = 2  # c\n')  # same path, new content
-    assert identity.file_sha(a) == sha('python', 'x = 2\n')
+    assert content_identity.file_sha(a) == sha('python', 'x = 2\n')
     for name in ('k.cu', 'k.cpp', 'k.h'):
         (tmp_path / name).write_text('int a; // c\n')
-        assert identity.file_sha(tmp_path / name) == sha('c', 'int a;\n')
+        assert content_identity.file_sha(tmp_path / name) == sha('c', 'int a;\n')
     assert sha('python', 'int a;\n') != sha('c', 'int a;\n')
     bad = tmp_path / 'bad.py'
     bad.write_bytes(b'def f(:\n')
     with pytest.raises(ValueError, match=r'^E_IDENTITY_SOURCE: .*bad\.py: SyntaxError'):
-        identity.file_sha(bad)
+        content_identity.file_sha(bad)
     with pytest.raises(ValueError, match=r'^E_IDENTITY_SOURCE: '):
-        identity.file_sha(bad)  # a refusal is not remembered as a hash
+        content_identity.file_sha(bad)  # a refusal is not remembered as a hash
 
 
 def test_package_hashes(monkeypatch):
-    hashes = identity.package_hashes()
+    hashes = content_identity.package_hashes()
     expected = {
         'sosfuse2/__init__.py',
-        'sosfuse2/air_wavelength.py',
-        'sosfuse2/arithmetic.py',
-        'sosfuse2/cache_store.py',
-        'sosfuse2/column_cache.py',
-        'sosfuse2/column_parallel.py',
-        'sosfuse2/column_table.py',
-        'sosfuse2/compile_cache.py',
-        'sosfuse2/components.py',
-        'sosfuse2/density.py',
-        'sosfuse2/device_profile.py',
-        'sosfuse2/fused.py',
-        'sosfuse2/gate.py',
-        'sosfuse2/gate_flags.py',
-        'sosfuse2/generate_density_profile.py',
-        'sosfuse2/generate_minor_absorbers.py',
-        'sosfuse2/generate_strato_optics.py',
-        'sosfuse2/generate_tropo_optics.py',
-        'sosfuse2/geometry.py',
-        'sosfuse2/geometry_contract.py',
-        'sosfuse2/geometry_cpu.py',
-        'sosfuse2/geometry_parallel.py',
-        'sosfuse2/ground_parallel.py',
-        'sosfuse2/ground_sh.py',
-        'sosfuse2/host_cache.py',
-        'sosfuse2/host_limits.py',
-        'sosfuse2/identity.py',
-        'sosfuse2/iprt.py',
-        'sosfuse2/kernel_config.py',
-        'sosfuse2/ksplit.py',
-        'sosfuse2/mie.py',
-        'sosfuse2/minor_absorbers.py',
-        'sosfuse2/numerical_checks.py',
-        'sosfuse2/ozone_temperature.py',
-        'sosfuse2/paths.py',
-        'sosfuse2/prepare_minor_absorbers.py',
-        'sosfuse2/solver_columns.py',
-        'sosfuse2/solver_optics.py',
-        'sosfuse2/solver_sky.py',
-        'sosfuse2/solver_legacy.py',
-        'sosfuse2/solver_poly.py',
-        'sosfuse2/solver_core.py',
-        'sosfuse2/solver_render.py',
-        'sosfuse2/pipeline.py',
-        'sosfuse2/pipeline_execution.py',
-        'sosfuse2/plan_queue.py',
-        'sosfuse2/precompile.py',
-        'sosfuse2/provenance.py',
-        'sosfuse2/ray_columns.py',
-        'sosfuse2/rayleigh.py',
-        'sosfuse2/reference.py',
-        'sosfuse2/run_fuse.py',
-        'sosfuse2/run_gpu_state_v3.py',
-        'sosfuse2/sh_layout.py',
-        'sosfuse2/spectral.py',
-        'sosfuse2/strato_parallel.py',
-        'sosfuse2/strato_states.py',
-        'sosfuse2/stratosphere.py',
-        'sosfuse2/sun_parallel.py',
-        'sosfuse2/table_fast.py',
-        'sosfuse2/table_q.py',
-        'sosfuse2/tables_from_sources.py',
-        'sosfuse2/timers.py',
-        'sosfuse2/tropo_mie.py',
-        'sosfuse2/tropo_profile.py',
-        'sosfuse2/validate.py',
-        'sosfuse2/validate_strato.py',
-        'sosfuse2/verify_tol.py',
-        'sosfuse2/kernel.cu',
-        'sosfuse2/accepted/__init__.py',
-        'sosfuse2/accepted/engine.py',
-        'sosfuse2/host/__init__.py',
-        'sosfuse2/host/host_cores.py',
-        'sosfuse2/host/pack_state.py',
-        'sosfuse2/native/sh_cpu.cpp',
+        'sosfuse2/foundation/__init__.py',
+        'sosfuse2/atmosphere/__init__.py',
+        'sosfuse2/rays/__init__.py',
+        'sosfuse2/precompute/__init__.py',
+        'sosfuse2/backends/__init__.py',
+        'sosfuse2/solve/__init__.py',
+        'sosfuse2/outputs/__init__.py',
+        'sosfuse2/jobs/__init__.py',
+        'sosfuse2/checks/__init__.py',
+        'sosfuse2/asset_tools/__init__.py',
+        'sosfuse2/backends/flags_env.py',
+        'sosfuse2/atmosphere/air_wavelength.py',
+        'sosfuse2/backends/arithmetic.py',
+        'sosfuse2/jobs/cache_store.py',
+        'sosfuse2/precompute/column_cache.py',
+        'sosfuse2/precompute/column_parallel.py',
+        'sosfuse2/rays/column_table.py',
+        'sosfuse2/backends/compile_cache.py',
+        'sosfuse2/atmosphere/components.py',
+        'sosfuse2/atmosphere/density.py',
+        'sosfuse2/backends/device_profile.py',
+        'sosfuse2/solve/source_solver.py',
+        'sosfuse2/checks/gate.py',
+        'sosfuse2/checks/kernel_diagnostics.py',
+        'sosfuse2/asset_tools/generate_density_profile.py',
+        'sosfuse2/asset_tools/generate_minor_absorbers.py',
+        'sosfuse2/asset_tools/generate_strato_optics.py',
+        'sosfuse2/asset_tools/generate_tropo_optics.py',
+        'sosfuse2/solve/ray_geometry.py',
+        'sosfuse2/precompute/endpoint_contract.py',
+        'sosfuse2/solve/ray_geometry_cpu.py',
+        'sosfuse2/solve/ray_geometry_parallel.py',
+        'sosfuse2/precompute/ground_parallel.py',
+        'sosfuse2/solve/ground_sh.py',
+        'sosfuse2/precompute/host_cache.py',
+        'sosfuse2/foundation/host_limits.py',
+        'sosfuse2/foundation/content_identity.py',
+        'sosfuse2/asset_tools/iprt.py',
+        'sosfuse2/backends/flags.py',
+        'sosfuse2/solve/ksplit.py',
+        'sosfuse2/asset_tools/mie.py',
+        'sosfuse2/atmosphere/minor_absorbers.py',
+        'sosfuse2/checks/numerical_checks.py',
+        'sosfuse2/atmosphere/ozone_temperature.py',
+        'sosfuse2/foundation/paths.py',
+        'sosfuse2/asset_tools/prepare_minor_absorbers.py',
+        'sosfuse2/rays/shell_segments.py',
+        'sosfuse2/atmosphere/extinction.py',
+        'sosfuse2/rays/incoming_quadrature.py',
+        'sosfuse2/rays/incoming_rings.py',
+        'sosfuse2/rays/zenith_interpolation.py',
+        'sosfuse2/solve/engine_core.py',
+        'sosfuse2/outputs/preview_functions.py',
+        'sosfuse2/jobs/pipeline.py',
+        'sosfuse2/jobs/pipeline_execution.py',
+        'sosfuse2/jobs/plan_queue.py',
+        'sosfuse2/jobs/precompile.py',
+        'sosfuse2/checks/validation_evidence.py',
+        'sosfuse2/rays/ray_columns.py',
+        'sosfuse2/atmosphere/rayleigh.py',
+        'sosfuse2/backends/numpy_reference.py',
+        'sosfuse2/checks/solver_diagnostics.py',
+        'sosfuse2/jobs/run_state.py',
+        'sosfuse2/backends/sh_layout.py',
+        'sosfuse2/atmosphere/spectral.py',
+        'sosfuse2/solve/strato_sh_aux.py',
+        'sosfuse2/asset_tools/strato_states.py',
+        'sosfuse2/atmosphere/stratosphere.py',
+        'sosfuse2/precompute/sun_parallel.py',
+        'sosfuse2/outputs/radiance_table.py',
+        'sosfuse2/outputs/quantized_table.py',
+        'sosfuse2/jobs/tables_from_sources.py',
+        'sosfuse2/foundation/timers.py',
+        'sosfuse2/atmosphere/tropo_mie.py',
+        'sosfuse2/atmosphere/tropo_profile.py',
+        'sosfuse2/checks/validate.py',
+        'sosfuse2/checks/stratosphere_checks.py',
+        'sosfuse2/solve/ksplit_tolerance.py',
+        'sosfuse2/backends/kernel.cu',
+        'sosfuse2/solve/engine.py',
+        'sosfuse2/foundation/available_cpus.py',
+        'sosfuse2/outputs/pack_state.py',
+        'sosfuse2/backends/native/sh_cpu.cpp',
         'sosfuse2/assets/spectra.json',
         'sosfuse2/assets/spectra_fine.json',
         'sosfuse2/assets/spectra_fine_temperature.json',
@@ -784,28 +795,28 @@ def test_package_hashes(monkeypatch):
         'sosfuse2/assets/no2_vandaele1998_fine.json',
     }
     assert set(hashes) == expected
-    assert identity.ACCEPTED_SOURCES == ('__init__.py', 'engine.py')
-    assert identity.HOST_MODULES == ('__init__.py', 'host_cores.py', 'pack_state.py')
-    assert set(identity.STATE_ASSETS) < set(identity.DATA_ASSETS) and len(identity.DATA_ASSETS) == 12
-    for name in identity.DATA_ASSETS:
+    assert content_identity.ACCEPTED_SOURCES == ('solve/__init__.py', 'solve/engine.py')
+    assert content_identity.HOST_MODULES == ('foundation/__init__.py', 'foundation/available_cpus.py', 'outputs/pack_state.py')
+    assert set(content_identity.STATE_ASSETS) < set(content_identity.DATA_ASSETS) and len(content_identity.DATA_ASSETS) == 12
+    for name in content_identity.DATA_ASSETS:
         path = paths.ASSETS / name
-        if name in identity.ASSET_NOTES:
-            assert hashes[paths.rel(path)] == identity.asset_sha(path) != identity.raw_sha(path)
+        if name in content_identity.ASSET_NOTES:
+            assert hashes[paths.rel(path)] == content_identity.asset_sha(path) != content_identity.raw_sha(path)
             continue
-        kind = 'json' if name in identity.STATE_ASSETS else 'raw'
-        assert hashes[paths.rel(path)] == identity.file_sha(path, kind)
-        assert (hashes[paths.rel(path)] == identity.raw_sha(path)) == (kind == 'raw')
+        kind = 'json' if name in content_identity.STATE_ASSETS else 'raw'
+        assert hashes[paths.rel(path)] == content_identity.file_sha(path, kind)
+        assert (hashes[paths.rel(path)] == content_identity.raw_sha(path)) == (kind == 'raw')
     for path in python_sources() + c_sources():
-        assert hashes[paths.rel(path)] == identity.file_sha(path) != identity.raw_sha(path)
-    info = identity.package_info()
+        assert hashes[paths.rel(path)] == content_identity.file_sha(path) != content_identity.raw_sha(path)
+    info = content_identity.package_info()
     assert set(info) == {'package_version', 'package_commit'}
     with monkeypatch.context() as patch:
-        patch.setattr(identity, 'DATA_ASSETS', identity.DATA_ASSETS + ('no_such_asset.json',))
+        patch.setattr(content_identity, 'DATA_ASSETS', content_identity.DATA_ASSETS + ('no_such_asset.json',))
         with pytest.raises(RuntimeError, match='^E_PACKAGE_FILE_MISSING.*no_such_asset'):
-            identity.package_hashes()
+            content_identity.package_hashes()
     monkeypatch.setattr(paths, 'PRODUCTION_MODULES', paths.PRODUCTION_MODULES + ('no_such_module',))
     with pytest.raises(RuntimeError, match='^E_PACKAGE_FILE_MISSING'):
-        identity.package_hashes()
+        content_identity.package_hashes()
 
 
 def test_meta_contract_versions():

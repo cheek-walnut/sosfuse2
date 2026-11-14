@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 import json
-from sosfuse2.components import physics, optics_state
-from sosfuse2.table_q import COORDS, MAX_REL, MAX_WIDTH, TableQError, decode, encode, load, round_trip, save
+from sosfuse2.atmosphere.components import physics, optics_state
+from sosfuse2.outputs.quantized_table import COORDS, MAX_REL, MAX_WIDTH, TableQError, decode, encode, load, round_trip, save
 
 SHAPE = (3, 4, 5, 2)
 
@@ -97,11 +97,11 @@ def test_round_trip_detects_coordinate_and_member_drift(tmp_path):
 
 
 def test_round_trip_fails_beyond_the_bound(tmp_path, monkeypatch):
-    from sosfuse2 import table_q
+    from sosfuse2.outputs import quantized_table
 
     r = np.exp(np.linspace(-20, 0, np.prod(SHAPE))).reshape(SHAPE)
     f = table(tmp_path / 't.npz', r)
-    monkeypatch.setattr(table_q, 'LEVELS', 255)  # coarse quantizer: ~4 % steps
+    monkeypatch.setattr(quantized_table, 'LEVELS', 255)  # coarse quantizer: ~4 % steps
     save(f, tmp_path / 'q.npz')
     with pytest.raises(TableQError, match='E_TABLE_Q_ROUNDTRIP'):
         round_trip(f, tmp_path / 'q.npz')

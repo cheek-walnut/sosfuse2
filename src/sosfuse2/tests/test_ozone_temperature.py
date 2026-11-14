@@ -33,8 +33,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sosfuse2 import spectral as SP, ozone_temperature as OT, density, paths, testing
-from sosfuse2 import run_gpu_state_v3 as V3
+from sosfuse2.atmosphere import spectral as SP, ozone_temperature as OT, density
+from sosfuse2.foundation import paths
+from sosfuse2.checks import testkit
+from sosfuse2.jobs import run_state as V3
 
 RESEARCH_REL = 'results/sigma_tz_20261028'  # sky-sos research record (A′ reference model); tests that need it skip without SOSFUSE2_SKY_SOS_ROOT
 WL = np.asarray(SP.PRODUCT['wavelengths_nm'])
@@ -79,7 +81,7 @@ def raises(code, call):
 @pytest.fixture(scope='module')
 def research():
     relative = Path(RESEARCH_REL)
-    ROOT = testing.sky_sos(RESEARCH_REL, 'model.py').parents[
+    ROOT = testkit.sky_sos(RESEARCH_REL, 'model.py').parents[
         2
     ]  # the sky-sos checkout; its assets/ are the research inputs
     spec = importlib.util.spec_from_file_location('aprime_reference', ROOT / relative / 'model.py')
@@ -103,7 +105,7 @@ def research():
     t_asset = json.loads((ROOT / rebuilt[1]).read_text())
     if OT.sha(ROOT / rebuilt[0]) != pinned[rebuilt[0]]:
         assert t_asset['generator']['script'] == 'scripts/build_spectra_fine.py'
-        from sosfuse2.identity import asset_digest
+        from sosfuse2.foundation.content_identity import asset_digest
 
         assert asset_digest('spectra_fine.json', t_asset['frozen_source_sha256']) == OT.sha(ROOT / rebuilt[0])
         checked_sha = module.sha
@@ -170,7 +172,7 @@ def test_01_default_path_unchanged(monkeypatch):
         raw = dict(spectral_mode=mode, bin_edges_nm=SP.PRODUCT_EDGES, ozone_temperature_K=temp)
         b = SP.block(dict(raw), WL, True)
         b233 = SP.block(dict(raw, ozone_temperature='233K'), WL, True)
-        from sosfuse2.components import physics
+        from sosfuse2.atmosphere.components import physics
 
         assert (
             b
@@ -348,18 +350,20 @@ def test_03_identity_and_conflicts():
 
 def test_03c_v4_fixed_provenance_lists(monkeypatch, tmp_path):
     """The v4 provenance inputs are fixed lists, kept equal to the tree, and a missing file is an error (not a gap)."""
-    tree = {p.stem for p in paths.PKG.glob('*.py') if not p.name.startswith(('test_', '._'))} - {'testing', 'conftest'}
+    tree = {p.relative_to(paths.PKG).with_suffix('').as_posix() for p in paths.PKG.rglob('*')
+            if p.is_file() and p.suffix == '.py' and 'tests' not in p.relative_to(paths.PKG).parts
+            and p.relative_to(paths.PKG).as_posix() != 'checks/testkit.py'
+            and not p.name.startswith(('test_', '._'))}
     assert tree == set(paths.PRODUCTION_MODULES), tree ^ set(
         paths.PRODUCTION_MODULES
     )  # add new modules to paths.PRODUCTION_MODULES
     assert len(set(paths.PRODUCTION_MODULES)) == len(paths.PRODUCTION_MODULES)
-    assert {p.name for p in (paths.ACCEPTED).glob('*.py')} == set(V3.ACCEPTED_SOURCES)
-    assert {p.name for p in (paths.PKG / 'host').glob('*.py')} == set(V3.HOST_MODULES)
+    assert set(V3.ACCEPTED_SOURCES) | set(V3.HOST_MODULES) <= {f'{n}.py' for n in paths.PRODUCTION_MODULES}
     h = V3.package_hashes()
     assert set(h) >= {f'sosfuse2/{n}.py' for n in paths.PRODUCTION_MODULES} | {
         f'sosfuse2/assets/{n}' for n in V3.DATA_ASSETS
-    } | {'sosfuse2/kernel.cu', 'sosfuse2/native/sh_cpu.cpp'}
-    assert 'sosfuse2/testing.py' not in h and not any('/test_' in k for k in h)
+    } | {'sosfuse2/backends/kernel.cu', 'sosfuse2/backends/native/sh_cpu.cpp'}
+    assert 'sosfuse2/checks/testkit.py' not in h and not any('/test_' in k for k in h)
     # version/commit are recorded but not signed: the signature is a function of the content hashes and the job only.
     st = json.loads((paths.ASSETS / 'states_v2.json').read_text())['states'][0]
     cfg = V3.resolve_settings(settings(FIXED), st)
@@ -371,7 +375,7 @@ def test_03c_v4_fixed_provenance_lists(monkeypatch, tmp_path):
     monkeypatch.setattr(paths, 'PRODUCTION_MODULES', paths.PRODUCTION_MODULES + ('no_such_module',))
     with pytest.raises(RuntimeError, match='^E_PACKAGE_FILE_MISSING'):
         V3.package_hashes()
-    from sosfuse2 import gate
+    from sosfuse2.checks import gate
 
     with pytest.raises(gate.GateError, match='^E_PACKAGE_FILE_MISSING'):
         gate.code_identity()
@@ -413,15 +417,15 @@ def test_03b_contract_hashes(monkeypatch):
         raises(code, lambda: V3.signed_contract(current, cfg, 'numpy', False, 'depolarizing'))
     # gate.code_identity (staged bless identity) = package_hashes() minus gate.py + fixtures/configs + the ozone asset: the A′
     # assets and ozone_temperature.py enter through package_hashes, the ozone asset through its logical key.
-    from sosfuse2 import gate
+    from sosfuse2.checks import gate
 
     before = gate.code_identity()
     h = V3.package_hashes()
-    assert {paths.rel(OT.FINE), paths.rel(OT.TEMP), 'sosfuse2/ozone_temperature.py'} <= set(
+    assert {paths.rel(OT.FINE), paths.rel(OT.TEMP), 'sosfuse2/atmosphere/ozone_temperature.py'} <= set(
         h
-    ) and 'sosfuse2/gate.py' in h
+    ) and 'sosfuse2/checks/gate.py' in h
     monkeypatch.setattr(
-        V3, 'package_hashes', lambda: {k: v for k, v in h.items() if k != 'sosfuse2/ozone_temperature.py'}
+        V3, 'package_hashes', lambda: {k: v for k, v in h.items() if k != 'sosfuse2/atmosphere/ozone_temperature.py'}
     )
     assert gate.code_identity() != before  # the identity depends on package_hashes
 
@@ -531,7 +535,8 @@ def test_04b_resolver_call_sites(tmp_path, monkeypatch):
         raise Stop
 
     monkeypatch.setattr(V3, 'create_configured', capture)
-    from sosfuse2 import plan_queue, gate
+    from sosfuse2.jobs import plan_queue
+    from sosfuse2.checks import gate
 
     snapshot = copy.deepcopy(loose)
     with pytest.raises(Stop):
@@ -588,7 +593,7 @@ def test_04b_resolver_call_sites(tmp_path, monkeypatch):
 def test_04c_scheduler_presign(tmp_path):
     """rig/gpu_sched_v3.py signs and checks prefetch settings with the cfg the runner consumes (resolved per state)."""
     spec = importlib.util.spec_from_file_location(
-        'aprime_sched', testing.sky_sos('rig/gpu_sched_v3.py')
+        'aprime_sched', testkit.sky_sos('rig/gpu_sched_v3.py')
     )  # sky-sos rig scheduler (consumer)
     sched = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sched)
@@ -758,7 +763,7 @@ def test_09_constant_temperature_reduction(shape, temperature):
 
 # ⑥ ------------------------------------------------------------------------------------------------------------------
 def research_transport():
-    sys.path.insert(0, str(testing.sky_sos(RESEARCH_REL)))
+    sys.path.insert(0, str(testkit.sky_sos(RESEARCH_REL)))
     import transport
 
     return transport
@@ -767,8 +772,8 @@ def research_transport():
 def reduced_solve(T, cfg, st, out):
     """One monochromatic solve per SELECTED wavelength (the kernel specializes to 1 or 15 wavelengths; lanes are
     independent), stacked on the wavelength axis."""
-    from sosfuse2 import fused
-    from sosfuse2.geometry import TransientGeometry
+    from sosfuse2.solve import source_solver
+    from sosfuse2.solve.ray_geometry import TransientGeometry
 
     rows, ext, evaluations = [], [], []
     for i, w in enumerate(SELECTED):
@@ -784,7 +789,7 @@ def reduced_solve(T, cfg, st, out):
                 ]
             )
 
-        field, stats = fused.Solver(s, geo, observer=observer).solve(64, 4e-5)
+        field, stats = source_solver.Solver(s, geo, observer=observer).solve(64, 4e-5)
         rows.append(T.queries(s, field))
         ext.append(np.array(s.ext, float)[:, 0])
         evaluations.append(stats['evaluations'])
@@ -844,7 +849,7 @@ def runner(work, out_name, raw, *extra):
     s = work.parent / f'{work.name}.{out_name}.settings.json'
     s.write_text(json.dumps(raw))
     cmd = [
-        *paths.module_command('run_gpu_state_v3'),
+        *paths.module_command('jobs.run_state'),
         '--id',
         'clear_33',
         '--out-name',

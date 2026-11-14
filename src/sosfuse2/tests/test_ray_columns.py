@@ -7,10 +7,12 @@ import unittest
 from unittest import mock
 
 import numpy as np
-from sosfuse2 import density, geometry, ray_columns, stratosphere
+from sosfuse2.atmosphere import density, stratosphere
+from sosfuse2.solve import ray_geometry
+from sosfuse2.rays import ray_columns
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent
+    from sosfuse2.checks.numerical_checks import assert_equivalent
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent
 
@@ -20,7 +22,7 @@ class JointColumnsTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         with mock.patch.dict(os.environ, {'SOSFUSE2_SUN_WORKERS': '1', 'SOSFUSE2_GROUND_WORKERS': '1'}):
-            cls.s, cls.scope, _ = geometry.create(Path(cls.tmp.name), 'selftest', [550.0], 'numpy')
+            cls.s, cls.scope, _ = ray_geometry.create(Path(cls.tmp.name), 'selftest', [550.0], 'numpy')
         cls.old = cls.scope.b.sh.old
         cls.optics = density.build(dict(density=dict(density_profile='usstd76', ozone_profile='usstd76')))
         cls.profile = stratosphere.profile_config({})
@@ -59,7 +61,7 @@ class JointColumnsTests(unittest.TestCase):
     @mock.patch.dict(os.environ, {'SOSFUSE2_COLUMN_METHOD': 'gl24'})
     def test_pack_reuses_edges_and_keeps_legacy_bytes(self):
         p, d = self.rays()
-        packed = geometry.pack(p, d, 24, self.s, self.scope)
+        packed = ray_geometry.pack(p, d, 24, self.s, self.scope)
         a, _, _ = ray_columns.integrate(p, d, self.old, legacy=True, edges=packed['edges'])
         self.assert_close(a, self.old.total_columns(p, d, 24))
         self.assert_close(packed['end_columns'], a)

@@ -7,8 +7,8 @@ per-ray float contributions in NumPy FP64, without production batch boundaries.
 
 import numpy as np
 import unittest
-from sosfuse2.arithmetic import basis, cosine, norm_constants
-from sosfuse2.sh_layout import kernel_source, count
+from sosfuse2.backends.arithmetic import basis, cosine, norm_constants
+from sosfuse2.backends.sh_layout import kernel_source, count
 
 try:
     import cupy as cp

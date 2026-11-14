@@ -16,22 +16,22 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2 import testing
+from sosfuse2.checks import testkit
 
-_SKY = testing.sky_sos_root()
+_SKY = testkit.sky_sos_root()
 if _SKY is None:  # the v1 oracle lives in sky-sos scripts/sosfuse (manifest: sibling-import test)
     import pytest
 
-    pytest.skip(f'v1 oracle scripts/sosfuse needs {testing.ENV}', allow_module_level=True)
+    pytest.skip(f'v1 oracle scripts/sosfuse needs {testkit.ENV}', allow_module_level=True)
 sys.path.append(
-    str(testing.sky_sos('scripts', 'sosfuse').parent)
+    str(testkit.sky_sos('scripts', 'sosfuse').parent)
 )  # appended: the installed sosfuse2 package stays first
 import sosfuse.geometry as old_geometry  # read-only oracle
-from sosfuse2 import geometry as new_geometry
-from sosfuse2.timers import TIMERS
+from sosfuse2.solve import ray_geometry as new_geometry
+from sosfuse2.foundation.timers import TIMERS
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 

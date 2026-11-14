@@ -9,8 +9,8 @@ import types
 import unittest
 from unittest import mock
 import numpy as np
-from sosfuse2.numerical_checks import assert_equivalent
-from sosfuse2 import geometry
+from sosfuse2.checks.numerical_checks import assert_equivalent
+from sosfuse2.solve import ray_geometry
 
 
 def accepted_ring_edges(r, chi, phi, heights):
@@ -114,7 +114,7 @@ class IncomingTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmp,
             mock.patch.dict(os.environ, {'SOSFUSE2_SUN_WORKERS': '1', 'SOSFUSE2_GROUND_WORKERS': '1'}),
         ):
-            _, scope, _ = geometry.create(Path(tmp), 'selftest', [550.0], 'numpy')
+            _, scope, _ = ray_geometry.create(Path(tmp), 'selftest', [550.0], 'numpy')
         legacy = scope.b.legacy
         env = dict(np=np, R=6371.0, sh=scope.b.sh)
         env['ring_edges'] = types.FunctionType(accepted_ring_edges.__code__, env)

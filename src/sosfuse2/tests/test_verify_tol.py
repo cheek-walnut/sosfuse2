@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from sosfuse2.verify_tol import compare_tol, compare_chunks, tolerances
+from sosfuse2.solve.ksplit_tolerance import compare_tol, compare_chunks, tolerances
 
 
 def test_roundoff_and_unused_sentinel():
@@ -80,7 +80,7 @@ def test_env_defaults_and_override():
 
 
 def test_projection_failure_propagates_and_global_scale(capsys):
-    from sosfuse2.fused import Kernel
+    from sosfuse2.solve.source_solver import Kernel
 
     k = object.__new__(Kernel)
     k._verify_tolerances = (1e-5, 1e-7)
@@ -98,7 +98,7 @@ def test_projection_failure_propagates_and_global_scale(capsys):
 
 
 def test_ray_missing_slot_fails():
-    from sosfuse2.fused import Kernel
+    from sosfuse2.solve.source_solver import Kernel
 
     k = object.__new__(Kernel)
     k.host = np.asarray
@@ -111,7 +111,7 @@ def test_ray_missing_slot_fails():
 
 
 def test_aero_groups_use_whole_target_cell_and_metadata(capsys):
-    from sosfuse2.fused import Kernel
+    from sosfuse2.solve.source_solver import Kernel
 
     k = object.__new__(Kernel)
     k.host = np.asarray
@@ -135,9 +135,9 @@ def test_aero_groups_use_whole_target_cell_and_metadata(capsys):
 
 def test_aero_window_log_is_bounded_and_vectorized(capsys, monkeypatch):
     import json
-    from sosfuse2 import fused, ksplit
+    from sosfuse2.solve import source_solver, ksplit
 
-    k = object.__new__(fused.Kernel)
+    k = object.__new__(source_solver.Kernel)
     k.host = np.asarray
     k._verify_tolerances = (1e-5, 1e-7)
     n, W = 2000, 15
@@ -214,7 +214,7 @@ def test_strided_broadcast_metadata_and_string_groups():
 @pytest.mark.parametrize('points', [16384, 32768])
 def test_aero_host_peak_below_three_windows(points, monkeypatch, capsys):
     import tracemalloc
-    from sosfuse2 import fused, ksplit
+    from sosfuse2.solve import source_solver, ksplit
 
     # CPU arrays stand in for device allocations, outside host accounting.
     W = 15
@@ -225,7 +225,7 @@ def test_aero_host_peak_below_three_windows(points, monkeypatch, capsys):
     device[~valid] = np.nan
     monkeypatch.setattr(ksplit, 'VPROD_VERIFY_WINDOW', device.nbytes)
     monkeypatch.setattr(ksplit, 'VPROD_VERIFY_STAGE', 4093)
-    k = object.__new__(fused.Kernel)
+    k = object.__new__(source_solver.Kernel)
     k.host = lambda x: x.copy()  # include real D2H allocation, not np.asarray
     k.ksplit_aero = device.ravel()
     k._verify_tolerances = (1e-5, 1e-7)
@@ -243,7 +243,7 @@ def test_aero_host_peak_below_three_windows(points, monkeypatch, capsys):
 
 def test_projection_snapshots_no_concatenation_peak(capsys, monkeypatch):
     import tracemalloc
-    from sosfuse2.fused import Kernel
+    from sosfuse2.solve.source_solver import Kernel
 
     device = np.ones((8192, 4, 15), 'f8')
     flux = np.ones((8192, 15), 'f8')
@@ -251,7 +251,7 @@ def test_projection_snapshots_no_concatenation_peak(capsys, monkeypatch):
     k = object.__new__(Kernel)
     k._verify_tolerances = (1e-5, 1e-7)
     # Account for all retained host chunks, as well as the comparison scratch.
-    from sosfuse2 import ksplit
+    from sosfuse2.solve import ksplit
 
     monkeypatch.setattr(ksplit, 'VPROD_VERIFY_STAGE', 4093)
     tracemalloc.start()
@@ -271,7 +271,7 @@ def test_projection_snapshots_no_concatenation_peak(capsys, monkeypatch):
 
 
 def test_aero_stage_boundaries_with_offset_and_empty_cells(monkeypatch):
-    from sosfuse2 import fused, ksplit
+    from sosfuse2.solve import source_solver, ksplit
 
     W = 3
     pc = np.array([0, 3, 3, 8, 19, 25])
@@ -283,7 +283,7 @@ def test_aero_stage_boundaries_with_offset_and_empty_cells(monkeypatch):
     actual[11, 2, 0] += 1e-3
     valid = np.ones(22, bool)
     valid[8] = False
-    k = object.__new__(fused.Kernel)
+    k = object.__new__(source_solver.Kernel)
     k.host = np.asarray
     k._verify_tolerances = (1e-5, 1e-7)
     k.ksplit_aero = ref.ravel()
@@ -314,12 +314,12 @@ def test_overflow_diagnostic_is_stage_invariant():
 
 def test_aero_pad_lanes_are_ignored():
     """Record rows are aero_w(W) floats wide (kernel.cu AERO_W); lanes >= W hold VPROD zeros or PROD garbage and must not be compared."""
-    from sosfuse2 import fused
+    from sosfuse2.solve import source_solver
 
     W = 3
-    AW = fused.aero_w(W)
+    AW = source_solver.aero_w(W)
     assert AW == 4
-    k = object.__new__(fused.Kernel)
+    k = object.__new__(source_solver.Kernel)
     k.host = np.asarray
     k._verify_tolerances = (1e-5, 1e-7)
     pc = np.array([0, 2, 5])

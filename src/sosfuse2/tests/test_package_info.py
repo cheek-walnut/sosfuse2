@@ -9,7 +9,8 @@ import importlib.metadata
 import json
 import re
 
-from sosfuse2 import paths, run_gpu_state_v3 as v3
+from sosfuse2.foundation import paths
+from sosfuse2.jobs import run_state as v3
 
 COMMIT = 'a' * 40
 

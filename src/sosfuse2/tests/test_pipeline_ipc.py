@@ -4,7 +4,7 @@ descriptor keeps its reason when an ENOSPC error surfaces as a ValueError."""
 import multiprocessing as mp
 import numpy as np
 import pytest
-from sosfuse2.pipeline_execution import wire_recv, wire_send
+from sosfuse2.jobs.pipeline_execution import wire_recv, wire_send
 
 
 def _quiet(*_, **__):

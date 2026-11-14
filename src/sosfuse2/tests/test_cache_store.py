@@ -16,8 +16,9 @@ from types import SimpleNamespace as NS
 import numpy as np
 import pytest
 
-from sosfuse2 import cache_store as cs  # noqa: E402
-from sosfuse2 import gate, paths, testing  # noqa: E402
+from sosfuse2.jobs import cache_store as cs  # noqa: E402
+from sosfuse2.checks import gate, testkit
+from sosfuse2.foundation import paths  # noqa: E402
 
 
 def load(name, path):
@@ -30,12 +31,12 @@ def load(name, path):
 @pytest.fixture(scope='module')
 def br():
     """Load an optional research driver that consumes the package."""
-    return load('bake_run', testing.sky_sos('rig/bake/bake_run.py'))
+    return load('bake_run', testkit.sky_sos('rig/bake/bake_run.py'))
 
 
 @pytest.fixture(scope='module')
 def eda():
-    return load('eda_bake', testing.sky_sos('rig/bake/eda_bake.py'))
+    return load('eda_bake', testkit.sky_sos('rig/bake/eda_bake.py'))
 
 
 SIG, SIG2 = '54b6bf909981453cea6a', '0123456789abcdef0123'
@@ -339,7 +340,7 @@ def test_pull_publishes_under_the_pipeline_locks_and_two_pulls_race(tmp_path, st
     env = dict(store.env, FAKE_RCLONE_DELAY='0.4')
     procs = [
         subprocess.Popen(
-            paths.module_command('cache_store', 'pull', '--all', race, '--report', tmp_path / f'r{i}.json'),
+            paths.module_command('jobs.cache_store', 'pull', '--all', race, '--report', tmp_path / f'r{i}.json'),
             env=paths.child_env(env),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,

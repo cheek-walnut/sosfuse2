@@ -5,7 +5,7 @@ No full-grid mode. GPU exceptions propagate: do not retry them. Occupancy is
 CUDA's resource-based resident-block limit, not measured achieved occupancy.
 """
 
-from sosfuse2 import paths
+from sosfuse2.foundation import paths
 import argparse
 import json
 import os
@@ -29,10 +29,10 @@ if '--host-only' in sys.argv:
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2.fused import Kernel
+from sosfuse2.solve.source_solver import Kernel
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
 
@@ -79,7 +79,7 @@ def benchmark(out, repeats=3, all_cells=False, seed=None):
         raise ValueError('E_REPEATS: at least three CUDA-event samples')
     thermal()
     import cupy as cp
-    from sosfuse2.geometry import create, TransientGeometry, Bundle
+    from sosfuse2.solve.ray_geometry import create, TransientGeometry, Bundle
 
     # Three real selftest destination cells. Baseline official parity already
     # exercises one of these; the fixture is intentionally short, never full.
@@ -95,7 +95,7 @@ def benchmark(out, repeats=3, all_cells=False, seed=None):
     boundary = cp.asarray(np.linspace(0.0001, 0.001, len(s.geo.chi) * 15).reshape(-1, 15))
     # Small real table_fast capture: phase 2 exercises both first flags.
     from functools import partial
-    from sosfuse2.table_fast import _capture, _bundle, _evaluate
+    from sosfuse2.outputs.radiance_table import _capture, _bundle, _evaluate
 
     ee, aa = np.meshgrid([20.0, 60.0], [0.0, 90.0], indexing='ij')
     raws = _capture(s, -6.0, ee, aa, np.empty(0, 'f4'))

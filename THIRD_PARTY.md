@@ -21,7 +21,7 @@ The files `src/sosfuse2/assets/cie1931_5nm_local.json` and `src/sosfuse2/assets/
 colour-matching functions. The first has 95 samples from 360 to 830 nm at 5 nm, read from the table compiled into
 Mitsuba 3.9.1 `libmitsuba`, and records the library and header SHA-256 and the byte offset. The second is the 1 nm table,
 `mitsuba.cie1931_xyz` of Mitsuba 3.9.1 `scalar_rgb`. They provide the colour weights of the 15 spectral bins
-(`spectral.py`, `rgb_weights.npy`) and the colour figures of the research tools. The numeric values are unchanged; we
+(`atmosphere/spectral.py`, `rgb_weights.npy`) and the colour figures of the research tools. The numeric values are unchanged; we
 stored them as JSON with provenance fields and replaced the original source locations by package-relative descriptors
 before publication.
 
@@ -120,7 +120,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 `src/sosfuse2/assets/spectra.json` holds the solar irradiance and ozone cross sections on the 48 wavelengths of
 `atmosphere/demo/demo.cc`, and records the source URL and the SHA-256 of the fetched source. The CPU engine
-(`accepted/engine.py`) reads it as its spectral input, as do the legacy spectral mode and the reduced single-wavelength
+(`solve/engine.py`) reads it as its spectral input, as do the legacy spectral mode and the reduced single-wavelength
 path; the default full-grid tables use the TSIS-1 HSRS and IUP Bremen assets of §4 and §5 instead. We transcribed the
 numbers from the C++ source into JSON with units. The demo's own documentation attributes the solar values to ASTM G173
 and the ozone values to the Bremen cross-section data base.
@@ -189,7 +189,7 @@ previous measurements around 293 K.* Atmos. Meas. Tech., 7, 609–624.
 ## 6. LOWTRAN7 — tabulated aerosol numbers
 
 Aerosol extinction and profile constants from LOWTRAN 7 (Kneizys et al. 1988, Air Force Geophysics Laboratory) are
-transcribed into `src/sosfuse2/generate_tropo_optics.py` and `src/sosfuse2/tropo_profile.py`, where they validate the
+transcribed into `src/sosfuse2/asset_tools/generate_tropo_optics.py` and `src/sosfuse2/atmosphere/tropo_profile.py`, where they validate the
 rural aerosol table and build the aerosol height profile. In `src/sosfuse2/assets/tropo_rural_sf79_rh70.json` the fields
 `lowtran7.rows[*].{ext_rel_lowtran, ssa_lowtran, g_lowtran}` are LOWTRAN7 table values kept beside this project's `*_mie`
 values for validation; the rest of that file is project data under CC0. The source URL is recorded beside the constants.
@@ -201,7 +201,7 @@ Reference: Kneizys, F. X., et al. (1988). *Users Guide to LOWTRAN 7.* AFGL-TR-88
 
 ## 7. Shettle & Fenn 1979 — aerosol model parameters
 
-The mode radii, widths, refractive indices and humidity growth that `generate_tropo_optics.py` takes as input are the
+The mode radii, widths, refractive indices and humidity growth that `asset_tools/generate_tropo_optics.py` takes as input are the
 published parameters of a public technical report, recorded in `tropo_rural_sf79_rh70.json` under `particle`. The Mie
 table computed from them is project data under CC0.
 
@@ -210,13 +210,13 @@ Humidity Variations on Their Optical Properties.* AFGL-TR-79-0214.
 
 ## 8. U.S. Standard Atmosphere 1976 — formulas
 
-`generate_density_profile.py` implements the density and temperature profile formulas, and `temperature_usstd76.json`
+`asset_tools/generate_density_profile.py` implements the density and temperature profile formulas, and `temperature_usstd76.json`
 holds the resulting temperature profile. The standard is a U.S. Government publication (NOAA/NASA/USAF 1976) and is not
 subject to copyright in the United States.
 
 ## 9. Not bundled: IPRT ozone profile shape
 
-The first time a state selects a `usstd76` density or ozone profile, `iprt.py` and `generate_density_profile.py` download
+The first time a state selects a `usstd76` density or ozone profile, `asset_tools/iprt.py` and `asset_tools/generate_density_profile.py` download
 two files, `tau_rayleigh_450nm_usstd.dat` and `tau_absorption_320nm_usstd.dat`, from the phase E page
 (`intercomparisons:phase_e`) of the IPRT (International Polarized Radiative Transfer) intercomparison pages hosted by
 libRadtran (https://www.libradtran.org/), verify their SHA-256 and derive the `usstd76` density asset in the user's work
@@ -231,15 +231,15 @@ test cases (phase B).* JQSRT, 209, 19–44. https://doi.org/10.1016/j.jqsrt.2018
 ## 10. Algorithms cited, no code copied
 
 - Bodhaine, B. A., Wood, N. B., Dutton, E. G., Slusser, J. R. (1999). *On Rayleigh Optical Depth Calculations.*
-  Journal of Atmospheric and Oceanic Technology 16, 1854–1861. `rayleigh.py` implements their equations 18, 19, 5, 6, 23
+  Journal of Atmospheric and Oceanic Technology 16, 1854–1861. `atmosphere/rayleigh.py` implements their equations 18, 19, 5, 6, 23
   and 22 with 360 ppm CO₂, at vacuum wavelengths obtained from Ciddor standard-air coordinates. The engine keeps its
   original optical depth at 450 nm in air and its phase depolarization of 0.03.
-- Bohren, C. F., Huffman, D. R. (1983). *Absorption and Scattering of Light by Small Particles.* `mie.py` reimplements
+- Bohren, C. F., Huffman, D. R. (1983). *Absorption and Scattering of Light by Small Particles.* `asset_tools/mie.py` reimplements
   the structure of the BHMIE recursion.
 - Ciddor, P. E. (1996). *Refractive index of air: new equations for the visible and near infrared.* Applied Optics 35,
-  1566. Implemented in `air_wavelength.py`.
-- Hable, J. (2010). *Uncharted 2: HDR Lighting* (GDC 2010). `solver_render.py` `film()` uses the constants of Hable's
-  2010 filmic tone curve for the preview PNGs written by `host/pack_state.py`; formula only, no code copied.
+  1566. Implemented in `atmosphere/air_wavelength.py`.
+- Hable, J. (2010). *Uncharted 2: HDR Lighting* (GDC 2010). `outputs/preview_functions.py` `film()` uses the constants of Hable's
+  2010 filmic tone curve for the preview PNGs written by `outputs/pack_state.py`; formula only, no code copied.
 
 ## 11. Bundled: Vandaele NO₂ absorption at 220 K
 
@@ -261,7 +261,7 @@ are refused. The asset records the original digests, units, changes and generato
 
 Neither `O2-O2_2024.cia` nor the O₄ JSON derived from it is included in git or in the wheel. The source is
 https://hitran.org/data/CIA/main/O2-O2_2024.cia. The user prepares the table with
-`python -m sosfuse2.prepare_minor_absorbers --cia FILE`, or with `--download` to retrieve the official source. The
+`python -m sosfuse2.asset_tools.prepare_minor_absorbers --cia FILE`, or with `--download` to retrieve the official source. The
 command verifies the pinned SHA-256 of the original, writes `assets/o4_hitran2024_fine.json` atomically under
 `SOSFUSE2_WORK_ROOT` (otherwise the XDG work root) and prints the SHA-256 of the result. A solve only reads this cache,
 and `SOSFUSE2_OFFLINE=1` refuses downloads. Run the preparation once before precompiling, baking or running a gate that
@@ -274,7 +274,7 @@ J., et al. (2025). *Collision induced absorption in HITRAN2024.* JQSRT 347, 1096
 Changes: the generator converts vacuum wavenumber to standard-air wavelength and uses HITRAN reference 54 at 293 K up to
 its last point at 499.861 nm, then reference 32 at 293 K up to 600 nm and at 287 K up to 653.842 nm, with zero outside
 that range. HITRAN recommends reference 32 only from 509.334 nm, so using it already from 499.861 nm is this project's own
-join rule across the 499.861–509.334 nm gap; `generate_minor_absorbers.py` records it in the output under
+join rule across the 499.861–509.334 nm gap; `asset_tools/generate_minor_absorbers.py` records it in the output under
 `rules.connection`. The values are integrated into 0.1 nm cells, negative cell means are clipped to zero, cm⁵ is converted
 to m⁵ and the result is rounded to seven significant digits. The O₂ A- and B-band CIA sets are excluded. The local output
 records the source SHA-256 and the rules version.

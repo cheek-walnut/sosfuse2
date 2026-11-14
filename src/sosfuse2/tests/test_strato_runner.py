@@ -9,22 +9,23 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import numpy as np
-from sosfuse2.strato_states import build
-from sosfuse2.stratosphere import DEFAULT
-from sosfuse2.run_gpu_state_v3 import SH_L
-from sosfuse2.sh_layout import count
+from sosfuse2.asset_tools.strato_states import build
+from sosfuse2.atmosphere.stratosphere import DEFAULT
+from sosfuse2.jobs.run_state import SH_L
+from sosfuse2.backends.sh_layout import count
 
 try:
-    from sosfuse2.numerical_checks import assert_equivalent, within_tol
+    from sosfuse2.checks.numerical_checks import assert_equivalent, within_tol
 except ImportError:  # standalone research harness
     from numerical_checks import assert_equivalent, within_tol
-from sosfuse2 import paths, testing
+from sosfuse2.foundation import paths
+from sosfuse2.checks import testkit
 
 
 def test_bundled_v2_stratosphere_enabled_by_default():
     from types import SimpleNamespace
-    from sosfuse2.run_gpu_state_v3 import effective_state
-    from sosfuse2.stratosphere import build_optics, computed_metadata, tau_of
+    from sosfuse2.jobs.run_state import effective_state
+    from sosfuse2.atmosphere.stratosphere import build_optics, computed_metadata, tau_of
 
     states = json.loads((paths.ASSETS / 'states_v2.json').read_text())['states']
     assert len(states) == 64
@@ -40,14 +41,14 @@ def test_bundled_v2_stratosphere_enabled_by_default():
 
 
 def run(out):
-    out = testing.outside_package(out)
+    out = testkit.outside_package(out)
     out.mkdir(parents=True, exist_ok=True)
     state = build()['states'][1]
     states = out / 'states.json'
     states.write_text(json.dumps(dict(version=2, states=[state]), indent=2) + '\n')
     env = paths.child_env(dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
     base = [
-        *paths.module_command('run_gpu_state_v3'),
+        *paths.module_command('jobs.run_state'),
         '--id',
         state['id'],
         '--states',
@@ -127,4 +128,4 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--out', type=Path, default=None)
     a = p.parse_args()
-    run(a.out or testing.scratch('strato-runner'))
+    run(a.out or testkit.scratch('strato-runner'))

@@ -8,6 +8,6 @@ useDefault = true
 description = "Known false positives"
 regexTarget = "line"
 regexes = [
-  # verify_tol.py builds environment-variable names with this prefix; the generic-api-key rule matches the identifier.
+  # solve/ksplit_tolerance.py builds environment-variable names with this prefix; the generic-api-key rule matches the identifier.
   '''SOSFUSE2_KSPLIT_VERIFY_''',
 ]
