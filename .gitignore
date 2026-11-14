@@ -19,3 +19,6 @@ build/
 # local work trees and scratch (never part of the package)
 .worktrees/
 scratchpad/
+
+# local review reports
+.release-audit/

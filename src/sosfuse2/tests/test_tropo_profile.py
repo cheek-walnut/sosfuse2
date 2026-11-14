@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Two-layer tropospheric aerosol (tropo_profile.py, kernel.cu -DAEROSOL_2L): Mac checks.
+"""Two-layer tropospheric aerosol (tropo_profile.py, kernel.cu -DAEROSOL_2L): CPU checks.
 
   --host      block validation codes; profile integral = aod550 (closed form and engine integration);
               legacy entry points refuse a state that carries the block.

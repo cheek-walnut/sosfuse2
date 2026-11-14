@@ -903,7 +903,7 @@ def pull(root, keys=None, remote=None, legacy=False):
 
 def _anonymous(info):
     info.uid = info.gid = 0
-    info.uname = info.gname = ''  # no Mac account names in a rig input
+    info.uname = info.gname = ''  # no local account names in a rig input
     return info
 
 

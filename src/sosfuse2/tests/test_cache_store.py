@@ -454,7 +454,7 @@ def test_bake_run_cache_new_cap_disk_and_enospc(tmp_path, store, monkeypatch, br
         f'columns/{"d" * 64}.sha256',
     } | base
     assert files(P.out / 'cache_new') == want and row['codes'] == [] and row['cap_bytes'] == br.CACHE_NEW_MAX
-    pushed = cs.push(P.out / 'cache_new')  # the Mac's push after retrieval
+    pushed = cs.push(P.out / 'cache_new')  # the push from the host that retrieved the results
     assert files(store.remote) == {
         f'{new_e}/aerosol/H_0x1p+1.f4',
         f'columns/{"d" * 64}.npy',

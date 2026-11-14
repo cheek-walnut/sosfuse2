@@ -58,11 +58,12 @@ def test_every_runnable_module_has_a_command():
     assert found - set(front.COMMANDS.values()) == set(), 'add these modules to the table in sosfuse2/__main__.py'
 
 
-@pytest.mark.parametrize('args', [('C3_nostrato',), ('no such config',), ('--help',)])
+@pytest.mark.parametrize('args', [('C3_nostrato',), ('no such config',), ('--help',), ('devices',)])
 def test_dispatch_passes_arguments_and_exit_status(args):
     """flags_env reads its first argument as a config name: a config that exists prints exports (status 0); a name
-    with spaces or one that looks like an option is passed on unchanged, and the module stops with E_CONFIG_UNKNOWN
-    on stderr and an empty stdout (status 1, no traceback) exactly as when it is run directly."""
+    with spaces, one that looks like an option, or a JSON in the same folder that is not a kernel config
+    (devices.json) is passed on unchanged, and the module stops with E_CONFIG_UNKNOWN on stderr and an empty stdout
+    (status 1, no traceback) exactly as when it is run directly."""
     door = python('-m', 'sosfuse2', 'flags_env', *args)
     direct = python('-m', front.COMMANDS['flags_env'], *args)
     assert (door.returncode, door.stdout, door.stderr) == (direct.returncode, direct.stdout, direct.stderr)

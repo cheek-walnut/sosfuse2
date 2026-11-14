@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Spectral sampling modes (spectral.py): Mac checks.
+"""Spectral sampling modes (spectral.py): CPU checks.
 
   (default)  unit checks: legacy settings unchanged, band = bin integral, point = monochromatic, edge/mode errors,
              weights split invariance (§4-3), provenance vs assets/spectra.json (§4-4), `contract` keys and hashes

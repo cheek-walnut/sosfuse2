@@ -77,8 +77,10 @@ class ColumnCacheTests(unittest.TestCase):
                     proc.kill()
                     proc.wait()
                 raise
-            if code:
-                raise AssertionError(f'E_COLUMN_TEST_QUEUE: {name} exit={code}')
+        if code:
+            # The scratch root is removed by the class cleanup, so keep the reason with the exit code.
+            tail = (cls.root / (name + '.log')).read_text(errors='replace').splitlines()[-60:]
+            raise AssertionError(f'E_COLUMN_TEST_QUEUE: {name} exit={code}; log tail:\n' + '\n'.join(tail))
 
     def events(self, i):
         log = sorted((self.root / f'C{i}-cache/logs').glob(f'*/C{i}.log'))[-1]

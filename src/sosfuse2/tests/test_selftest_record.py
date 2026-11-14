@@ -5,6 +5,7 @@ Run: python -m pytest -q src/sosfuse2/tests/test_selftest_record.py"""
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -145,13 +146,21 @@ def test_gate_historical_reports_delta_and_old_engine_fixture_unchanged(tmp_path
 def test_diagnostic_rejects_density_conflicts(tmp_path, monkeypatch, mode):
     import sys
     from types import SimpleNamespace
-    from sosfuse2.checks import solver_diagnostics as diagnostics
 
-    monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(tmp_path))
-    monkeypatch.setattr(diagnostics.threading, 'Thread', lambda **kw: SimpleNamespace(start=lambda: None))
-    monkeypatch.setattr(sys, 'argv', ['diagnostics', mode, '--density-profile', 'usstd76', '--ozone-profile', 'usstd76', '--rayleigh-column', 'usstd'])
-    with pytest.raises(ValueError, match='E_PROFILE_VALIDATION'):
-        diagnostics.main()
-    monkeypatch.setattr(sys, 'argv', ['diagnostics', mode, '--density-profile', 'exp8'])
-    with pytest.raises(ValueError, match='E_DENSITY_PARTIAL'):
-        diagnostics.main()
+    # The module sets thread defaults when it is imported and main() sets cache paths under tmp_path; both are meant
+    # for its own process, so the test puts the environment back instead of passing them to later tests.
+    saved = dict(os.environ)
+    try:
+        from sosfuse2.checks import solver_diagnostics as diagnostics
+
+        monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(tmp_path))
+        monkeypatch.setattr(diagnostics.threading, 'Thread', lambda **kw: SimpleNamespace(start=lambda: None))
+        monkeypatch.setattr(sys, 'argv', ['diagnostics', mode, '--density-profile', 'usstd76', '--ozone-profile', 'usstd76', '--rayleigh-column', 'usstd'])
+        with pytest.raises(ValueError, match='E_PROFILE_VALIDATION'):
+            diagnostics.main()
+        monkeypatch.setattr(sys, 'argv', ['diagnostics', mode, '--density-profile', 'exp8'])
+        with pytest.raises(ValueError, match='E_DENSITY_PARTIAL'):
+            diagnostics.main()
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)

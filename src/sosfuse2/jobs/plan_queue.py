@@ -15,10 +15,10 @@ density options): run_state.create_configured with the stratosphere switched off
 ground geometry) and the host-cache ground step skipped.  The table bundles (about 4,000 of 10 million rays per
 state) are not keyed here.
 
-Platform: the attach and sun02 keys hash floating-point arrays computed on the host (sun columns).  Mac and rig bytes
+Platform: the attach and sun02 keys hash floating-point arrays computed on the host (sun columns).  macOS and Linux bytes
 differ (26,378 of 32,481 solar-grid entries, max_rel 2.7e-15), so their hit prediction is valid only when
 the planner runs on the queue's own host.  Column, ground, endpoint02 and aerosol keys hash cached geometry bytes,
-profile reprs and sources, and match across hosts (keys recorded on two Linux GPU hosts reproduced on the Mac, test_plan_queue.py).
+profile reprs and sources, and match across hosts (keys recorded on two Linux GPU hosts reproduced on macOS, test_plan_queue.py).
 
 Order: representatives of the missing items first, spread over GPUs and workers, then states with nothing to
 compute, then the remaining members of missing groups (they hit once their representative has published).  With
@@ -98,13 +98,13 @@ COST_PROFILES = {
             strato_column='serial column-parallel measurement, 9,586,008 rays',
             density_column='same file: fused density_end_columns serial, 9,586,008 rays (the host-cache endpoint02 '
             'path runs the same per-chunk correction)',
-            state='no GPU on the Mac: equal weights',
+            state='no GPU on this host: equal weights',
         ),
     ),
 }
 
 
-# Column-build speed-up by SOSFUSE2_COLUMN_WORKERS, the lowest of the three kinds measured on the Mac full grid
+# Column-build speed-up by SOSFUSE2_COLUMN_WORKERS, the lowest of the three kinds measured with the full grid on macOS
 # (measured during development): strato 1.94/3.36/4.72, density 1.96/3.52/4.98,
 # endpoint02 3.50/5.02 at 2/4/8.  Linear between points; held at the 8-worker value above 8 (not measured).
 SPEEDUP = ((1, 1.0), (2, 1.94), (4, 3.36), (8, 4.72))
@@ -150,7 +150,7 @@ def resources(a, n_states):
         threads, tbasis = (
             1,
             (
-                'memory-protected host (host_limits.rss_cap_gb %g GB: Mac or a protection marker): the split slot PSS budget '
+                'memory-protected host (host_limits.rss_cap_gb %g GB: non-Linux or a protection marker): the split slot PSS budget '
                 '(backends/configs/devices.json slot_pss_gb) does not count column worker processes' % rss_cap_gb()
             ),
         )
@@ -210,7 +210,7 @@ def parser():
         '--column-workers',
         type=int,
         help='column worker processes per state (pipeline --threads); default from '
-        'the cores left per concurrent state, 1 on memory-protected hosts (Mac, protection marker)',
+        'the cores left per concurrent state, 1 on memory-protected hosts (non-Linux, protection marker)',
     )
     p.add_argument(
         '--cost-profile', type=lambda name: ALIASES.get(name, name), choices=sorted(COST_PROFILES), default='split'

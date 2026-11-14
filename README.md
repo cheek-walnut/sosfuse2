@@ -18,8 +18,9 @@ every table with the hashes of the code and data that produced it.
    layers, and `AGENTS.md` lists the files to open first for each kind of task.
 
 This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, the versions
-from 1.3.0 on were published one by one, and the current release, 1.5.1, changes documentation only. For users of
-1.3.x, 1.4.0 moves the module paths into layer folders, with the old-to-new table in `docs/CHANGELOG.md`.
+from 1.3.0 on were published one by one, and the current release, 1.5.2, fixes an error path and two tests and keeps
+the numerical code of 1.5.0. For users of 1.3.x, 1.4.0 moves the module paths into layer folders, with the old-to-new
+table in `docs/CHANGELOG.md`.
 `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the configurations the releases
 were verified on. The change that matters most for default output is in 1.5.0: a state without a `density` block now
 uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (*Limitations*). In 1.2.3 the bundled
@@ -261,6 +262,14 @@ passing turns the run red until its entry is removed, so the failures stay visib
 1.3.3 and 1.3.4 change documentation only. Their code is that of 1.3.2, and apart from the continuous-integration run no
 test or gate was run again for them.
 
+Configurations verified for 1.5.2, whose numerical code is that of 1.5.0:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0, the same gates as for 1.5.0 passed with the same G-H value (max relative difference 1.4e-6); G-F against the fixed reference table: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| Linux x86_64 | 3.12 | NumPy | sdist in a fresh virtual environment outside the source tree, as the four shards of the continuous-integration job (pytest-xdist, 4 workers each): 930 passed, 3 xfailed, 0 failed in total, and the 78 skipped cases, of which four files skip at module level and are reported by every shard; the same sdist run serially before the last `flags_env` change gave 930 passed, 78 skipped, 3 xfailed |
+| macOS arm64 | 3.14 | NumPy | sdist in a fresh virtual environment outside the source tree, run as in the continuous-integration job (empty work root, the session fetches the IPRT inputs, no prepared O₄ asset), before the last `flags_env` change, which `test_entry_points` covers: 930 passed, 78 skipped, 3 xfailed, 0 failed |
+
 1.5.1 changes documentation only. Its code is that of 1.5.0, so the 1.5.0 rows apply to it. Apart from the
 continuous-integration run, its one new check is that of the scripts in `docs/validation/mystic` (*Reproducing the
 figures and the records* in `docs/VALIDATION.md`).
@@ -380,7 +389,10 @@ libRadtran (Mayer and Kylling 2005; Emde et al. 2016) includes the Monte Carlo s
 spherical 1D atmosphere (Emde and Mayer 2007) and polarisation (Emde et al. 2010). SCIATRAN (Rozanov et al. 2014) is a
 radiative transfer package for atmosphere and ocean. SASKTRAN (Bourassa et al. 2008) is a spherical-geometry code with a
 successive-orders mode (Zawada et al. 2015), and vector successive-orders solvers are described by Min and Duan (2004)
-and Lenoble et al. (2007). sosfuse2 does less than these: one spherical configuration, a source field iterated in place
+and Lenoble et al. (2007). Eradiate (Leroy et al. 2026) is a Monte Carlo ray-tracing model built on Mitsuba 3, with
+plane-parallel and spherical-shell atmospheres and polarisation. twilight (Mahdi 2026) computes spectral sky radiance
+through deep twilight by backward Monte Carlo in a spherical refracting atmosphere and adds a model of human visual
+detection at dawn and dusk. sosfuse2 does less than these: one spherical configuration, a source field iterated in place
 of photon sampling, and radiance tables as the only product. Full references are in `docs/REFERENCES.md`.
 
 ## Maintenance

@@ -14,13 +14,26 @@ AUTOMATIC = {'STRATO', 'TROPO_MIE', 'AEROSOL_2L'}
 DIAGNOSTIC = {'EXP_SECTION_CLOCKS'}  # wrong-physics / observer-only flags
 
 
+def _kernel_config(path):
+    """The parsed config, or None when the file is not readable JSON with kernel_flags and block_size."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and 'kernel_flags' in data and 'block_size' in data else None
+
+
 def load(name):
     from sosfuse2.backends.flags import RETIRED_FLAGS, resolve_config
 
     path = HERE / f'{name}.json'
     if not path.is_file():  # the stderr code keeps `eval "$(...)"` from passing silently on an empty stdout
         raise SystemExit(f'E_CONFIG_UNKNOWN: {name!r}: no backends/configs/{name}.json')
-    c = json.loads(path.read_text())
+    c = _kernel_config(path)
+    if c is None:  # e.g. devices.json in the same folder
+        kernels = sorted(p.stem for p in HERE.glob('*.json') if _kernel_config(p) is not None)
+        raise SystemExit(f'E_CONFIG_UNKNOWN: {name!r}: backends/configs/{name}.json is not a kernel config '
+                         f'(kernel configs: {", ".join(kernels)})')
     flags = c['kernel_flags']
     resolved = resolve_config(flags)
     bs = c['block_size']

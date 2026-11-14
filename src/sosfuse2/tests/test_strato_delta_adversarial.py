@@ -360,7 +360,7 @@ class Delta(unittest.TestCase):
         macro = next(x for x in source.splitlines() if x.startswith('#define COPY_STRATO') and 'scache' in x)
         self.assertEqual(macro.count('_Pragma("unroll")'), 2)
         MEASUREMENTS['static_cases'] = len(report['cases'])
-        MEASUREMENTS['CUDA_runtime'] = 'OUT-OF-MODEL: not executed on Mac'
+        MEASUREMENTS['CUDA_runtime'] = 'OUT-OF-MODEL: not executed without CUDA'
 
     def test_D17_flags_cache_mock_NVRTC(self):
         compiled = []

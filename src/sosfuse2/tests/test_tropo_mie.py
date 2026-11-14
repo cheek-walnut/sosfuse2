@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tropospheric Mie phase (tropo_mie.py, kernel.cu -DTROPO_MIE): Mac static/host checks and the split-profile GPU parity.
+"""Tropospheric Mie phase (tropo_mie.py, kernel.cu -DTROPO_MIE): CPU static/host checks and the split-profile GPU parity.
 
   --static  clang++ -E -P token identity of the HG kernel for the production flag sets
             (C3 + STRATO + PROFILE, with and without LAUNCH_RAY_LIMIT; the strato-off C2 set + PROFILE; the

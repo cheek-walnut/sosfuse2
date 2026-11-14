@@ -32,7 +32,7 @@ PROTECTION_MARKERS = ('tools/gpu_guard', 'gpu_guard')  # current marker first, t
 
 
 def rss_cap_gb():
-    """6 on the Mac, on a host with a protection marker, and on any small/unknown host;
+    """6 on a non-Linux host (macOS), on a host with a protection marker, and on any small/unknown host;
     min(128, physical RAM) on a Linux host with at least 48 GB RAM; 0.75 x RAM on one with 24-48 GB."""
     try:
         markers = [Path.home() / marker for marker in PROTECTION_MARKERS]

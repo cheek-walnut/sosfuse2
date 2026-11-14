@@ -9,7 +9,7 @@ Eight groups:
   (g) one RawKernel key rule, -DPROFILE_N only off 161, shared raw dict 161->641->161, consumption check without setup,
       payload/promotion, precompile --profile-step-km/--W, gate toolkey/config
   (h) profile identity separates tables/policies, host/column/device caches A->B->A cold/warm, outputs independent of N
-The independent references are test-local; column_table.linear_columns is never used as one. About 30 s on a Mac.
+The independent references are test-local; column_table.linear_columns is never used as one. About 30 s without a GPU.
 """
 
 from sosfuse2.foundation import paths

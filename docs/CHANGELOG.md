@@ -3,6 +3,21 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.5.2
+
+- **`flags_env` and other JSON files.** `python -m sosfuse2 flags_env devices` read the device profile file, which sits
+  in the same folder as the kernel configurations, and stopped with a `KeyError` traceback. A JSON there that is not a
+  kernel configuration now stops with `E_CONFIG_UNKNOWN` and lists the kernel configurations.
+- **Tests.** The diagnostics density test puts back the environment it changes (the thread defaults set when
+  `checks.solver_diagnostics` is imported and the cache paths under the test's temporary folder), so later tests do not
+  inherit them. When the column cache queue fails, the test shows the tail of the queue log with the exit code.
+- **Wording.** Comments, messages and test docstrings describe hosts by platform (macOS, Linux, a host without CUDA)
+  instead of naming one development machine. Error codes are unchanged.
+- **Related codes.** The README names Eradiate and twilight, with their references in `docs/REFERENCES.md`.
+- **Continuous integration.** The packaged tests run in four shards for each platform and Python version, each shard
+  with pytest-xdist; `docs/CHECKS.md` describes the split and the coverage check. The tests themselves are unchanged.
+- The numerical code is that of 1.5.0.
+
 ## 1.5.1
 
 - **MYSTIC comparison scripts.** `docs/validation/mystic` holds the scripts that produce the data of Figure 2

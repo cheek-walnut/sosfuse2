@@ -74,12 +74,12 @@ def auto_workers(states, threads, backend='numpy', persistent=False):
     """States prepared at once when --workers is not given: as many as the cores read right now allow with
     [CORES_LEFT_FREE] kept back, never more than the states or than [RAM_SHARE] of the RAM holds. A state's CPU
     preparation is single-threaded, so the cores are filled with states, not with threads (8 threads on one
-    state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). The Mac and memory-protected hosts keep 2."""
+    state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). Non-Linux and memory-protected hosts keep 2."""
     if backend == 'cupy':
         slot = slot_workers(states, persistent)
         if slot is not None:
             return max(1, min(slot, cpu_budget() // threads))
-    if rss_cap_gb() < RIG_MIN_RAM_GB:  # Mac, memory-protected hosts and the mid-size VMs keep 2
+    if rss_cap_gb() < RIG_MIN_RAM_GB:  # non-Linux, memory-protected hosts and the mid-size VMs keep 2
         return max(1, min(states, 2, cpu_budget() // threads))
     by_cores = max(1, (cpu_budget() - CORES_LEFT_FREE) // threads)
     by_ram = max(1, int(physical_ram_gb() * RAM_SHARE // WORKER_RSS_GB))
@@ -137,8 +137,8 @@ def auto_gpu_active(workers, backend):
 
 def prep_workers(workers, threads, host_cores, environ, column_budget=None):
     """Per-state pool sizes for the PREP_WORKER_ENV names the caller left unset: max(1, host_cores // workers), and
-    the column builds max(--threads, column_budget // workers) (its help; column_budget = cpu_budget(), which keeps the
-    Mac at 4: the RSS guard counts the state process only, not these pool children).
+    the column builds max(--threads, column_budget // workers) (its help; column_budget = cpu_budget(), which keeps
+    macOS at 4: the RSS guard counts the state process only, not these pool children).
     A name with a nonempty value is kept as given (each module's workers() treats empty as unset the same way).
     Pool sizes preserve prepared values within rtol 1e-6 (parallel module tests).
     Returns (per_state, explicit names, {name: value} to export)."""

@@ -30,6 +30,12 @@ the CIE data sets against the CIE site. Where no DOI exists the entry names the 
 - Lenoble, J., Herman, M., Deuzé, J. L., Lafrance, B., Santer, R., Tanré, D. (2007). A successive order of scattering code
   for solving the vector equation of transfer in the earth's atmosphere with aerosols. Journal of Quantitative
   Spectroscopy and Radiative Transfer, 107(3), 479–507. https://doi.org/10.1016/j.jqsrt.2007.03.010
+- Leroy, V., Marton, N., Emde, C., Misk, N., Gonzalez Almeida, M., Schunke, S., Cremer, N., Gascon, F., Govaerts, Y.
+  (2026). Eradiate: an accurate and flexible radiative transfer model for earth observation and atmospheric science.
+  Geoscientific Model Development, 19, 4289–4318. https://doi.org/10.5194/gmd-19-4289-2026
+- Mahdi, M. (2026). twilight: a Monte Carlo radiative-transfer simulator of the twilight sky with a validated model of
+  human dawn and dusk visibility (version 1.0.0) [software]. https://github.com/Muno459/twilight (a methods paper is in
+  preparation)
 - Mayer, B. (2009). Radiative transfer in the cloudy atmosphere. The European Physical Journal Conferences, 1, 75–99.
   https://doi.org/10.1140/epjconf/e2009-00912-1 (MYSTIC)
 - Mayer, B., Kylling, A. (2005). Technical note: The libRadtran software package for radiative transfer calculations –
