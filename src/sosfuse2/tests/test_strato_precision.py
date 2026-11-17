@@ -76,7 +76,7 @@ class NativePhase:
             body = extract_function(base, 'mie_phase')
             flags = []
         else:
-            start = current.index('#ifdef STRATO\n#define STRATO_LUT_BINS')
+            start = current.index('#define STRATO_LUT_BINS')
             end = current.index('__device__ void kah(', start)
             body = current[start:end]
             flags = ['-DSTRATO']

@@ -37,25 +37,8 @@
 #error E_SLIM_RAYS_REQUIRES_RAY_LIMIT
 #endif
 #define NOOUT_ON (PROD_ON || REC_ON)
-#ifdef SINV
-// Column records (28 B/point, bundle-global [point][7]): [0] ds, [1..5] separable columns, [6]
-// stratosphere. Mode 1 records them with unit-basis extinction tables in lanes 0..5; mode 2
-// rebuilds attenuation from the columns instead of the Simpson prefix.
+// Column records: ds, five component columns, then the stratospheric column.
 #define SINV_F (NCOMP + 2)
-#define SINV_REC(step_) (sinv_rec + ((int64_t)(seg - ray) * nq + (step_)) * SINV_F)
-#define SINV_SIMPSON if (sinv_mode != 2)
-// SLIM consumer: compiles out the tag cache, SH contraction and m-reduction and reads the corner
-// aerosol value the PROD launch of the same chunk wrote. Header (query buffer): int32 [0] mode (1
-// record columns, 2 use columns), int64 [1] aerosol offset in floats from query, int64 [2] first
-// point of the chunk (aerosol is chunk-local, [point-base][corner][w]); column records (SINV_REC)
-// are bundle-global.
-#define SLIM_AERO(corner_)                                                                         \
-    (slim_aero + ((((int64_t)(seg - ray) * nq + step - slim_base) * 4 + (corner_)) * AERO_W))
-#define SINV_AND_SIMPSON &&sinv_mode != 2
-#else
-#define SINV_SIMPSON
-#define SINV_AND_SIMPSON
-#endif
 // NVRTC, CUDA 12. FW is specialized to 1 or 15. Fast math and FMA contraction only through the
 // stage-1 options (source_solver.Kernel: --fmad, --prec-div/--prec-sqrt and SOSFUSE2_FASTMATH
 // below); the default build has neither. One destination cell (and optional spectral tile)/block,
@@ -137,7 +120,6 @@ typedef unsigned char uint8_t;
 // Batched point geometry: lane=step, the original point arithmetic and warp copies.
 #if defined(STRATO) && !K_FIRST
 #define PT_ACTIVE
-#define PT_NB 16
 #endif
 #if K_FIRST && K_PHASE == 0
 #define SOS_LAUNCH_BOUNDS __launch_bounds__(256, 2)
@@ -145,16 +127,9 @@ typedef unsigned char uint8_t;
 // Thin-layer masking uses the FW15 reduce-scatter path only.
 #if defined(STRATO) && FW == 15 && !K_FIRST
 #define SKIP_ACTIVE
-// SH_COMBINE: the first SH plane already holds aerosol + stratosphere, so it is live where either
-// layer is.
-#ifdef SH_COMBINE
-#define SK_A (sk_a || sk_s)
-#else
-#define SK_A sk_a
 #endif
 #ifndef SKIP_TAU
 #define SKIP_TAU 1e-7f
-#endif
 #endif
 #if defined(PT_ACTIVE) && !(defined(WARM_RAYSPLIT) && K_PHASE == 0)
 #define RS_ACTIVE
@@ -165,8 +140,8 @@ typedef unsigned char uint8_t;
 #endif
 #if defined(LPT_ACTIVE) && defined(STRATO) && FW == 15
 #define SPLIT_ACTIVE
-#define SPLIT_S 2
 #endif
+#define SPLIT_S 2
 // First-light phases 0/2 share the existing tropo+strato ground loop.
 #if defined(STRATO) && K_FIRST && (K_PHASE == 0 || K_PHASE == 2)
 #define GF_ON
@@ -221,9 +196,6 @@ typedef unsigned char uint8_t;
 #define SECTION_END_IF(k, cond)
 #define SECTION_SYNC(op) op
 #endif
-#define P_FIRST first_arg
-#define P_PHASE phase_arg
-#define P_BOUNDARY boundary_arg
 #define KPAD (((K + 31) / 32) * 32)
 #ifndef LUT_ONLY
 struct LMTable {
@@ -240,55 +212,36 @@ struct LMTable {
 };
 __constant__ LMTable LM = LMTable();
 #endif
-#ifdef STRATO
-#define COPY_STRATO(DST, SRC)                                                                      \
-    do {                                                                                           \
-        _Pragma("unroll") for (int cw = 0; cw < TW; cw++) scache[DST][cw] = scache[SRC][cw];       \
-        if (lane == 0) {                                                                           \
-            _Pragma("unroll") for (int cw = 0; cw < TW; cw++) s.st_c32[DST][cw] =                  \
-                s.st_c32[SRC][cw];                                                                 \
-        }                                                                                          \
-    } while (0);
-#else
-#define COPY_STRATO(DST, SRC)
-#endif
 // Opt-in spectral tiles: local buffers use TW; global arrays keep FW.
 #define TW FW
 #define GW(w) w
-// The slim-ray consumer handles two steps per warp, step+h in half h = lane>>4, wavelength lane&15.
-// Elsewhere the macros expand to the one-step forms.
-#ifdef SLIM_RAYS
-#define SR_INC 2
-#define SR_ACT sr_act
-#define SR_W sr_w
-#define SR_J sj
-#define SR_BIT(w_) (1u << lane)
-#else
-#define SR_INC 1
-#define SR_ACT (lane < TW)
-#define SR_W lane
-#define SR_J step
-#define SR_BIT(w_) (1u << (w_))
-#endif
-#define SLIM_AERO_J(j_, corner_)                                                                   \
-    (slim_aero + ((((int64_t)(seg - ray) * nq + (j_) - slim_base) * 4 + (corner_)) * AERO_W))
 // PATH_DS kernels (phase-0 first light, warm) reuse exact two-word ray coordinates.
 #ifdef PATH_DS
 #define RAY_CONST_F 27
 #else
 #define RAY_CONST_F 15
 #endif
-// Fixed-index copies preserve register promotion; no dynamic cache-bank access.
-#define COPY_CORNER(DST, SRC)                                                                      \
-    do {                                                                                           \
-        _Pragma("unroll") for (int cw = 0; cw < TW; cw++) cache[DST][cw] = cache[SRC][cw];         \
-        if (lane == 0) {                                                                           \
-            _Pragma("unroll") for (int cw = 0; cw < TW; cw++) s.c32[DST][cw] = s.c32[SRC][cw];     \
-        }                                                                                          \
-        COPY_STRATO(DST, SRC)                                                                      \
-        tags[DST] = s.cell[DST];                                                                   \
-    } while (0)
 // ---- Double-single arithmetic ----
+
+// Compile-time capabilities; inactive fields remain valid arguments without changing
+// the layout of the shared point records.
+struct ProfilePolicy {
+#ifdef STRATO
+    static constexpr bool strato = true;
+#else
+    static constexpr bool strato = false;
+#endif
+#ifdef AEROSOL_2L
+    static constexpr bool two_layer = true;
+#else
+    static constexpr bool two_layer = false;
+#endif
+#ifdef TROPO_MIE
+    static constexpr bool tropo_mie = true;
+#else
+    static constexpr bool tropo_mie = false;
+#endif
+};
 
 struct DS {
     float h, l;
@@ -413,7 +366,6 @@ __device__ float profile_value(float h, const float *table, int k) {
     float f = x - (float)i;
     return table[i * 3 + k] + f * (table[(i + 1) * 3 + k] - table[i * 3 + k]);
 }
-#ifdef AEROSOL_2L
 // Two-layer tropospheric aerosol (atmosphere/tropo_profile.py, opt-in by state; without
 // -DAEROSOL_2L nothing here exists and s.prof[1] stays expf(-s.h/height)). P = [bl_top-w/2, 1/w,
 // a_bl, k_bl, a_ft, k_ft, bl_top] follows sun_h[0..nsh) in the same device allocation
@@ -424,7 +376,6 @@ __device__ __forceinline__ float aerosol_two_layer(float h, const float *P) {
     return (P[2] * expf(-h * P[3])) * (1.f - s) +
            (P[4] * expf(-(fmaxf(h, P[0]) - P[6]) * P[5])) * s;
 }
-#endif
 __device__ int ix(int l, int m) {
     return l * (l + 1) / 2 + m;
 }
@@ -432,7 +383,6 @@ __device__ float hg(float u, float g) {
     float den = fmaxf(1e-20f, (1.f + g * g) - (2.f * g) * u);
     return (1.f - g * g) / ((float)(4 * PI) * (den * sqrtf(den)));
 }
-#ifdef STRATO
 #define STRATO_LUT_BINS 16384
 // GPU nodes use exactly the old recurrence, even in a LUT-enabled module.
 __device__ float strato_phase_node(float u, int w, const float *chi) {
@@ -446,6 +396,7 @@ __device__ float strato_phase_node(float u, int w, const float *chi) {
     }
     return v / (float)(4 * PI);
 }
+#ifdef STRATO
 extern "C" __global__ void strato_lut_build(float *chi) {
     int k = (int)blockIdx.x * (int)blockDim.x + (int)threadIdx.x;
     if (k < (STRATO_LUT_BINS + 1) * FW) {
@@ -454,6 +405,7 @@ extern "C" __global__ void strato_lut_build(float *chi) {
         chi[33 * FW + k] = strato_phase_node(u, w, chi);
     }
 }
+#endif
 __device__ float mie_phase(float u, int w, const float *chi) {
     float x = (clip(u, -1.f, 1.f) + 1.f) * (float)(STRATO_LUT_BINS / 2);
     int i = min((int)x, STRATO_LUT_BINS - 1);
@@ -461,7 +413,6 @@ __device__ float mie_phase(float u, int w, const float *chi) {
     float a = chi[(33 + i) * FW + w], b = chi[(34 + i) * FW + w];
     return a + f * (b - a);
 }
-#endif
 __device__ void kah(float &t, float &c, float v) {
     float y = v - c, z = t + y;
     c = (z - t) - y;
@@ -478,7 +429,6 @@ __device__ void kah(float &t, float &c, float v) {
 #error E_TROPO_MIE_UNSUPPORTED_GROUND_PATH: the LUT_ONLY unit has no ground path
 #endif
 #else
-#if defined(PT_ACTIVE)
 struct PointData {
     float T[16], cm[33], sw[4], prof[NCOMP], h, ds, cs;
     float mu, exd, eyd, sc[NCOMP];
@@ -509,7 +459,8 @@ static_assert(sizeof(Sample) == 304 + 40 * TW
               "E_SAMPLE_LAYOUT");
 // Copy only fields actually written by point(). Inactive first-light fields
 // are deliberately not read; persistent c32/cache/val/log/att never move.
-__device__ __forceinline__ void copy_point(Sample &s, const PointData &q, bool first) {
+template <class Record, class Point>
+__device__ __forceinline__ void copy_point(Record &s, const Point &q, bool first) {
     for (int k = 0; k < 16; k++)
         s.T[k] = q.T[k];
     for (int k = 0; k < 33; k++)
@@ -532,25 +483,12 @@ __device__ __forceinline__ void copy_point(Sample &s, const PointData &q, bool f
         for (int k = 0; k < NCOMP; k++)
             s.sc[k] = q.sc[k];
     }
-#ifdef STRATO
-    s.st_prof = q.st_prof;
-    if (first)
-        s.st_sc = q.st_sc;
-#endif
+    if constexpr (ProfilePolicy::strato) {
+        s.st_prof = q.st_prof;
+        if (first)
+            s.st_sc = q.st_sc;
+    }
 }
-#else
-struct Sample {
-    float T[16], cm[33], sw[4], prof[NCOMP], h, ds, cs;
-    float mu, exd, eyd, sc[NCOMP];
-    int cell[4], ir, lit;
-#ifdef STRATO
-    float st_prof, st_sc, st_c32[4][TW];
-#endif
-    float val[TW][4], logs[TW];
-    uint32_t positive;
-    float c32[4][TW], att[TW];
-};
-#endif
 __device__ void sh_basis(double mu, int lane, float *y, const double *aa, const double *bb,
                          const double *dd) {
     mu = fmin(1., fmax(-1., mu));
@@ -613,16 +551,12 @@ struct ProfileParams {
     const float *table;
     int mask;
     float air_surface;
-#ifdef STRATO
-    float st_center, st_sigma, st_norm;
-#endif
+    float st_center = 0.f, st_sigma = 1.f, st_norm = 1.f;
 };
 struct ExtinctionParams {
     ProfileParams profile;
     const float *ext;
-#ifdef STRATO
-    const float *st_ext;
-#endif
+    const float *st_ext = nullptr;
 };
 // Path coordinate of a GL node (u^2 map toward the lower end), DS.
 __device__ __forceinline__ DS path_t(DS ad, DS bd, DS length, DS u, DS v, bool lower) {
@@ -653,9 +587,8 @@ __device__ __forceinline__ void profile_at(float h, const ProfileParams &profile
     prof[2] = fmaxf(0.f, 1.f - fabsf(h - 25.f) / 15.f);
     prof[3] = 0.f;
     prof[4] = expf(-h / 4.f);
-#ifdef AEROSOL_2L
-    prof[1] = aerosol_two_layer(h, profile.aer2);
-#endif
+    if constexpr (ProfilePolicy::two_layer)
+        prof[1] = aerosol_two_layer(h, profile.aer2);
     if (profile.mask & 1)
         prof[0] = profile_value(h, profile.table, 0);
     if (profile.mask & 2)
@@ -663,12 +596,12 @@ __device__ __forceinline__ void profile_at(float h, const ProfileParams &profile
     prof[3] = profile_value(h, profile.table, 2);
     float q = prof[0] / profile.air_surface;
     prof[4] = q * q;
-#ifdef STRATO
-    float st_t = (h - profile.st_center) / profile.st_sigma;
-    st_prof = expf(-.5f * (st_t * st_t)) / profile.st_norm;
-#else
-    st_prof = 0.f;
-#endif
+    if constexpr (ProfilePolicy::strato) {
+        float st_t = (h - profile.st_center) / profile.st_sigma;
+        st_prof = expf(-.5f * (st_t * st_t)) / profile.st_norm;
+    } else {
+        st_prof = 0.f;
+    }
     prof[0] = support_value(h, prof[0], true);
 #pragma unroll
     for (int k = 1; k < NCOMP; ++k)
@@ -683,9 +616,8 @@ __device__ __forceinline__ float extinction_at(const float *prof, float st_prof,
 #pragma unroll
     for (int k = 0; k < NCOMP; k++)
         b += prof[k] * optics.ext[k * FW + gw];
-#ifdef STRATO
-    b += st_prof * optics.st_ext[gw];
-#endif
+    if constexpr (ProfilePolicy::strato)
+        b += st_prof * optics.st_ext[gw];
     return b;
 }
 template <class Coord>
@@ -735,22 +667,12 @@ __device__ __forceinline__ float pf(double x) {
 __device__ __forceinline__ float pf(DS x) {
     return x.h;
 }
-#ifdef PT_ACTIVE
-using FullPoint = PointData;
-#else
-using FullPoint = Sample;
-#endif
-template <class Coord, class Scalar>
+template <class Coord, class Scalar, class Record>
 __device__ POINT_INLINE void
-point(FullPoint &s, const Coord *p, const Coord *d, const float *B, const float *dl, float st,
+point(Record &s, const Coord *p, const Coord *d, const float *B, const float *dl, float st,
       Scalar a, Scalar b, bool lower, Scalar gu, Scalar gw, const float *hgrid, int nh,
       const float *chi, int nc, ProfileParams profile, const float *sun_h, int nsh,
-      const float *sun_col, int nsx, bool first
-#ifdef STRATO
-      ,
-      const float *st_sun_col
-#endif
-) {
+      const float *sun_col, int nsx, bool first, const float *st_sun_col = nullptr) {
     DS ad = ds(a), bd = ds(b), length = dx(bd, ad), u = ds(gu), wu = ds(gw),
        v = lower ? u : dx({1, 0}, u);
     DS t = path_t(ad, bd, length, u, v, lower);
@@ -803,9 +725,8 @@ point(FullPoint &s, const Coord *p, const Coord *d, const float *B, const float 
     {
         float pst;
         profile_at(s.h, profile, s.prof, pst);
-#ifdef STRATO
-        s.st_prof = pst;
-#endif
+        if constexpr (ProfilePolicy::strato)
+            s.st_prof = pst;
     }
     if (first) {
         s.mu = dot[2];
@@ -835,17 +756,16 @@ point(FullPoint &s, const Coord *p, const Coord *d, const float *B, const float 
             col += (ar * br) * sun_col[((ih + 1) * nsx + ic + 1) * NCOMP + k];
             s.sc[k] = col;
         }
-#ifdef STRATO
-        float col = ((1.f - ar) * (1.f - br)) * st_sun_col[ih * nsx + ic];
-        col += (ar * (1.f - br)) * st_sun_col[(ih + 1) * nsx + ic];
-        col += ((1.f - ar) * br) * st_sun_col[ih * nsx + ic + 1];
-        col += (ar * br) * st_sun_col[(ih + 1) * nsx + ic + 1];
-        s.st_sc = col;
-#endif
+        if constexpr (ProfilePolicy::strato) {
+            float col = ((1.f - ar) * (1.f - br)) * st_sun_col[ih * nsx + ic];
+            col += (ar * (1.f - br)) * st_sun_col[(ih + 1) * nsx + ic];
+            col += ((1.f - ar) * br) * st_sun_col[ih * nsx + ic + 1];
+            col += (ar * br) * st_sun_col[(ih + 1) * nsx + ic + 1];
+            s.st_sc = col;
+        }
     }
 }
 
-#if defined(SLIM_RAYS) && defined(PT_ACTIVE)
 // KSPLIT=3 consumer: mode-2 SLIM reads only T, sw, cell and ir of a sample, so the batch keeps this
 // 112 B record and point_m2 evaluates exactly point()'s expressions for those fields (nothing
 // else). 16-byte aligned (112 B) so the step loop reads T, sw and cell as 128-bit shared loads
@@ -904,7 +824,71 @@ __device__ POINT_INLINE void point_m2(PointM2 &s, const Coord *p, const Coord *d
     s.cell[2] = s.cell[0] + nc;
     s.cell[3] = s.cell[2] + 1;
 }
+
+struct TransportPolicy : ProfilePolicy {
+#ifdef SLIM_RAYS
+    static constexpr bool slim_rays = true;
+#else
+    static constexpr bool slim_rays = false;
 #endif
+#ifdef SH_COMBINE
+    static constexpr bool combined_sh = true;
+#else
+    static constexpr bool combined_sh = false;
+#endif
+#ifdef SINV
+    static constexpr bool column_records = true;
+#else
+    static constexpr bool column_records = false;
+#endif
+#ifdef EXP_SECTION_CLOCKS
+    static constexpr bool clocks = true;
+#else
+    static constexpr bool clocks = false;
+#endif
+#ifdef GROUND_SH_L
+    static constexpr bool ground_sh = true;
+#else
+    static constexpr bool ground_sh = false;
+#endif
+#ifdef WARM_RAYSPLIT
+    static constexpr bool warm_raysplit = true;
+#else
+    static constexpr bool warm_raysplit = false;
+#endif
+#ifdef LAUNCH_RAY_LIMIT
+    static constexpr bool ray_limit = true;
+#else
+    static constexpr bool ray_limit = false;
+#endif
+#ifdef SLIM_RAYDUMP
+    static constexpr bool ray_dump = true;
+#else
+    static constexpr bool ray_dump = false;
+#endif
+    static constexpr bool warm = !K_FIRST;
+    static constexpr bool path_ds = warm || K_PHASE == 0;
+    static constexpr bool batched_points = strato && warm;
+    static constexpr bool thin_layers = strato && FW == 15 && warm;
+    static constexpr bool reduce_scatter = strato && FW == 15;
+    static constexpr bool ground_fused = strato && K_FIRST && (K_PHASE == 0 || K_PHASE == 2);
+    static constexpr bool global_accum =
+        (K_FIRST || warm_raysplit || reduce_scatter) && K_PHASE == 0;
+    static constexpr bool split_rays =
+        (!clocks && K_FIRST && K_PHASE == 0) || (warm_raysplit && warm && K_PHASE == 0);
+    static constexpr bool sort_rays = batched_points && !(warm_raysplit && K_PHASE == 0);
+    static constexpr bool queue_cells = warm && !(warm_raysplit && K_PHASE == 0);
+    static constexpr bool split_cells = queue_cells && reduce_scatter;
+    static constexpr bool no_sh = NOSH_ON;
+    static constexpr bool no_output = NOOUT_ON;
+    static constexpr bool producer = PROD_ON;
+    static constexpr bool record = REC_ON;
+    static constexpr bool consumer = SLIM_ON;
+    static constexpr bool preload = column_records && consumer && reduce_scatter;
+    static constexpr int batch_size = 16;
+    static constexpr int sample_stride = slim_rays ? 2 : 1;
+    static constexpr int source_rows = strato ? SRC_ROWS_ST : SRC_ROWS;
+};
 
 // Each lane owns one cached GL node when the quadrature fits in a warp.
 #ifdef PATH_DS
@@ -941,37 +925,18 @@ __device__ __forceinline__ NodeWeights quadrature_node(int node, int nq, bool ac
     return {};
 }
 
-#if defined(SLIM_RAYS) && defined(PT_ACTIVE)
-using QuadraturePoint = PointM2;
-#elif defined(PT_ACTIVE)
-using QuadraturePoint = PointData;
-#else
-using QuadraturePoint = Sample;
-#endif
-
-// Dispatch the compact consumer record or the complete point at compile time.
-template <class Coord, class Scalar>
+// Dispatch depends on the record type, without conditional argument lists.
+template <class Coord, class Scalar, class Record>
 __device__ __forceinline__ void
-evaluate_point(QuadraturePoint &s, const Coord *p, const Coord *d, const float *B, const float *dl,
-               float st, Scalar a, Scalar b, bool lower, Scalar u, Scalar w, const float *h, int nh,
+evaluate_point(Record &s, const Coord *p, const Coord *d, const float *B, const float *dl, float st,
+               Scalar a, Scalar b, bool lower, Scalar u, Scalar w, const float *h, int nh,
                const float *chi, int nc, const ProfileParams &profile, const float *sun_h, int nsh,
-               const float *sun_col, int nsx, bool first
-#ifdef STRATO
-               ,
-               const float *st_sun_col
-#endif
-) {
-#if defined(SLIM_RAYS) && defined(PT_ACTIVE)
-    point_m2(s, p, d, B, dl, a, b, lower, u, h, nh, chi, nc);
-#else
-    point(s, p, d, B, dl, st, a, b, lower, u, w, h, nh, chi, nc, profile, sun_h, nsh, sun_col, nsx,
-          first
-#ifdef STRATO
-          ,
-          st_sun_col
-#endif
-    );
-#endif
+               const float *sun_col, int nsx, bool first, const float *st_sun_col = nullptr) {
+    if constexpr (TransportPolicy::slim_rays && TransportPolicy::batched_points)
+        point_m2(s, p, d, B, dl, a, b, lower, u, h, nh, chi, nc);
+    else
+        point(s, p, d, B, dl, st, a, b, lower, u, w, h, nh, chi, nc, profile, sun_h, nsh, sun_col,
+              nsx, first, st_sun_col);
 }
 
 __device__ __forceinline__ float2 warm_sh_pair(const float *ptr, int64_t cell, int w, int k) {
@@ -979,7 +944,151 @@ __device__ __forceinline__ float2 warm_sh_pair(const float *ptr, int64_t cell, i
     return ((const float2 *)ptr)[i];
 }
 
-#ifdef TROPO_MIE
+// Fill one corner's Fourier coefficients. Each lane owns m=lane; lane 0 also
+// owns m=32. Layer masks are warp uniform and never change the summation order.
+template <class Record>
+__device__ __forceinline__ void
+contract_corner(Record &s, float (&cache)[4][TW], float (&scache)[4][TW], int (&tags)[4],
+                const float *y, const float *src_sh, int lane, int corner, int cc, int cells,
+                bool live_a, bool live_s) {
+    const bool aerosol_live = live_a || (TransportPolicy::combined_sh && live_s);
+#pragma unroll
+    for (int w = 0; w < TW; ++w)
+        cache[corner][w] = 0.f;
+    if constexpr (TransportPolicy::strato)
+        for (int w = 0; w < TW; ++w)
+            scache[corner][w] = 0.f;
+    for (int l = 0; l <= SH_L; ++l) {
+        if (lane <= l) {
+            int k = ix(l, lane);
+            float pref = y[k];
+            if (aerosol_live) {
+#pragma unroll
+                for (int w = 0; w < TW; w += 2) {
+                    float2 pair = warm_sh_pair(src_sh, cc, w, k);
+                    cache[corner][w] += pref * pair.x;
+                    if (w + 1 < TW)
+                        cache[corner][w + 1] += pref * pair.y;
+                }
+            }
+            if constexpr (TransportPolicy::strato && !TransportPolicy::combined_sh) {
+                if (live_s) {
+#pragma unroll
+                    for (int w = 0; w < TW; w += 2) {
+                        float2 pair = warm_sh_pair(src_sh, cells + cc, w, k);
+                        scache[corner][w] += pref * pair.x;
+                        if (w + 1 < TW)
+                            scache[corner][w + 1] += pref * pair.y;
+                    }
+                }
+            }
+        }
+    }
+    if (lane == 0) {
+        if constexpr (SH_L == 32) {
+            if (aerosol_live) {
+#pragma unroll
+                for (int w = 0; w < TW; w += 2) {
+                    float2 pair = warm_sh_pair(src_sh, cc, w, 560);
+                    float v = 0.f;
+                    v += y[560] * pair.x;
+                    s.c32[corner][w] = v;
+                    if (w + 1 < TW) {
+                        float v1 = 0.f;
+                        v1 += y[560] * pair.y;
+                        s.c32[corner][w + 1] = v1;
+                    }
+                }
+            }
+            if constexpr (TransportPolicy::strato) {
+                if constexpr (TransportPolicy::combined_sh) {
+                    for (int w = 0; w < TW; ++w)
+                        s.st_c32[corner][w] = 0.f;
+                } else if (live_s) {
+#pragma unroll
+                    for (int w = 0; w < TW; w += 2) {
+                        float2 pair = warm_sh_pair(src_sh, cells + cc, w, 560);
+                        float v = 0.f;
+                        v += y[560] * pair.x;
+                        s.st_c32[corner][w] = v;
+                        if (w + 1 < TW) {
+                            float v1 = 0.f;
+                            v1 += y[560] * pair.y;
+                            s.st_c32[corner][w + 1] = v1;
+                        }
+                    }
+                }
+            }
+        } else {
+            for (int w = 0; w < TW; ++w)
+                s.c32[corner][w] = 0.f;
+            if constexpr (TransportPolicy::strato)
+                for (int w = 0; w < TW; ++w)
+                    s.st_c32[corner][w] = 0.f;
+        }
+    }
+    tags[corner] = cc;
+}
+
+// Every lane participates in the same shuffle tree; one lane owns each wavelength.
+__device__ __forceinline__ float reduce_scatter_corner(const float (&cache)[4][TW],
+                                                       const float (&c32)[4][TW], const float *cm,
+                                                       int corner, int lane) {
+    const float cml = cm[lane];
+    float r[8];
+    const bool u16 = (lane & 16) != 0;
+    _Pragma("unroll") for (int V = 0; V < 8; V++) {
+        float xa = 0.f, xb = 0.f;
+        if (V < TW) {
+            xa = cml * cache[corner][V];
+            if (lane == 0)
+                xa += cm[32] * c32[corner][V];
+        }
+        if (V + 8 < TW) {
+            xb = cml * cache[corner][V + 8];
+            if (lane == 0)
+                xb += cm[32] * c32[corner][V + 8];
+        }
+        const float send = u16 ? xa : xb, keep = u16 ? xb : xa;
+        r[V] = keep + __shfl_xor_sync(0xffffffff, send, 16);
+    }
+    _Pragma("unroll") for (int st = 4; st; st >>= 1) {
+        const bool up = (lane & (2 * st)) != 0;
+        _Pragma("unroll") for (int V = 0; V < st; V++) {
+            const float send = up ? r[V] : r[V + st], keep = up ? r[V + st] : r[V];
+            r[V] = keep + __shfl_xor_sync(0xffffffff, send, 2 * st);
+        }
+    }
+    const float fin = r[0] + __shfl_xor_sync(0xffffffff, r[0], 1);
+    return __shfl_sync(0xffffffff, fin, (2 * lane) & 31);
+}
+
+// Fixed bank indexes keep Fourier cache rows eligible for register promotion.
+// All lanes call; only lane 0 copies the shared m=32 term.
+template <int Dst, int Src, class Record>
+__device__ __forceinline__ void reuse_corner(Record &s, float (&cache)[4][TW],
+                                             float (&scache)[4][TW], int (&tags)[4], int lane) {
+#pragma unroll
+    for (int w = 0; w < TW; ++w)
+        cache[Dst][w] = cache[Src][w];
+    if (lane == 0) {
+#pragma unroll
+        for (int w = 0; w < TW; ++w)
+            s.c32[Dst][w] = s.c32[Src][w];
+    }
+    if constexpr (TransportPolicy::strato) {
+#pragma unroll
+        for (int w = 0; w < TW; ++w)
+            scache[Dst][w] = scache[Src][w];
+        if (lane == 0) {
+#pragma unroll
+            for (int w = 0; w < TW; ++w)
+                s.st_c32[Dst][w] = s.st_c32[Src][w];
+        }
+    }
+    tags[Dst] = s.cell[Dst];
+}
+
 // Tropospheric aerosol Mie phase (atmosphere/tropo_mie.py, opt-in by state; without -DTROPO_MIE
 // nothing below exists and every hg(u,aerosol_g) site is unchanged). Per-wavelength table per
 // steradian behind the asca pointer: asca[0..FW) as before, table node i of wavelength w at
@@ -1004,12 +1113,6 @@ __device__ __forceinline__ float tropo_pair(const Sample &s, const float *gdir, 
     return (tropo_phase(clip(m0 + m1, -1, 1), w, lut) + tropo_phase(clip(m0 - m1, -1, 1), w, lut)) /
            2.f;
 }
-#define GF_TROPO_PARAM , const float *tr_lut
-#define GF_TROPO_ARG , TROPO_LUT
-#else
-#define GF_TROPO_PARAM
-#define GF_TROPO_ARG
-#endif
 
 #ifdef GROUND_SH_L
 #if !defined(GF_ON) || defined(TROPO_MIE)
@@ -1071,7 +1174,11 @@ __device__ __forceinline__ void ground_sh_sums(const Sample &s, int lane, const 
 __device__ __forceinline__ void gf_sums(const Sample &s, int lane, float *gph, const int64_t *goff,
                                         const float *gdir, const float *gval, const float *st_chi,
                                         float aerosol_g, float &accw,
-                                        float &st_acc GF_TROPO_PARAM) {
+                                        float &st_acc
+#ifdef TROPO_MIE
+                                        , const float *tr_lut
+#endif
+                                        ) {
     const int w = lane & 15;
     const float pmu = s.mu, pexd = s.exd, paey = fabsf(s.eyd);
     int2 *gl = (int2 *)(((unsigned long long)(gph + 32) + 7ull) &
@@ -1189,16 +1296,1475 @@ __device__ __forceinline__ void gf_sums(const Sample &s, int lane, float *gph, c
     }
 }
 #endif
+
+template <bool Condition, class Then, class Else> struct SelectType {
+    using type = Then;
+};
+template <class Then, class Else> struct SelectType<false, Then, Else> {
+    using type = Else;
+};
+
+template <class Record> struct FullSampleView {
+    const Record &sample;
+    __device__ __forceinline__ explicit FullSampleView(const Record &s) : sample(s) {}
+    __device__ __forceinline__ int ir() const {
+        return sample.ir;
+    }
+    __device__ __forceinline__ float height() const {
+        return sample.h;
+    }
+    __device__ __forceinline__ int cell(int c) const {
+        return sample.cell[c];
+    }
+    __device__ __forceinline__ float weight(int c) const {
+        return sample.sw[c];
+    }
+    __device__ __forceinline__ float rotate(int component, const float *rm) const {
+        float rot = 0.f;
+        for (int k = 0; k < 4; ++k)
+            rot += sample.T[4 * component + k] * rm[k];
+        return rot;
+    }
+};
+struct CompactSampleView {
+    const PointM2 &sample;
+    const float4 t0, t1, t2, t3, weights;
+    const int4 cells;
+    const int radial;
+    __device__ __forceinline__ explicit CompactSampleView(const PointM2 &q)
+        : sample(q), t0(*(const float4 *)q.T), t1(*(const float4 *)(q.T + 4)),
+          t2(*(const float4 *)(q.T + 8)), t3(*(const float4 *)(q.T + 12)),
+          weights(*(const float4 *)q.sw), cells(*(const int4 *)q.cell), radial(q.ir) {}
+    __device__ __forceinline__ int ir() const {
+        return radial;
+    }
+    __device__ __forceinline__ float height() const {
+        return sample.h;
+    }
+    __device__ __forceinline__ int cell(int c) const {
+        return c == 0 ? cells.x : c == 1 ? cells.y : c == 2 ? cells.z : cells.w;
+    }
+    __device__ __forceinline__ float weight(int c) const {
+        return c == 0 ? weights.x : c == 1 ? weights.y : c == 2 ? weights.z : weights.w;
+    }
+    __device__ __forceinline__ float rotate(int component, const float *rm) const {
+        // component is unrolled; four scalar multiply/adds keep their original order.
+        float rot = 0.f;
+        rot += (component == 0   ? t0.x
+                : component == 1 ? t1.x
+                : component == 2 ? t2.x
+                                 : t3.x) *
+               rm[0];
+        rot += (component == 0   ? t0.y
+                : component == 1 ? t1.y
+                : component == 2 ? t2.y
+                                 : t3.y) *
+               rm[1];
+        rot += (component == 0   ? t0.z
+                : component == 1 ? t1.z
+                : component == 2 ? t2.z
+                                 : t3.z) *
+               rm[2];
+        rot += (component == 0   ? t0.w
+                : component == 1 ? t1.w
+                : component == 2 ? t2.w
+                                 : t3.w) *
+               rm[3];
+        return rot;
+    }
+};
+struct SampleLane {
+    int wave, sample;
+    bool active, odd;
+    __device__ __forceinline__ SampleLane(int lane, int step, int batch_end)
+        : wave(TransportPolicy::slim_rays ? lane & 15 : lane), sample(step), active(wave < TW),
+          odd(step + 1 < batch_end) {
+        if constexpr (TransportPolicy::slim_rays) {
+            const int half = lane >> 4;
+            sample = half && odd ? step + 1 : step;
+            active = active && (half == 0 || odd);
+        }
+    }
+};
+
 // ---- Fused transport ----
 
+// The launch ABI is normalized once here. Optional inputs are never read by an
+// inactive compile-time role; no device allocation or record layout changes.
+struct TransportInputs {
+    int cells = 0;
+    int nh = 0;
+    int nc = 0;
+    int nq = 0;
+    int nsh = 0;
+    int nsx = 0;
+    int first_arg = 0;
+    int phase_arg = 0;
+    int boundary_arg = 0;
+    const int64_t *cell_off = nullptr;
+    const double *starts = nullptr;
+    const double *targets = nullptr;
+    const double *dirs = nullptr;
+    const float *weights = nullptr;
+    const uint32_t *edge_off = nullptr;
+    const double *edges = nullptr;
+    const uint16_t *lower = nullptr;
+    const int32_t *end_j = nullptr;
+    const float *end_f = nullptr;
+    const float *end_col = nullptr;
+    const uint8_t *hits = nullptr;
+    const double *gu = nullptr;
+    const double *gw = nullptr;
+    const double *aa = nullptr;
+    const double *bb = nullptr;
+    const double *dd = nullptr;
+    const float *h = nullptr;
+    const float *chi = nullptr;
+    const float *hr = nullptr;
+    const float *ha = nullptr;
+    const float *ext = nullptr;
+    const float *asca = nullptr;
+    const float *sun_h = nullptr;
+    const float *sun_col = nullptr;
+    const float *gm = nullptr;
+    const int64_t *goff = nullptr;
+    const float *gdir = nullptr;
+    const float *gval = nullptr;
+    float height = 0;
+    float aerosol_g = 0;
+    float mix = 0;
+    double albedo = 0;
+    const float *src = nullptr;
+    const double *boundary = nullptr;
+    double *moments = nullptr;
+    double *flux = nullptr;
+    float *query = nullptr;
+    float *slim_aero = nullptr;
+    int2 *vp_records = nullptr;
+    float *slim_dump = nullptr;
+    const float *src_sh = nullptr;
+    const float *st_ext = nullptr;
+    const float *st_sca = nullptr;
+    const float *st_chi = nullptr;
+    const float *st_density = nullptr;
+    const float *st_sun_col = nullptr;
+    const float *st_end_col = nullptr;
+    float st_center = 0;
+    float st_sigma = 0;
+    float st_norm = 0;
+    const float *profile_table = nullptr;
+    int profile_mask = 0;
+    float air_surface = 0;
+    const int *cell_order = nullptr;
+    double *split_scratch = nullptr;
+    double *split_flux = nullptr;
+    int *split_count = nullptr;
+#ifdef EXP_SECTION_CLOCKS
+    unsigned long long *section_clocks = nullptr;
+#endif
+    float *ray_rads = nullptr;
+    int *ray_sync = nullptr;
+};
+
+template <class Record> struct Transport : TransportInputs {
+    static constexpr int first = K_FIRST, phase = K_PHASE, with_boundary = K_BOUNDARY;
+    int tid, lane, warp, nwarps;
+    ProfileParams profile;
+    ExtinctionParams optics;
+    int sinv_mode = 0;
+    float *sinv_rec = nullptr;
+    int64_t slim_base = 0;
+    unsigned long long live_a = ~0ull, live_s = ~0ull;
+#ifdef EXP_SECTION_CLOCKS
+    unsigned long long section_cycles[8] = {}, section_begin = 0, total_begin = 0;
+#endif
+    Record *samples;
+    float *ray_constants, *ground_phase;
+    using PtBatch = typename SelectType<TransportPolicy::slim_rays, PointM2, PointData>::type;
+    PtBatch *pts = nullptr;
+    unsigned char *rs_key = nullptr, *rs_perm = nullptr;
+    __device__ __forceinline__ float *column_record(uint32_t seg, int64_t ray, int step) const {
+        return sinv_rec + ((int64_t)(seg - ray) * nq + step) * SINV_F;
+    }
+    __device__ __forceinline__ float *aerosol_record(uint32_t seg, int64_t ray, int step,
+                                                     int corner) const {
+        return slim_aero + ((((int64_t)(seg - ray) * nq + step - slim_base) * 4 + corner) * AERO_W);
+    }
+
+    // The compact consumer reads its batch directly. Other batched roles copy
+    // only PointData into the persistent sample; the caller publishes the copy.
+    __device__ __forceinline__ CompactSampleView sample_view(PointM2 *batch, Record &, int step0,
+                                                             int sample) {
+        return CompactSampleView(batch[sample - step0]);
+    }
+    __device__ __forceinline__ FullSampleView<Record> sample_view(PointData *batch, Record &s,
+                                                                  int step0, int sample) {
+        if constexpr (TransportPolicy::batched_points) {
+            const int *source = (const int *)&batch[sample - step0];
+            int *dest = (int *)static_cast<PointData *>(&s);
+            for (int k = lane; k < (int)(sizeof(PointData) / 4); k += 32)
+                dest[k] = source[k];
+        }
+        return FullSampleView<Record>(s);
+    }
+
+    // All lanes participate in ground lookup/shuffles. Lane w publishes the
+    // tropo/strato ground sums for wavelength w in the shared sample.
+    struct GroundLookup {
+        float a, b, f, value;
+    };
+    __device__ __forceinline__ GroundLookup ground_lookup(int64_t j, float mu, float exd, float aey,
+                                                          float d0, float d1, float d2) const {
+        GroundLookup result{};
+        const int w = lane & 15;
+        if (w < TW) {
+            float m0 = mu * d2 + exd * d0, m1 = aey * d1;
+            float u = lane < 16 ? clip(m0 + m1, -1, 1) : clip(m0 - m1, -1, 1);
+            float x = (clip(u, -1.f, 1.f) + 1.f) * (float)(STRATO_LUT_BINS / 2);
+            int i = min((int)x, STRATO_LUT_BINS - 1);
+            result.a = st_chi[(33 + i) * FW + GW(w)];
+            result.b = st_chi[(34 + i) * FW + GW(w)];
+            result.f = x - (float)i;
+        }
+        if (lane < TW)
+            result.value = gval[j * FW + GW(lane)];
+        return result;
+    }
+    __device__ __forceinline__ void tropo_ground(Record &s) {
+
+        float accw = 0.f;
+        for (int corner = 0; corner < 4; corner++) {
+            int cc = s.cell[corner];
+            for (int64_t j0 = goff[cc]; j0 < goff[cc + 1]; j0 += 32) {
+                int64_t j = j0 + lane;
+                if (j < goff[cc + 1]) {
+                    float m0 = s.mu * gdir[3 * j + 2] + s.exd * gdir[3 * j],
+                          m1 = fabsf(s.eyd) * gdir[3 * j + 1];
+                    ground_phase[lane] = (hg(clip(m0 + m1, -1, 1), aerosol_g) +
+                                          hg(clip(m0 - m1, -1, 1), aerosol_g)) /
+                                         2.f;
+                }
+                __syncwarp();
+                int count = (int)((goff[cc + 1] - j0) < 32 ? (goff[cc + 1] - j0) : 32);
+                if constexpr (TransportPolicy::tropo_mie) {
+                    // Mie: the per-direction phase depends on the wavelength, so lane w
+                    // evaluates it itself (ground_phase unused).
+                    if (lane < TW) {
+                        const float swc = s.sw[corner];
+                        const float *gq = gval + j0 * FW + GW(lane);
+                        int k = 0;
+                        for (; k + 8 <= count; k += 8) {
+                            float g[8], ph[8];
+                            _Pragma("unroll") for (int q = 0; q < 8; q++) {
+                                g[q] = gq[(k + q) * FW];
+                                ph[q] = tropo_pair(s, gdir, j0 + k + q, GW(lane), TROPO_LUT);
+                            }
+                            _Pragma("unroll") for (int q = 0; q < 8; q++) accw +=
+                                (swc * ph[q]) * g[q];
+                        }
+                        for (; k < count; k++)
+                            accw += (swc * tropo_pair(s, gdir, j0 + k, GW(lane), TROPO_LUT)) *
+                                    gq[k * FW];
+                    }
+                } else {
+                    if (lane < TW) {
+                        const float swc = s.sw[corner];
+                        const float *gq = gval + j0 * FW + GW(lane);
+                        int k = 0;
+                        for (; k + 8 <= count; k += 8) {
+                            float g[8], ph[8];
+                            _Pragma("unroll") for (int q = 0; q < 8; q++) {
+                                g[q] = gq[(k + q) * FW];
+                                ph[q] = ground_phase[k + q];
+                            }
+                            _Pragma("unroll") for (int q = 0; q < 8; q++) accw +=
+                                (swc * ph[q]) * g[q];
+                        }
+                        for (; k < count; k++)
+                            accw += (swc * ground_phase[k]) * gq[k * FW];
+                    }
+                }
+                __syncwarp();
+            }
+        }
+        if (lane < TW)
+            s.c32[0][lane] = accw;
+        __syncwarp();
+    }
+    __device__ __forceinline__ void strato_ground(Record &s) {
+
+        int w = lane & 15;
+        float st_acc = 0.f;
+        const float pmu = s.mu, pexd = s.exd, paey = fabsf(s.eyd);
+        for (int corner = 0; corner < 4; corner++) {
+            int cc = s.cell[corner];
+            const float swc = s.sw[corner];
+            int64_t j = goff[cc], je = goff[cc + 1];
+            GroundLookup current{};
+            float d0 = 0.f, d1 = 0.f, d2 = 0.f;
+            if (j < je) {
+                current = ground_lookup(j, pmu, pexd, paey, gdir[3 * j], gdir[3 * j + 1],
+                                        gdir[3 * j + 2]);
+            }
+            if (j + 1 < je) {
+                d0 = gdir[3 * (j + 1)];
+                d1 = gdir[3 * (j + 1) + 1];
+                d2 = gdir[3 * (j + 1) + 2];
+            }
+            for (; j < je; j++) {
+                const float a = current.a, b = current.b, f = current.f, gvj = current.value;
+                if (j + 1 < je) {
+                    current = ground_lookup(j + 1, pmu, pexd, paey, d0, d1, d2);
+                }
+                if (j + 2 < je) {
+                    d0 = gdir[3 * (j + 2)];
+                    d1 = gdir[3 * (j + 2) + 1];
+                    d2 = gdir[3 * (j + 2) + 2];
+                }
+                float paired = 0.f;
+                if (w < TW)
+                    paired = a + f * (b - a);
+                float minus = __shfl_down_sync(0xffffffff, paired, 16);
+                if (lane < TW) {
+                    float ph = (paired + minus) / 2.f;
+                    st_acc += (swc * ph) * gvj;
+                }
+            }
+        }
+        if (lane < TW)
+            s.st_c32[0][lane] = st_acc;
+        __syncwarp();
+    }
+    __device__ __forceinline__ void fused_ground(Record &s, float *y) {
+#ifdef GF_ON
+        float accw = 0.f, st_acc = 0.f;
+#ifdef GROUND_SH_L
+        ground_sh_sums(s, lane, goff, gdir, gval, accw, st_acc);
+#else
+#if defined(FL_SPLIT_ON) || K_PHASE == 2
+        // Ray splitting and phase 2 have no in-ray projection, so ground
+        // convolution can borrow the warp's Y row.
+        gf_sums(s, lane, y, goff, gdir, gval, st_chi, aerosol_g, accw, st_acc
+#else
+        gf_sums(s, lane, ground_phase, goff, gdir, gval, st_chi, aerosol_g, accw, st_acc
+#endif
+#ifdef TROPO_MIE
+                , asca + FW
+#endif
+        );
+#endif
+        if (lane < TW) {
+            s.c32[0][lane] = accw;
+            s.st_c32[0][lane] = st_acc;
+        }
+        __syncwarp();
+#endif
+    }
+    __device__ __forceinline__ void first_light_ground(Record &s, float *y) {
+        if (first) {
+            if constexpr (TransportPolicy::ground_fused)
+                fused_ground(s, y);
+            else {
+                tropo_ground(s);
+                if constexpr (TransportPolicy::strato)
+                    strato_ground(s);
+            }
+        }
+    }
+    // Lane 0 adds boundary light after the transport sum; phase 2 publishes
+    // the completed warp radiance without a cross-warp dependency.
+    __device__ __forceinline__ void boundary_and_query(int64_t ray, const float *pu, float *rad) {
+        if (lane == 0 && !NOOUT_ON && with_boundary) {
+            int j = end_j[ray];
+            float f = end_f[ray];
+            for (int w = 0; w < TW; w++) {
+                float e = (1.f - f) * (float)boundary[j * FW + GW(w)];
+                e += f * (float)boundary[(j + 1) * FW + GW(w)];
+                float od = 0;
+                for (int k = 0; k < NCOMP; k++)
+                    od += end_col[NCOMP * ray + k] * ext[k * FW + GW(w)];
+                if constexpr (TransportPolicy::strato) {
+                    od += st_end_col[ray] * st_ext[GW(w)];
+                }
+                e *= expf(-od) * (float)hits[ray];
+                for (int k = 0; k < (phase == 1 ? 3 : 4); k++)
+                    rad[4 * w + k] += (e * pu[k]) / 2.f;
+            }
+        }
+        if (phase == 2) {
+            SECTION_SYNC(__syncwarp());
+            for (int k = lane; k < 4 * TW; k += 32)
+                query[ray * 4 * FW + k] = rad[k];
+        }
+    }
+    // Per-thread ray state. Shared pointers refer to this warp's fixed slices;
+    // Fourier cache and compensated sums live until the ray is complete.
+    using PathCoord = typename SelectType<TransportPolicy::path_ds, DS, const double>::type;
+    struct RayState {
+        const double *p, *target, *d;
+        const float *B;
+        float *y, *rad, *rc, *cd, *dl, *pu, *se, *direct;
+        PathCoord *beta_p, *beta_d;
+        float global_st, pu_r[4];
+        float lane_rad[4] = {}, lane_rc[4] = {}, lane_val[4], lane_log, lane_wg, lane_am;
+        float ray_ext[NCOMP] = {}, ray_st_ext = 0.f;
+        float cache[4][TW], scache[4][TW];
+        int tags[4] = {-1, -1, -1, -1};
+        float tau_lane = 0.f, tc_lane = 0.f;
+        DS sp_t = {0.f, 0.f};
+        float sp_b = 0.f, sp_acc = 0.f;
+        float sunphase, strato_sunphase = 0.f;
+        DS gu_l = {0.f, 0.f}, gw_l = {0.f, 0.f};
+    };
+    struct SampleScratch {
+        float paired[4] = {};
+        float aero[4] = {}, rm[4][4] = {}, column[SINV_F] = {};
+        float air[2] = {}, strato[2] = {};
+    };
+
+    // A complete warp traces one ray. Scratch belongs to this warp until the
+    // caller's warp/block barrier; shared radiance is published before return.
+    __device__ __forceinline__ void trace_ray(int cell, int64_t ray, const double *p,
+                                              const double *target, const float *B, float *y,
+                                              float *rad, float *rc, float *cd) {
+        RayState r;
+        r.p = p;
+        r.target = target;
+        r.B = B;
+        r.y = y;
+        r.rad = rad;
+        r.rc = rc;
+        r.cd = cd;
+
+        r.d = dirs + 3 * ray;
+        // global_st, dl[3], pu[4], se[3], direct[4]; PATH_DS adds p/d as six DS values.
+        r.dl = ray_constants + 1;
+        r.pu = ray_constants + 4;
+        r.se = ray_constants + 8;
+        r.direct = ray_constants + 11;
+        if constexpr (TransportPolicy::path_ds) {
+            r.beta_p = (DS *)(ray_constants + 15);
+            r.beta_d = r.beta_p + 3;
+        } else {
+            r.beta_p = r.p;
+            r.beta_d = r.d;
+        }
+
+        if (lane == 0) {
+            ray_constants[0] = (float)sqrt(fmax(0., 1. - r.d[2] * r.d[2]));
+            if constexpr (TransportPolicy::path_ds) {
+                // Same conversion as path_q, once per ray; the existing syncwarp publishes both
+                // words.
+                for (int k = 0; k < 3; k++) {
+                    r.beta_p[k] = ds(r.p[k]);
+                    r.beta_d[k] = ds(r.d[k]);
+                }
+            }
+
+            for (int j = 0; j < 3; j++) {
+                double x = 0;
+                for (int k = 0; k < 3; k++)
+                    x += r.target[3 * k + j] * r.d[k];
+                r.dl[j] = (float)x;
+            }
+
+            r.pu[0] = 1.f - r.dl[0] * r.dl[0];
+            r.pu[1] = 1.f - r.dl[1] * r.dl[1];
+            r.pu[2] = 1.f - r.dl[2] * r.dl[2];
+            r.pu[3] = -r.dl[0] * r.dl[2];
+            float sun_dot = (r.dl[0] * r.B[6] + r.dl[1] * r.B[7]) + r.dl[2] * r.B[8];
+            for (int k = 0; k < 3; k++)
+                r.se[k] = r.B[6 + k] - r.dl[k] * sun_dot;
+            r.direct[0] = (r.pu[0] - r.se[0] * r.se[0]) / 2;
+            r.direct[1] = (r.pu[1] - r.se[1] * r.se[1]) / 2;
+            r.direct[2] = (r.pu[2] - r.se[2] * r.se[2]) / 2;
+            r.direct[3] = (r.pu[3] - r.se[0] * r.se[2]) / 2;
+        }
+        SECTION_SYNC(__syncwarp());
+        r.global_st = ray_constants[0];
+        // pu is fixed for the ray; the warm path reuses register copies.
+        r.pu_r[0] = r.pu[0];
+        r.pu_r[1] = r.pu[1];
+        r.pu_r[2] = r.pu[2];
+        r.pu_r[3] = r.pu[3];
+        SECTION_BEGIN()
+        if constexpr ((!TransportPolicy::split_rays || !K_FIRST) && !TransportPolicy::slim_rays &&
+                      !(TransportPolicy::ground_fused && K_PHASE == 2)) {
+            sh_basis(
+                r.d[2], lane, r.y, aa, bb,
+                dd); // SLIM_RAYS: y only feeds the projection (sos_slim_proj reads the chunk y)
+        }
+        SECTION_END(2)
+        if (lane == 0) {
+#ifndef FL_SPLIT_ON
+
+            double st = sqrt(fmax(0., 1. - r.d[2] * r.d[2]));
+            float cp = st > 1e-12 ? (float)(r.d[0] / st) : 1.f;
+            cp = clip(cp, -1, 1);
+
+            r.cd[0] = 1;
+            r.cd[1] = cp;
+            for (int m = 2; m <= 32; m++)
+                r.cd[m] = (2.f * cp) * r.cd[m - 1] - r.cd[m - 2];
+#endif
+            for (int k = 0; k < 4 * TW; k++) {
+                r.rad[k] = 0;
+                r.rc[k] = 0;
+            }
+        }
+        SECTION_SYNC(__syncwarp());
+
+        // Per-lane extinction rows of the column-record attenuation are constant over the ray:
+        // read them once.
+
+        if constexpr (TransportPolicy::preload) {
+            const int rw = TransportPolicy::slim_rays ? lane & 15 : lane;
+            if (rw < TW) {
+                for (int k = 0; k < NCOMP; ++k)
+                    r.ray_ext[k] = ext[k * FW + GW(rw)];
+                r.ray_st_ext = st_ext[GW(rw)];
+            }
+        }
+
+        // Simpson prefix state of lane w<TW (numpy_reference.py SimpsonPrefix): panel start (DS
+        // t, extinction) and the segment sum.
+
+        Record &s = samples[warp];
+        r.sunphase = hg((float)r.d[2], aerosol_g);
+
+        if constexpr (TransportPolicy::strato)
+            if (first && lane < TW)
+                r.strato_sunphase = mie_phase((float)r.d[2], GW(lane), st_chi);
+
+        if constexpr (TransportPolicy::path_ds) {
+            if (lane < nq && nq <= 32) {
+                r.gu_l = ds(gu[lane]);
+                r.gw_l = ds(gw[lane]);
+            }
+        }
+        integrate_segments(r, ray);
+        if constexpr (TransportPolicy::warm) {
+            if (lane < TW) {
+#pragma unroll
+                for (int k = 0; k < 4; k++)
+                    r.rad[4 * lane + k] = r.lane_rad[k];
+            }
+            __syncwarp();
+        }
+        boundary_and_query(ray, r.pu, r.rad);
+
+        if constexpr (TransportPolicy::column_records && TransportPolicy::ray_dump) {
+            // KSPLIT=3 VERIFY: this ray's final radiance (slim_dump argument; header int64 [5] =
+            // chunk first ray), as SLIM_RAYS publishes it.
+            if (phase != 2) {
+                __syncwarp();
+                float *dump_ = slim_dump + (ray - ((const int64_t *)query)[5]) * 4 * TW;
+                for (int k = lane; k < 4 * TW; k += 32)
+                    dump_[k] = r.rad[k];
+            }
+        }
+    }
+    // First-light direct/ground source, or reset the warm interpolation state.
+    __device__ __forceinline__ void initialize_wave(RayState &r, int w) {
+        Record &s = samples[warp];
+        if constexpr (TransportPolicy::warm) {
+            r.lane_log = r.lane_wg = r.lane_am = 0;
+            for (int k = 0; k < 4; k++)
+                r.lane_val[k] = 0;
+        } else {
+            s.logs[w] = 0;
+            for (int k = 0; k < 4; k++)
+                s.val[w][k] = 0;
+        }
+        if (first) {
+            float od = 0;
+            for (int k = 0; k < NCOMP; k++)
+                od += s.sc[k] * ext[k * FW + GW(w)];
+            if constexpr (TransportPolicy::strato) {
+                od += s.st_sc * st_ext[GW(w)];
+            }
+            float sun = s.lit ? expf(-od) : 0.f, ga = s.c32[0][w];
+            float phase_value = r.sunphase;
+            if constexpr (TransportPolicy::tropo_mie)
+                phase_value = tropo_phase((float)r.d[2], GW(w), asca + FW);
+            float beam = (s.prof[1] * asca[GW(w)]) * (sun * phase_value + ga),
+                  ray = (sun * s.prof[0]) * ext[GW(w)];
+            for (int k = 0; k < 4; k++)
+                s.val[w][k] = ray * (mix * (float)(3 / (8 * PI)) * r.direct[k] +
+                                     (1.f - mix) * (float)(1 / (8 * PI)) * r.pu[k]) +
+                              (beam * r.pu[k]) / 2.f;
+            if constexpr (TransportPolicy::strato) {
+                float sb = (s.st_prof * st_sca[GW(w)]) * (sun * r.strato_sunphase + s.st_c32[0][w]);
+                for (int k = 0; k < 4; k++)
+                    s.val[w][k] += (sb * r.pu[k]) / 2.f;
+            }
+        }
+    }
+    __device__ __forceinline__ void initialize_source(RayState &r, const SampleLane &ownership) {
+        if constexpr (TransportPolicy::warm || TransportPolicy::strato) {
+            if (ownership.active)
+                initialize_wave(r, ownership.wave);
+        } else if (lane == 0) {
+            for (int w = 0; w < TW; ++w)
+                initialize_wave(r, w);
+        }
+    }
+    // Reuse/contract Fourier corners, rotate tensors, then form log-space moments.
+    // Every lane participates in the reductions; only wavelength owners accumulate.
+    template <class View>
+    __device__ __forceinline__ void shade_corners(RayState &r, SampleScratch &scratch, int64_t ray,
+                                                  uint32_t seg, int step,
+                                                  const SampleLane &ownership, const View &view) {
+        Record &s = samples[warp];
+        if (!first && !NOSH_ON && r.tags[0] >= 0) {
+            int di = s.cell[0] / nc - r.tags[0] / nc, dj = s.cell[0] % nc - r.tags[0] % nc;
+            if (di == 0 && dj == 1) {
+                reuse_corner<0, 1>(s, r.cache, r.scache, r.tags, lane);
+                reuse_corner<2, 3>(s, r.cache, r.scache, r.tags, lane);
+            } else if (di == 0 && dj == -1) {
+                reuse_corner<1, 0>(s, r.cache, r.scache, r.tags, lane);
+                reuse_corner<3, 2>(s, r.cache, r.scache, r.tags, lane);
+            } else if (di == 1 && dj == 0) {
+                reuse_corner<0, 2>(s, r.cache, r.scache, r.tags, lane);
+                reuse_corner<1, 3>(s, r.cache, r.scache, r.tags, lane);
+            } else if (di == -1 && dj == 0) {
+                reuse_corner<2, 0>(s, r.cache, r.scache, r.tags, lane);
+                reuse_corner<3, 1>(s, r.cache, r.scache, r.tags, lane);
+            } else if (di == 1 && dj == 1) {
+                reuse_corner<0, 3>(s, r.cache, r.scache, r.tags, lane);
+            } else if (di == 1 && dj == -1) {
+                reuse_corner<1, 2>(s, r.cache, r.scache, r.tags, lane);
+            } else if (di == -1 && dj == 1) {
+                reuse_corner<2, 1>(s, r.cache, r.scache, r.tags, lane);
+            } else if (di == -1 && dj == -1) {
+                reuse_corner<3, 0>(s, r.cache, r.scache, r.tags, lane);
+            }
+        }
+        if (TransportPolicy::preload && ownership.active) {
+            if (!first) {
+#pragma unroll
+                for (int i = 0; i < 2; i++) {
+                    scratch.air[i] = hr[view.ir() + i];
+                    scratch.strato[i] = st_density[view.ir() + i];
+                }
+#pragma unroll
+                for (int corner = 0; corner < 4; corner++) {
+                    scratch.aero[corner] =
+                        aerosol_record(seg, ray, ownership.sample, corner)[ownership.wave];
+                    const int64_t pc = view.cell(corner);
+#pragma unroll
+                    for (int k = 0; k < 4; k++)
+                        scratch.rm[corner][k] =
+                            src[(pc * SRC_ROWS_ST + k) * FW + GW(ownership.wave)];
+                }
+            }
+            if (sinv_mode == 2) {
+                const float *record = column_record(seg, ray, ownership.sample);
+#pragma unroll
+                for (int k = 0; k < SINV_F; k++)
+                    scratch.column[k] = record[k];
+            }
+        }
+#pragma unroll
+        for (int corner = 0; corner < 4; corner++) {
+            int cc = view.cell(corner), ir = view.ir() + corner / 2;
+            const bool sk_a = !TransportPolicy::thin_layers || ir >= 64 || ((live_a >> ir) & 1ull);
+            const bool sk_s = !TransportPolicy::thin_layers || ir >= 64 || ((live_s >> ir) & 1ull);
+            if (!first && !NOSH_ON && r.tags[corner] != cc)
+                contract_corner(s, r.cache, r.scache, r.tags, r.y, src_sh, lane, corner, cc,
+                                nh * nc, sk_a, sk_s);
+            // Do not access cache[corner][lane]: retain compile-time wave indexes
+            // so the Fourier cache can stay register promoted. Every lane executes
+            // every shuffle; the selected owner keeps one reduced wavelength.
+            float own_aero = 0.f;
+            float own_saero = 0.f;
+            if constexpr (TransportPolicy::reduce_scatter) {
+                if (!first) {
+                    if ((sk_a || (TransportPolicy::combined_sh && sk_s)) && !NOSH_ON)
+                        own_aero = reduce_scatter_corner(r.cache, s.c32, s.cm, corner, lane);
+                    if (sk_s) {
+                        if constexpr (!TransportPolicy::combined_sh)
+                            own_saero =
+                                reduce_scatter_corner(r.scache, s.st_c32, s.cm, corner, lane);
+                    }
+                }
+                if constexpr (TransportPolicy::column_records) {
+                    if (!first) {
+                        if (SLIM_ON) {
+                            if constexpr (TransportPolicy::preload)
+                                own_aero = ownership.active ? scratch.aero[corner] : 0.f;
+                            else
+                                own_aero =
+                                    lane < TW ? aerosol_record(seg, ray, step, corner)[lane] : 0.f;
+                        } else if (PROD_ON && lane < TW)
+                            aerosol_record(seg, ray, step, corner)[lane] = own_aero;
+                    }
+                }
+            } else {
+                if (!first) {
+#pragma unroll
+                    for (int w = 0; w < TW; w++) {
+                        float aero = s.cm[lane] * r.cache[corner][w];
+                        if (lane == 0)
+                            aero += s.cm[32] * s.c32[corner][w];
+                        for (int stride = 16; stride; stride >>= 1)
+                            aero += __shfl_down_sync(0xffffffff, aero, stride);
+                        aero = __shfl_sync(0xffffffff, aero, 0);
+                        if (lane == w)
+                            own_aero = aero;
+                        if constexpr (TransportPolicy::strato) {
+                            float saero = s.cm[lane] * r.scache[corner][w];
+                            if (lane == 0)
+                                saero += s.cm[32] * s.st_c32[corner][w];
+                            for (int stride = 16; stride; stride >>= 1)
+                                saero += __shfl_down_sync(0xffffffff, saero, stride);
+                            saero = __shfl_sync(0xffffffff, saero, 0);
+                            if (lane == w)
+                                own_saero = saero;
+                        }
+                    }
+                }
+            }
+            bool bad_trace = false;
+            if (ownership.active && !NOOUT_ON) {
+                int w = ownership.wave;
+                float aero = own_aero;
+                const float corner_sw = view.weight(corner);
+                float saero = own_saero;
+                float rm[4];
+                for (int k = 0; k < 4; ++k) {
+                    if (first)
+                        rm[k] = gm[((int64_t)cc * 4 + k) * FW + GW(w)];
+                    else if constexpr (TransportPolicy::preload)
+                        rm[k] = scratch.rm[corner][k];
+                    else
+                        rm[k] = src[((int64_t)cc * TransportPolicy::source_rows + k) * FW + GW(w)];
+                }
+                float density = first
+                                    ? s.prof[0]
+                                    : (TransportPolicy::preload ? scratch.air[corner / 2] : hr[ir]);
+                if constexpr (!TransportPolicy::combined_sh)
+                    if (!first)
+                        aero *= ha[ir];
+                if constexpr (TransportPolicy::strato)
+                    if (!first)
+                        saero *=
+                            TransportPolicy::preload ? scratch.strato[corner / 2] : st_density[ir];
+                if (!first) {
+                    density = support_value(view.height(), density, true);
+                    aero = support_value(view.height(), aero, false);
+                    if constexpr (TransportPolicy::strato) {
+                        saero = support_value(view.height(), saero, false);
+                    }
+                }
+                float tr = (rm[0] + rm[1]) + rm[2], tensors[3];
+#pragma unroll
+                for (int component = 0; component < 4; component++) {
+                    if (component == 3 && phase == 1)
+                        continue;
+                    float rot = view.rotate(component, rm);
+                    const float puc = TransportPolicy::warm ? r.pu_r[component] : r.pu[component];
+                    float tensor = density * (mix * rot + ((1.f - mix) / 3.f * tr) * puc);
+                    tensor += (aero * puc) / 2.f;
+                    if constexpr (TransportPolicy::strato) {
+                        if (!first)
+                            tensor += (saero * puc) / 2.f;
+                    }
+                    if constexpr (TransportPolicy::warm) {
+                        r.lane_val[component] += corner_sw * tensor;
+                    } else {
+                        s.val[w][component] += s.sw[corner] * tensor;
+                    }
+                    if (component < 3)
+                        tensors[component] = tensor;
+                }
+                if (!first) {
+                    float trace = (tensors[0] + tensors[1]) + tensors[2];
+                    if constexpr (TransportPolicy::warm) {
+                        // Log-space blend: traces below TRACE_MIN (or NaN) stay out of
+                        // the log moments but stay in lane_val.
+                        const float cw = corner_sw;
+                        const bool good = trace >= TRACE_MIN;
+                        r.lane_log += good ? cw * logf(trace) : 0.f;
+                        r.lane_wg += good ? cw : 0.f;
+                        r.lane_am += good ? cw * trace : 0.f;
+                    } else {
+                        // K_FIRST=1 only; the !first branch never runs.
+                        bad_trace = !(trace >= TRACE_MIN) && s.sw[corner] != 0.f;
+                        s.logs[w] += s.sw[corner] * logf(fmaxf(trace, TRACE_MIN));
+                    }
+                }
+            }
+            if constexpr (!TransportPolicy::warm) {
+                // K_FIRST=1 only; the !first branch never runs.
+                uint32_t bad = __ballot_sync(0xffffffff, bad_trace);
+                if (lane == 0 && !first)
+                    s.positive &= ~bad;
+            }
+            // Order shared consumers before lane-0 c32 copies / next corner, and
+            // complete all val/log writes before the next point/attenuation phase.
+            __syncwarp();
+        }
+    }
+    // Advance Simpson to this node or read recorded columns, then accumulate in
+    // the original even/odd order. No lane may leave before the paired shuffle.
+    __device__ __forceinline__ void attenuate_sample(RayState &r, SampleScratch &scratch,
+                                                     int64_t ray, uint32_t seg, int step,
+                                                     PathScalar seg_a, PathScalar seg_b, bool low,
+                                                     const NodeWeights &node,
+                                                     const SampleLane &ownership) {
+        Record &s = samples[warp];
+        if (ownership.active && !PROD_ON) {
+            int w = ownership.wave;
+            {
+                float lane_scale = 1.f;
+                if constexpr (TransportPolicy::warm) {
+                    const bool ok = r.lane_wg > 0.f && r.lane_am >= TRACE_MIN;
+                    lane_scale =
+                        ok ? expf(r.lane_log - r.lane_wg * logf(r.lane_am / r.lane_wg)) : 1.f;
+                } else {
+                    // K_FIRST=1 only; the !first branch never runs.
+                    if (!first) {
+                        float tr = (s.val[w][0] + s.val[w][1]) + s.val[w][2];
+                        float scale = (s.positive & (1u << w)) && tr >= TRACE_MIN
+                                          ? expf(s.logs[w]) / fmaxf(tr, TRACE_MIN)
+                                          : 1.f;
+                        s.logs[w] = scale;
+                    } else
+                        s.logs[w] = 1.f;
+                }
+                // Simpson prefix to this node: panel [previous node or
+                // a, this node], node extinction from point()'s profile, new
+                // midpoint evaluation; replaces the GL-weight prefix
+                // mid=(tau-tc)+dt/2, tau+=dt.
+                if (sinv_mode != 2) {
+                    float pst = 0.f;
+                    if constexpr (TransportPolicy::strato)
+                        pst = s.st_prof;
+                    DS tk;
+                    if constexpr (TransportPolicy::path_ds)
+                        tk = node_t(seg_a, seg_b, low, node.u);
+                    else
+                        tk = node_t(seg_a, seg_b, low, path_scalar(gu[step]));
+                    const float bk = extinction_at(s.prof, pst, optics, GW(w));
+                    r.sp_acc +=
+                        simpson_piece(r.beta_p, r.beta_d, r.sp_t, tk, r.sp_b, bk, optics, GW(w));
+                    r.sp_t = tk;
+                    r.sp_b = bk;
+                }
+                float mid = (r.tau_lane - r.tc_lane) + r.sp_acc;
+                if constexpr (TransportPolicy::warm) {
+                    float lane_att = s.ds * expf(-mid);
+                    if constexpr (TransportPolicy::column_records) {
+                        // mode 1 uses unit-basis extinction tables: five separable columns
+                        // and a separate stratosphere column.
+                        if (sinv_mode == 1) {
+                            float *record = column_record(seg, ray, step);
+                            if (w < NCOMP + 1)
+                                record[1 + w] = mid;
+                            if (w == 0)
+                                record[0] = s.ds;
+                            // KSPLIT=2 (VPROD): vp_records points to the per-point (c0, cp
+                            // bits) int2 records (device memory, or mapped pinned host
+                            // memory when the device cannot hold them), bundle-global like
+                            // SINV_REC; 0 (KSPLIT=1) writes nothing. c0 = s.cell[0], cp =
+                            // s.cm[1] (point()). RECORD variant only (compiled out of
+                            // PROD/SLIM and the unsplit kernel).
+                            if (REC_ON && w == 0) {
+                                if (vp_records)
+                                    vp_records[(int64_t)(seg - ray) * nq + step] =
+                                        make_int2(s.cell[0], __float_as_int(s.cm[1]));
+                            }
+                        }
+                        if (sinv_mode == 2) {
+                            const float *record = TransportPolicy::preload
+                                                      ? scratch.column
+                                                      : column_record(seg, ray, step);
+                            float tq = 0.f;
+                            for (int k = 0; k < NCOMP; ++k)
+                                tq +=
+                                    record[1 + k] *
+                                    (TransportPolicy::preload ? r.ray_ext[k] : ext[k * FW + GW(w)]);
+                            tq += record[NCOMP + 1] *
+                                  (TransportPolicy::preload ? r.ray_st_ext : st_ext[GW(w)]);
+                            lane_att = record[0] * expf(-tq);
+                        }
+                    }
+#pragma unroll
+                    for (int k = 0; k < 4; k++) {
+                        if (REC_ON)
+                            break;
+                        if (k == 3 && phase == 1)
+                            continue;
+                        if constexpr (TransportPolicy::slim_rays) {
+                            scratch.paired[k] = (r.lane_val[k] * lane_scale) * lane_att;
+                        } else {
+                            kah(r.lane_rad[k], r.lane_rc[k],
+                                (r.lane_val[k] * lane_scale) * lane_att);
+                        }
+                    }
+                } else {
+                    s.att[w] = s.ds * expf(-mid);
+                }
+            }
+        }
+        if constexpr (TransportPolicy::slim_rays) {
+// The lower half owns the Kahan state and adds the even sample, then the odd
+// one, per component (the one-step order). Every lane takes part in the shuffle; an absent odd
+// sample adds nothing (no kah(0)).
+#pragma unroll
+            for (int k = 0; k < 4; k++) {
+                if (k == 3 && phase == 1)
+                    continue;
+                const float v_odd = __shfl_down_sync(0xffffffffu, scratch.paired[k], 16);
+                if (lane < TW) {
+                    kah(r.lane_rad[k], r.lane_rc[k], scratch.paired[k]);
+                    if (ownership.odd)
+                        kah(r.lane_rad[k], r.lane_rc[k], v_odd);
+                }
+            }
+        }
+    }
+    template <class View>
+    __device__ __forceinline__ void consume_sample(RayState &r, int64_t ray, uint32_t seg, int step,
+                                                   PathScalar seg_a, PathScalar seg_b, bool low,
+                                                   const NodeWeights &node,
+                                                   const SampleLane &ownership, const View &view) {
+        Record &s = samples[warp];
+        SampleScratch scratch;
+        SECTION_SYNC(__syncwarp());
+        if (lane == 0) {
+            s.positive = (1u << TW) - 1u;
+        }
+        SECTION_BEGIN_IF(first)
+        first_light_ground(s, r.y);
+        SECTION_END_IF(1, first)
+        if constexpr (TransportPolicy::warm || TransportPolicy::strato) {
+            // Includes lane-0 STRATO/scalar ground writes before other lanes read.
+            SECTION_SYNC(__syncwarp());
+        }
+        SECTION_BEGIN()
+        initialize_source(r, ownership);
+        SECTION_END(3)
+        SECTION_SYNC(__syncwarp());
+        SECTION_BEGIN()
+        shade_corners(r, scratch, ray, seg, step, ownership, view);
+        SECTION_END(3)
+        SECTION_SYNC(__syncwarp());
+        SECTION_BEGIN()
+        attenuate_sample(r, scratch, ray, seg, step, seg_a, seg_b, low, node, ownership);
+        SECTION_END(4)
+        if constexpr (!TransportPolicy::warm) {
+            SECTION_SYNC(__syncwarp());
+            if (lane < (phase == 1 ? 3 : 4)) {
+#pragma unroll
+                for (int w = 0; w < TW; w++) {
+                    float value = s.val[w][lane] * s.logs[w];
+                    kah(r.rad[4 * w + lane], r.rc[4 * w + lane], value * s.att[w]);
+                }
+            }
+            SECTION_SYNC(__syncwarp());
+        }
+    }
+    // Each segment restarts the one-sided Simpson panel; ray optical depth and
+    // Fourier caches persist across segments. Batch tails keep the same GL order.
+    __device__ __forceinline__ void integrate_segments(RayState &r, int64_t ray) {
+        Record &s = samples[warp];
+        for (uint32_t seg = edge_off[ray]; seg + 1 < edge_off[ray + 1]; seg++) {
+            double a = edges[seg], b = edges[seg + 1];
+            if (b - a <= 1e-8)
+                continue;
+            bool low = (lower[ray] >> (seg - edge_off[ray])) & 1;
+            const PathScalar seg_a = path_scalar(a), seg_b = path_scalar(b);
+            // Simpson prefix: beta(a) is evaluated anew for every segment (never carried over a
+            // skipped b-a<=1e-8 segment).
+            r.sp_t = ds(seg_a);
+            const DS seg_inside = ds((a + b) * .5);
+            r.sp_acc = 0.f;
+            if (lane < TW && !PROD_ON && sinv_mode != 2)
+                r.sp_b = beta_at_side(r.beta_p, r.beta_d, r.sp_t, seg_inside, optics, GW(lane));
+            constexpr int capacity =
+                TransportPolicy::batched_points ? TransportPolicy::batch_size : 1;
+            for (int step0 = 0; step0 < nq; step0 += capacity) {
+                const int nb = min(capacity, nq - step0);
+                if constexpr (TransportPolicy::batched_points) {
+                    // All lanes shuffle before the active lanes evaluate their records.
+                    const NodeWeights node =
+                        quadrature_node(step0 + lane, nq, lane < nb, gu, gw, r.gu_l, r.gw_l);
+                    if (lane < nb)
+                        evaluate_point(pts[lane], r.beta_p, r.beta_d, r.B, r.dl, r.global_st, seg_a,
+                                       seg_b, low, node.u, node.w, h, nh, chi, nc, profile, sun_h,
+                                       nsh, sun_col, nsx, first, st_sun_col);
+                    __syncwarp();
+                }
+                for (int step = step0; step < step0 + nb; step += TransportPolicy::sample_stride) {
+                    SECTION_BEGIN()
+                    const SampleLane ownership(lane, step, step0 + nb);
+                    auto view = sample_view(pts, s, step0, ownership.sample);
+                    const NodeWeights node = quadrature_node(
+                        step, nq, TransportPolicy::path_ds || lane == 0, gu, gw, r.gu_l, r.gw_l);
+                    if constexpr (!TransportPolicy::batched_points) {
+                        if (lane == 0)
+                            evaluate_point(s, r.beta_p, r.beta_d, r.B, r.dl, r.global_st, seg_a,
+                                           seg_b, low, node.u, node.w, h, nh, chi, nc, profile,
+                                           sun_h, nsh, sun_col, nsx, first, st_sun_col);
+                    }
+                    SECTION_END(0)
+                    consume_sample(r, ray, seg, step, seg_a, seg_b, low, node, ownership, view);
+                }
+            }
+            // Simpson end piece to b (beta(b) anew), then the segment sum into tau (Kahan), as
+            // numpy_reference.py SimpsonPrefix.finish.
+            if (lane < TW && !PROD_ON && sinv_mode != 2) {
+                const DS te = ds(seg_b);
+                const float be = beta_at_side(r.beta_p, r.beta_d, te, seg_inside, optics, GW(lane));
+                r.sp_acc +=
+                    simpson_piece(r.beta_p, r.beta_d, r.sp_t, te, r.sp_b, be, optics, GW(lane));
+                kah(r.tau_lane, r.tc_lane, r.sp_acc);
+            }
+        }
+    }
+
+    // Shared offsets are the host workspace contract. The views only name those
+    // slices; no storage, row stride, alignment or block ownership changes.
+    struct SharedViews {
+        int nm;
+        double *acc, *ground;
+        float *Y, *rads, *err, *cosdest;
+    };
+    __device__ __forceinline__ bool select_cell(int &cell, int &part) const {
+        if constexpr (TransportPolicy::split_cells) {
+            if (cell >= cells * SPLIT_S)
+                return false;
+            const int unit = cell_order[cell];
+            cell = unit / SPLIT_S;
+            part = unit % SPLIT_S;
+        } else {
+            if constexpr (!TransportPolicy::slim_rays)
+                if (cell >= cells)
+                    return false;
+            if constexpr (TransportPolicy::queue_cells)
+                cell = cell_order[cell];
+        }
+        return true;
+    }
+    __device__ __forceinline__ void initialize_layers() {
+        // Live-layer masks for up to 64 heights (see sh_layout.combined_coefficients).
+        if constexpr (TransportPolicy::thin_layers) {
+            if (nh <= 64) {
+                bool la = false, ls = false, la2 = false, ls2 = false;
+                if (lane < nh) {
+                    const float r = hr[lane];
+                    la = ha[lane] > SKIP_TAU * r;
+                    ls = st_density[lane] > SKIP_TAU * r;
+                }
+                if (lane + 32 < nh) {
+                    const float r = hr[lane + 32];
+                    la2 = ha[lane + 32] > SKIP_TAU * r;
+                    ls2 = st_density[lane + 32] > SKIP_TAU * r;
+                }
+                live_a = (unsigned long long)__ballot_sync(0xffffffffu, la) |
+                         ((unsigned long long)__ballot_sync(0xffffffffu, la2) << 32);
+                live_s = (unsigned long long)__ballot_sync(0xffffffffu, ls) |
+                         ((unsigned long long)__ballot_sync(0xffffffffu, ls2) << 32);
+            }
+        }
+    }
+    __device__ __forceinline__ SharedViews bind_shared(int cell, int part, double *shared) {
+        SharedViews memory;
+        memory.nm = phase == 0 ? NMOM * TW : 0;
+        if constexpr (TransportPolicy::global_accum) {
+            if constexpr (TransportPolicy::split_cells)
+                memory.acc = part == 0
+                                 ? moments + (int64_t)cell * memory.nm
+                                 : split_scratch + ((int64_t)(part - 1) * cells + cell) * memory.nm;
+            else
+                memory.acc = moments + (int64_t)cell * memory.nm;
+            memory.ground = shared;
+        } else {
+            memory.acc = shared;
+            memory.ground = memory.acc + memory.nm;
+        }
+        memory.Y = (float *)(memory.ground + TW);
+        memory.rads = memory.Y + nwarps * YPAD;
+        memory.err = memory.rads + nwarps * 4 * TW;
+        memory.cosdest = memory.err + nwarps * 4 * TW;
+        samples = (Record *)(memory.cosdest + nwarps * 33);
+        ray_constants = (float *)(samples + nwarps) + warp * RAY_CONST_F;
+        constexpr int ground_stride =
+            TransportPolicy::ground_fused && !TransportPolicy::split_rays && phase != 2 ? 162 : 32;
+        ground_phase = (float *)(samples + nwarps) + nwarps * RAY_CONST_F + warp * ground_stride;
+        if constexpr (TransportPolicy::batched_points) {
+            pts = (PtBatch *)((float *)(samples + nwarps) + nwarps * RAY_CONST_F + nwarps * 32) +
+                  warp * TransportPolicy::batch_size;
+            if constexpr (TransportPolicy::slim_rays)
+                pts =
+                    (PtBatch *)((((unsigned long long)(pts - warp * TransportPolicy::batch_size)) +
+                                 15) &
+                                ~15ull) +
+                    warp * TransportPolicy::batch_size;
+            if constexpr (TransportPolicy::sort_rays) {
+                rs_key = (unsigned char *)(pts - warp * TransportPolicy::batch_size +
+                                           nwarps * TransportPolicy::batch_size);
+                rs_perm = rs_key + 256;
+            }
+        }
+        return memory;
+    }
+    __device__ __forceinline__ void initialize_outputs(int cell, const SharedViews &memory) {
+        if constexpr (TransportPolicy::split_rays) {
+            // Empty cells have no completing ray; their own block publishes zeros.
+            if constexpr (!TransportPolicy::slim_rays) {
+                if (cell_off[cell] == cell_off[cell + 1]) {
+                    double zero = 0.;
+                    for (int k = tid; k < memory.nm; k += blockDim.x)
+                        memory.acc[k] = zero;
+                    for (int w = tid; w < TW; w += blockDim.x)
+                        flux[cell * FW + GW(w)] = zero * (albedo / PI);
+                }
+            }
+        } else {
+            if constexpr (TransportPolicy::global_accum) {
+                for (int k = tid; k < memory.nm + TW; k += blockDim.x) {
+                    if (k < memory.nm)
+                        memory.acc[k] = 0.;
+                    else
+                        memory.ground[k - memory.nm] = 0.;
+                }
+            } else {
+                for (int k = tid; k < memory.nm + TW; k += blockDim.x)
+                    memory.acc[k] = 0.;
+            }
+            SECTION_SYNC(__syncthreads());
+        }
+    }
+    // Stable descending segment-count order, with the original slot as tie break.
+    // The whole block builds and publishes each window before any warp reads it.
+    __device__ __forceinline__ void schedule_window(int64_t window, int count) {
+        for (int t = tid; t < count; t += blockDim.x) {
+            int64_t ray = window + t;
+            rs_key[t] =
+                (unsigned char)min((int64_t)255, (int64_t)(edge_off[ray + 1] - edge_off[ray]));
+        }
+        __syncthreads();
+        for (int t = tid; t < count; t += blockDim.x) {
+            const int key = rs_key[t];
+            int rank = 0;
+            for (int j = 0; j < count; ++j)
+                rank += (rs_key[j] > key) || (rs_key[j] == key && j < t);
+            rs_perm[rank] = (unsigned char)t;
+        }
+        __syncthreads();
+    }
+    __device__ __forceinline__ int64_t ordered_ray(int64_t slot, int64_t window) const {
+        if constexpr (TransportPolicy::sort_rays)
+            return window + (int64_t)rs_perm[slot - window];
+        else
+            return slot;
+    }
+    // The last published ray owns projection. Fences precede reads of other
+    // warps' radiance; moments retain cell-ray order and FP64 accumulation.
+    __device__ __forceinline__ void project_completed_cell(int cell, int64_t ray_lo, int64_t cb,
+                                                           int64_t ce, const SharedViews &memory,
+                                                           const double *target, float *y,
+                                                           float *cd) {
+
+        // Last ray of this cell: project rays cb..ce-1 in order (== original
+        // round-then-warp order).
+        __threadfence();
+        double *mrow = moments + (int64_t)cell * memory.nm, gsum = 0.;
+#pragma unroll 1
+        for (int64_t r = cb; r < ce; r++) {
+            const double *drow = dirs + 3 * r;
+            sh_basis(drow[2], lane, y, aa, bb, dd);
+            if (lane == 0) {
+                double st = sqrt(fmax(0., 1. - drow[2] * drow[2]));
+                float cp = st > 1e-12 ? (float)(drow[0] / st) : 1.f;
+                cp = clip(cp, -1, 1);
+                cd[0] = 1;
+                cd[1] = cp;
+                for (int m = 2; m <= 32; m++)
+                    cd[m] = (2.f * cp) * cd[m - 1] - cd[m - 2];
+            }
+            __syncwarp();
+            const float *rr = ray_rads + (r - ray_lo) * 4 * TW;
+            float wt = weights[r];
+#pragma unroll 1
+            for (int k = lane; k < memory.nm; k += 32) {
+                int moment = k / TW, w = k % TW;
+                float v;
+                if (moment < 4)
+                    v = __ldcg(rr + 4 * w + moment) * wt;
+                else {
+                    int sk = moment - 4;
+                    int m = LM.m[sk];
+                    float tr =
+                        (__ldcg(rr + 4 * w) + __ldcg(rr + 4 * w + 1)) + __ldcg(rr + 4 * w + 2);
+                    v = (tr * wt) * (y[sk] * cd[m]);
+                }
+                double a = r == cb ? 0. : mrow[k];
+                a += (double)v;
+                mrow[k] = a;
+            }
+            if (lane < TW) {
+                int w = lane;
+                double dlz = 0;
+                for (int k = 0; k < 3; k++)
+                    dlz += target[3 * k + 2] * drow[k];
+                float tr = (__ldcg(rr + 4 * w) + __ldcg(rr + 4 * w + 1)) + __ldcg(rr + 4 * w + 2),
+                      wg = weights[r] * fmaxf(0.f, (float)dlz);
+                gsum += (double)(tr * wg);
+            }
+            __syncwarp();
+        }
+        if (lane < TW)
+            flux[cell * FW + GW(lane)] = gsum * (albedo / PI);
+    }
+    __device__ __forceinline__ void publish_ray(int cell, int64_t ray, int64_t ray_lo,
+                                                const SharedViews &memory, const double *target,
+                                                float *y, float *rad, float *cd) {
+        __syncwarp();
+        for (int k = lane; k < 4 * TW; k += 32)
+            ray_rads[(ray - ray_lo) * 4 * TW + k] = rad[k];
+        if constexpr (!TransportPolicy::ray_limit) {
+            __threadfence();
+            __syncwarp();
+            const int64_t cb = cell_off[cell], ce = cell_off[cell + 1];
+            int done = 0;
+            if (lane == 0)
+                done = atomicAdd(ray_sync + 1 + cell, 1);
+            done = __shfl_sync(0xffffffff, done, 0);
+            if (done == (int)(ce - cb) - 1)
+                project_completed_cell(cell, ray_lo, cb, ce, memory, target, y, cd);
+        }
+    }
+    __device__ __forceinline__ int owning_cell(int64_t ray) const {
+        int lo = 0, hi = cells;
+        while (lo < hi) {
+            int mid = (lo + hi + 1) >> 1;
+            if (cell_off[mid] <= ray)
+                lo = mid;
+            else
+                hi = mid - 1;
+        }
+        return lo;
+    }
+    // Each warp claims a queue slot. A ray-limit launch stops at the host's
+    // boundary and leaves completion/projection to the selected output policy.
+    __device__ __forceinline__ void trace_queued_rays(const SharedViews &memory) {
+        const int64_t ray_lo = cell_off[0], ray_hi = cell_off[cells];
+        int limit = 0;
+        if constexpr (TransportPolicy::ray_limit)
+            limit = ray_sync[1 + cells];
+        for (;;) {
+            int q = 0;
+            if (lane == 0)
+                q = atomicAdd(ray_sync, 1);
+            q = __shfl_sync(0xffffffff, q, 0);
+            if ((TransportPolicy::ray_limit && q >= limit) || ray_lo + q >= ray_hi)
+                break;
+            const int64_t ray = ray_lo + q;
+            const int cell = owning_cell(ray);
+            const double *p = starts + 3 * cell, *target = targets + 9 * cell;
+            float B[9];
+            for (int k = 0; k < 9; ++k)
+                B[k] = (float)target[k];
+            float *y = memory.Y + warp * YPAD, *rad = memory.rads + warp * 4 * TW;
+            float *rc = memory.err + warp * 4 * TW, *cd = memory.cosdest + warp * 33;
+            trace_ray(cell, ray, p, target, B, y, rad, rc, cd);
+            publish_ray(cell, ray, ray_lo, memory, target, y, rad, cd);
+        }
+    }
+    // Consume one complete round in warp order. Warm moments keep an FP32
+    // partial followed by one FP64 add; first light keeps per-term FP64 adds.
+    __device__ __forceinline__ void accumulate_round(int64_t round, int64_t end, int64_t window,
+                                                     const SharedViews &memory,
+                                                     const double *target) {
+
+        SECTION_BEGIN()
+        for (int k = tid; k < memory.nm; k += blockDim.x) {
+            int moment = k / TW, w = k % TW;
+            double acc_k = 0.;
+            if constexpr (TransportPolicy::global_accum)
+                acc_k = memory.acc[k];
+            double &acc_slot = TransportPolicy::global_accum ? acc_k : memory.acc[k];
+            float acc_part = 0.f;
+            for (int wp = 0; wp < nwarps; wp++)
+                if (round + wp < end) {
+                    float *rr = memory.rads + wp * 4 * TW;
+                    float wt = weights[ordered_ray(round + wp, window)], v;
+                    if (moment < 4)
+                        v = rr[4 * w + moment] * wt;
+                    else {
+                        int sk = moment - 4;
+                        int m = LM.m[sk];
+                        float tr = (rr[4 * w] + rr[4 * w + 1]) + rr[4 * w + 2];
+                        v = (tr * wt) * (memory.Y[wp * YPAD + sk] * memory.cosdest[wp * 33 + m]);
+                    }
+                    if constexpr (TransportPolicy::warm)
+                        acc_part += v;
+                    else
+                        acc_slot += (double)v;
+                }
+            if constexpr (!K_FIRST) {
+                acc_slot += (double)acc_part;
+            }
+            if constexpr (TransportPolicy::global_accum) {
+                memory.acc[k] = acc_k;
+            }
+        }
+        for (int w = tid; w < TW; w += blockDim.x)
+            for (int wp = 0; wp < nwarps; wp++)
+                if (round + wp < end) {
+                    int64_t rridx = ordered_ray(round + wp, window);
+                    const double *d = dirs + 3 * rridx;
+                    double dlz = 0;
+                    for (int k = 0; k < 3; k++)
+                        dlz += target[3 * k + 2] * d[k];
+                    float *rr = memory.rads + wp * 4 * TW,
+                          tr = (rr[4 * w] + rr[4 * w + 1]) + rr[4 * w + 2],
+                          wt = weights[rridx] * fmaxf(0.f, (float)dlz);
+                    memory.ground[w] += (double)(tr * wt);
+                }
+        SECTION_END(5)
+    }
+    __device__ __forceinline__ void trace_cell_rays(int cell, int part, const SharedViews &memory) {
+        const double *p = starts + 3 * cell, *target = targets + 9 * cell;
+        float B[9];
+        for (int k = 0; k < 9; ++k)
+            B[k] = (float)target[k];
+        int64_t begin = cell_off[cell], end = cell_off[cell + 1];
+        if constexpr (TransportPolicy::split_cells) {
+            const int64_t count = end - begin;
+            const int64_t b = begin + count * part / SPLIT_S;
+            const int64_t e = begin + count * (part + 1) / SPLIT_S;
+            begin = b;
+            end = e;
+        }
+        for (int64_t round = begin; round < end; round += nwarps) {
+            int64_t window = 0;
+            if constexpr (TransportPolicy::sort_rays) {
+                const int width = 32 * nwarps;
+                window = begin + ((round - begin) / width) * width;
+                const int count = (int)min((int64_t)width, end - window);
+                if (round == window)
+                    schedule_window(window, count);
+            }
+            int64_t ray = round + warp;
+            if constexpr (TransportPolicy::sort_rays)
+                ray = ray < end ? ordered_ray(ray, window) : end;
+            float *y = memory.Y + warp * YPAD, *rad = memory.rads + warp * 4 * TW;
+            float *rc = memory.err + warp * 4 * TW, *cd = memory.cosdest + warp * 33;
+            if (ray < end)
+                trace_ray(cell, ray, p, target, B, y, rad, rc, cd);
+            // Phase 2 has only warp-private consumers; other phases consume all
+            // warps' radiance and therefore require both block barriers.
+            if (phase == 2)
+                SECTION_SYNC(__syncwarp());
+            else
+                SECTION_SYNC(__syncthreads());
+            if (phase != 2 && !NOOUT_ON)
+                accumulate_round(round, end, window, memory, target);
+            if (phase != 2)
+                SECTION_SYNC(__syncthreads());
+        }
+    }
+    __device__ __forceinline__ void finish_cell(int cell, int split_part,
+                                                const SharedViews &memory) {
+        if constexpr (!TransportPolicy::global_accum) {
+            if (phase == 0 && !NOOUT_ON)
+                for (int k = tid; k < memory.nm; k += blockDim.x)
+                    moments[(int64_t)cell * memory.nm + k] = memory.acc[k];
+        }
+        if constexpr (!TransportPolicy::split_rays) {
+
+            if constexpr (TransportPolicy::split_cells) {
+                if (phase != 2 && !NOOUT_ON) {
+                    for (int w = tid; w < TW; w += blockDim.x)
+                        split_flux[((int64_t)split_part * cells + cell) * TW + w] =
+                            memory.ground[w];
+                    __threadfence();
+                    __syncthreads();
+                    int split_last = 0;
+                    if (tid == 0)
+                        split_last = atomicAdd(split_count + cell, 1) == SPLIT_S - 1;
+                    split_last = __syncthreads_or(split_last);
+                    if (split_last) {
+                        __threadfence();
+                        for (int w = tid; w < TW; w += blockDim.x) {
+                            double g = __ldcg(split_flux + (int64_t)cell * TW + w);
+                            for (int q = 1; q < SPLIT_S; q++)
+                                g += __ldcg(split_flux + ((int64_t)q * cells + cell) * TW + w);
+                            flux[cell * FW + GW(w)] = g * (albedo / PI);
+                        }
+                        if (phase == 0)
+                            for (int k = tid; k < memory.nm; k += blockDim.x) {
+                                double v = __ldcg(moments + (int64_t)cell * memory.nm + k);
+                                for (int q = 1; q < SPLIT_S; q++)
+                                    v += __ldcg(split_scratch +
+                                                ((int64_t)(q - 1) * cells + cell) * memory.nm + k);
+                                moments[(int64_t)cell * memory.nm + k] = v;
+                            }
+                    }
+                }
+            } else {
+                if (phase != 2 && !NOOUT_ON)
+                    for (int w = tid; w < TW; w += blockDim.x)
+                        flux[cell * FW + GW(w)] = memory.ground[w] * (albedo / PI);
+            }
+        }
+    }
+    __device__ __forceinline__ void run() {
+        profile = ProfileParams{height,      sun_h + nsh, profile_table, profile_mask,
+                                air_surface, st_center,   st_sigma,      st_norm};
+        optics = ExtinctionParams{profile, ext, st_ext};
+        if constexpr (TransportPolicy::column_records) {
+            if constexpr (TransportPolicy::slim_rays)
+                sinv_mode = 2;
+            else
+                sinv_mode = (!first && phase != 2) ? ((const int *)query)[0] : 0;
+            sinv_rec = query + 16;
+            slim_base = ((const int64_t *)query)[2];
+        }
+        int cell = blockIdx.x, split_part = 0;
+        if (!select_cell(cell, split_part))
+            return;
+        tid = threadIdx.x;
+        lane = tid & 31;
+        warp = tid >> 5;
+        nwarps = blockDim.x >> 5;
+        initialize_layers();
+#ifdef EXP_SECTION_CLOCKS
+        if (lane == 0)
+            total_begin = clock64();
+#endif
+        extern __shared__ double shared[];
+        const SharedViews memory = bind_shared(cell, split_part, shared);
+        initialize_outputs(cell, memory);
+        if constexpr (TransportPolicy::split_rays)
+            trace_queued_rays(memory);
+        else
+            trace_cell_rays(cell, split_part, memory);
+        finish_cell(cell, split_part, memory);
+#ifdef EXP_SECTION_CLOCKS
+        if (lane == 0) {
+            section_cycles[7] = clock64() - total_begin;
+            int64_t slot = (((int64_t)cell * (FW / TW) + (int)blockIdx.y) * nwarps + warp) * 8;
+            for (int k = 0; k < 8; k++)
+                section_clocks[slot + k] = section_cycles[k];
+        }
+#endif
+    }
+};
+
 extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
-    int cells, int nh, int nc, int nq, int nsh, int nsx, int P_FIRST, int P_PHASE, int P_BOUNDARY,
-    const int64_t *cell_off, const double *starts, const double *targets, const double *dirs,
-    const float *weights, const uint32_t *edge_off, const double *edges, const uint16_t *lower,
-    const int32_t *end_j, const float *end_f, const float *end_col, const uint8_t *hits,
-    const double *gu, const double *gw, const double *aa, const double *bb, const double *dd,
-    const float *h, const float *chi, const float *hr, const float *ha, const float *ext,
-    const float *asca, const float *sun_h, const float *sun_col, const float *gm,
+    int cells, int nh, int nc, int nq, int nsh, int nsx, int first_arg, int phase_arg,
+    int boundary_arg, const int64_t *cell_off, const double *starts, const double *targets,
+    const double *dirs, const float *weights, const uint32_t *edge_off, const double *edges,
+    const uint16_t *lower, const int32_t *end_j, const float *end_f, const float *end_col,
+    const uint8_t *hits, const double *gu, const double *gw, const double *aa, const double *bb,
+    const double *dd, const float *h, const float *chi, const float *hr, const float *ha,
+    const float *ext, const float *asca, const float *sun_h, const float *sun_col, const float *gm,
     const int64_t *goff, const float *gdir, const float *gval, float height, float aerosol_g,
     float mix, double albedo, const float *src, const double *boundary, double *moments,
     double *flux,
@@ -1232,1446 +2798,114 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
     float *ray_rads, int *ray_sync
 #endif
 ) {
-    const ProfileParams profile{height,
-                                sun_h + nsh,
-                                profile_table,
-                                profile_mask,
-                                air_surface
-#ifdef STRATO
-                                ,
-                                st_center,
-                                st_sigma,
-                                st_norm
-#endif
-    };
-    const ExtinctionParams optics{profile, ext
-#ifdef STRATO
-                                  ,
-                                  st_ext
-#endif
-    };
-    constexpr int first = K_FIRST, phase = K_PHASE, with_boundary = K_BOUNDARY;
+    Transport<Sample> transport;
+    transport.cells = cells;
+    transport.nh = nh;
+    transport.nc = nc;
+    transport.nq = nq;
+    transport.nsh = nsh;
+    transport.nsx = nsx;
+    transport.first_arg = first_arg;
+    transport.phase_arg = phase_arg;
+    transport.boundary_arg = boundary_arg;
+    transport.cell_off = cell_off;
+    transport.starts = starts;
+    transport.targets = targets;
+    transport.dirs = dirs;
+    transport.weights = weights;
+    transport.edge_off = edge_off;
+    transport.edges = edges;
+    transport.lower = lower;
+    transport.end_j = end_j;
+    transport.end_f = end_f;
+    transport.end_col = end_col;
+    transport.hits = hits;
+    transport.gu = gu;
+    transport.gw = gw;
+    transport.aa = aa;
+    transport.bb = bb;
+    transport.dd = dd;
+    transport.h = h;
+    transport.chi = chi;
+    transport.hr = hr;
+    transport.ha = ha;
+    transport.ext = ext;
+    transport.asca = asca;
+    transport.sun_h = sun_h;
+    transport.sun_col = sun_col;
+    transport.gm = gm;
+    transport.goff = goff;
+    transport.gdir = gdir;
+    transport.gval = gval;
+    transport.height = height;
+    transport.aerosol_g = aerosol_g;
+    transport.mix = mix;
+    transport.albedo = albedo;
+    transport.src = src;
+    transport.boundary = boundary;
+    transport.moments = moments;
+    transport.flux = flux;
+    transport.query = query;
 #ifdef SINV
-#ifdef SLIM_RAYS
-    constexpr int sinv_mode = 2;
-    float *sinv_rec = query + 16; // the KSPLIT=3 consumer only ever reads column records
-#else
-    const int sinv_mode = (!first && phase != 2) ? ((const int *)query)[0] : 0;
-    float *sinv_rec = query + 16;
+    transport.slim_aero = slim_aero;
+    transport.vp_records = vp_records;
+    transport.slim_dump = slim_dump;
 #endif
-    const int64_t slim_base = ((const int64_t *)query)[2];
+    transport.src_sh = src_sh;
+#ifdef STRATO
+    transport.st_ext = st_ext;
+    transport.st_sca = st_sca;
+    transport.st_chi = st_chi;
+    transport.st_density = st_density;
+    transport.st_sun_col = st_sun_col;
+    transport.st_end_col = st_end_col;
+    transport.st_center = st_center;
+    transport.st_sigma = st_sigma;
+    transport.st_norm = st_norm;
 #endif
-    int cell = blockIdx.x;
-#ifdef SPLIT_ACTIVE
-    if (cell >= cells * SPLIT_S)
-        return;
-    const int split_unit = cell_order[cell];
-    cell = split_unit / SPLIT_S;
-    const int split_part = split_unit % SPLIT_S;
-#else
-#ifndef SLIM_RAYS
-    if (cell >= cells)
-        return;
-#endif
+    transport.profile_table = profile_table;
+    transport.profile_mask = profile_mask;
+    transport.air_surface = air_surface;
 #ifdef LPT_ACTIVE
-    cell = cell_order[cell];
-#endif
-#endif
-    int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5, nwarps = blockDim.x >> 5;
-#ifdef SKIP_ACTIVE
-    // Live-layer masks for up to 64 heights (see sh_layout.combined_coefficients).
-    unsigned long long live_a = ~0ull, live_s = ~0ull;
-    if (nh <= 64) {
-        bool la = false, ls = false, la2 = false, ls2 = false;
-        if (lane < nh) {
-            const float r = hr[lane];
-            la = ha[lane] > SKIP_TAU * r;
-            ls = st_density[lane] > SKIP_TAU * r;
-        }
-        if (lane + 32 < nh) {
-            const float r = hr[lane + 32];
-            la2 = ha[lane + 32] > SKIP_TAU * r;
-            ls2 = st_density[lane + 32] > SKIP_TAU * r;
-        }
-        live_a = (unsigned long long)__ballot_sync(0xffffffffu, la) |
-                 ((unsigned long long)__ballot_sync(0xffffffffu, la2) << 32);
-        live_s = (unsigned long long)__ballot_sync(0xffffffffu, ls) |
-                 ((unsigned long long)__ballot_sync(0xffffffffu, ls2) << 32);
-    }
-#endif
-#ifdef EXP_SECTION_CLOCKS
-    unsigned long long section_cycles[8] = {}, section_begin = 0;
-    unsigned long long total_begin = 0;
-    if (lane == 0)
-        total_begin = clock64();
-#endif
-    extern __shared__ double shared[];
-    int nm = phase == 0 ? NMOM * TW : 0;
-#ifdef ACC_IN_GLOBAL
+    transport.cell_order = cell_order;
 #ifdef SPLIT_ACTIVE
-    double *acc =
-               (split_part == 0 ? moments + (int64_t)cell * nm
-                                : split_scratch + ((int64_t)(split_part - 1) * cells + cell) * nm),
-           *ground = shared;
-#else
-    double *acc = moments + (int64_t)cell * nm, *ground = shared;
-#endif
-#else
-    double *acc = shared, *ground = acc + nm;
-#endif
-    float *Y = (float *)(ground + TW), *rads = Y + nwarps * YPAD, *err = rads + nwarps * 4 * TW,
-          *cosdest = err + nwarps * 4 * TW;
-    Sample *samples = (Sample *)(cosdest + nwarps * 33);
-    float *ray_constants = (float *)(samples + nwarps) + warp * RAY_CONST_F;
-    float *ground_phase =
-        (float *)(samples + nwarps) + nwarps * RAY_CONST_F
-#if defined(GF_ON) && !defined(FL_SPLIT_ON) && K_PHASE != 2
-        + warp * 162; // GROUND_FUSED scratch: 32 phases + 65 int2 nodes (+1 float alignment pad)
-#else
-        + warp * 32;
-#endif
-#ifdef PT_ACTIVE
-#ifdef SLIM_RAYS
-    typedef PointM2 PtBatch;
-#else
-    typedef PointData PtBatch;
-#endif
-    PtBatch *pts = (PtBatch *)((float *)(samples + nwarps) + nwarps * RAY_CONST_F + nwarps * 32) +
-                   warp * PT_NB;
-#ifdef SLIM_RAYS
-    pts = (PtBatch *)((((unsigned long long)(pts - warp * PT_NB)) + 15) & ~15ull) +
-          warp * PT_NB; // 16-byte base; source_solver.py adds 16 B slack
-#endif
-#ifdef RS_ACTIVE
-    // 8-bit ranks over a window of 32*nwarps <= 256 rays: blocks of at most 256 threads
-    // (source_solver.Kernel block_size check).
-    unsigned char *rs_key = (unsigned char *)(pts - warp * PT_NB + nwarps * PT_NB),
-                  *rs_perm = rs_key + 256;
-#endif
-#endif
-#ifdef FL_SPLIT_ON
-    // Only an empty cell's rows are written by its own block (the unchanged zero rows); every other
-    // row is written by the warp that projects that cell.
-#ifndef SLIM_RAYS
-    if (cell_off[cell] == cell_off[cell + 1]) {
-        double zero = 0.;
-        for (int k = tid; k < nm; k += blockDim.x)
-            acc[k] = zero;
-        for (int w = tid; w < TW; w += blockDim.x)
-            flux[cell * FW + GW(w)] = zero * (albedo / PI);
-    }
-#endif
-#elif defined(ACC_IN_GLOBAL)
-    for (int k = tid; k < nm + TW; k += blockDim.x) {
-        if (k < nm)
-            acc[k] = 0.;
-        else
-            ground[k - nm] = 0.;
-    }
-    SECTION_SYNC(__syncthreads());
-#else
- for(int k=tid;k<nm+TW;k+=blockDim.x)acc[k]=0.;
-    SECTION_SYNC(__syncthreads());
-#endif
-#if defined(FL_SPLIT_ON)
-    const int64_t ray_lo = cell_off[0], ray_hi = cell_off[cells];
-#ifdef LAUNCH_RAY_LIMIT
-    // Ray-range launches: this launch serves queue slots up to ray_sync[1+cells] (rays from
-    // ray_lo); the host restarts the head ray_sync[0] at the previous end and keeps the cell
-    // counters and ray_rads, so a cell is projected by whichever launch finishes its last ray, with
-    // the same code and order.
-    const int q_lim = ray_sync[1 + cells];
-#endif
-    for (;;) {
-        int64_t ray;
-        {
-            int q = 0;
-            if (lane == 0)
-                q = atomicAdd(ray_sync, 1);
-            q = __shfl_sync(0xffffffff, q, 0);
-#ifdef LAUNCH_RAY_LIMIT
-            if (q >= q_lim || ray_lo + q >= ray_hi)
-                break;
-            ray = ray_lo + q;
-        }
-#else
-            if (ray_lo + q >= ray_hi)
-                break;
-            ray = ray_lo + q;
-        }
-#endif
-        int cell;
-        {
-            int lo = 0, hi = cells;
-            while (lo < hi) {
-                int mid = (lo + hi + 1) >> 1;
-                if (cell_off[mid] <= ray)
-                    lo = mid;
-                else
-                    hi = mid - 1;
-            }
-            cell = lo;
-        }
-#endif
-#ifdef FL_SPLIT_ON
-        const double *p = starts + 3 * cell, *target = targets + 9 * cell;
-        float B[9];
-        for (int k = 0; k < 9; k++)
-            B[k] = (float)target[k];
-        float *y = Y + warp * YPAD, *rad = rads + warp * 4 * TW, *rc = err + warp * 4 * TW,
-              *cd = cosdest + warp * 33;
-        {
-#else
-    const double *p = starts + 3 * cell, *target = targets + 9 * cell;
-    float B[9];
-    for (int k = 0; k < 9; k++)
-        B[k] = (float)target[k];
-    int64_t begin = cell_off[cell], end = cell_off[cell + 1];
-#ifdef SPLIT_ACTIVE
-    {
-        const int64_t n_ = end - begin;
-        const int64_t b_ = begin + n_ * split_part / SPLIT_S,
-                      e_ = begin + n_ * (split_part + 1) / SPLIT_S;
-        begin = b_;
-        end = e_;
-    }
-#endif
-    for (int64_t round = begin; round < end; round += nwarps) {
-#ifdef RS_ACTIVE
-        const int rs_win = 32 * nwarps;
-        const int64_t rs_wbeg = begin + ((round - begin) / rs_win) * rs_win;
-        const int rs_n = (int)min((int64_t)rs_win, end - rs_wbeg);
-        if (round == rs_wbeg) {
-            for (int t = tid; t < rs_n; t += blockDim.x) {
-                int64_t r = rs_wbeg + t;
-                rs_key[t] =
-                    (unsigned char)min((int64_t)255, (int64_t)(edge_off[r + 1] - edge_off[r]));
-            }
-            __syncthreads();
-            for (int t = tid; t < rs_n; t += blockDim.x) {
-                const int kt = rs_key[t];
-                int rank = 0;
-                for (int j = 0; j < rs_n; j++) {
-                    const int kj = rs_key[j];
-                    rank += (kj > kt) || (kj == kt && j < t);
-                }
-                rs_perm[rank] = (unsigned char)t;
-            }
-            __syncthreads();
-        }
-#define RAY_AT(R) (rs_wbeg + (int64_t)rs_perm[(R) - rs_wbeg])
-#else
-#define RAY_AT(R) (R)
-#endif
-#ifdef RS_ACTIVE
-        int64_t ray = round + warp < end ? RAY_AT(round + warp) : end;
-#else
-        int64_t ray = round + warp;
-#endif
-        float *y = Y + warp * YPAD, *rad = rads + warp * 4 * TW, *rc = err + warp * 4 * TW,
-              *cd = cosdest + warp * 33;
-        if (ray < end) {
-#endif
-            const double *d = dirs + 3 * ray;
-            // global_st, dl[3], pu[4], se[3], direct[4]; PATH_DS adds p/d as six DS values.
-            float *dl = ray_constants + 1, *pu = ray_constants + 4, *se = ray_constants + 8,
-                  *direct = ray_constants + 11;
-#ifdef PATH_DS
-            DS *beta_p = (DS *)(ray_constants + 15), *beta_d = beta_p + 3;
-#else
-            const double *beta_p = p, *beta_d = d;
-#endif
-
-            if (lane == 0) {
-                ray_constants[0] = (float)sqrt(fmax(0., 1. - d[2] * d[2]));
-#ifdef PATH_DS
-                // Same conversion as path_q, once per ray; the existing syncwarp publishes both
-                // words.
-                for (int k = 0; k < 3; k++) {
-                    beta_p[k] = ds(p[k]);
-                    beta_d[k] = ds(d[k]);
-                }
-#endif
-
-                for (int j = 0; j < 3; j++) {
-                    double x = 0;
-                    for (int k = 0; k < 3; k++)
-                        x += target[3 * k + j] * d[k];
-                    dl[j] = (float)x;
-                }
-
-                pu[0] = 1.f - dl[0] * dl[0];
-                pu[1] = 1.f - dl[1] * dl[1];
-                pu[2] = 1.f - dl[2] * dl[2];
-                pu[3] = -dl[0] * dl[2];
-                float sun_dot = (dl[0] * B[6] + dl[1] * B[7]) + dl[2] * B[8];
-                for (int k = 0; k < 3; k++)
-                    se[k] = B[6 + k] - dl[k] * sun_dot;
-                direct[0] = (pu[0] - se[0] * se[0]) / 2;
-                direct[1] = (pu[1] - se[1] * se[1]) / 2;
-                direct[2] = (pu[2] - se[2] * se[2]) / 2;
-                direct[3] = (pu[3] - se[0] * se[2]) / 2;
-            }
-            SECTION_SYNC(__syncwarp());
-            float global_st = ray_constants[0];
-#ifdef WARM_LANE_ON
-            // pu is fixed for the ray; register copies are shared by every corner evaluation.
-            const float pu_r[4] = {pu[0], pu[1], pu[2], pu[3]};
-#endif
-            SECTION_BEGIN()
-#if (!defined(FL_SPLIT_ON) || !K_FIRST) && !defined(SLIM_RAYS) && !(defined(GF_ON) && K_PHASE == 2)
-            sh_basis(
-                d[2], lane, y, aa, bb,
-                dd); // SLIM_RAYS: y only feeds the projection (sos_slim_proj reads the chunk y)
-#endif
-            SECTION_END(2)
-            if (lane == 0) {
-#ifndef FL_SPLIT_ON
-
-                double st = sqrt(fmax(0., 1. - d[2] * d[2]));
-                float cp = st > 1e-12 ? (float)(d[0] / st) : 1.f;
-                cp = clip(cp, -1, 1);
-
-                cd[0] = 1;
-                cd[1] = cp;
-                for (int m = 2; m <= 32; m++)
-                    cd[m] = (2.f * cp) * cd[m - 1] - cd[m - 2];
-#endif
-                for (int k = 0; k < 4 * TW; k++) {
-                    rad[k] = 0;
-                    rc[k] = 0;
-                }
-            }
-            SECTION_SYNC(__syncwarp());
-#ifdef WARM_LANE_ON
-            float lane_rad[4] = {}, lane_rc[4] = {}, lane_val[4], lane_log, lane_wg, lane_am;
-#endif
-#ifdef SLIM_PRELOAD
-            // Per-lane extinction rows of the column-record attenuation are constant over the ray:
-            // read them once.
-            float ray_ext[NCOMP] = {}, ray_st_ext = 0.f;
-#ifdef SLIM_RAYS
-            {
-                const int rw = lane & 15;
-                if (rw < TW) {
-                    for (int k = 0; k < NCOMP; k++)
-                        ray_ext[k] = ext[k * FW + GW(rw)];
-                    ray_st_ext = st_ext[GW(rw)];
-                }
-            }
-#else
-            if (lane < TW) {
-                for (int k = 0; k < NCOMP; k++)
-                    ray_ext[k] = ext[k * FW + GW(lane)];
-                ray_st_ext = st_ext[GW(lane)];
-            }
-#endif
-#endif
-            float cache[4][TW];
-#ifdef STRATO
-            float scache[4][TW];
-#endif
-            int tags[4] = {-1, -1, -1, -1};
-            float tau_lane = 0.f, tc_lane = 0.f;
-            // Simpson prefix state of lane w<TW (numpy_reference.py SimpsonPrefix): panel start (DS
-            // t, extinction) and the segment sum.
-            DS sp_t = {0.f, 0.f};
-            float sp_b = 0.f, sp_acc = 0.f;
-            Sample &s = samples[warp];
-            float sunphase = hg((float)d[2], aerosol_g);
-#ifdef STRATO
-            float strato_sunphase = 0.f;
-            if (first && lane < TW)
-                strato_sunphase = mie_phase((float)d[2], GW(lane), st_chi);
-#endif
-            DS gu_l = {0.f, 0.f}, gw_l = {0.f, 0.f};
-#ifdef PATH_DS
-            if (lane < nq && nq <= 32) {
-                gu_l = ds(gu[lane]);
-                gw_l = ds(gw[lane]);
-            }
-#endif
-            for (uint32_t seg = edge_off[ray]; seg + 1 < edge_off[ray + 1]; seg++) {
-                double a = edges[seg], b = edges[seg + 1];
-                if (b - a <= 1e-8)
-                    continue;
-                bool low = (lower[ray] >> (seg - edge_off[ray])) & 1;
-                const PathScalar seg_a = path_scalar(a), seg_b = path_scalar(b);
-                // Simpson prefix: beta(a) is evaluated anew for every segment (never carried over a
-                // skipped b-a<=1e-8 segment).
-                sp_t = ds(seg_a);
-                const DS seg_inside = ds((a + b) * .5);
-                sp_acc = 0.f;
-                if (lane < TW && !PROD_ON SINV_AND_SIMPSON)
-                    sp_b = beta_at_side(beta_p, beta_d, sp_t, seg_inside, optics, GW(lane));
-#ifdef PT_ACTIVE
-                for (int step0 = 0; step0 < nq; step0 += PT_NB) {
-                    const int nb = min(PT_NB, nq - step0);
-                    const NodeWeights node =
-                        quadrature_node(step0 + lane, nq, lane < nb, gu, gw, gu_l, gw_l);
-                    if (lane < nb)
-                        evaluate_point(pts[lane], beta_p, beta_d, B, dl, global_st, seg_a, seg_b,
-                                       low, node.u, node.w, h, nh, chi, nc, profile, sun_h, nsh,
-                                       sun_col, nsx, first
-#ifdef STRATO
-                                       ,
-                                       st_sun_col
-#endif
-                        );
-                    __syncwarp();
-                    for (int step = step0; step < step0 + nb; step += SR_INC) {
-                        SECTION_BEGIN()
-#ifdef SLIM_RAYS
-                        // This lane's sample is step+h; an absent upper sample (odd tail) is
-                        // inactive and reads the lower record.
-                        const int sr_h = lane >> 4, sr_w = lane & 15;
-                        const bool sr_odd = step + 1 < step0 + nb;
-                        const int sj = (sr_h && sr_odd) ? step + 1 : step;
-                        const bool sr_act = sr_w < TW && (sr_h == 0 || sr_odd);
-                        float sr_v[4] = {0.f, 0.f, 0.f, 0.f};
-                        // The batch record is read straight into registers (T 4, sw 1, cell 1 x
-                        // 128-bit loads) instead of being copied into s and re-read as scalars; the
-                        // step uses only T, sw, cell and ir of it. Same values.
-                        const PointM2 &q_ = pts[sj - step0];
-                        const float4 qT0 = *(const float4 *)(q_.T),
-                                     qT1 = *(const float4 *)(q_.T + 4),
-                                     qT2 = *(const float4 *)(q_.T + 8),
-                                     qT3 = *(const float4 *)(q_.T + 12);
-                        const float4 qsw = *(const float4 *)q_.sw;
-                        const int4 qcell = *(const int4 *)q_.cell;
-                        const int qir = q_.ir;
-#define PT_IR qir
-#define SAMPLE_HEIGHT q_.h
-#define PT_CELL(c) ((c) == 0 ? qcell.x : (c) == 1 ? qcell.y : (c) == 2 ? qcell.z : qcell.w)
-#define PT_SW(c) ((c) == 0 ? qsw.x : (c) == 1 ? qsw.y : (c) == 2 ? qsw.z : qsw.w)
-#else
-                        {
-                            const int *pw = (const int *)&pts[step - step0];
-                            int *sw_ = (int *)static_cast<PointData *>(&s);
-                            for (int k = lane; k < (int)(sizeof(PointData) / 4); k += 32)
-                                sw_[k] = pw[k];
-                        }
-#define PT_IR s.ir
-#define SAMPLE_HEIGHT s.h
-#define PT_CELL(c) s.cell[c]
-#define PT_SW(c) s.sw[c]
-#endif
-#else
-                for (int step = 0; step < nq; step++) {
-                    SECTION_BEGIN()
-#define SAMPLE_HEIGHT s.h
-#endif
-#ifdef PATH_DS
-                        const NodeWeights node =
-                            quadrature_node(step, nq, true, gu, gw, gu_l, gw_l);
-                        const DS su = node.u, swu = node.w;
-#endif
-#ifndef PT_ACTIVE
-#ifndef PATH_DS
-                        const NodeWeights node =
-                            quadrature_node(step, nq, lane == 0, gu, gw, gu_l, gw_l);
-#endif
-                        if (lane == 0)
-                            evaluate_point(s, beta_p, beta_d, B, dl, global_st, seg_a, seg_b, low,
-                                           node.u, node.w, h, nh, chi, nc, profile, sun_h, nsh,
-                                           sun_col, nsx, first
-#ifdef STRATO
-                                           ,
-                                           st_sun_col
-#endif
-                            );
-#endif
-                        SECTION_END(0)
-                        SECTION_SYNC(__syncwarp());
-                        if (lane == 0) {
-                            s.positive = (1u << TW) - 1u;
-                        }
-                        SECTION_BEGIN_IF(first)
-#ifdef GF_ON
-                        if (first) {
-                            float accw = 0.f, st_acc = 0.f;
-#if defined(GROUND_SH_L)
-                            ground_sh_sums(s, lane, goff, gdir, gval, accw, st_acc);
-#else
-#if defined(FL_SPLIT_ON) || K_PHASE == 2
-                            // FL_RAYSPLIT projects after the ray; phase 2 has no projection. Both
-                            // can borrow the warp's Y row.
-                            gf_sums(s, lane, y, goff, gdir, gval, st_chi, aerosol_g, accw,
-                                    st_acc GF_TROPO_ARG);
-#else
-                            gf_sums(s, lane, ground_phase, goff, gdir, gval, st_chi, aerosol_g,
-                                    accw, st_acc GF_TROPO_ARG);
-#endif
-#endif
-                            if (lane < TW) {
-                                s.c32[0][lane] = accw;
-                                s.st_c32[0][lane] = st_acc;
-                            }
-                            __syncwarp();
-                        }
-#else
-                    if (first) {
-                        float accw = 0.f;
-                        for (int corner = 0; corner < 4; corner++) {
-                            int cc = s.cell[corner];
-                            for (int64_t j0 = goff[cc]; j0 < goff[cc + 1]; j0 += 32) {
-                                int64_t j = j0 + lane;
-                                if (j < goff[cc + 1]) {
-                                    float m0 = s.mu * gdir[3 * j + 2] + s.exd * gdir[3 * j],
-                                          m1 = fabsf(s.eyd) * gdir[3 * j + 1];
-                                    ground_phase[lane] = (hg(clip(m0 + m1, -1, 1), aerosol_g) +
-                                                          hg(clip(m0 - m1, -1, 1), aerosol_g)) /
-                                                         2.f;
-                                }
-                                __syncwarp();
-                                int count =
-                                    (int)((goff[cc + 1] - j0) < 32 ? (goff[cc + 1] - j0) : 32);
-#ifdef TROPO_MIE
-                                // Mie: the per-direction phase depends on the wavelength, so lane w
-                                // evaluates it itself (ground_phase unused).
-                                if (lane < TW) {
-                                    const float swc = s.sw[corner];
-                                    const float *gq = gval + j0 * FW + GW(lane);
-                                    int k = 0;
-                                    for (; k + 8 <= count; k += 8) {
-                                        float g[8], ph[8];
-                                        _Pragma("unroll") for (int q = 0; q < 8; q++) {
-                                            g[q] = gq[(k + q) * FW];
-                                            ph[q] = tropo_pair(s, gdir, j0 + k + q, GW(lane),
-                                                               TROPO_LUT);
-                                        }
-                                        _Pragma("unroll") for (int q = 0; q < 8; q++) accw +=
-                                            (swc * ph[q]) * g[q];
-                                    }
-                                    for (; k < count; k++)
-                                        accw += (swc *
-                                                 tropo_pair(s, gdir, j0 + k, GW(lane), TROPO_LUT)) *
-                                                gq[k * FW];
-                                }
-#else
-                                if (lane < TW) {
-                                    const float swc = s.sw[corner];
-                                    const float *gq = gval + j0 * FW + GW(lane);
-                                    int k = 0;
-                                    for (; k + 8 <= count; k += 8) {
-                                        float g[8], ph[8];
-                                        _Pragma("unroll") for (int q = 0; q < 8; q++) {
-                                            g[q] = gq[(k + q) * FW];
-                                            ph[q] = ground_phase[k + q];
-                                        }
-                                        _Pragma("unroll") for (int q = 0; q < 8; q++) accw +=
-                                            (swc * ph[q]) * g[q];
-                                    }
-                                    for (; k < count; k++)
-                                        accw += (swc * ground_phase[k]) * gq[k * FW];
-                                }
-#endif
-                                __syncwarp();
-                            }
-                        }
-                        if (lane < TW)
-                            s.c32[0][lane] = accw;
-                        __syncwarp();
-                    }
-#endif
-#ifndef GF_ON
-#ifdef STRATO
-                        if (first) {
-                            int w = lane & 15;
-                            float st_acc = 0.f;
-                            const float pmu = s.mu, pexd = s.exd, paey = fabsf(s.eyd);
-#define GP_LUT(JJ, D0, D1, D2)                                                                     \
-    if (w < TW) {                                                                                  \
-        float m0 = pmu * (D2) + pexd * (D0), m1 = paey * (D1);                                     \
-        float u = lane < 16 ? clip(m0 + m1, -1, 1) : clip(m0 - m1, -1, 1);                         \
-        float x = (clip(u, -1.f, 1.f) + 1.f) * (float)(STRATO_LUT_BINS / 2);                       \
-        int li = min((int)x, STRATO_LUT_BINS - 1);                                                 \
-        ca = st_chi[(33 + li) * FW + GW(w)];                                                       \
-        cb = st_chi[(34 + li) * FW + GW(w)];                                                       \
-        cf = x - (float)li;                                                                        \
-    }                                                                                              \
-    if (lane < TW)                                                                                 \
-        cg = gval[(JJ) * FW + GW(lane)];
-                            for (int corner = 0; corner < 4; corner++) {
-                                int cc = s.cell[corner];
-                                const float swc = s.sw[corner];
-                                int64_t j = goff[cc], je = goff[cc + 1];
-                                float ca = 0.f, cb = 0.f, cf = 0.f, cg = 0.f, d0 = 0.f, d1 = 0.f,
-                                      d2 = 0.f;
-                                if (j < je) {
-                                    GP_LUT(j, gdir[3 * j], gdir[3 * j + 1], gdir[3 * j + 2])
-                                }
-                                if (j + 1 < je) {
-                                    d0 = gdir[3 * (j + 1)];
-                                    d1 = gdir[3 * (j + 1) + 1];
-                                    d2 = gdir[3 * (j + 1) + 2];
-                                }
-                                for (; j < je; j++) {
-                                    const float a = ca, b = cb, f = cf, gvj = cg;
-                                    if (j + 1 < je) {
-                                        GP_LUT(j + 1, d0, d1, d2)
-                                    }
-                                    if (j + 2 < je) {
-                                        d0 = gdir[3 * (j + 2)];
-                                        d1 = gdir[3 * (j + 2) + 1];
-                                        d2 = gdir[3 * (j + 2) + 2];
-                                    }
-                                    float paired = 0.f;
-                                    if (w < TW)
-                                        paired = a + f * (b - a);
-                                    float minus = __shfl_down_sync(0xffffffff, paired, 16);
-                                    if (lane < TW) {
-                                        float ph = (paired + minus) / 2.f;
-                                        st_acc += (swc * ph) * gvj;
-                                    }
-                                }
-                            }
-#undef GP_LUT
-                            if (lane < TW)
-                                s.st_c32[0][lane] = st_acc;
-                            __syncwarp();
-                        }
-#endif
-#endif // GF_ON
-                        SECTION_END_IF(1, first)
-#if defined(WARM_LANE_ON) || defined(STRATO)
-                        // Includes lane-0 STRATO/scalar ground writes before other lanes read.
-                        SECTION_SYNC(__syncwarp());
-#endif
-                        SECTION_BEGIN()
-#if defined(WARM_LANE_ON) || defined(STRATO)
-                        if (SR_ACT) {
-                            int w = SR_W;
-#else
-                    if (lane == 0)
-                        for (int w = 0; w < TW; w++) {
-#endif
-#ifdef WARM_LANE_ON
-                            lane_log = lane_wg = lane_am = 0;
-                            for (int k = 0; k < 4; k++)
-                                lane_val[k] = 0;
-#else
-                            s.logs[w] = 0;
-                            for (int k = 0; k < 4; k++)
-                                s.val[w][k] = 0;
-#endif
-                            if (first) {
-                                float od = 0;
-                                for (int k = 0; k < NCOMP; k++)
-                                    od += s.sc[k] * ext[k * FW + GW(w)];
-#ifdef STRATO
-                                od += s.st_sc * st_ext[GW(w)];
-#endif
-                                float sun = s.lit ? expf(-od) : 0.f, ga = s.c32[0][w];
-#ifdef TROPO_MIE
-                                float beam =
-                                          (s.prof[1] * asca[GW(w)]) *
-                                          (sun * tropo_phase((float)d[2], GW(w), TROPO_LUT) + ga),
-                                      ray = (sun * s.prof[0]) * ext[GW(w)];
-#else
-                                float beam = (s.prof[1] * asca[GW(w)]) * (sun * sunphase + ga),
-                                      ray = (sun * s.prof[0]) * ext[GW(w)];
-#endif
-                                for (int k = 0; k < 4; k++)
-                                    s.val[w][k] =
-                                        ray * (mix * (float)(3 / (8 * PI)) * direct[k] +
-                                               (1.f - mix) * (float)(1 / (8 * PI)) * pu[k]) +
-                                        (beam * pu[k]) / 2.f;
-#ifdef STRATO
-                                float sb = (s.st_prof * st_sca[GW(w)]) *
-                                           (sun * strato_sunphase + s.st_c32[0][w]);
-                                for (int k = 0; k < 4; k++)
-                                    s.val[w][k] += (sb * pu[k]) / 2.f;
-#endif
-                            }
-                        }
-                        SECTION_END(3)
-                        SECTION_SYNC(__syncwarp());
-                        SECTION_BEGIN()
-                        if (!first && !NOSH_ON && tags[0] >= 0) {
-                            int di = s.cell[0] / nc - tags[0] / nc,
-                                dj = s.cell[0] % nc - tags[0] % nc;
-                            if (di == 0 && dj == 1) {
-                                COPY_CORNER(0, 1);
-                                COPY_CORNER(2, 3);
-                            } else if (di == 0 && dj == -1) {
-                                COPY_CORNER(1, 0);
-                                COPY_CORNER(3, 2);
-                            } else if (di == 1 && dj == 0) {
-                                COPY_CORNER(0, 2);
-                                COPY_CORNER(1, 3);
-                            } else if (di == -1 && dj == 0) {
-                                COPY_CORNER(2, 0);
-                                COPY_CORNER(3, 1);
-                            } else if (di == 1 && dj == 1) {
-                                COPY_CORNER(0, 3);
-                            } else if (di == 1 && dj == -1) {
-                                COPY_CORNER(1, 2);
-                            } else if (di == -1 && dj == 1) {
-                                COPY_CORNER(2, 1);
-                            } else if (di == -1 && dj == -1) {
-                                COPY_CORNER(3, 0);
-                            }
-                        }
-#ifdef SLIM_RAYS
-                        // Sample invariants live only through this corner loop. No local
-                        // array.
-                        const int sample_ir = qir;
-                        const float t00 = qT0.x, t01 = qT0.y, t02 = qT0.z, t03 = qT0.w;
-                        const float t10 = qT1.x, t11 = qT1.y, t12 = qT1.z, t13 = qT1.w;
-                        const float t20 = qT2.x, t21 = qT2.y, t22 = qT2.z, t23 = qT2.w;
-                        const float t30 = qT3.x, t31 = qT3.y, t32 = qT3.z, t33 = qT3.w;
-#endif
-#ifdef SLIM_PRELOAD
-                        float pre_aero[4] = {}, pre_rm[4][4] = {}, pre_rec[SINV_F] = {},
-                              pre_hr[2] = {}, pre_sd[2] = {};
-                        if (SR_ACT) {
-                            if (!first) {
-#pragma unroll
-                                for (int i = 0; i < 2; i++) {
-                                    pre_hr[i] = hr[PT_IR + i];
-                                    pre_sd[i] = st_density[PT_IR + i];
-                                }
-#pragma unroll
-                                for (int corner = 0; corner < 4; corner++) {
-                                    pre_aero[corner] = SLIM_AERO_J(SR_J, corner)[SR_W];
-                                    const int64_t pc = PT_CELL(corner);
-#pragma unroll
-                                    for (int k = 0; k < 4; k++)
-                                        pre_rm[corner][k] =
-                                            src[(pc * SRC_ROWS_ST + k) * FW + GW(SR_W)];
-                                }
-                            }
-                            if (sinv_mode == 2) {
-                                const float *r = SINV_REC(SR_J);
-#pragma unroll
-                                for (int k = 0; k < SINV_F; k++)
-                                    pre_rec[k] = r[k];
-                            }
-                        }
-#endif
-#pragma unroll
-                        for (int corner = 0; corner < 4; corner++) {
-#ifdef SLIM_RAYS
-                            int cc = PT_CELL(corner), ir = sample_ir + corner / 2;
-#else
-                        int cc = s.cell[corner], ir = s.ir + corner / 2;
-#endif
-#ifdef SKIP_ACTIVE
-                            const bool sk_a = ir >= 64 || ((live_a >> ir) & 1ull),
-                                       sk_s = ir >= 64 || ((live_s >> ir) & 1ull);
-#endif
-                            if (!first && !NOSH_ON && tags[corner] != cc) {
-#pragma unroll
-                                for (int w = 0; w < TW; w++)
-                                    cache[corner][w] = 0.f;
-#ifdef STRATO
-                                for (int w = 0; w < TW; w++)
-                                    scache[corner][w] = 0.f;
-#endif
-                                // Degree-major loads: consecutive active lanes read consecutive
-                                // SHs. Each lane still sums l=m..SH_L in precisely the reference
-                                // order.
-                                for (int l = 0; l <= SH_L; l++) {
-                                    if (lane <= l) {
-                                        int k = ix(l, lane);
-                                        float pref = y[k];
-#ifndef SKIP_ACTIVE
-#pragma unroll
-#endif
-#ifdef SKIP_ACTIVE
-                                        if (SK_A) {
-#pragma unroll
-#endif
-                                            for (int w = 0; w < TW; w += 2) {
-                                                float2 pair = warm_sh_pair(src_sh, (cc), w, k);
-                                                cache[corner][w] += pref * pair.x;
-                                                if (w + 1 < TW)
-                                                    cache[corner][w + 1] += pref * pair.y;
-                                            }
-#ifdef SKIP_ACTIVE
-                                        }
-#endif
-#if defined(STRATO) && !defined(SH_COMBINE)
-#ifdef SKIP_ACTIVE
-                                        if (sk_s) {
-#pragma unroll
-#endif
-                                            for (int w = 0; w < TW; w += 2) {
-                                                float2 pair =
-                                                    warm_sh_pair(src_sh, (nh * nc + (cc)), w, k);
-                                                scache[corner][w] += pref * pair.x;
-                                                if (w + 1 < TW)
-                                                    scache[corner][w + 1] += pref * pair.y;
-                                            }
-#ifdef SKIP_ACTIVE
-                                        }
-#endif
-#endif
-                                    }
-                                }
-                                if (lane == 0) {
-#if SH_L == 32
-#ifndef SKIP_ACTIVE
-#pragma unroll
-#endif
-#ifdef SKIP_ACTIVE
-                                    if (SK_A) {
-#pragma unroll
-#endif
-                                        for (int w = 0; w < TW; w += 2) {
-                                            float2 pair = warm_sh_pair(src_sh, cc, w, 560);
-                                            float v = 0.f;
-                                            v += y[560] * pair.x;
-                                            s.c32[corner][w] = v;
-                                            if (w + 1 < TW) {
-                                                float v1 = 0.f;
-                                                v1 += y[560] * pair.y;
-                                                s.c32[corner][w + 1] = v1;
-                                            }
-                                        }
-#ifdef SKIP_ACTIVE
-                                    }
-#endif
-#if defined(STRATO) && defined(SH_COMBINE)
-                                    for (int w = 0; w < TW; w++)
-                                        s.st_c32[corner][w] = 0.f;
-#elif defined(STRATO)
-#ifdef SKIP_ACTIVE
-                                    if (sk_s) {
-#pragma unroll
-#endif
-                                        for (int w = 0; w < TW; w += 2) {
-                                            float2 pair =
-                                                warm_sh_pair(src_sh, (nh * nc + cc), w, 560);
-                                            float v = 0.f;
-                                            v += y[560] * pair.x;
-                                            s.st_c32[corner][w] = v;
-                                            if (w + 1 < TW) {
-                                                float v1 = 0.f;
-                                                v1 += y[560] * pair.y;
-                                                s.st_c32[corner][w + 1] = v1;
-                                            }
-                                        }
-#ifdef SKIP_ACTIVE
-                                    }
-#endif
-#endif
-#else // SH_L<32: no m=32 coefficient
-                                for (int w = 0; w < TW; w++)
-                                    s.c32[corner][w] = 0.f;
-#ifdef STRATO
-                                for (int w = 0; w < TW; w++)
-                                    s.st_c32[corner][w] = 0.f;
-#endif
-#endif
-                                }
-                                tags[corner] = cc;
-                            }
-                            // Do not access cache[corner][lane]: retain compile-time wave indexes
-                            // so the Fourier cache can stay register promoted. Every lane executes
-                            // every shuffle; the selected owner keeps one reduced wavelength.
-                            float own_aero = 0.f;
-#ifdef STRATO
-                            float own_saero = 0.f;
-#endif
-#if defined(STRATO) && FW == 15
-                            if (!first) {
-                                const float cml = s.cm[lane];
-#define RS2_REDUCE(CACHE, C32, OUT)                                                                \
-    {                                                                                              \
-        float r[8];                                                                                \
-        const bool u16 = (lane & 16) != 0;                                                         \
-        _Pragma("unroll") for (int V = 0; V < 8; V++) {                                            \
-            float xa = 0.f, xb = 0.f;                                                              \
-            if (V < TW) {                                                                          \
-                xa = cml * CACHE[corner][V];                                                       \
-                if (lane == 0)                                                                     \
-                    xa += s.cm[32] * C32[corner][V];                                               \
-            }                                                                                      \
-            if (V + 8 < TW) {                                                                      \
-                xb = cml * CACHE[corner][V + 8];                                                   \
-                if (lane == 0)                                                                     \
-                    xb += s.cm[32] * C32[corner][V + 8];                                           \
-            }                                                                                      \
-            const float send = u16 ? xa : xb, keep = u16 ? xb : xa;                                \
-            r[V] = keep + __shfl_xor_sync(0xffffffff, send, 16);                                   \
-        }                                                                                          \
-        _Pragma("unroll") for (int st = 4; st; st >>= 1) {                                         \
-            const bool up = (lane & (2 * st)) != 0;                                                \
-            _Pragma("unroll") for (int V = 0; V < st; V++) {                                       \
-                const float send = up ? r[V] : r[V + st], keep = up ? r[V + st] : r[V];            \
-                r[V] = keep + __shfl_xor_sync(0xffffffff, send, 2 * st);                           \
-            }                                                                                      \
-        }                                                                                          \
-        const float fin = r[0] + __shfl_xor_sync(0xffffffff, r[0], 1);                             \
-        OUT = __shfl_sync(0xffffffff, fin, (2 * lane) & 31);                                       \
-    }
-#ifdef SKIP_ACTIVE
-                                if (SK_A)
-#endif
-                                    if (!NOSH_ON)
-                                        RS2_REDUCE(cache, s.c32, own_aero)
-#ifdef SKIP_ACTIVE
-                                if (sk_s)
-#endif
-#ifdef SH_COMBINE
-                                    own_saero = 0.f;
-#else
-                                RS2_REDUCE(scache, s.st_c32, own_saero)
-#endif
-#undef RS2_REDUCE
-                            }
-#ifdef SINV
-                            if (!first) {
-#ifdef SLIM_PRELOAD
-                                if (SLIM_ON)
-                                    own_aero = SR_ACT ? pre_aero[corner] : 0.f;
-#else
-                                if (SLIM_ON)
-                                    own_aero = lane < TW ? SLIM_AERO(corner)[lane] : 0.f;
-#endif
-                                else if (PROD_ON && lane < TW)
-                                    SLIM_AERO(corner)[lane] = own_aero;
-                            }
-#endif
-#else
-                        if (!first) {
-#pragma unroll
-                            for (int w = 0; w < TW; w++) {
-                                float aero = s.cm[lane] * cache[corner][w];
-                                if (lane == 0)
-                                    aero += s.cm[32] * s.c32[corner][w];
-                                for (int stride = 16; stride; stride >>= 1)
-                                    aero += __shfl_down_sync(0xffffffff, aero, stride);
-                                aero = __shfl_sync(0xffffffff, aero, 0);
-                                if (lane == w)
-                                    own_aero = aero;
-#ifdef STRATO
-                                float saero = s.cm[lane] * scache[corner][w];
-                                if (lane == 0)
-                                    saero += s.cm[32] * s.st_c32[corner][w];
-                                for (int stride = 16; stride; stride >>= 1)
-                                    saero += __shfl_down_sync(0xffffffff, saero, stride);
-                                saero = __shfl_sync(0xffffffff, saero, 0);
-                                if (lane == w)
-                                    own_saero = saero;
-#endif
-                            }
-                        }
-#endif // STRATO && FW==15 (RS2_REDUCE)
-#ifndef WARM_LANE_ON
-                            // K_FIRST=1 only; the !first branch never runs.
-                            bool bad_trace = false;
-#endif
-                            if (SR_ACT && !NOOUT_ON) {
-                                int w = SR_W;
-                                float aero = own_aero;
-#ifdef SLIM_RAYS
-                                const float corner_sw = PT_SW(corner);
-#endif
-#ifdef STRATO
-                                float saero = own_saero;
-#endif
-#ifdef SLIM_PRELOAD
-                                float rm[4];
-                                for (int k = 0; k < 4; k++)
-                                    rm[k] = first ? gm[((int64_t)cc * 4 + k) * FW + GW(w)]
-                                                  : pre_rm[corner][k];
-#else
-                            float rm[4];
-                            for (int k = 0; k < 4; k++)
-                                rm[k] = first ? gm[((int64_t)cc * 4 + k) * FW + GW(w)]
-                                              : src[((int64_t)cc *
-#ifdef STRATO
-                                                         SRC_ROWS_ST
-#else
-                                                         SRC_ROWS
-#endif
-                                                     + k) *
-                                                        FW +
-                                                    GW(w)];
-#endif
-#ifdef SLIM_PRELOAD
-                                float density = first ? s.prof[0] : pre_hr[corner / 2];
-#ifndef SH_COMBINE
-                                if (!first)
-                                    aero *= ha[ir];
-#endif
-                                if (!first)
-                                    saero *= pre_sd[corner / 2];
-#else
-                            float density = first ? s.prof[0] : hr[ir];
-#ifndef SH_COMBINE
-                            if (!first)
-                                aero *= ha[ir];
-#endif
-#ifdef STRATO
-                            if (!first)
-                                saero *= st_density[ir];
-#endif
-#endif
-                                if (!first) {
-                                    density = support_value(SAMPLE_HEIGHT, density, true);
-                                    aero = support_value(SAMPLE_HEIGHT, aero, false);
-#ifdef STRATO
-                                    saero = support_value(SAMPLE_HEIGHT, saero, false);
-#endif
-                                }
-                                float tr = (rm[0] + rm[1]) + rm[2], tensors[3];
-#pragma unroll
-                                for (int component = 0; component < 4; component++) {
-                                    if (component == 3 && phase == 1)
-                                        continue;
-#ifdef SLIM_RAYS
-                                    // component is unrolled; keep the original k=0,1,2,3
-                                    // multiply/add order.
-#define SLIM_T(k) (component == 0 ? t0##k : component == 1 ? t1##k : component == 2 ? t2##k : t3##k)
-                                    float rot = 0.f;
-                                    rot += SLIM_T(0) * rm[0];
-                                    rot += SLIM_T(1) * rm[1];
-                                    rot += SLIM_T(2) * rm[2];
-                                    rot += SLIM_T(3) * rm[3];
-#undef SLIM_T
-#else
-                                float rot = 0.f;
-                                for (int k = 0; k < 4; k++)
-                                    rot += s.T[4 * component + k] * rm[k];
-#endif
-#ifdef WARM_LANE_ON
-                                    const float puc = pu_r[component];
-#else
-                                const float puc = pu[component];
-#endif
-                                    float tensor =
-                                        density * (mix * rot + ((1.f - mix) / 3.f * tr) * puc);
-                                    tensor += (aero * puc) / 2.f;
-#ifdef STRATO
-                                    if (!first)
-                                        tensor += (saero * puc) / 2.f;
-#endif
-#ifdef WARM_LANE_ON
-#ifdef SLIM_RAYS
-                                    lane_val[component] += corner_sw * tensor;
-#else
-                                    lane_val[component] += s.sw[corner] * tensor;
-#endif
-#else
-                                s.val[w][component] += s.sw[corner] * tensor;
-#endif
-                                    if (component < 3)
-                                        tensors[component] = tensor;
-                                }
-                                if (!first) {
-                                    float trace = (tensors[0] + tensors[1]) + tensors[2];
-#ifdef WARM_LANE_ON
-                                    // Log-space blend: traces below TRACE_MIN (or NaN) stay out of
-                                    // the log moments but stay in lane_val.
-#ifdef SLIM_RAYS
-                                    const float cw = corner_sw;
-#else
-                                    const float cw = s.sw[corner];
-#endif
-                                    const bool good = trace >= TRACE_MIN;
-                                    lane_log += good ? cw * logf(trace) : 0.f;
-                                    lane_wg += good ? cw : 0.f;
-                                    lane_am += good ? cw * trace : 0.f;
-#else
-                                // K_FIRST=1 only; the !first branch never runs.
-                                bad_trace = !(trace >= TRACE_MIN) && s.sw[corner] != 0.f;
-                                s.logs[w] += s.sw[corner] * logf(fmaxf(trace, TRACE_MIN));
-#endif
-                                }
-                            }
-#ifndef WARM_LANE_ON
-                            // K_FIRST=1 only; the !first branch never runs.
-                            uint32_t bad = __ballot_sync(0xffffffff, bad_trace);
-                            if (lane == 0 && !first)
-                                s.positive &= ~bad;
-#endif
-                            // Order shared consumers before lane-0 c32 copies / next corner, and
-                            // complete all val/log writes before the next point/attenuation phase.
-                            __syncwarp();
-                        }
-                        SECTION_END(3)
-                        SECTION_SYNC(__syncwarp());
-                        SECTION_BEGIN()
-                        if (SR_ACT && !PROD_ON) {
-                            int w = SR_W;
-                            {
-#ifdef WARM_LANE_ON
-                                const bool ok = lane_wg > 0.f && lane_am >= TRACE_MIN;
-                                float lane_scale =
-                                    ok ? expf(lane_log - lane_wg * logf(lane_am / lane_wg)) : 1.f;
-#else
-                            // K_FIRST=1 only; the !first branch never runs.
-                            if (!first) {
-                                float tr = (s.val[w][0] + s.val[w][1]) + s.val[w][2];
-                                float scale = (s.positive & (1u << w)) && tr >= TRACE_MIN
-                                                  ? expf(s.logs[w]) / fmaxf(tr, TRACE_MIN)
-                                                  : 1.f;
-                                s.logs[w] = scale;
-                            } else
-                                s.logs[w] = 1.f;
-#endif
-                                // Simpson prefix to this node: panel [previous node or
-                                // a, this node], node extinction from point()'s profile, new
-                                // midpoint evaluation; replaces the GL-weight prefix
-                                // mid=(tau-tc)+dt/2, tau+=dt.
-                                SINV_SIMPSON {
-#ifdef STRATO
-                                    const float pst = s.st_prof;
-#else
-                                const float pst = 0.f;
-#endif
-#ifdef PATH_DS
-                                    const DS tk = node_t(seg_a, seg_b, low, su);
-#else
-                                const DS tk = node_t(a, b, low, gu[step]);
-#endif
-                                    const float bk = extinction_at(s.prof, pst, optics, GW(w));
-                                    sp_acc += simpson_piece(beta_p, beta_d, sp_t, tk, sp_b, bk,
-                                                            optics, GW(w));
-                                    sp_t = tk;
-                                    sp_b = bk;
-                                }
-                                float mid = (tau_lane - tc_lane) + sp_acc;
-#ifdef WARM_LANE_ON
-                                float lane_att = s.ds * expf(-mid);
-#ifdef SINV
-                                // mode 1 uses unit-basis extinction tables: five separable columns
-                                // and a separate stratosphere column.
-                                if (sinv_mode == 1) {
-                                    float *r = SINV_REC(step);
-                                    if (w < NCOMP + 1)
-                                        r[1 + w] = mid;
-                                    if (w == 0)
-                                        r[0] = s.ds;
-                                    // KSPLIT=2 (VPROD): vp_records points to the per-point (c0, cp
-                                    // bits) int2 records (device memory, or mapped pinned host
-                                    // memory when the device cannot hold them), bundle-global like
-                                    // SINV_REC; 0 (KSPLIT=1) writes nothing. c0 = s.cell[0], cp =
-                                    // s.cm[1] (point()). RECORD variant only (compiled out of
-                                    // PROD/SLIM and the unsplit kernel).
-                                    if (REC_ON && w == 0) {
-                                        if (vp_records)
-                                            vp_records[(int64_t)(seg - ray) * nq + step] =
-                                                make_int2(s.cell[0], __float_as_int(s.cm[1]));
-                                    }
-                                }
-#ifdef SLIM_PRELOAD
-                                if (sinv_mode == 2) {
-                                    const float *r = pre_rec;
-                                    float tq = 0.f;
-                                    for (int k = 0; k < NCOMP; k++)
-                                        tq += r[1 + k] * ray_ext[k];
-                                    tq += r[NCOMP + 1] * ray_st_ext;
-                                    lane_att = r[0] * expf(-tq);
-                                }
-#else
-                                if (sinv_mode == 2) {
-                                    const float *r = SINV_REC(step);
-                                    float tq = 0.f;
-                                    for (int k = 0; k < NCOMP; k++)
-                                        tq += r[1 + k] * ext[k * FW + GW(w)];
-                                    tq += r[NCOMP + 1] * st_ext[GW(w)];
-                                    lane_att = r[0] * expf(-tq);
-                                }
-#endif
-#endif
-#pragma unroll
-                                for (int k = 0; k < 4; k++) {
-                                    if (REC_ON)
-                                        break;
-                                    if (k == 3 && phase == 1)
-                                        continue;
-#ifdef SLIM_RAYS
-                                    sr_v[k] = (lane_val[k] * lane_scale) * lane_att;
-#else
-                                    kah(lane_rad[k], lane_rc[k],
-                                        (lane_val[k] * lane_scale) * lane_att);
-#endif
-                                }
-#else
-                            s.att[w] = s.ds * expf(-mid);
-#endif
-                            }
-                        }
-#ifdef SLIM_RAYS
-// The lower half owns the Kahan state and adds the even sample, then the odd
-// one, per component (the one-step order). Every lane takes part in the shuffle; an absent odd
-// sample adds nothing (no kah(0)).
-#pragma unroll
-                        for (int k = 0; k < 4; k++) {
-                            if (k == 3 && phase == 1)
-                                continue;
-                            const float v_odd = __shfl_down_sync(0xffffffffu, sr_v[k], 16);
-                            if (lane < TW) {
-                                kah(lane_rad[k], lane_rc[k], sr_v[k]);
-                                if (sr_odd)
-                                    kah(lane_rad[k], lane_rc[k], v_odd);
-                            }
-                        }
-#endif
-                        SECTION_END(4)
-#ifndef WARM_LANE_ON
-                        SECTION_SYNC(__syncwarp());
-                        if (lane < (phase == 1 ? 3 : 4)) {
-#pragma unroll
-                            for (int w = 0; w < TW; w++) {
-                                float value = s.val[w][lane] * s.logs[w];
-                                kah(rad[4 * w + lane], rc[4 * w + lane], value * s.att[w]);
-                            }
-                        }
-                        SECTION_SYNC(__syncwarp());
-#endif
-                    }
-#ifdef PT_ACTIVE
-                }
-#endif
-                // Simpson end piece to b (beta(b) anew), then the segment sum into tau (Kahan), as
-                // numpy_reference.py SimpsonPrefix.finish.
-#ifdef PATH_DS
-                if (lane < TW && !PROD_ON SINV_AND_SIMPSON) {
-                    const DS te = seg_b;
-#else
-                if (lane < TW && !PROD_ON SINV_AND_SIMPSON) {
-                    const DS te = ds(b);
-#endif
-                    const float be = beta_at_side(beta_p, beta_d, te, seg_inside, optics, GW(lane));
-                    sp_acc += simpson_piece(beta_p, beta_d, sp_t, te, sp_b, be, optics, GW(lane));
-                    kah(tau_lane, tc_lane, sp_acc);
-                }
-            }
-#ifdef WARM_LANE_ON
-            if (lane < TW) {
-#pragma unroll
-                for (int k = 0; k < 4; k++)
-                    rad[4 * lane + k] = lane_rad[k];
-            }
-            __syncwarp();
-#endif
-            if (lane == 0 && !NOOUT_ON && with_boundary) {
-                int j = end_j[ray];
-                float f = end_f[ray];
-                for (int w = 0; w < TW; w++) {
-                    float e = (1.f - f) * (float)boundary[j * FW + GW(w)];
-                    e += f * (float)boundary[(j + 1) * FW + GW(w)];
-                    float od = 0;
-                    for (int k = 0; k < NCOMP; k++)
-                        od += end_col[NCOMP * ray + k] * ext[k * FW + GW(w)];
-#ifdef STRATO
-                    od += st_end_col[ray] * st_ext[GW(w)];
-#endif
-                    e *= expf(-od) * (float)hits[ray];
-                    for (int k = 0; k < (phase == 1 ? 3 : 4); k++)
-                        rad[4 * w + k] += (e * pu[k]) / 2.f;
-                }
-            }
-            if (phase == 2) {
-                SECTION_SYNC(__syncwarp());
-                for (int k = lane; k < 4 * TW; k += 32)
-                    query[ray * 4 * FW + k] = rad[k];
-            }
-#if defined(SINV) && defined(SLIM_RAYDUMP)
-            // KSPLIT=3 VERIFY: this ray's final radiance (slim_dump argument; header int64 [5] =
-            // chunk first ray), as SLIM_RAYS publishes it.
-            if (phase != 2) {
-                __syncwarp();
-                float *dump_ = slim_dump + (ray - ((const int64_t *)query)[5]) * 4 * TW;
-                for (int k = lane; k < 4 * TW; k += 32)
-                    dump_[k] = rad[k];
-            }
-#endif
-#ifdef FL_SPLIT_ON
-            // Publish this ray's rad (every lane fences its own stores), then count it for its
-            // cell.
-            __syncwarp();
-            for (int k = lane; k < 4 * TW; k += 32)
-                ray_rads[(ray - ray_lo) * 4 * TW + k] = rad[k];
-#ifndef LAUNCH_RAY_LIMIT
-            __threadfence();
-            __syncwarp();
-            const int64_t cb = cell_off[cell], ce = cell_off[cell + 1];
-            int done = 0;
-            if (lane == 0)
-                done = atomicAdd(ray_sync + 1 + cell, 1);
-            done = __shfl_sync(0xffffffff, done, 0);
-            if (done == (int)(ce - cb) - 1) {
-                // Last ray of this cell: project rays cb..ce-1 in order (== original
-                // round-then-warp order).
-                __threadfence();
-                double *mrow = moments + (int64_t)cell * nm, gsum = 0.;
-#pragma unroll 1
-                for (int64_t r = cb; r < ce; r++) {
-                    const double *drow = dirs + 3 * r;
-                    sh_basis(drow[2], lane, y, aa, bb, dd);
-                    if (lane == 0) {
-                        double st = sqrt(fmax(0., 1. - drow[2] * drow[2]));
-                        float cp = st > 1e-12 ? (float)(drow[0] / st) : 1.f;
-                        cp = clip(cp, -1, 1);
-                        cd[0] = 1;
-                        cd[1] = cp;
-                        for (int m = 2; m <= 32; m++)
-                            cd[m] = (2.f * cp) * cd[m - 1] - cd[m - 2];
-                    }
-                    __syncwarp();
-                    const float *rr = ray_rads + (r - ray_lo) * 4 * TW;
-                    float wt = weights[r];
-#pragma unroll 1
-                    for (int k = lane; k < nm; k += 32) {
-                        int moment = k / TW, w = k % TW;
-                        float v;
-                        if (moment < 4)
-                            v = __ldcg(rr + 4 * w + moment) * wt;
-                        else {
-                            int sk = moment - 4;
-                            int m = LM.m[sk];
-                            float tr = (__ldcg(rr + 4 * w) + __ldcg(rr + 4 * w + 1)) +
-                                       __ldcg(rr + 4 * w + 2);
-                            v = (tr * wt) * (y[sk] * cd[m]);
-                        }
-                        double a = r == cb ? 0. : mrow[k];
-                        a += (double)v;
-                        mrow[k] = a;
-                    }
-                    if (lane < TW) {
-                        int w = lane;
-                        double dlz = 0;
-                        for (int k = 0; k < 3; k++)
-                            dlz += target[3 * k + 2] * drow[k];
-                        float tr = (__ldcg(rr + 4 * w) + __ldcg(rr + 4 * w + 1)) +
-                                   __ldcg(rr + 4 * w + 2),
-                              wg = weights[r] * fmaxf(0.f, (float)dlz);
-                        gsum += (double)(tr * wg);
-                    }
-                    __syncwarp();
-                }
-                if (lane < TW)
-                    flux[cell * FW + GW(lane)] = gsum * (albedo / PI);
-            }
-#endif
-        }
-    }
-#else
-        }
-        // Phase 2 has no cross-warp data: warp-private buffers only need the warp
-        // to finish reading rad/y before its next ray overwrites them.
-        if (phase == 2)
-            SECTION_SYNC(__syncwarp());
-        else
-            SECTION_SYNC(__syncthreads());
-        if (phase != 2 && !NOOUT_ON) {
-            SECTION_BEGIN()
-            for (int k = tid; k < nm; k += blockDim.x) {
-                int moment = k / TW, w = k % TW;
-#if defined(ACC_IN_GLOBAL)
-                double acc_k = acc[k];
-#define ACC_SLOT acc_k
-#else
-#define ACC_SLOT acc[k]
-#endif
-#if !K_FIRST
-                // The round's warp terms are summed in FP32, one
-                // FP64 add per round.
-                float acc_part = 0.f;
-#define ACC_ADD(v) acc_part += (v)
-#else
-#define ACC_ADD(v) ACC_SLOT += (double)(v)
-#endif
-                for (int wp = 0; wp < nwarps; wp++)
-                    if (round + wp < end) {
-                        float *rr = rads + wp * 4 * TW;
-                        float wt = weights[RAY_AT(round + wp)], v;
-                        if (moment < 4)
-                            v = rr[4 * w + moment] * wt;
-                        else {
-                            int sk = moment - 4;
-                            int m = LM.m[sk];
-                            float tr = (rr[4 * w] + rr[4 * w + 1]) + rr[4 * w + 2];
-                            v = (tr * wt) * (Y[wp * YPAD + sk] * cosdest[wp * 33 + m]);
-                        }
-                        ACC_ADD(v);
-                    }
-#if !K_FIRST
-                ACC_SLOT += (double)acc_part;
-#endif
-#undef ACC_ADD
-#if defined(ACC_IN_GLOBAL)
-                acc[k] = acc_k;
-#endif
-#undef ACC_SLOT
-            }
-            for (int w = tid; w < TW; w += blockDim.x)
-                for (int wp = 0; wp < nwarps; wp++)
-                    if (round + wp < end) {
-                        int64_t rridx = RAY_AT(round + wp);
-                        const double *d = dirs + 3 * rridx;
-                        double dlz = 0;
-                        for (int k = 0; k < 3; k++)
-                            dlz += target[3 * k + 2] * d[k];
-                        float *rr = rads + wp * 4 * TW,
-                              tr = (rr[4 * w] + rr[4 * w + 1]) + rr[4 * w + 2],
-                              wt = weights[rridx] * fmaxf(0.f, (float)dlz);
-                        ground[w] += (double)(tr * wt);
-                    }
-            SECTION_END(5)
-        }
-        if (phase != 2)
-            SECTION_SYNC(__syncthreads());
-    }
-#endif // FL_SPLIT_ON
-#ifndef ACC_IN_GLOBAL
-    if (phase == 0 && !NOOUT_ON)
-        for (int k = tid; k < nm; k += blockDim.x)
-            moments[(int64_t)cell * nm + k] = acc[k];
-#endif
-#if !defined(FL_SPLIT_ON)
-
-#ifdef SPLIT_ACTIVE
-    if (phase != 2 && !NOOUT_ON) {
-        for (int w = tid; w < TW; w += blockDim.x)
-            split_flux[((int64_t)split_part * cells + cell) * TW + w] = ground[w];
-        __threadfence();
-        __syncthreads();
-        int split_last = 0;
-        if (tid == 0)
-            split_last = atomicAdd(split_count + cell, 1) == SPLIT_S - 1;
-        split_last = __syncthreads_or(split_last);
-        if (split_last) {
-            __threadfence();
-            for (int w = tid; w < TW; w += blockDim.x) {
-                double g = __ldcg(split_flux + (int64_t)cell * TW + w);
-                for (int q = 1; q < SPLIT_S; q++)
-                    g += __ldcg(split_flux + ((int64_t)q * cells + cell) * TW + w);
-                flux[cell * FW + GW(w)] = g * (albedo / PI);
-            }
-            if (phase == 0)
-                for (int k = tid; k < nm; k += blockDim.x) {
-                    double v = __ldcg(moments + (int64_t)cell * nm + k);
-                    for (int q = 1; q < SPLIT_S; q++)
-                        v += __ldcg(split_scratch + ((int64_t)(q - 1) * cells + cell) * nm + k);
-                    moments[(int64_t)cell * nm + k] = v;
-                }
-        }
-    }
-#else
-    if (phase != 2 && !NOOUT_ON)
-        for (int w = tid; w < TW; w += blockDim.x)
-            flux[cell * FW + GW(w)] = ground[w] * (albedo / PI);
+    transport.split_scratch = split_scratch;
+    transport.split_flux = split_flux;
+    transport.split_count = split_count;
 #endif
 #endif
 #ifdef EXP_SECTION_CLOCKS
-    if (lane == 0) {
-        section_cycles[7] = clock64() - total_begin;
-        int64_t slot = (((int64_t)cell * (FW / TW) + (int)blockIdx.y) * nwarps + warp) * 8;
-        for (int k = 0; k < 8; k++)
-            section_clocks[slot + k] = section_cycles[k];
-    }
+    transport.section_clocks = section_clocks;
 #endif
+#ifdef FL_SPLIT_ON
+    transport.ray_rads = ray_rads;
+    transport.ray_sync = ray_sync;
+#endif
+    transport.run();
 }
 
 // ---- Ray projection ----
+
+// Populate the projection tile after its direction weights are published.
+// Rows 0..3 are weighted components; rows 4/5 are weighted trace/ground flux.
+template <int Threads, int Rays>
+__device__ __forceinline__ void
+projection_radiance(int tid, int count, int64_t begin, int64_t ray_base, const float *ray_rads,
+                    const float *weights, const float (&ground_weight)[Rays],
+                    float (&rad)[Rays][6 * TW]) {
+    for (int i = tid; i < count * TW; i += Threads) {
+        const int r = i / TW, w = i % TW;
+        const float *rr = ray_rads + (begin + r - ray_base) * 4 * TW + 4 * w;
+        const float weight = weights[begin + r];
+        const float r0 = rr[0], r1 = rr[1], r2 = rr[2], r3 = rr[3], trace = (r0 + r1) + r2;
+        rad[r][w] = r0 * weight;
+        rad[r][TW + w] = r1 * weight;
+        rad[r][2 * TW + w] = r2 * weight;
+        rad[r][3 * TW + w] = r3 * weight;
+        rad[r][4 * TW + w] = trace * weight;
+        rad[r][5 * TW + w] = trace * ground_weight[r];
+    }
+}
 
 #if defined(FL_SPLIT_ON) && defined(LAUNCH_RAY_LIMIT)
 // Batch eight rays: every warp builds one basis row, all threads load weighted radiance,
@@ -2716,18 +2950,7 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS)
             }
         }
         __syncthreads();
-        for (int i = tid; i < nr * TW; i += FLP_THREADS) {
-            const int r = i / TW, w = i % TW;
-            const float *rr = ray_rads + (rb + r - ray_lo) * 4 * TW + 4 * w;
-            const float wt = weights[rb + r];
-            const float r0 = rr[0], r1 = rr[1], r2 = rr[2], r3 = rr[3], tr = (r0 + r1) + r2;
-            rad[r][w] = r0 * wt;
-            rad[r][TW + w] = r1 * wt;
-            rad[r][2 * TW + w] = r2 * wt;
-            rad[r][3 * TW + w] = r3 * wt;
-            rad[r][4 * TW + w] = tr * wt;
-            rad[r][5 * TW + w] = tr * wg[r];
-        }
+        projection_radiance<FLP_THREADS>(tid, nr, rb, ray_lo, ray_rads, weights, wg, rad);
         __syncthreads();
 #pragma unroll
         for (int j = 0; j < FLP_MOMENTS; j++) {
@@ -2786,9 +3009,9 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS)
 //  warp per ray); a_m[w] : +0 start, cache[w]+=y[ix(l,m)]*C[ix(l,m)][w] for l=m..SH_L ascending
 //  (warm_sh_pair addressing); aero[w]: x_m=cm[m]*a_m[w] for m<=SH_L, otherwise +0; the absent m=32
 //  contribution is also +0 (SH_L<=16),
-//           then the RS2_REDUCE butterfly as a fixed tree: P1[j]=x_j+x_{j+16}, P2[j]=P1[j]+P1[j+8],
-//           P3[j]=P2[j]+P2[j+4], P4[j]=P3[j]+P3[j+2], value=P4[0]+P4[1] (xor 16,8,4,2,1; float
-//           addition is commutative);
+//           then the reduce-scatter butterfly as a fixed tree: P1[j]=x_j+x_{j+16},
+//           P2[j]=P1[j]+P1[j+8], P3[j]=P2[j]+P2[j+4], P4[j]=P3[j]+P3[j+2], value=P4[0]+P4[1] (xor
+//           16,8,4,2,1; float addition is commutative);
 //  cm     : cm[0]=1, cm[1]=cp, cm[m]=(2cp)cm[m-1]-cm[m-2] from the recorded cp (point());
 //  live   : SKIP_ACTIVE mask test of the warm kernel, sk_a||sk_s (SH_COMBINE); a dead layer writes
 //  +0 (RS2 skipped).
@@ -2896,6 +3119,61 @@ __device__ __forceinline__ void vp_record(int sl, float cp, bool live,
     }
     *out = make_float4(res[0], res[1], res[2], res[3]);
 }
+__device__ __forceinline__ void vp_load_coefficients(float4 *plane, const float *src_sh, int cell,
+                                                     int tid) {
+    float *dst = (float *)plane;
+    const float2 *src = (const float2 *)src_sh + (int64_t)cell * ((FW + 1) / 2) * KPAD;
+    for (int i = tid; i < 8 * K; i += blockDim.x) {
+        const int pair = i / K, k = i - pair * K;
+        vp_copy8((float2 *)(dst + k * 16 + 2 * pair), src + pair * KPAD + k);
+    }
+}
+__device__ __forceinline__ void vp_contract(const float4 *plane, const float *y, int quad,
+                                            bool live, float (&a)[SH_L + 1][4]) {
+#pragma unroll
+    for (int m = 0; m <= SH_L; ++m) {
+        a[m][0] = 0.f;
+        a[m][1] = 0.f;
+        a[m][2] = 0.f;
+        a[m][3] = 0.f;
+    }
+    if (live) {
+#pragma unroll
+        for (int l = 0; l <= SH_L; ++l) {
+#pragma unroll
+            for (int m = 0; m <= l; ++m) {
+                const int k = ix(l, m);
+                const float basis = y[k];
+                const float4 c = plane[k * 4 + quad];
+                a[m][0] += basis * c.x;
+                a[m][1] += basis * c.y;
+                a[m][2] += basis * c.z;
+                a[m][3] += basis * c.w;
+            }
+        }
+    }
+}
+// Independent slot/cp loads precede each batch's stores; pad waves stay zero.
+__device__ __forceinline__ void vp_publish_records(int begin, int end, bool live,
+                                                   const int *rec_slot, const int2 *c0cp,
+                                                   const float (&a)[SH_L + 1][4], int quad,
+                                                   float *aero) {
+    for (int rb = begin; rb < end; rb += 8) {
+        const int count = min(8, end - rb);
+        int slot[8], cp[8];
+#pragma unroll
+        for (int i = 0; i < 8; ++i)
+            slot[i] = i < count ? rec_slot[rb + i] : 0;
+#pragma unroll
+        for (int i = 0; i < 8; ++i)
+            cp[i] = (live && i < count) ? c0cp[slot[i] >> 2].y : 0;
+#pragma unroll
+        for (int i = 0; i < 8; ++i)
+            if (i < count)
+                vp_record(slot[i], __int_as_float(cp[i]), live, a, quad, aero);
+    }
+}
+
 extern "C" __global__ void __launch_bounds__(128)
     sos_vprod(const int *blk, const int *vis_rbeg, const int *vis_ray, const int *rec_slot,
               const int2 *c0cp, const float *yb, const float *src_sh, const float *hr,
@@ -2908,23 +3186,15 @@ extern "C" __global__ void __launch_bounds__(128)
     const int tid = threadIdx.x, vl = tid >> 2, q = tid & 3, lane = tid & 31, wp = tid >> 5,
               nwp = (int)blockDim.x >> 5;
     bool live = true;
-#ifdef SKIP_ACTIVE
-    {
+    if constexpr (TransportPolicy::thin_layers) {
         const int ir = cell / nc;
         if (nh <= 64 && ir < 64) {
             const float r = hr[ir];
             live = (ha[ir] > SKIP_TAU * r) || (st_density[ir] > SKIP_TAU * r);
         }
     }
-#endif
     if (live) {
-        float *cf = (float *)
-            vp_c; // pair (w=2pr, 2pr+1) of k: warm_sh_pair's float2 at (cell*((FW+1)/2)+pr)*KPAD+k
-        const float2 *cs = (const float2 *)src_sh + (int64_t)cell * ((FW + 1) / 2) * KPAD;
-        for (int i = tid; i < 8 * K; i += blockDim.x) {
-            const int pr = i / K, k = i - pr * K;
-            vp_copy8((float2 *)(cf + k * 16 + 2 * pr), cs + pr * KPAD + k);
-        }
+        vp_load_coefficients(vp_c, src_sh, cell, tid);
         if (v0 < v1)
             vp_fill(vp_y, yb, vis_ray, v0, min(VP_TILE, v1 - v0), lane, wp, nwp);
     }
@@ -2939,53 +3209,15 @@ extern "C" __global__ void __launch_bounds__(128)
         if (vl < nv) {
             r0 = vis_rbeg[v];
             r1 = vis_rbeg[v + 1];
-#pragma unroll
-            for (int m = 0; m <= SH_L; m++) {
-                a[m][0] = 0.f;
-                a[m][1] = 0.f;
-                a[m][2] = 0.f;
-                a[m][3] = 0.f;
-            }
-            if (live) {
-                const float *yv = vp_y + vl * K;
-#pragma unroll
-                for (int l = 0; l <= SH_L; l++) {
-#pragma unroll
-                    for (int m = 0; m <= l; m++) {
-                        const int k = ix(l, m);
-                        const float y = yv[k];
-                        const float4 c = vp_c[k * 4 + q];
-                        a[m][0] += y * c.x;
-                        a[m][1] += y * c.y;
-                        a[m][2] += y * c.z;
-                        a[m][3] += y * c.w;
-                    }
-                }
-            }
+            vp_contract(vp_c, vp_y + vl * K, q, live, a);
         }
         __syncthreads(); // vp_y is free: the next tile's rows load while this tile's records are
                          // written
         if (live && tb + VP_TILE < v1)
             vp_fill(vp_y, yb, vis_ray, tb + VP_TILE, min(VP_TILE, v1 - tb - VP_TILE), lane, wp,
                     nwp);
-        if (vl < nv) {
-            // Records in batches of 8: the 8 slots, then the 8 cp words, are independent loads in
-            // flight together rather than following a slot->cp->next-slot dependency chain.
-            for (int rb = r0; rb < r1; rb += 8) {
-                const int nb = min(8, r1 - rb);
-                int sl[8], cw[8];
-#pragma unroll
-                for (int i = 0; i < 8; i++)
-                    sl[i] = i < nb ? rec_slot[rb + i] : 0;
-#pragma unroll
-                for (int i = 0; i < 8; i++)
-                    cw[i] = (live && i < nb) ? c0cp[sl[i] >> 2].y : 0;
-#pragma unroll
-                for (int i = 0; i < 8; i++)
-                    if (i < nb)
-                        vp_record(sl[i], __int_as_float(cw[i]), live, a, q, aero);
-            }
-        }
+        if (vl < nv)
+            vp_publish_records(r0, r1, live, rec_slot, c0cp, a, q, aero);
     }
     if (live && v0 >= v1)
         vp_copy_wait(); // no tile: the C-plane copies still complete before exit
@@ -3051,18 +3283,7 @@ extern "C" __global__ void __launch_bounds__(SP_THREADS)
                 y[r][k] = (s >= 0 && s < K) ? yb[(rb + r - ray_base) * K + s] : 0.f;
             }
             __syncthreads();
-            for (int i = tid; i < nr * TW; i += SP_THREADS) {
-                const int r = i / TW, w = i % TW;
-                const float *rr = ray_rads + (rb + r - ray_base) * 4 * TW + 4 * w;
-                const float wt = weights[rb + r];
-                const float r0 = rr[0], r1 = rr[1], r2 = rr[2], r3 = rr[3], tr = (r0 + r1) + r2;
-                rad[r][w] = r0 * wt;
-                rad[r][TW + w] = r1 * wt;
-                rad[r][2 * TW + w] = r2 * wt;
-                rad[r][3 * TW + w] = r3 * wt;
-                rad[r][4 * TW + w] = tr * wt;
-                rad[r][5 * TW + w] = tr * wg[r];
-            }
+            projection_radiance<SP_THREADS>(tid, nr, rb, ray_base, ray_rads, weights, wg, rad);
             __syncthreads();
             float sum[SP_WAVES] = {};
             if (isM || isF)

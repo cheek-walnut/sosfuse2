@@ -34,6 +34,11 @@ double sqrt(double);double fmin(double,double);double fmax(double,double);
 #define __noinline__
 struct Dim { int x,y,z; };extern Dim blockIdx,threadIdx,blockDim;
 struct float2 { float x,y; };
+#define __align__(n) alignas(n)
+struct alignas(16) float4 { float x,y,z,w; };
+struct alignas(16) int4 { int x,y,z,w; };
+inline float4 make_float4(float x,float y,float z,float w){return {x,y,z,w};}
+float hypotf(float,float);
 inline void __syncwarp(){} inline void __syncthreads(){}
 inline void __trap(){}   // kernel.cu: sos_fused traps at entry without LANE_ATTEN (task B Simpson prefix)
 inline unsigned __ballot_sync(unsigned,bool){return 0;}

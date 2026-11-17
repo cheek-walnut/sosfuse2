@@ -70,14 +70,34 @@ def test_lower_source_syntax(tmp_path, L):
     for combine in (False, True):
         code = tmp_path / 'lower.cpp'
         code.write_text(kernel_source(L, combine=combine))
-        if L < 32:  # no m=32 coefficient below L32: the y[560] loads are preprocessed out
-            pre = subprocess.run(
-                ['clang++', '-E', '-P', '-x', 'c++', '-std=c++17', *defines(15, flags, (0, 0, 1)), str(code)],
-                capture_output=True,
-                text=True,
-            )
-            assert pre.returncode == 0, pre.stderr
-            assert 'y[560]' not in pre.stdout
+        # The m=32 output must be constant zero below L32. Check compiler
+        # elimination, which applies to both preprocessor and constexpr guards.
+        # Cache outputs are deliberately unobserved so only m=32 remains live.
+        probe = tmp_path / 'm32.cpp'
+        probe.write_text(code.read_text() + r'''
+extern "C" float m32_probe(const float *y, const float *coeff) {
+    Sample s{};
+    float cache[4][TW], scache[4][TW];
+    int tags[4];
+    contract_corner(s, cache, scache, tags, y, coeff, 0, 0, 0, 1, true, true);
+    return s.c32[0][0] + s.st_c32[0][0];
+}
+''')
+        compiled = subprocess.run(
+            ['clang++', '-S', '-emit-llvm', '-O2', '-std=c++17', '-x', 'c++',
+             '-include', str(stub), *defines(15, flags, (0, 0, 1)), str(probe), '-o', '-'],
+            capture_output=True, text=True,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        import re
+
+        body = re.search(r'define[^\n]*@m32_probe\([^)]*\)[^{]*\{(.*?)^}',
+                         compiled.stdout, re.DOTALL | re.MULTILINE).group(1)
+        if L < 32:
+            assert not re.search(r'\bload\b', body), body
+            assert re.search(r'ret float 0\.0+e\+00', body), body
+        else:  # Positive control: the L32 coefficient actually reads the input.
+            assert re.search(r'\bload\b', body), body
         for spec in ((1, 0, 0), (0, 0, 1), (0, 1, 0), (0, 2, 0)):
             result = subprocess.run(
                 [

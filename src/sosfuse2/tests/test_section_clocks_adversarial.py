@@ -449,6 +449,17 @@ class IndependentEvidence(unittest.TestCase):
         source = paths.KERNEL_CU.read_text()
 
         def without_clocks(code):
+            # Policy declarations are data, not observer code. Keep the independently
+            # specified disabled value while removing the actual instrumentation.
+            policy = (
+                '#ifdef EXP_SECTION_CLOCKS\n'
+                '    static constexpr bool clocks = true;\n'
+                '#else\n'
+                '    static constexpr bool clocks = false;\n'
+                '#endif'
+            )
+            self.assertEqual(code.count(policy), 1)
+            code = code.replace(policy, '    static constexpr bool clocks = false;')
             lines = code.splitlines(keepends=True)
             kept = []
             depth = 0

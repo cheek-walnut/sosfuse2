@@ -25,7 +25,7 @@ def test_native_support_and_profiles(tmp_path, domain, layers):
     """Run the actual C++ functions at both support ends and their neighboring floats."""
     testkit.require_tool('clang++')
     source = paths.KERNEL_CU.read_text()
-    excerpt = source[source.index('struct DS {') : source.index('__device__ int ix(')]
+    excerpt = source[source.index('struct ProfilePolicy {') : source.index('__device__ int ix(')]
     excerpt += source[source.index('struct ProfileParams {') : source.index('#define POINT_INLINE')]
     wrapper = r'''
 extern "C" void profiles(float h, const float *table, const float *aer2, int mask, float *out) {
@@ -130,17 +130,7 @@ def test_split_role_syntax(tmp_path, domain, order):
     """Exercise each point representation, path precision, and output role."""
     testkit.require_tool('clang++')
     stub = tmp_path / 'stub.h'
-    stub.write_text(
-        STUB
-        + SYNTAX_STUB_EXTRA
-        + r"""
-float hypotf(float, float);
-#define __align__(n) alignas(n)
-struct alignas(16) float4 { float x, y, z, w; };
-struct alignas(16) int4 { int x, y, z, w; };
-inline float4 make_float4(float x, float y, float z, float w) { return {x, y, z, w}; }
-"""
-    )
+    stub.write_text(STUB + SYNTAX_STUB_EXTRA)
     variants = [
         (1, ('AEROSOL_2L',), (1, 2, 1)),
         (15, ('STRATO', 'AEROSOL_2L'), (1, 0, 1)),

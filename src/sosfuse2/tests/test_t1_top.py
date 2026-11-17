@@ -135,7 +135,7 @@ def test_native_profiles_and_one_sided_simpson(tmp_path, air):
     if not compiler:
         pytest.skip('C++ compiler unavailable; NumPy support and Simpson checks above executed')
     src = paths.KERNEL_CU.read_text()
-    excerpt = src[src.index('struct DS {'):src.index('__device__ int ix(')]
+    excerpt = src[src.index('struct ProfilePolicy {'):src.index('__device__ int ix(')]
     excerpt += src[src.index('struct ProfileParams {'):src.index('#define POINT_INLINE')]
     cpp = tmp_path / 'profile.cpp'
     cpp.write_text('#include <cmath>\n#include <algorithm>\n#define __device__\n#define __forceinline__ inline\n'

@@ -280,45 +280,39 @@ class KernelFlagsParse(unittest.TestCase):
     def test_production_and_new_flags_parse(self):
         _, rows = token_digest(HERE / 'backends/kernel.cu')
         self.assertEqual(len(rows), 56)  # four physical sets x FW1/FW15 x six roles + ray-limit
-        # Each r17 macro changes the token stream (it is reachable) and still passes a host syntax check.
+        # Host C++ must declare every CUDA builtin visible during template
+        # parsing, including methods discarded by a selected transport policy.
         from sosfuse2.tests.test_kernel_static import STUB
+        from sosfuse2.tests.test_tropo_mie import SYNTAX_STUB_EXTRA
 
         stub = Path(tempfile.mkdtemp(prefix='r17-stub-'))
         self.addCleanup(shutil.rmtree, stub, ignore_errors=True)
         (stub / 'stub.h').write_text(
-            STUB + 'float __expf(float);float __sinf(float);float __cosf(float);\n'
-            'template<class T>T __shfl_xor_sync(unsigned,T v,int){return v;}\n'
+            STUB + SYNTAX_STUB_EXTRA + 'float __expf(float);float __sinf(float);float __cosf(float);\n'
         )
-        base = [f'-D{f}' for f in sorted(flag_sets()['c3_nostrato'])] + [
-            '-DFW=15',
-            '-DK_FIRST=0',
-            '-DK_PHASE=0',
-            '-DK_BOUNDARY=0',
-        ]
-        plain = subprocess.check_output(['clang++', '-E', '-P', '-x', 'c++', *base, str(HERE / 'backends/kernel.cu')], text=True)
-        for name in ('SOSFUSE2_FASTMATH',):
-            on = subprocess.check_output(
-                ['clang++', '-E', '-P', '-x', 'c++', *base, '-D' + name, str(HERE / 'backends/kernel.cu')], text=True
+        failures = []
+        for label, base in cases():
+            plain = subprocess.check_output(
+                ['clang++', '-E', '-P', '-x', 'c++', *base, str(HERE / 'backends/kernel.cu')], text=True
             )
-            self.assertNotEqual(on, plain, name)
-            result = subprocess.run(
-                [
-                    'clang++',
-                    '-std=c++17',
-                    '-ffp-contract=off',
-                    '-fsyntax-only',
-                    '-x',
-                    'c++',
-                    '-include',
-                    str(stub / 'stub.h'),
-                    *base,
-                    '-D' + name,
-                    str(HERE / 'backends/kernel.cu'),
-                ],
-                capture_output=True,
-                text=True,
+            fast = subprocess.check_output(
+                ['clang++', '-E', '-P', '-x', 'c++', *base, '-DSOSFUSE2_FASTMATH',
+                 str(HERE / 'backends/kernel.cu')], text=True
             )
-            self.assertEqual(result.returncode, 0, (name, result.stderr[-2000:]))
+            self.assertNotEqual(fast, plain, label)
+            for mode in ([], ['-DSOSFUSE2_FASTMATH']):
+                result = subprocess.run(
+                    [
+                        'clang++', '-std=c++17', '-ffp-contract=off', '-fsyntax-only',
+                        '-x', 'c++', '-include', str(stub / 'stub.h'),
+                        *base, *mode, str(HERE / 'backends/kernel.cu'),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode:
+                    failures.append((label, mode, result.stderr))
+        self.assertEqual(failures, [], failures)
 
 
 class FakeRawKernel:
