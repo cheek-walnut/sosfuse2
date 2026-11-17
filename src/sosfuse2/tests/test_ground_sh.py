@@ -3,7 +3,6 @@
 from sosfuse2.foundation import paths
 import numpy as np
 import pytest
-from sosfuse2.checks import testkit
 from sosfuse2.solve.ground_sh import configured_order, lut_eigenvalues, project, real_basis
 
 from sosfuse2.checks.numerical_checks import assert_equivalent
@@ -190,54 +189,45 @@ def test_angular_cache_shared_across_quadratures_but_not_states(monkeypatch):
     assert_equivalent(one, three)
 
 
-def test_disabled_ground_sh_preserves_ground_convolution_tokens(tmp_path):
-    testkit.require_tool('clang++')
-    import json
-    import re
-    import subprocess
-    from pathlib import Path
-    from unittest.mock import patch
-    from sosfuse2.backends import sh_layout
+# Phase 0 selects either Y or ground scratch; phase 2 always borrows Y.
+GROUND_CASES = [(waves, phase, clocks, mie)
+                for waves in (1, 15)
+                for phase, clocks in ((0, False), (0, True), (2, False))
+                for mie in (False, True)]
 
-    here = paths.PKG  # kernel.cu and configs/ live in the package directory
-    flags = json.loads((here / 'backends/configs/C3.json').read_text())['kernel_flags'] + ['PROFILE', 'STRATO']
-    try:  # HEAD's kernel.cu of whichever checkout holds the package (sky-sos monorepo or the public repo)
-        prefix = subprocess.check_output(
-            ['git', '-C', str(here), 'rev-parse', '--show-prefix'], text=True, stderr=subprocess.DEVNULL
-        ).strip()
-        before = subprocess.check_output(
-            ['git', '-C', str(here), 'show', f'HEAD:{prefix}backends/kernel.cu'], text=True, stderr=subprocess.DEVNULL
-        )
-    except (OSError, subprocess.CalledProcessError):
-        pytest.skip('kernel.cu HEAD baseline needs a git checkout of the package')
-    with patch.object(sh_layout.Path, 'read_text', return_value=before):
-        previous = sh_layout.kernel_source(16)
-    files = [tmp_path / 'before.cu', tmp_path / 'after.cu']
-    for p, code in zip(files, [previous, sh_layout.kernel_source(16)]):
-        p.write_text(code)
-    for phase in (0, 2):
-        opts = ['-DFW=15', '-DK_FIRST=1', f'-DK_PHASE={phase}', '-DK_BOUNDARY=0'] + ['-D' + f for f in flags]
-        tokens = [
-            re.findall(
-                r'\w+|[^\s\w]', subprocess.check_output(['clang++', '-E', '-P', '-x', 'c++', *opts, str(p)], text=True)
-            )
-            for p in files
-        ]
 
-        # The numerical tolerance permits unrelated first-light arithmetic/layout
-        # changes. This test guards the disabled ground-SH path, not all HEAD tokens.
-        def convolution(t):
-            assert 'ground_sh_sums' not in t
-            assert t.count('gf_sums') == 2  # definition and the direct-convolution call
-            start = t.index('gf_sums')
-            opening = t.index('{', start)
-            depth = 1
-            end = opening + 1
-            while depth:
-                depth += (t[end] == '{') - (t[end] == '}')
-                end += 1
-            call = t.index('gf_sums', end)
-            close = t.index(';', call)
-            return t[start:end], t[call:close]
+@pytest.mark.parametrize('waves,phase,clocks,mie', GROUND_CASES)
+def test_disabled_ground_sh_preserves_direct_convolution(tmp_path, waves, phase, clocks, mie):
+    """Disabled SH keeps the direct result and cannot reference SH-only code."""
+    from sosfuse2.tests.ground_native import check_ground
 
-        assert convolution(tokens[0]) == convolution(tokens[1])
+    check_ground(tmp_path, waves, phase, clocks, mie)
+
+
+@pytest.mark.parametrize('mutation', ['arithmetic', 'inactive_sh'])
+def test_disabled_ground_sh_check_rejects_mutation(tmp_path, mutation):
+    from sosfuse2.tests.ground_native import check_ground
+
+    source = paths.KERNEL_CU.read_text()
+    if mutation == 'arithmetic':
+        old = 'accw += (swc * gph[k + q]) * g[q];'
+        assert source.count(old) == 1
+        source = source.replace(old, 'accw += 1.02f * (swc * gph[k + q]) * g[q];')
+        expected = 'E_GROUND_RESULT'
+    else:
+        start = source.index('void fused_ground(')
+        offset = source.index('float accw = 0.f, st_acc = 0.f;', start)
+        offset += len('float accw = 0.f, st_acc = 0.f;')
+        source = source[:offset] + '\n        ground_sh_sums(s, lane, goff, gdir, gval, accw, st_acc);' + source[offset:]
+        expected = 'E_GROUND_LINK'
+    mutant = tmp_path / 'mutant.cu'
+    mutant.write_text(source)
+    with pytest.raises(AssertionError, match=expected) as caught:
+        check_ground(tmp_path, 15, 0, False, False, kernel=mutant)
+    reason = str(caught.value)
+    if mutation == 'inactive_sh':
+        assert 'forbidden_ground_sh_sums' in reason
+        assert 'Undefined symbols' in reason or 'undefined reference' in reason
+    else:
+        assert 'relative=' in reason
+    (tmp_path / 'mutation.txt').write_text(reason)

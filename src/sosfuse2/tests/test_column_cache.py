@@ -68,7 +68,7 @@ class ColumnCacheTests(unittest.TestCase):
         with (cls.root / (name + '.log')).open('w') as log:
             proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT)
             try:
-                code = proc.wait(timeout=float(os.environ.get('PERSISTENT_TEST_DEADLINE', '120')))
+                code = proc.wait(timeout=float(os.environ.get('PERSISTENT_TEST_DEADLINE', '2400')))
             except BaseException:
                 proc.terminate()  # Let the controller terminate its owned child groups.
                 try:

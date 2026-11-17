@@ -1169,16 +1169,11 @@ __device__ __forceinline__ void ground_sh_sums(const Sample &s, int lane, const 
 }
 #endif
 
-#ifdef GF_ON
 // Fused tropo+strato ground sums of one sample (GROUND_FUSED); scratch gph >= 32 floats + 66 int2.
 __device__ __forceinline__ void gf_sums(const Sample &s, int lane, float *gph, const int64_t *goff,
                                         const float *gdir, const float *gval, const float *st_chi,
-                                        float aerosol_g, float &accw,
-                                        float &st_acc
-#ifdef TROPO_MIE
-                                        , const float *tr_lut
-#endif
-                                        ) {
+                                        float aerosol_g, float &accw, float &st_acc,
+                                        const float *tr_lut) {
     const int w = lane & 15;
     const float pmu = s.mu, pexd = s.exd, paey = fabsf(s.eyd);
     int2 *gl = (int2 *)(((unsigned long long)(gph + 32) + 7ull) &
@@ -1206,9 +1201,7 @@ __device__ __forceinline__ void gf_sums(const Sample &s, int lane, float *gph, c
             int k = 0;
             for (; k + GFG <= count; k += GFG) {
                 float a[GFG], b[GFG], f[GFG], g[GFG];
-#ifdef TROPO_MIE
                 float ta[GFG], tb[GFG];
-#endif
                 _Pragma("unroll") for (int q = 0; q < GFG; q++) {
                     const int2 e = gs[k + q];
                     f[q] = __int_as_float(e.y);
@@ -1219,14 +1212,14 @@ __device__ __forceinline__ void gf_sums(const Sample &s, int lane, float *gph, c
                         a[q] = st_chi[(33 + e.x) * FW + GW(w)];
                         b[q] = st_chi[(34 + e.x) * FW + GW(w)];
                     }
-#ifdef TROPO_MIE
-                    ta[q] = 0.f;
-                    tb[q] = 0.f;
-                    if (w < TW) {
-                        ta[q] = tr_lut[e.x * FW + GW(w)];
-                        tb[q] = tr_lut[(e.x + 1) * FW + GW(w)];
+                    if constexpr (TransportPolicy::tropo_mie) {
+                        ta[q] = 0.f;
+                        tb[q] = 0.f;
+                        if (w < TW) {
+                            ta[q] = tr_lut[e.x * FW + GW(w)];
+                            tb[q] = tr_lut[(e.x + 1) * FW + GW(w)];
+                        }
                     }
-#endif
                     if (lane < TW)
                         g[q] = gq[(k + q) * FW];
                 }
@@ -1235,27 +1228,26 @@ __device__ __forceinline__ void gf_sums(const Sample &s, int lane, float *gph, c
                     if (w < TW)
                         paired = a[q] + f[q] * (b[q] - a[q]);
                     float minus = __shfl_down_sync(0xffffffff, paired, 16);
-#ifdef TROPO_MIE
-                    // Same node index and fraction as the strato LUT
-                    // (TROPO_LUT_BINS==STRATO_LUT_BINS): = tropo_phase(up/um).
-                    float tpaired = 0.f;
-                    if (w < TW)
-                        tpaired = ta[q] + f[q] * (tb[q] - ta[q]);
-                    float tminus = __shfl_down_sync(0xffffffff, tpaired, 16);
-                    if (lane < TW) {
-                        accw += (swc * ((tpaired + tminus) / 2.f)) * g[q];
-                        float ph = (paired + minus) / 2.f;
-                        st_acc += (swc * ph) * g[q];
+                    if constexpr (TransportPolicy::tropo_mie) {
+                        // Same node index and fraction as the strato LUT
+                        // (TROPO_LUT_BINS==STRATO_LUT_BINS): = tropo_phase(up/um).
+                        float tpaired = 0.f;
+                        if (w < TW)
+                            tpaired = ta[q] + f[q] * (tb[q] - ta[q]);
+                        float tminus = __shfl_down_sync(0xffffffff, tpaired, 16);
+                        if (lane < TW) {
+                            accw += (swc * ((tpaired + tminus) / 2.f)) * g[q];
+                            float ph = (paired + minus) / 2.f;
+                            st_acc += (swc * ph) * g[q];
+                        }
+                    } else {
+                        if (lane < TW) {
+                            accw += (swc * gph[k + q]) * g[q];
+                            float ph = (paired + minus) / 2.f;
+                            st_acc += (swc * ph) * g[q];
+                        }
                     }
                 }
-#else
-                    if (lane < TW) {
-                        accw += (swc * gph[k + q]) * g[q];
-                        float ph = (paired + minus) / 2.f;
-                        st_acc += (swc * ph) * g[q];
-                    }
-                }
-#endif
             }
             for (; k < count; k++) {
                 const int2 e = gs[k];
@@ -1269,33 +1261,31 @@ __device__ __forceinline__ void gf_sums(const Sample &s, int lane, float *gph, c
                 if (lane < TW)
                     gk = gq[k * FW];
                 float minus = __shfl_down_sync(0xffffffff, paired, 16);
-#ifdef TROPO_MIE
-                float tpaired = 0.f;
-                if (w < TW) {
-                    const float tak = tr_lut[e.x * FW + GW(w)],
-                                tbk = tr_lut[(e.x + 1) * FW + GW(w)];
-                    tpaired = tak + fk * (tbk - tak);
-                }
-                float tminus = __shfl_down_sync(0xffffffff, tpaired, 16);
-                if (lane < TW) {
-                    accw += (swc * ((tpaired + tminus) / 2.f)) * gk;
-                    float ph = (paired + minus) / 2.f;
-                    st_acc += (swc * ph) * gk;
+                if constexpr (TransportPolicy::tropo_mie) {
+                    float tpaired = 0.f;
+                    if (w < TW) {
+                        const float tak = tr_lut[e.x * FW + GW(w)],
+                                    tbk = tr_lut[(e.x + 1) * FW + GW(w)];
+                        tpaired = tak + fk * (tbk - tak);
+                    }
+                    float tminus = __shfl_down_sync(0xffffffff, tpaired, 16);
+                    if (lane < TW) {
+                        accw += (swc * ((tpaired + tminus) / 2.f)) * gk;
+                        float ph = (paired + minus) / 2.f;
+                        st_acc += (swc * ph) * gk;
+                    }
+                } else {
+                    if (lane < TW) {
+                        accw += (swc * gph[k]) * gk;
+                        float ph = (paired + minus) / 2.f;
+                        st_acc += (swc * ph) * gk;
+                    }
                 }
             }
-#else
-                if (lane < TW) {
-                    accw += (swc * gph[k]) * gk;
-                    float ph = (paired + minus) / 2.f;
-                    st_acc += (swc * ph) * gk;
-                }
-            }
-#endif
             __syncwarp();
         }
     }
 }
-#endif
 
 template <bool Condition, class Then, class Else> struct SelectType {
     using type = Then;
@@ -1636,29 +1626,24 @@ template <class Record> struct Transport : TransportInputs {
         __syncwarp();
     }
     __device__ __forceinline__ void fused_ground(Record &s, float *y) {
-#ifdef GF_ON
         float accw = 0.f, st_acc = 0.f;
-#ifdef GROUND_SH_L
-        ground_sh_sums(s, lane, goff, gdir, gval, accw, st_acc);
-#else
-#if defined(FL_SPLIT_ON) || K_PHASE == 2
-        // Ray splitting and phase 2 have no in-ray projection, so ground
-        // convolution can borrow the warp's Y row.
-        gf_sums(s, lane, y, goff, gdir, gval, st_chi, aerosol_g, accw, st_acc
-#else
-        gf_sums(s, lane, ground_phase, goff, gdir, gval, st_chi, aerosol_g, accw, st_acc
-#endif
-#ifdef TROPO_MIE
-                , asca + FW
-#endif
-        );
-#endif
+        if constexpr (TransportPolicy::ground_sh) {
+            ground_sh_sums(s, lane, goff, gdir, gval, accw, st_acc);
+        } else {
+            if constexpr (TransportPolicy::split_rays || K_PHASE == 2) {
+                // FL_RAYSPLIT projects after the ray; phase 2 has no projection. Both
+                // can borrow the warp's Y row.
+                gf_sums(s, lane, y, goff, gdir, gval, st_chi, aerosol_g, accw, st_acc, asca + FW);
+            } else {
+                gf_sums(s, lane, ground_phase, goff, gdir, gval, st_chi, aerosol_g, accw, st_acc,
+                        asca + FW);
+            }
+        }
         if (lane < TW) {
             s.c32[0][lane] = accw;
             s.st_c32[0][lane] = st_acc;
         }
         __syncwarp();
-#endif
     }
     __device__ __forceinline__ void first_light_ground(Record &s, float *y) {
         if (first) {
