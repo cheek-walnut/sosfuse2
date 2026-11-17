@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from ..foundation import content_identity as source_identity, paths
+from ..foundation.top import TOP_KM, NORMALIZATION_TOP_KM
 
 DEFAULT = paths.ASSETS / 'strato_sulfate_rg0.08_sg1.6_n1.43.json'
 # State parameters the attach geometry never reads (_geometry_key, run_state.attach_lock_name): optics
@@ -43,16 +44,16 @@ def profile_config(state):
         raise ValueError('E_STRATO_PROFILE_PARAMETERS') from e
     if not np.isfinite([center, sigma]).all():
         raise ValueError('E_STRATO_PROFILE_PARAMETERS')
-    if sigma < 1 or not 0 <= center <= 80:
+    if sigma < 1 or not 0 <= center <= NORMALIZATION_TOP_KM:
         raise ValueError('E_STRATO_PROFILE_UNSUPPORTED')
     # Fixed trapezoid plus resolution derived from sigma; numerical normalization.
-    resolution = 80 / sigma * 40
+    resolution = NORMALIZATION_TOP_KM / sigma * 40
     if not np.isfinite(resolution) or resolution > 1_000_000:
         raise ValueError('E_STRATO_PROFILE_RESOLUTION')
-    count = max(8001, int(math.ceil(resolution)) + 1)
+    count = max(int(NORMALIZATION_TOP_KM * 100) + 1, int(math.ceil(resolution)) + 1)
     if count > 1_000_001:
         raise ValueError('E_STRATO_PROFILE_RESOLUTION')
-    z = np.linspace(0, 80, count)
+    z = np.linspace(0, NORMALIZATION_TOP_KM, count)
     raw = np.exp(-0.5 * ((z - center) / sigma) ** 2)
     norm = float(np.trapezoid(raw, z))
     return dict(center=center, sigma=sigma, norm=norm, normalization_nodes=count)
@@ -283,7 +284,7 @@ def solar_grid(s, old, profile):
 
 
 def sun_lookup(q, r, sun, grid):
-    h = np.clip(r - 6371.0, 0, 80)
+    h = np.clip(r - 6371.0, 0, TOP_KM)
     mu = q[..., 2] / r
     mg = -np.sqrt(np.maximum(0, 1 - (6371.0 / np.maximum(r, 6371.0)) ** 2))
     x = np.sqrt(np.clip((mu - mg) / (1 - mg), 0, 1))
@@ -316,6 +317,7 @@ def _geometry_key(s, scope, profile):
     # the code that computes col/st/geom, so an edit to it cannot reuse a stale npz.
     here = paths.PKG
     for name in (
+        'foundation/top.py',
         'atmosphere/stratosphere.py',
         'precompute/ground_parallel.py',
         'rays/ray_columns.py',

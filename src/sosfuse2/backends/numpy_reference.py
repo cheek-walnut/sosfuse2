@@ -7,6 +7,7 @@ import math
 import platform
 import numpy as np
 from ..atmosphere.components import NCOMP
+from ..foundation.top import TOP_KM
 from .sh_layout import count, combined_coefficients
 from .arithmetic import F, R, split, add, sub, neg, mul, root, divide, quotient, rounded, basis, cosine, warp_sum, kahan
 
@@ -150,8 +151,8 @@ def path_point(pp, dd, t):
 
 
 def path_height(rr):
-    """FP32 height above the surface from the DS radius, clipped to [0, 80] km (kernel.cu path_h)."""
-    return np.clip(rounded(sub(rr, (R, F(0)))), F(0), F(80))
+    """FP32 height above the surface, clipped to the calculation boundary (kernel.cu path_h)."""
+    return np.clip(rounded(sub(rr, (R, F(0)))), F(0), F(TOP_KM))
 
 
 def profile_at(h, c):
@@ -389,7 +390,7 @@ def strato_profile(h, c):
 
 
 def sun_columns(q, c):
-    hh = np.clip(q['h'], F(0), F(80))
+    hh = np.clip(q['h'], F(0), F(TOP_KM))
     height = sub(q['r_DS'], (R, F(0)))
     height = tuple(np.where(ftz_value(height) > F(0), x, F(0)) for x in height)
     rad = add((R, F(0)), height)

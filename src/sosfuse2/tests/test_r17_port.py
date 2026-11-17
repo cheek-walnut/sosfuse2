@@ -358,7 +358,8 @@ class Stage1Wiring(unittest.TestCase):
     def test_rig_s2_options_keys_override_fl_project(self):
         exact = ('--fmad=false', '--prec-div=true', '--prec-sqrt=true')
         s2 = ('--fmad=true', '--prec-div=false', '--prec-sqrt=false')
-        base = lambda k: (tuple(k.flags), 15, 15, 0, 0, 0, ('L', k.L))
+        grid = lambda k: (('PROFILE_N', k.profile_n), ('TOP_KM', 80.0), ('PROFILE_STEP', k.profile_step_km))
+        base = lambda k: (tuple(k.flags), 15, 15, 0, 0, 0, ('L', k.L), *grid(k))
         # split profile: the exact pre-r17 options and key.
         split = self.kernel('split')
         with patch.dict(os.environ, {}, clear=True):
@@ -391,7 +392,7 @@ class Stage1Wiring(unittest.TestCase):
             with patch.dict(os.environ, env, clear=True):
                 first = rig.raw_kernel(15, 1, 0, 0, ray_limit=True)
                 project = rig.fl_project_kernel(15, 0)
-            key = (tuple(rig.flags), 15, 15, 1, 0, 0, ('L', rig.L), 'LAUNCH_RAY_LIMIT')
+            key = (tuple(rig.flags), 15, 15, 1, 0, 0, ('L', rig.L), *grid(rig), 'LAUNCH_RAY_LIMIT')
             key = (key, stage1) if stage1 else key
             self.assertIs(rig.raw[key], first)
             self.assertIs(rig.raw[key + ('fl_project',)], project)

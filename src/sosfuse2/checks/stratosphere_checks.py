@@ -4,6 +4,7 @@
 import argparse, copy, hashlib, json, os, sys, time
 from pathlib import Path
 import numpy as np
+from ..foundation.top import TOP_KM, NORMALIZATION_TOP_KM
 from sosfuse2.backends import numpy_reference
 from sosfuse2.checks.numerical_checks import within_tol
 from sosfuse2.solve.ray_geometry import create, normal_state, TransientGeometry
@@ -57,7 +58,7 @@ def independent_first(g, optics, n=16001):
     den = np.exp(-0.5 * ((h - prof['center']) / prof['sigma']) ** 2) / prof['norm']
     dt = t[1] - t[0]
     prefix = np.r_[0.0, np.cumsum((den[:-1] + den[1:]) * dt / 2)]
-    end = np.sqrt(np.maximum(0, (6451.0) ** 2 - q[:, 0] ** 2 - q[:, 1] ** 2)) - q[:, 2]
+    end = np.sqrt(np.maximum(0, (6371.0 + TOP_KM) ** 2 - q[:, 0] ** 2 - q[:, 1] ** 2)) - q[:, 2]
     mg = -np.sqrt(np.maximum(0, 1 - (6371.0 / np.linalg.norm(q, axis=1)) ** 2))
     lit = q[:, 2] / np.linalg.norm(q, axis=1) >= mg
     u, w = np.polynomial.legendre.leggauss(128)
@@ -176,8 +177,8 @@ def energy():
     st = copy.deepcopy(normal_state())
     st['stratosphere']['status'] = 'enabled'
     st['parameters']['stratosphere_tau550'] = 0.03
-    opt = build_optics(st, np.linspace(0, 80, 8001), [550.0])
-    z = np.linspace(0, 80, 8001)
+    opt = build_optics(st, np.linspace(0, NORMALIZATION_TOP_KM, 8001), [550.0])
+    z = np.linspace(0, NORMALIZATION_TOP_KM, 8001)
     absorb = float(np.trapezoid((opt['beta_e'] - opt['beta_s'])[:, 0], z))
     mu, w = np.polynomial.legendre.leggauss(128)
     norm = float(w @ np.polynomial.legendre.legval(mu, opt['chi'][:, 0]) / 2)
@@ -196,7 +197,7 @@ def profile_grid(scope):
     state = copy.deepcopy(normal_state())
     state['stratosphere']['status'] = 'enabled'
     state['parameters']['stratosphere_tau550'] = 0.003
-    fine = np.linspace(0, 80, 160001)
+    fine = np.linspace(0, NORMALIZATION_TOP_KM, 160001)
     rows = []
     for nodes in (h, np.sort(np.r_[h, (h[:-1] + h[1:]) / 2])):
         opt = build_optics(state, nodes, [550.0])

@@ -523,6 +523,7 @@ def test_lut_launch_only():
     k.xp = SimpleNamespace(empty=np.empty, RawKernel=Raw)
     k.flags = ('STRATO',)
     k.deterministic = True
+    k.profile_step_km = 0.5
     k.metrics = {}
     coeff = np.ones((33, 15), 'f4')
     out = k.strato_lut_device(coeff, 15)

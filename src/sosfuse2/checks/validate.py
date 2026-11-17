@@ -15,6 +15,7 @@ from ..solve.ray_geometry import create, TransientGeometry, normal_state
 from ..atmosphere.density import LEGACY as DENSITY_LEGACY
 from ..backends import arithmetic as a
 from ..foundation import paths
+from ..foundation.top import TOP_KM
 from ..backends import numpy_reference
 from ..foundation.timers import TIMERS
 
@@ -159,7 +160,7 @@ def original_kernel(output):
 def cases():
     result = {}
     # Coordinate cancellation at Earth radius and nearly tangent paths.
-    x = np.array([6371.0 + 0.000001, 6371.0 + 0.1, 6371.0 + 80.0])
+    x = np.array([6371.0 + 0.000001, 6371.0 + 0.1, 6371.0 + TOP_KM])
     height = a.rounded(a.sub(a.split(x), (a.R, a.F(0))))
     error = float(np.max(abs(height - (x - 6371.0))))
     p = np.array([[6371.1, 0.0, 0.0]])

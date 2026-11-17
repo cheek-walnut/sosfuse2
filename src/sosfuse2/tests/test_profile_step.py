@@ -6,13 +6,13 @@ Eight groups:
   (d) injected q_eff used as given, 0.125 state round trip through effective_state/build/signature, S1 adapter
   (e) endpoint columns vs an independent knot-split GL integral (vertical, off-grid tangent, short)
   (f) Simpson prefix: constant/linear/triangle exact, kinked profile converges with more nodes
-  (g) one RawKernel key rule, -DPROFILE_N only off 161, shared raw dict 161->641->161, consumption check without setup,
+  (g) one RawKernel key rule, grid defines, shared raw dict 161->641->161, consumption check without setup,
       payload/promotion, precompile --profile-step-km/--W, gate toolkey/config
   (h) profile identity separates tables/policies, host/column/device caches A->B->A cold/warm, outputs independent of N
 The independent references are test-local; column_table.linear_columns is never used as one. About 30 s without a GPU.
 """
 
-from sosfuse2.foundation import paths
+from sosfuse2.foundation import paths, top
 import copy
 import hashlib
 import json
@@ -228,7 +228,7 @@ def test_b_rejections_have_stable_codes(subtests):
 @pytest.mark.parametrize('n', (161, 321, 641))
 def test_c_native_profile_value_matches_interpolate32(n, tmp_path):
     """kernel.cu's own PROFILE_N block, clip() and profile_value (text cut from kernel.cu, not copied here) compiled by
-    clang++ for the host (-DPROFILE_N only off 161) vs density.interpolate32, bit for bit."""
+    clang++ for the host with the default fallback or host grid definitions vs density.interpolate32."""
     testkit.require_tool('clang++')
     src = (HERE / 'backends/kernel.cu').read_text()
     clip = re.search(r'__device__ float clip\(.*\n', src)[0]
@@ -242,7 +242,7 @@ def test_c_native_profile_value_matches_interpolate32(n, tmp_path):
         + body
         + 'extern "C" float profile_c(float h,const float*t,int k){return profile_value(h,t,k);}\n'
     )
-    opts = [] if n == 161 else [f'-DPROFILE_N={n}']
+    opts = () if n == 161 else top.profile_kernel_defines(density.STEP_OF_N[n])
     link = ['-dynamiclib'] if platform.system() == 'Darwin' else ['-shared']
     subprocess.run(
         ['clang++', '-std=c++17', '-O1', '-ffp-contract=off', '-fPIC', *link, *opts, str(cpp), '-o', str(lib)],
@@ -288,12 +288,21 @@ def test_c_profile_at_masks_and_bad_n(subtests):
                 assert (within_tol(prof[:, 0], air)) and (within_tol(prof[:, 2], oz))
     testkit.require_tool('clang')
     r = subprocess.run(
+        ['clang', '-E', '-P', '-x', 'c++', '-DFW=15', *top.profile_kernel_defines(.5, 99.5), '-'],
+        input=(HERE / 'backends/kernel.cu').read_text(),
+        text=True,
+        capture_output=True,
+    )
+    assert r.returncode == 0 and 'profile_value' in r.stdout
+    partial = subprocess.run(  # a node count without its matching interval constants must not compile
         ['clang', '-E', '-P', '-x', 'c++', '-DFW=15', '-DPROFILE_N=200', '-'],
         input=(HERE / 'backends/kernel.cu').read_text(),
         text=True,
         capture_output=True,
     )
-    assert r.returncode != 0 and 'PROFILE_N must be 161, 321 or 641' in r.stderr
+    assert partial.returncode != 0 and 'PROFILE_LAST = PROFILE_N - 2' in partial.stderr
+    with pytest.raises(ValueError, match='E_PROFILE_GRID'):
+        top.profile_n(.3, 80)
 
 
 # ------------------------------------------------------------------------------------------------ (d)
@@ -514,9 +523,10 @@ def test_g_one_key_rule_and_profile_option(subtests, monkeypatch):
                 k = capture_kernel(step, W)
                 raw = k.raw_kernel(W, 0, 0, 0)
                 flagged = [o for o in raw.options if o.startswith('-DPROFILE_N')]
-                assert flagged == ([] if n == 161 else [f'-DPROFILE_N={n}'])
+                assert flagged == [f'-DPROFILE_N={n}']
+                assert all(option in raw.options for option in top.profile_kernel_defines(step))
                 base = (tuple(k.config(W).defines), W, W, 0, 0, 0, ('L', 16))
-                assert list(k.raw) == [base if n == 161 else base + (('PROFILE_N', n),)]  # 161: the historical key
+                assert list(k.raw) == [base + (('PROFILE_N', n), ('TOP_KM', 80.0), ('PROFILE_STEP', step))]
                 assert set(k.attributes) == {
                     f'{"+".join(k.config(W).defines) or "default"}:{W}_first0_phase0_boundary0_tile{W}'
                     + k.attribute_suffix(),
@@ -528,16 +538,14 @@ def test_g_one_key_rule_and_profile_option(subtests, monkeypatch):
                 if W == 15:
                     vy, vp = k.vprod_kernels(15, 0, 0)
                     sp = k.slim_proj_kernel(15, 0)
-                    assert all(
-                        o.options[-1] == (f'-DPROFILE_N={n}' if n != 161 else o.options[-1]) for o in (vy, vp, sp)
-                    )
+                    assert all(all(option in o.options for option in top.profile_kernel_defines(step)) for o in (vy, vp, sp))
                     keys = [
                         key
                         for key in k.raw
                         if isinstance(key, tuple)
                         and key[-1] in ('sos_vprod', 'sos_vprod_y', 'sos_slim_proj', 'fl_project')
                     ]
-                    assert len(keys) == 4 and all((('PROFILE_N', n) in key) == (n != 161) for key in keys)
+                    assert len(keys) == 4 and all(('PROFILE_N', n) in key for key in keys)
 
 
 def test_g_shared_raw_dict_161_641_161(monkeypatch):
@@ -554,7 +562,7 @@ def test_g_shared_raw_dict_161_641_161(monkeypatch):
     assert len(Raw.made) == count + 1 and rb is not ra and '-DPROFILE_N=641' in rb.options
     rc = c.raw_kernel(15, 0, 0, 0)
     assert rc is ra and len(Raw.made) == count + 1  # memo hit, nothing recompiled
-    assert len(shared[0]) == 2 and any(key.endswith('_profileN641') for key in shared[1])
+    assert len(shared[0]) == 2 and any('_profileN641_' in key for key in shared[1])
 
 
 def minimal_constants(table, mask=2):

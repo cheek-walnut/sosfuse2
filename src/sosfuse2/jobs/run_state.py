@@ -8,6 +8,7 @@ from pathlib import Path
 if __name__ == '__main__':
     sys.dont_write_bytecode = True
 from sosfuse2.foundation import paths
+from sosfuse2.foundation.top import TOP_KM
 
 # Solar column table resolution (sos_sky.SunGeometry scale). 4 = production (measured:
 # scale 1 gives -2.38 % first order at -10 deg AOD .6, scale 4 +0.20 %); 1 = the accepted engine table.
@@ -420,7 +421,7 @@ def settings_for(a):
                 'E_SETTINGS_GRID: received nchi %d; chi_step_deg and chi_refine_deg give %d' % (cfg['nchi'], want)
             )
         cfg['nchi'] = want
-    if not 0 <= cfg['observer_km'] <= 80:
+    if not 0 <= cfg['observer_km'] <= TOP_KM:
         raise ValueError('E_SETTINGS_OBSERVER')
     if (
         not isinstance(cfg['view_shape'], list)
@@ -462,9 +463,9 @@ def grid_metadata(cfg, h=None):
     import numpy as np
 
     if h is None:
-        from sosfuse2.rays.shell_segments import grids
+        from sosfuse2.rays.shell_segments import grids, small_heights
 
-        h = refined_heights(grids(1)[0], cfg['h_refine']) if cfg['nr'] != 4 else np.array([0.0, 0.1, 8.0, 80.0])
+        h = refined_heights(grids(1)[0], cfg['h_refine']) if cfg['nr'] != 4 else small_heights()
     return dict(h_refine=cfg['h_refine'], h_sha256=hashlib.sha256(np.ascontiguousarray(h).tobytes()).hexdigest())
 
 

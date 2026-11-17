@@ -7,9 +7,10 @@ from pathlib import Path
 import numpy as np
 
 from sosfuse2.foundation import content_identity as source_identity, paths
+from sosfuse2.foundation.top import TOP_KM, SUN_HEIGHT_INTERVALS
 
 R = 6371.0
-Z = 80.0
+Z = TOP_KM
 
 
 def gl(n):
@@ -56,7 +57,7 @@ def profiles(aerosol, h):
             np.exp(-np.maximum(h, 0) / 8),
             aerosol(h),
             np.maximum(0, 1 - np.abs(h - 25) / 15),
-            no2_profile(h),
+            no2_profile(np.minimum(h, Z)),
             np.exp(-np.maximum(h, 0) / 4),
         ],
         -1,
@@ -64,7 +65,7 @@ def profiles(aerosol, h):
 
 
 def grids(scale):
-    h = np.array([0, 0.05, 0.1, 0.2, 0.35, 0.55, 0.8, 1.1, 1.5, 2, 3, 4.5, 6.5, 9, 13, 18, 26, 40, 60, 80.0])
+    h = np.array([0, 0.05, 0.1, 0.2, 0.35, 0.55, 0.8, 1.1, 1.5, 2, 3, 4.5, 6.5, 9, 13, 18, 26, 40, 60, Z])
     chi = np.unique(
         np.r_[
             np.arange(0, 81, 10),
@@ -78,6 +79,16 @@ def grids(scale):
         h = np.sort(np.r_[h, (h[:-1] + h[1:]) / 2])
         chi = np.sort(np.r_[chi, (chi[:-1] + chi[1:]) / 2])
     return h, np.deg2rad(chi)
+
+
+def small_heights():
+    return np.array([0.0, 0.1, 8.0, Z])
+
+
+def sun_grid(scale, top=None):
+    """Solar-table coordinates; height sample count is independent of the boundary."""
+    top = Z if top is None else top
+    return np.linspace(0, np.sqrt(top), SUN_HEIGHT_INTERVALS * scale + 1) ** 2, np.linspace(0, 1, 400 * scale + 1)
 
 
 def geometry_segments(aerosol, p, d, n):
@@ -135,7 +146,7 @@ class SunGeometry:
             Path(__file__),
             *(
                 here / n
-                for n in ('atmosphere/density.py', 'atmosphere/tropo_profile.py', 'rays/ray_columns.py',
+                for n in ('foundation/top.py', 'atmosphere/density.py', 'atmosphere/tropo_profile.py', 'rays/ray_columns.py',
                           'precompute/sun_parallel.py', 'precompute/column_parallel.py')
             ),
         )
@@ -179,8 +190,7 @@ class SunGeometry:
                 f"SUN_TABLE_STALE: {path}: {'no identity' if stored is None else 'identity differs'}; rebuilding",
                 RuntimeWarning,
             )
-        self.h = np.linspace(0, np.sqrt(Z), 80 * scale + 1) ** 2
-        self.x = np.linspace(0, 1, 400 * scale + 1)
+        self.h, self.x = sun_grid(scale)
         col = np.empty((len(self.h), len(self.x), 5))
         for i, h in enumerate(self.h):
             r = R + h

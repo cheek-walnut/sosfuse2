@@ -2,7 +2,9 @@
 
 import numpy as np
 
-from .shell_segments import R, frame, gl
+from .shell_segments import R, Z, frame, gl
+
+RING_HEIGHTS = (0.0, 1.2, 8.0, 25.0, 40.0, Z)
 
 
 def ring_edges(r, chi, phi, heights, prepared=None):
@@ -71,7 +73,7 @@ def incoming(r, chi, nmu, nphi, a=4.0, rings=True):
     if rings:
         p, up, ex = frame(np.array(r), np.array(chi))
         ey = np.cross(up, ex)
-        levels = [-np.sqrt(max(0, (R + h) ** 2 - R**2)) for h in (0.0, 1.2, 8.0, 25.0, 40.0, 80.0)]
+        levels = [-np.sqrt(max(0, (R + h) ** 2 - R**2)) for h in RING_HEIGHTS]
         prepared = (p, up, ex, ey, levels)
     for j, phi in enumerate(np.linspace(0, np.pi, nphi + 1)):
         edges = [-1.0, 1.0, mg, 0.0, mg - 0.05234, mg + 0.05234, mg - 0.0061, mg + 0.0061]
@@ -91,7 +93,7 @@ def incoming(r, chi, nmu, nphi, a=4.0, rings=True):
             mu = coschi / np.sqrt(coschi**2 + np.cos(phi) ** 2 * sinchi**2)
             edges.extend([mu, mu - 0.012, mu + 0.012])
         if rings:
-            edges += ring_edges(r, chi, phi, (0.0, 1.2, 8.0, 25.0, 40.0, 80.0), prepared)
+            edges += ring_edges(r, chi, phi, RING_HEIGHTS, prepared)
         edges = np.unique(np.clip(edges, -1, 1))
         delta = edges - mg
         tt = np.sign(delta) * np.arcsinh(np.abs(delta) / np.where(delta < 0, 1 + mg, 1 - mg) * sa) / a

@@ -19,6 +19,7 @@ CONTROLS = ('SOSFUSE2_KERNEL_FLAGS', 'SOSFUSE2_BLOCK_SIZE', 'SOSFUSE2_STRATO_ASY
     'SOSFUSE2_' + f for f in STAGE1
 )
 RTOL, RATCHET_FACTOR, RATCHET_FLOOR, ANCHOR_STOP = 1e-3, 3.0, 1e-6, 3e-4
+LEGACY_PROFILE_N = 161
 PS_TESTS = ('test_1_parity', 'test_2_no_state_mixing', 'test_5_interleaving')
 
 
@@ -186,8 +187,8 @@ def check_config(F, fx, meta):
         if got[k] != want[k]:
             bad.append(f'{k} requested {want[k]} measured {got[k]}')
     # ②b: PROFILE node count (records from before ②b carry none: 161)
-    if got.get('profile_n', 161) != want['profile_n']:
-        bad.append(f"profile_n requested {want['profile_n']} measured {got.get('profile_n', 161)}")
+    if got.get('profile_n', LEGACY_PROFILE_N) != want['profile_n']:
+        bad.append(f"profile_n requested {want['profile_n']} measured {got.get('profile_n', LEGACY_PROFILE_N)}")
     if 'spectral' in meta and (why := ozone_mismatch(F, fx, meta['spectral'])):
         bad.append(why)
     if meta['backend'] == 'cupy':
@@ -226,7 +227,7 @@ def toolkey(meta):
         block=c['block'],
     )
     # ②b: N joins the toolkey only off the default, so every 0.5 km toolkey (and its recorded baselines) is unchanged.
-    if c.get('profile_n', 161) != 161:
+    if c.get('profile_n', LEGACY_PROFILE_N) != LEGACY_PROFILE_N:
         fields['profile_n'] = c['profile_n']
     return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:16], fields
 

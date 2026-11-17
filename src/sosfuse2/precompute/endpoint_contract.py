@@ -64,6 +64,7 @@ TRAIL = dict(starts=(3,), targets=(3, 3), dirs=(3,), end_col=(5,))
 AEROSOL_COLUMN = dict(path='aerosol/H_<float.hex(height)>.f4', dtype='f4', replaces='end_col[:,1]')
 # Upstream inputs that still generate the endpoints.
 UPSTREAM = (
+    'foundation/top.py',
     'solve/engine.py',
     'rays/shell_segments.py',
     'rays/incoming_rings.py',

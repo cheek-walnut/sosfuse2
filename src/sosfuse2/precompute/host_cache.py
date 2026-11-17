@@ -230,6 +230,7 @@ def sun_geometry(old, scale, folder, height, shared=None):
         files = sorted(
             {
                 str(PKG / 'rays/shell_segments.py'),
+                str(PKG / 'foundation/top.py'),
                 str(PKG / 'solve/engine.py'),
                 str(PKG / 'precompute/sun_parallel.py'),
                 str(PKG / 'precompute/column_parallel.py'),
@@ -273,7 +274,10 @@ def sun_geometry(old, scale, folder, height, shared=None):
             continue
         folder = target
         break
-    if (len(sun.h), len(sun.x)) != (80 * scale + 1, 400 * scale + 1):
+    from ..rays.shell_segments import sun_grid
+
+    h, x = sun_grid(scale)
+    if (len(sun.h), len(sun.x)) != (len(h), len(x)):
         raise RuntimeError(
             f'E_SUN_TABLE_SCALE: {folder} holds a {len(sun.h)}x{len(sun.x)} table, scale {scale} expected'
         )

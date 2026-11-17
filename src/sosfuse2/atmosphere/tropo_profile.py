@@ -48,6 +48,7 @@ EXPINT interpolation :4057.
 import hashlib, json, math, types
 from dataclasses import dataclass
 import numpy as np
+from ..foundation.top import NORMALIZATION_TOP_KM
 
 KEY = 'troposphere_profile'
 STATUS = ('enabled', 'disabled')
@@ -70,7 +71,6 @@ DEFAULTS = dict(
     ft_aod550=0.0797,
     ft_scale_height_km=1.85,
 )
-TOP_KM = 80.0  # shell_segments.Z (atmosphere top); the kernel clips sample heights to [0, 80]
 FLAG = 'AEROSOL_2L'
 
 # lowtran7.f BLOCK DATA PRFDTA (:13619-13630): 0.55 um extinction, km^-1.
@@ -157,14 +157,14 @@ def config(state):
     out = dict(
         model='two_layer',
         bl_shape=shape,
-        bl_top_km=_number(full, 'bl_top_km', 0.0, TOP_KM),
+        bl_top_km=_number(full, 'bl_top_km', 0.0, NORMALIZATION_TOP_KM),
         bl_scale_height_km=_number(full, 'bl_scale_height_km', 0.0, math.inf) if shape == 'exponential' else None,
         ft_aod550=_number(full, 'ft_aod550', 0.0, math.inf, low_open=False),
         ft_scale_height_km=_number(full, 'ft_scale_height_km', 0.0, math.inf),
     )
     # The transition [bl_top-w/2, bl_top+w/2] must lie inside (0, 80).
     out['bl_transition_km'] = _number(
-        full, 'bl_transition_km', 0.0, 2 * min(out['bl_top_km'], TOP_KM - out['bl_top_km'])
+        full, 'bl_transition_km', 0.0, 2 * min(out['bl_top_km'], NORMALIZATION_TOP_KM - out['bl_top_km'])
     )
     try:
         aod = float(state['parameters']['aod550'])
@@ -195,7 +195,7 @@ def basis_integrals(z, w, kb, kf):
     ib = (z0 if kb == 0 else -math.expm1(-z0 * kb) / kb) + float(np.sum(np.exp(-h * kb) * (1 - s) * g))
     jf = (
         float(np.sum(np.exp(-(h - z) * kf) * s * g))
-        + math.exp(-(z1 - z) * kf) * (-math.expm1(-(TOP_KM - z1) * kf)) / kf
+        + math.exp(-(z1 - z) * kf) * (-math.expm1(-(NORMALIZATION_TOP_KM - z1) * kf)) / kf
     )
     return ib, jf
 
@@ -279,7 +279,7 @@ class ProfileFolder:
 
 
 def profile32(h, k32):
-    """FP32 mirror of kernel.cu aerosol_two_layer() (h already clipped to [0,80] by the caller, as in point())."""
+    """FP32 mirror of kernel.cu aerosol_two_layer() (h already clipped to the calculation boundary)."""
     h = np.asarray(h, 'f4')
     k = np.asarray(k32, 'f4')
     one, two, three = np.float32(1), np.float32(2), np.float32(3)

@@ -107,6 +107,7 @@ PRODUCTION_MODULES = (
     'checks/__init__',
     'asset_tools/__init__',
     'foundation/available_cpus',
+    'foundation/top',
     'backends/flags_env',
     'solve/engine',
     'outputs/pack_state',

@@ -19,9 +19,9 @@ from ..atmosphere.components import NCOMP
 from ..backends.arithmetic import F, norm_constants
 from ..backends.sh_layout import count, padded, workspace, source_size, kernel_source, combined_aux
 from ..foundation.timers import TIMERS, stage
+from ..foundation import top
 from ..backends.flags import STAGE1_FLAGS, KSPLIT_VARIANTS, resolve_config, deterministic
 
-PROFILE_N_DEFAULT = 161  # density.PROFILE_STEPS[0.5]; kernel.cu #ifndef PROFILE_N
 
 from ..foundation import paths  # noqa: E402  (public split: package-relative resources, work root for caches)
 
@@ -157,7 +157,7 @@ class Kernel(KsplitMixin):
         self.L = L
         self.K = count(L)
         self.height, self.g, self.backend, self.block_size = height, g, backend, block_size
-        # ②b: PROFILE node count is a compile constant (kernel.cu PROFILE_N); 0.5 km (161) adds no option and no key field.
+        # PROFILE boundary and spacing are compile constants.
         from ..atmosphere.density import profile_n
 
         self.profile_n = profile_n(profile_step_km)
@@ -590,10 +590,9 @@ class Kernel(KsplitMixin):
 
     def kernel_key(self, flags, W, width, first, phase, boundary, *, ground_sh_l=0, ray_limit=False, stage1=()):
         """The one RawKernel memo-key rule (raw_kernel, fl_project_kernel, vprod_kernels, slim_proj_kernel): shared raw dicts
-        (persistent service, payload restore) must not mix SH orders or PROFILE node counts. N=161 adds no field."""
+        (persistent service, payload restore) must not mix SH orders or PROFILE grids."""
         key = (tuple(flags), W, width, int(first), int(phase), int(boundary), ('L', self.L))
-        if self.profile_n != PROFILE_N_DEFAULT:
-            key += (('PROFILE_N', self.profile_n),)
+        key += (('PROFILE_N', self.profile_n), ('TOP_KM', float(top.TOP_KM)), ('PROFILE_STEP', self.profile_step_km))
         if ground_sh_l:
             key += (('GROUND_SH_L', ground_sh_l),)
         if ray_limit:
@@ -601,7 +600,7 @@ class Kernel(KsplitMixin):
         return (key, stage1) if stage1 else key
 
     def attribute_suffix(self):
-        return '' if self.profile_n == PROFILE_N_DEFAULT else f'_profileN{self.profile_n}'
+        return f'_profileN{self.profile_n}_top{float(top.TOP_KM).hex()}_step{self.profile_step_km.hex()}'
 
     def check_profile(self, optics, where, rows=None):
         """compiled N == declared optics N == table rows (== uploaded rows): density.check_consumed with this Kernel's
@@ -666,8 +665,7 @@ class Kernel(KsplitMixin):
                 from .ground_sh import GRID_INTERVALS
 
                 options += (f'-DGROUND_SH_L={ground_sh_l}', f'-DGROUND_SH_GRID={GRID_INTERVALS}')
-            if self.profile_n != PROFILE_N_DEFAULT:
-                options += (f'-DPROFILE_N={self.profile_n}',)
+            options += top.profile_kernel_defines(self.profile_step_km)
             with stage('raw_compile'):
                 raw = self.xp.RawKernel(code, 'sos_fused', options=options, backend='nvrtc')
                 raw.compile()
@@ -691,7 +689,7 @@ class Kernel(KsplitMixin):
                 stage1=list(stage1),
                 coordinate_precision='two-word FP32',
                 flags=list(flags),
-                **({} if self.profile_n == PROFILE_N_DEFAULT else dict(profile_n=self.profile_n)),
+                profile_n=self.profile_n,
             )
             if ground_sh_l:
                 self.attributes[akey]['ground_sh'] = dict(order=ground_sh_l, grid_intervals=GRID_INTERVALS)
@@ -818,6 +816,7 @@ class Kernel(KsplitMixin):
         options = ('-std=c++17', '--fmad=false', '--prec-div=true', '--prec-sqrt=true', f'-DFW={W}')
         options += (f'-DSOSFUSE2_DETERMINISTIC={int(self.deterministic)}',)
         options += tuple('-D' + f for f in resolve_config(self.flags, role='lut', W=W).flags)
+        options += top.profile_kernel_defines(self.profile_step_km)
         with stage('raw_compile'):
             builder = self.xp.RawKernel(code, 'strato_lut_build', options=options, backend='nvrtc')
             builder.compile()

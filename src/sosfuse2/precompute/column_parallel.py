@@ -63,7 +63,7 @@ def source_hashes():
     here = paths.PKG
     return {
         name: hashlib.sha256((here / name).read_bytes()).hexdigest()
-        for name in ('rays/shell_segments.py', 'rays/incoming_quadrature.py', 'rays/incoming_rings.py', 'solve/engine_core.py')
+        for name in ('foundation/top.py', 'rays/shell_segments.py', 'rays/incoming_quadrature.py', 'rays/incoming_rings.py', 'solve/engine_core.py')
     }
 
 

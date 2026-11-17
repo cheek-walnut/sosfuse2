@@ -266,25 +266,24 @@ __device__ float dv(DS a){return a.h+a.l;}
 __device__ float ftz_dv(DS a){float h=fabsf(a.h)<TRACE_MIN?0.f:a.h,l=fabsf(a.l)<TRACE_MIN?0.f:a.l,v=h+l;return fabsf(v)<TRACE_MIN?0.f:v;}
 __device__ float clip(float x,float lo,float hi){return fminf(hi,fmaxf(lo,x));}
 __device__ int search(const float*a,int n,float x){int lo=0,hi=n;while(lo<hi){int m=(lo+hi)/2;if(a[m]<=x)lo=m+1;else hi=m;}return max(0,min(n-2,lo-1));}
-// PROFILE grid: PROFILE nodes 0..80 km at 0.5/0.25/0.125 km = 161/321/641 rows. The
-// host passes -DPROFILE_N only for 321/641 (source_solver.Kernel profile_step_km); the default expands to the same literals.
+// The host supplies the boundary and the corresponding uniform PROFILE grid.
 #ifndef PROFILE_N
 #define PROFILE_N 161
 #endif
-#if PROFILE_N==161
+#ifndef PROFILE_INV
 #define PROFILE_INV 2.f
+#endif
+#ifndef PROFILE_LAST
 #define PROFILE_LAST 159
-#elif PROFILE_N==321
-#define PROFILE_INV 4.f
-#define PROFILE_LAST 319
-#elif PROFILE_N==641
-#define PROFILE_INV 8.f
-#define PROFILE_LAST 639
-#else
-#error "PROFILE_N must be 161, 321 or 641 (0.5, 0.25, 0.125 km)"
+#endif
+#ifndef TOP_KM
+#define TOP_KM 80.f
+#endif
+#if PROFILE_LAST != PROFILE_N - 2
+#error "PROFILE_N, PROFILE_INV, PROFILE_LAST and TOP_KM must be defined together (PROFILE_LAST = PROFILE_N - 2)"
 #endif
 __device__ float profile_value(float h,const float*table,int k){
- float x=clip(h,0.f,80.f)*PROFILE_INV;int i=min((int)x,PROFILE_LAST);float f=x-(float)i;
+ float x=clip(h,0.f,TOP_KM)*PROFILE_INV;int i=min((int)x,PROFILE_LAST);float f=x-(float)i;
  return table[i*3+k]+f*(table[(i+1)*3+k]-table[i*3+k]);
 }
 #ifdef AEROSOL_2L
@@ -443,7 +442,7 @@ __device__ __forceinline__ DS path_q(const Coord*p,const Coord*d,DS t,DS*q,DS*q2
  for(int k=0;k<3;k++){q[k]=da(ds(p[k]),dm(t,ds(d[k])));q2[k]=dm(q[k],q[k]);}
  return dr(da(da(q2[0],q2[1]),q2[2]));
 }
-__device__ __forceinline__ float path_h(DS rr){return clip(dv(dx(rr,{6371,0})),0,80);}
+__device__ __forceinline__ float path_h(DS rr){return clip(dv(dx(rr,{6371,0})),0,TOP_KM);}
 // Fixed separable components: air, tropospheric aerosol, O3, NO2, O4; stratosphere is separate.
 __device__ __forceinline__ void profile_at(float h,PROF_PARAM,float*prof,float &st_prof){
  prof[0]=expf(-h/8.f);prof[1]=expf(-h/height);prof[2]=fmaxf(0.f,1.f-fabsf(h-25.f)/15.f);

@@ -773,6 +773,7 @@ def test_package_hashes(monkeypatch):
         'sosfuse2/outputs/quantized_table.py',
         'sosfuse2/jobs/tables_from_sources.py',
         'sosfuse2/foundation/timers.py',
+        'sosfuse2/foundation/top.py',
         'sosfuse2/atmosphere/tropo_mie.py',
         'sosfuse2/atmosphere/tropo_profile.py',
         'sosfuse2/checks/validate.py',

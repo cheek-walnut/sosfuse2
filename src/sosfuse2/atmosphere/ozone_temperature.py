@@ -18,7 +18,7 @@ from ..foundation import content_identity as source_identity
 FINE = SP.paths.ASSETS / 'spectra_fine_temperature.json'
 TEMP = SP.paths.ASSETS / 'temperature_usstd76.json'
 TEMPS = np.arange(193.0, 294.0, 10.0)
-Z = np.arange(161) * 0.5
+Z = np.arange(density.ASSET_N) * density.ASSET_STEP_KM
 N = 64
 SHAPES = ('triangle', 'usstd76')
 # Definition descriptor signed in the block and block_key: a different averaging rule is a different spectral definition.
@@ -183,9 +183,11 @@ class ProfileMean:
     def q(self, z):
         if self.shape == 'triangle':
             return np.maximum(0, 1 - np.abs(np.asarray(z) - 25) / 15)
+        density.require_asset_range('usstd76_profile.json', Z, z)
         return np.interp(z, Z, self.q_usstd)
 
     def temp(self, z):
+        density.require_asset_range('temperature_usstd76.json', Z, z)
         return np.interp(z, Z, self.t)
 
     def knots(self):

@@ -13,12 +13,13 @@ from pathlib import Path
 
 import numpy as np
 from ..foundation import content_identity as source_identity, paths
+from ..foundation.top import TOP_KM, COLUMN_TOP_MARGIN_KM
 from ..atmosphere.components import MOLECULAR_COLUMNS
 
-R, Z = 6371.0, 80.0
+R, Z = 6371.0, TOP_KM
 NA, NX = 1024, 1024
 MAPPING = 'sqrt-mu-sqrt-height-1'
-BOUNDARY = 'stable-tangent-short1m-corner005-ht02-top79-1'
+BOUNDARY = f'stable-tangent-short1m-corner005-ht02-top{Z - COLUMN_TOP_MARGIN_KM:g}-1'
 _MEMO = OrderedDict()
 
 
@@ -32,7 +33,7 @@ def method():
 @lru_cache(None)
 def source_hash():
     h = hashlib.sha256()
-    for path in (Path(__file__), paths.PKG / 'atmosphere/tropo_profile.py'):
+    for path in (Path(__file__), paths.PKG / 'atmosphere/tropo_profile.py', paths.PKG / 'foundation/top.py'):
         h.update(path.name.encode())
         h.update(source_identity.file_sha(path).encode())
     return h.hexdigest()
@@ -66,7 +67,7 @@ def molecular(optics, k):
             'usstd76',
             component='no2',
             values=optics['table'][:, 2].tolist(),
-            grid=dict(n=ident['n'], step_km=ident['step_km'], top_km=80.0, interpolation='linear'),
+            grid=dict(n=ident['n'], step_km=ident['step_km'], top_km=ident['top_km'], interpolation='linear'),
             **optics['meta']['no2'],
         )
     if k == 3:
@@ -224,7 +225,7 @@ def coordinates(p, d, end):
     xb = np.where(ground, np.sqrt(np.maximum(rb - R, 0) / Z), np.abs(sb) / denb)
     corner = ground & (a < 0.05) & (np.minimum(xa, xb) < 0.05)
     tangent = ~ground & (ht < 0.2) & (np.minimum(xa, xb) < 0.05)
-    direct = corner | tangent | (~ground & (ht > 79))
+    direct = corner | tangent | (~ground & (ht > Z - COLUMN_TOP_MARGIN_KM))
     short = end < 1e-3
     return dict(sa=sa, sb=sb, rho=rho, ground=ground, a=a, xa=xa, xb=xb, direct=direct & ~short, short=short)
 
@@ -235,7 +236,7 @@ def pieces(spec):
     from ..atmosphere.density import STEP_OF_N
 
     col = np.asarray(spec['values'])
-    step = STEP_OF_N[len(col)]  # 161/321/641 nodes: N-1 shells of width step
+    step = STEP_OF_N[len(col)]  # N-1 shells of width step
     slope = np.diff(col) / step
     lo = R + np.arange(len(col) - 1) * step
     return zip(lo, lo + step, col[:-1] - slope * lo, slope)

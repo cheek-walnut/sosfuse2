@@ -55,6 +55,9 @@ def load_wrapper(path=None):
         TIMERS=types.SimpleNamespace(bind=lambda xp: None),
         stage=lambda *args, **kw: contextlib.nullcontext(),
     )
+    from sosfuse2.foundation import top
+
+    module.__dict__['top'] = top
     from sosfuse2.backends import flags
 
     module.__dict__.update(

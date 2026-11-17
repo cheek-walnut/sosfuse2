@@ -11,7 +11,7 @@ per deployment, e.g. while geometry is copied:
 Each worker opens its own CUDA context (CuPy loads the module after compiling). The kernels and options are the ones
 source_solver.Kernel builds (raw_kernel, fl_project_kernel, strato_lut_kernel), so the cache entries are the ones a run hits.
 STRATO is added for stratospheric states; density tables are a runtime pointer/mask, their node count a compile constant
-(--profile-step-km 0.25/0.125 adds -DPROFILE_N=321/641; 0.5 adds nothing). --W 1 warms the monochromatic (sigma C mode)
+(--profile-step-km selects the grid definitions). --W 1 warms the monochromatic (sigma C mode)
 specializations without the FW15-only KSPLIT kernels. Use --no-strato
 for C3_nostrato. Ray-range first light (LAUNCH_RAY_LIMIT + fl_project) is added when the device profile splits
 launches (split profile) or SOSFUSE2_FL_PROJECT=1.

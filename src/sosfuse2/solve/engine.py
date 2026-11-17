@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from functools import partial
 import numpy as np
 from ..foundation import paths
+from ..foundation.top import NORMALIZATION_TOP_KM
 from ..rays import (
     shell_segments,
     incoming_quadrature,
@@ -22,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 R, Z = shell_segments.R, shell_segments.Z
 OBS = 0.1
 SOURCE_FILES = [
+    'foundation/top.py',
     'rays/shell_segments.py',
     'atmosphere/extinction.py',
     'rays/incoming_quadrature.py',
@@ -413,7 +415,7 @@ def create(
     amounts = components.optics_state(state, optical)
     if not components.reference_active() and 'no2' not in spectral:
         spectral.update(minor_absorbers.representative(None, spectral['wavelength_nm'], o4=amounts['o4']))
-    column = H * (-np.expm1(-Z / H)) if aerosol is None else aerosol.column
+    column = H * (-np.expm1(-NORMALIZATION_TOP_KM / H)) if aerosol is None else aerosol.column
     old.NORMAL = dict(
         aer=params['aod550'] / column,
         ssa=params['ssa'],
@@ -452,12 +454,12 @@ def create(
         nmu, nphi, path_n = 12, 64, 12
     elif mode == 'reduced':
         fullh, fullch = old.grids(1)
-        h = fullh[[0, 2, 4, 6, 8, 10, 12, 14, 17, 19]]
+        h = fullh[[0, 2, 4, 6, 8, 10, 12, 14, 17, -1]]
         degrees = np.rad2deg(fullch)
         ch = np.deg2rad(np.unique(np.r_[degrees[(degrees < 85) | (degrees > 110)], np.arange(85, 111, 1)]))
         nmu, nphi, path_n = 2, 4, 6
     else:
-        h = np.array([0.0, 0.1, 8.0, 80.0])
+        h = shell_segments.small_heights()
         ch = np.deg2rad([0.0, 60.0, 85.0, 90.0, 93.0, 96.0, 105.0, 110.0, 140.0, 180.0])
         nmu, nphi, path_n = 1, 2, 4
     if grid is not None:

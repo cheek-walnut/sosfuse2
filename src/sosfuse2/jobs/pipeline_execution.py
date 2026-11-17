@@ -727,8 +727,8 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                         return True
 
                     kernel.ksplit_room, kernel.ksplit_hold, kernel.ksplit_wait = ksplit_room, ksplit_hold, ksplit_wait
-                # RawKernel keys include flags, W, L and PROFILE_N (source_solver.kernel_key), but block size is per Kernel; attributes
-                # are keyed without L (with a _profileN suffix for N != 161). Consumers re-check compiled/optics/table N.
+                # RawKernel and attribute keys include the PROFILE grid; block size is per Kernel.
+                # Consumers re-check compiled/optics/table N.
                 kernel.raw, kernel.attributes = compiled.setdefault((block_size, payload['L']), ({}, {}))
                 s = payload['solver']
                 s.kernel = kernel

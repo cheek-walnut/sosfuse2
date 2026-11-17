@@ -131,8 +131,9 @@ def prebuild(old, scale, folder):
     # Also with one worker (rows() then runs serially): the accepted SunGeometry writes its NPZ in place, so an
     # interrupted serial build would leave a partial table at the final path.
     started = time.perf_counter()
-    h = np.linspace(0, np.sqrt(old.Z), 80 * scale + 1) ** 2
-    x = np.linspace(0, 1, 400 * scale + 1)
+    from ..rays.shell_segments import sun_grid
+
+    h, x = sun_grid(scale, old.Z)
     col = rows(old, h, x, old.R, 32 * scale)
     fd, name = tempfile.mkstemp(prefix='sun_columns.', suffix='.tmp', dir=folder)
     try:

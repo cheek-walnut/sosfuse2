@@ -19,6 +19,7 @@ import tempfile
 import time
 import traceback
 from sosfuse2.foundation import paths
+from sosfuse2.foundation.top import NORMALIZATION_TOP_KM
 from sosfuse2.foundation.host_limits import RIG_MIN_RAM_GB, default_rss_gb, default_workers, physical_ram_gb, rss_cap_gb
 
 THREAD_ENV = (
@@ -667,7 +668,7 @@ def column_cache_plan(a):
         center, sigma = float(layer.get('center_km', 21)), float(layer.get('sigma_km', 3))
         if (
             not math.isfinite(center + sigma)
-            or not 0 <= center <= 80
+            or not 0 <= center <= NORMALIZATION_TOP_KM
             or sigma < 1
             or layer.get('profile', 'gaussian') != 'gaussian'
         ):

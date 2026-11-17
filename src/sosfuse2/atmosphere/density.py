@@ -1,7 +1,7 @@
 """Density tables; immutable endpoint caches retain historical columns.
 
-PROFILE grid: PROFILE nodes 0..80 km at density.profile_step_km in {0.5, 0.25, 0.125}
-(161/321/641 rows, linear interpolation, air/ozone plus NO2, mask bits 1/2 select air/ozone). Omitted = 0.5 = the historical air/ozone table,
+PROFILE grid: nodes from the surface to the calculation boundary at density.profile_step_km in {0.5, 0.25, 0.125}
+(by default 0..80 km and 161/321/641 rows, linear interpolation, air/ozone plus NO2, mask bits 1/2 select air/ozone). Omitted = 0.5 = the historical air/ozone table,
 built by the unchanged expressions (no interpolation, no renormalization). The asset (v1, 161 x 0.5 km) is normalized on
 its own grid first; 0.25/0.125 are the same piecewise-linear function sampled on the finer grid (no new information).
 
@@ -25,7 +25,7 @@ import os
 from functools import lru_cache
 import numpy as np
 
-from ..foundation import paths
+from ..foundation import paths, top
 from .components import MOLECULAR_COLUMNS
 
 # The US1976 + IPRT ozone-shape profile asset is not redistributed with the package: it is generated once, on first use, from the IPRT inputs (iprt.fetch, pinned sha256) into the work root and
@@ -84,14 +84,18 @@ DEFAULTS = dict(density_profile='usstd76', ozone_profile='usstd76', rayleigh_col
 CHOICES = dict(
     density_profile=('exp8', 'usstd76'), ozone_profile=('triangle', 'usstd76'), rayleigh_column=('keep', 'usstd')
 )
-LEGACY_COLUMN = 8 * (-np.expm1(-10.0))
+LEGACY_COLUMN = 8 * (-np.expm1(-top.NORMALIZATION_TOP_KM / 8))
+# Coordinates of the v1 density, NO2 and temperature assets.
+ASSET_TOP_KM = 80.0
+ASSET_STEP_KM = 0.5
+ASSET_N = int(ASSET_TOP_KM / ASSET_STEP_KM) + 1
 # Numeric fields beside the string options, validated separately (the string whitelist and CLI stay DEFAULTS/CHOICES).
 EXTRA = ('profile_step_km', 'external_profile')
 DEFAULT_STEP = 0.5
-PROFILE_STEPS = {0.5: 161, 0.25: 321, 0.125: 641}
+PROFILE_STEPS = {step: top.profile_n(step) for step in (0.5, 0.25, 0.125)}
 STEP_OF_N = {n: step for step, n in PROFILE_STEPS.items()}
 # kernel.cu profile_value literals (inverse spacing, last interval) per node count.
-KERNEL_LITERALS = {161: (2, 159), 321: (4, 319), 641: (8, 639)}
+KERNEL_LITERALS = {n: top.profile_kernel_constants(step) for step, n in PROFILE_STEPS.items()}
 EXTERNAL_KEYS = ('version', 'z_km', 'table', 'mask', 'normalize_ozone', 'scale')
 
 
@@ -130,10 +134,22 @@ def kernel_kwargs(step):
 
 
 def grid(n):
-    """PROFILE nodes for n rows; n=161 is np.arange(161)*.5 byte for byte."""
+    """PROFILE nodes for n rows; the default grid is np.arange(161)*.5."""
     if n not in STEP_OF_N:
-        raise ValueError(f'E_PROFILE_N: {n} rows (161, 321 or 641 allowed)')
+        raise ValueError(f'E_PROFILE_N: {n} rows ({sorted(STEP_OF_N)} allowed)')
     return np.arange(n) * STEP_OF_N[n]
+
+
+def normalization_integral(z, values):
+    """Integrate a linear profile over the fixed lower-atmosphere normalization range."""
+    z, values = np.asarray(z), np.asarray(values)
+    boundary = top.NORMALIZATION_TOP_KM
+    if z[-1] < boundary:
+        raise ValueError('E_PROFILE_GRID: profile does not cover the normalization range')
+    count = int(np.searchsorted(z, boundary, side='right'))
+    if z[count - 1] == boundary:
+        return np.trapezoid(values[:count], z[:count])
+    return np.trapezoid(np.r_[values[:count], np.interp(boundary, z, values)], np.r_[z[:count], boundary])
 
 
 def _validated(z_km, table, mask, normalize_ozone, scale):
@@ -143,10 +159,10 @@ def _validated(z_km, table, mask, normalize_ozone, scale):
     except (TypeError, ValueError) as e:
         raise ValueError('E_PROFILE_GRID: z_km not numeric') from e
     if z.ndim != 1 or z.dtype.kind not in 'fiu' or len(z) not in STEP_OF_N:
-        raise ValueError('E_PROFILE_GRID: z_km must be 161, 321 or 641 real nodes')
+        raise ValueError(f'E_PROFILE_GRID: z_km must have {sorted(STEP_OF_N)} real nodes')
     z = np.array(z, 'f8')
     if not np.isfinite(z).all() or not np.array_equal(z, grid(len(z))):
-        raise ValueError(f'E_PROFILE_GRID: z_km must equal arange(N)*{STEP_OF_N[len(z)]} km (0..80)')
+        raise ValueError(f'E_PROFILE_GRID: z_km must equal arange(N)*{STEP_OF_N[len(z)]} km (0..{top.TOP_KM:g})')
     try:
         t = np.asarray(table)
     except (TypeError, ValueError) as e:
@@ -215,7 +231,7 @@ def profile_step_km(state):
         z = ext.get('z_km') if isinstance(ext, dict) else None
         m = len(z) if isinstance(z, (list, tuple, np.ndarray)) else None
         if m not in STEP_OF_N:
-            raise ValueError('E_PROFILE_GRID: z_km must be 161, 321 or 641 real nodes')
+            raise ValueError(f'E_PROFILE_GRID: z_km must have {sorted(STEP_OF_N)} real nodes')
         if explicit and m != n:
             raise ValueError(
                 f'E_PROFILE_STEP_CONFLICT: profile_step_km {raw["profile_step_km"]} vs external grid {STEP_OF_N[m]} km'
@@ -254,10 +270,10 @@ def with_profile(state, *, z_km, table, mask, normalize_ozone=False, scale=1.0, 
     """Deep-copied JSON-serializable state whose density.external_profile is the given table (see module doc).
 
     The grid fixes profile_step_km; an explicitly different step already in the state is E_PROFILE_STEP_CONFLICT.
-    normalize_ozone=False uses column 2 as given (q_eff); True scales it to the production 15 on the injected grid.
+    normalize_ozone=False uses column 2 as given (q_eff); True scales the lower normalization range to 15.
     scale is the Rayleigh factor applied to ext[0] (build()['scale'] of the adapted state keeps it)."""
     z, t, mask, normalize, scale = _validated(z_km, table, mask, normalize_ozone, scale)
-    if normalize and not np.trapezoid(t[:, 1], z) > 0:
+    if normalize and not normalization_integral(z, t[:, 1]) > 0:
         raise ValueError('E_PROFILE_OZONE_ZERO: normalize_ozone needs a positive ozone integral')
     state = copy.deepcopy(state)
     raw = state.get('density', {})
@@ -304,7 +320,7 @@ def load_asset():
         z = np.asarray(data['altitude_km'], float)
         air = np.asarray(data['air_number_density_ratio'], float)
         oz = np.asarray(data['ozone_number_density_m3'], float)
-        if data['version'] != 1 or not np.array_equal(z, np.arange(161) * 0.5):
+        if data['version'] != 1 or not np.array_equal(z, np.arange(ASSET_N) * ASSET_STEP_KM):
             raise ValueError()
         if (
             air.shape != z.shape
@@ -328,6 +344,16 @@ def _sha(a):
     return hashlib.sha256(np.ascontiguousarray(a).tobytes()).hexdigest()
 
 
+def require_asset_range(name, asset_z, requested_z):
+    """Refuse requests above an asset's coordinates before interpolation."""
+    requested = np.asarray(requested_z)
+    if requested.size:
+        end = float(np.max(requested))
+        asset_end = float(np.asarray(asset_z)[-1])
+        if end > asset_end:
+            raise ValueError(f'E_ASSET_RANGE: {name}: asset end {asset_end:.17g} km, requested end {end:.17g} km')
+
+
 def _freeze(optics):
     optics['table'].flags.writeable = False  # attach() consumers share it; a changed table needs a new optics/Solver
     return optics
@@ -341,7 +367,7 @@ def no2_asset():
     z = np.asarray(data['altitude_km'], 'f8')
     v = np.asarray(data['no2_number_density_m3'], 'f8')
     if (
-        not np.array_equal(z, grid(161))
+        not np.array_equal(z, np.arange(ASSET_N) * ASSET_STEP_KM)
         or v.shape != z.shape
         or not np.isfinite(v).all()
         or np.any(v < 0)
@@ -359,6 +385,7 @@ def no2_asset():
 
 def no2_profile(h):
     z, f, _ = no2_asset()
+    require_asset_range('no2_afglus_profile.json', z, h)
     return np.interp(h, z, f)
 
 
@@ -384,7 +411,7 @@ def _minor_columns(optics, step, state):
         raise ValueError('E_O4_N0: external profile needs air_surface_number_density_m3 when O4 is enabled')
     from .rayleigh import coefficient
 
-    air_column = float(np.trapezoid(optics['table'][:, 0], z)) if optics['mask'] & 1 else LEGACY_COLUMN
+    air_column = float(normalization_integral(z, optics['table'][:, 0])) if optics['mask'] & 1 else LEGACY_COLUMN
     optics['meta']['rayleigh_tau550'] = (
         air_column * optics['scale'] * float(0.013558 if reference_active() else coefficient(550.0))
     )
@@ -392,7 +419,7 @@ def _minor_columns(optics, step, state):
         no2=dict(
             asset_sha256=no2_asset()[2],
             normalization='maximum=1',
-            H_f_km=float(np.trapezoid(f, z)),
+            H_f_km=float(normalization_integral(z, f)),
             source='afglus asset (also for external air/ozone)',
             grid_step_km=step,
         ),
@@ -428,7 +455,10 @@ def build(state):
         )
         return _minor_columns(optics, step, state)
     data, z, air, oz = load_asset()
-    table = np.column_stack([air * LEGACY_COLUMN / np.trapezoid(air, z), oz * 15 / np.trapezoid(oz, z)])
+    require_asset_range('usstd76_profile.json', z, [top.NORMALIZATION_TOP_KM])
+    table = np.column_stack(
+        [air * LEGACY_COLUMN / normalization_integral(z, air), oz * 15 / normalization_integral(z, oz)]
+    )
     mask = (1 if opt['density_profile'] == 'usstd76' else 0) | (2 if opt['ozone_profile'] == 'usstd76' else 0)
     scale = 1.0 if opt['rayleigh_column'] == 'keep' else data['rayleigh_tau550_0_80'] / (0.013558 * LEGACY_COLUMN)
     optics = dict(
@@ -443,9 +473,10 @@ def build(state):
             interpolation='linear 0.5 km',
         ),
     )
-    if step != DEFAULT_STEP:
+    if step != DEFAULT_STEP or len(z) != PROFILE_STEPS[step]:
         # Normalized on the asset's own 161 nodes above; linear refinement keeps the function (and its integrals).
         fine = grid(PROFILE_STEPS[step])
+        require_asset_range('usstd76_profile.json', z, fine)
         optics['table'] = np.column_stack([np.interp(fine, z, table[:, k]) for k in (0, 1)])
         optics['meta'].update(
             interpolation=f'linear {step} km (asset 0.5 km nodes, linear refinement)',
@@ -462,7 +493,7 @@ NORMALIZATION_ASSET = 'asset: air*LEGACY_COLUMN/trapezoid, ozone*15/trapezoid on
 def _external(opt, step, ext):
     z, table = ext['z'], np.array(ext['table'], 'f8')
     if ext['normalize_ozone']:
-        total = np.trapezoid(table[:, 1], z)
+        total = normalization_integral(z, table[:, 1])
         if not total > 0:
             raise ValueError('E_PROFILE_OZONE_ZERO: normalize_ozone needs a positive ozone integral')
         table[:, 1] = table[:, 1] * 15 / total
@@ -477,9 +508,12 @@ def _external(opt, step, ext):
             origin='external',
             profile_step_km=step,
             interpolation=f'linear {step} km (external nodes)',
-            normalization='ozone column scaled to 15 on the injected grid'
-            if ext['normalize_ozone']
-            else 'none: injected values used as given',
+            normalization=(
+                ('ozone column scaled to 15 on the injected grid'
+                 if top.TOP_KM == top.NORMALIZATION_TOP_KM
+                 else f'ozone column scaled to 15 on 0..{top.NORMALIZATION_TOP_KM:g} km')
+                if ext['normalize_ozone'] else 'none: injected values used as given'
+            ),
             input_table_sha256=_sha(ext['table']),
             air_integral_km=float(np.trapezoid(table[:, 0], z)),
             ozone_integral_km=float(np.trapezoid(table[:, 1], z)),
@@ -503,7 +537,7 @@ def profile_identity(optics):
         version=1,
         n=n,
         step_km=STEP_OF_N[n],
-        top_km=80.0,
+        top_km=top.TOP_KM,
         interpolation='linear',
         mask=int(optics['mask']),
         scale=float(optics['scale']).hex(),
@@ -582,10 +616,10 @@ def evidence(optics, compiled_n=None, uploaded=None):
 
 
 def interpolate32(h, table):
-    """Operation order shared with kernel.cu; no FMA. Node count from the table (161/321/641)."""
+    """Operation order shared with kernel.cu; no FMA. Node count follows the selected grid."""
     t = np.asarray(table, 'f4')
     inv, last = KERNEL_LITERALS[t.shape[0]]
-    h = np.clip(np.asarray(h, 'f4'), np.float32(0), np.float32(80))
+    h = np.clip(np.asarray(h, 'f4'), np.float32(0), np.float32(top.TOP_KM))
     x = h * np.float32(inv)
     i = np.minimum(x.astype('i4'), last)
     f = x - i.astype('f4')
@@ -594,7 +628,7 @@ def interpolate32(h, table):
 
 def profiles(h, optics):
     z = grid(check_consumed(optics, where='profiles'))
-    h = np.clip(np.asarray(h, float), 0, 80)
+    h = np.clip(np.asarray(h, float), 0, top.TOP_KM)
     t = optics['table']
     return np.stack([np.interp(h, z, t[:, k]) for k in (0, 1, 2)], -1)
 
@@ -627,10 +661,10 @@ def sun_method():
 
 def exact_profile_columns(p, d, end, optics, selected=(0, 1, 2, 3)):
     """(n, 4) air/O3/NO2/O4 columns over the straight path [0, end]: integral of the GL rules' integrand
-    q(clip(h,0,80)) (profiles). Only mask-selected columns are filled (replace() reads no other).
+    q(clip(h,0,TOP_KM)) (profiles). Only mask-selected columns are filled (replace() reads no other).
 
     = column_table.exact_columns (closed shell integrals of the piecewise-linear table, both tangent sides; q=0 outside
-    0..80 km) + q(0) times the path length inside the ground sphere + q(80) times the length outside the 80 km sphere.
+    0..TOP_KM) + q(0) times the path length inside the ground sphere + q(TOP_KM) outside the top sphere.
     Real paths have neither (they end on the ground or the top), but the ground-shell half chord sqrt((R-rho)(R+rho))
     of a ray leaving the ground almost horizontally loses digits (rho~R): without the q(0) term such a ray dropped up to
     4e-5 km of air (stage 0(b) exact_check). The extra lengths use the closed form's own first/last shell chords, so the
@@ -653,7 +687,7 @@ def exact_profile_columns(p, d, end, optics, selected=(0, 1, 2, 3)):
 
     below = inside(RADIUS)
     above = np.maximum(end - inside(RADIUS + TOP), 0)
-    t = molecular_profiles(np.array([0.0, 80.0]), optics)
+    t = molecular_profiles(np.array([0.0, TOP]), optics)
     for k in selected:
         if k >= 2 or optics['mask'] & (1 << k):
             out[:, k] = exact_columns(molecular(optics, k), p, d, end) + t[0, k] * below + t[-1, k] * above

@@ -268,13 +268,14 @@ def test_shared_sun_asset_uses_content_identity(tmp_path, monkeypatch):
 def test_source_digest_encodings(tmp_path, monkeypatch):
     column_table.source_hash.cache_clear()
     expected = hashlib.sha256()
-    for path in (paths.PKG / 'rays/column_table.py', paths.PKG / 'atmosphere/tropo_profile.py'):
+    for path in (paths.PKG / 'rays/column_table.py', paths.PKG / 'atmosphere/tropo_profile.py',
+                 paths.PKG / 'foundation/top.py'):
         expected.update(path.name.encode())
         expected.update(source_identity.file_sha(path).encode())
     assert column_table.source_hash() == expected.hexdigest()
 
     names = (
-        'rays/shell_segments.py', 'solve/engine.py', 'precompute/sun_parallel.py', 'precompute/column_parallel.py',
+        'foundation/top.py', 'rays/shell_segments.py', 'solve/engine.py', 'precompute/sun_parallel.py', 'precompute/column_parallel.py',
         'atmosphere/tropo_profile.py', 'rays/ray_columns.py', 'atmosphere/density.py', 'assets/no2_afglus_profile.json',
     )
     expected = hashlib.sha256(json.dumps({'R': 6371.0, 'Z': 80.0}).encode())
@@ -289,7 +290,7 @@ def test_source_digest_encodings(tmp_path, monkeypatch):
     expected = hashlib.sha256()
     for array in (s.geo.h, s.geo.chi, s.geo.sun.h, s.geo.sun.x, s.geo.sun.col):
         expected.update(np.ascontiguousarray(array).tobytes())
-    for name in ('atmosphere/stratosphere.py', 'precompute/ground_parallel.py', 'rays/ray_columns.py',
+    for name in ('foundation/top.py', 'atmosphere/stratosphere.py', 'precompute/ground_parallel.py', 'rays/ray_columns.py',
                  'atmosphere/density.py', 'rays/column_table.py', 'precompute/column_parallel.py'):
         expected.update(name.encode())
         expected.update(bytes.fromhex(source_identity.file_sha(paths.PKG / name)))
