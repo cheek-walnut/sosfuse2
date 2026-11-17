@@ -54,11 +54,13 @@ def cache_key(kernel, bundle, c, kind):
         else {k: repr(float(c['strato_profile'][k])) for k in ('center', 'sigma', 'norm')}
     )
     from ..rays.column_table import identity as column_identity
+    from ..foundation.top import Domain
 
     return hashlib.sha256(
         json.dumps(
             dict(
                 version=3,
+                domain=getattr(kernel, 'domain', Domain()).identity(),
                 method=column_identity(),
                 kind=kind,
                 rays={k: hashes[k] for k in names},

@@ -133,8 +133,12 @@ def kernel_kwargs(step):
     return {} if profile_n(step) == PROFILE_STEPS[DEFAULT_STEP] else dict(profile_step_km=float(step))
 
 
-def grid(n):
+def grid(n, *, step=None, top_km=None):
     """PROFILE nodes for n rows; the default grid is np.arange(161)*.5."""
+    if step is not None:
+        if top.profile_n(step, top_km) != n:
+            raise ValueError('E_PROFILE_N_MISMATCH: profile coordinates disagree with T and S')
+        return np.arange(n) * step
     if n not in STEP_OF_N:
         raise ValueError(f'E_PROFILE_N: {n} rows ({sorted(STEP_OF_N)} allowed)')
     return np.arange(n) * STEP_OF_N[n]
@@ -429,7 +433,42 @@ def _minor_columns(optics, step, state):
     return _freeze(optics)
 
 
-def build(state):
+def domain_of(optics):
+    """Read the explicit execution grid; older lower-atmosphere profiles retain their declared spacing."""
+    return optics.get('domain', top.Domain(step_km=optics.get('meta', {}).get('profile_step_km', DEFAULT_STEP)))
+
+
+def build(state, domain=None):
+    options(state)
+    domain = domain or top.Domain(step_km=profile_step_km(state))
+    if domain.step_km != profile_step_km(state):
+        raise ValueError('E_SETTINGS_TOP: PROFILE spacing differs from the execution domain')
+    if domain.top_km > top.NORMALIZATION_TOP_KM:
+        raw = state.get('density', {})
+        if raw.get('density_profile') != 'usstd76' or 'external_profile' in raw:
+            raise ValueError('E_SETTINGS_TOP: extended top requires explicit usstd76 air without external PROFILE')
+        if domain.upper_air not in ('vacuum', 'us76_neff'):
+            raise ValueError('E_SETTINGS_TOP: upper_air must be vacuum or us76_neff')
+    optics = _build_lower(state)
+    if domain.top_km == top.TOP_KM:
+        return optics
+    table = np.zeros((domain.n, 3), 'f8')
+    table[:len(optics['table'])] = optics['table']
+    if domain.upper_air == 'us76_neff':
+        from .upper_air import sample
+
+        lower_last = len(optics['table']) - 1
+        heights = np.arange(lower_last, domain.n) * domain.step_km
+        ratio, _ = sample(heights)
+        # The lower table is already normalized. Its coefficient scale is applied once in attach().
+        table[lower_last:, 0] = table[lower_last, 0] * ratio
+    optics = dict(optics, table=table, domain=domain, meta=dict(optics['meta']))
+    optics['meta'].update(domain=domain.identity(), profile_step_km=domain.step_km)
+    optics['meta']['profile_identity'] = profile_identity(optics)['sha256']
+    return _freeze(optics)
+
+
+def _build_lower(state):
     from .components import no2_du
 
     no2_du(state)  # Validate optical amount; deliberately excluded from shape/cache identity.
@@ -536,8 +575,8 @@ def profile_identity(optics):
     fields = dict(
         version=1,
         n=n,
-        step_km=STEP_OF_N[n],
-        top_km=top.TOP_KM,
+        step_km=domain_of(optics).step_km,
+        top_km=domain_of(optics).top_km,
         interpolation='linear',
         mask=int(optics['mask']),
         scale=float(optics['scale']).hex(),
@@ -546,6 +585,8 @@ def profile_identity(optics):
         source_sha256=meta.get('asset_sha256'),
         table=dict(shape=list(t.shape), dtype=t.dtype.str, sha256=_sha(t)),
     )
+    if 'domain' in optics:
+        fields['domain'] = domain_of(optics).identity()
     return dict(fields, sha256=hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest())
 
 
@@ -557,18 +598,18 @@ def column_identity(optics):
     return dict(fields, sha256=hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest())
 
 
-def check_consumed(optics, compiled_n=None, rows=None, where='consume'):
+def check_consumed(optics, compiled_n=None, rows=None, where='consume', domain=None):
     """The one PROFILE N check before any consumer: the declared step (meta.profile_step_km, 0.5 when unstated)
     == table rows (shape (N,3)) [== uploaded rows] [== compiled PROFILE_N]. Every path calls it, whether or not setup()
     ran and on either backend: source_solver.Kernel.check_profile (setup hit/miss, upload, launch, payload, installed constants),
     numpy_reference.profile_at, profiles, profile_identity. Returns N; E_PROFILE_N_MISMATCH otherwise."""
     meta = optics.get('meta', {})
     declared = meta.get('profile_step_km', DEFAULT_STEP)
-    n = (
-        PROFILE_STEPS.get(float(declared))
-        if isinstance(declared, (int, float, np.integer, np.floating)) and not isinstance(declared, bool)
-        else None
-    )
+    actual_domain = domain_of(optics)
+    try:
+        n = top.profile_n(declared, actual_domain.top_km) if declared in PROFILE_STEPS else None
+    except (ValueError, TypeError):
+        n = None
     shape = np.shape(optics['table'])
     table_rows = int(shape[0]) if len(shape) else -1
     bad = (
@@ -576,6 +617,7 @@ def check_consumed(optics, compiled_n=None, rows=None, where='consume'):
         or shape != (n, 3)
         or (rows is not None and int(rows) != n)
         or (compiled_n is not None and int(compiled_n) != n)
+        or (domain is not None and domain != actual_domain)
     )
     if bad:
         raise RuntimeError(
@@ -615,22 +657,32 @@ def evidence(optics, compiled_n=None, uploaded=None):
     )
 
 
-def interpolate32(h, table):
+def interpolate32(h, table, domain=None):
     """Operation order shared with kernel.cu; no FMA. Node count follows the selected grid."""
     t = np.asarray(table, 'f4')
-    inv, last = KERNEL_LITERALS[t.shape[0]]
-    h = np.clip(np.asarray(h, 'f4'), np.float32(0), np.float32(top.TOP_KM))
+    domain = domain or top.Domain(step_km=STEP_OF_N[t.shape[0]])
+    inv, last = top.profile_kernel_constants(domain.step_km, domain.top_km)
+    raw_h = np.asarray(h, 'f4')
+    h = np.clip(raw_h, np.float32(0), np.float32(domain.top_km))
     x = h * np.float32(inv)
     i = np.minimum(x.astype('i4'), last)
     f = x - i.astype('f4')
-    return t[i] + f[..., None] * (t[i + 1] - t[i])
+    values = t[i] + f[..., None] * (t[i + 1] - t[i])
+    if domain.top_km > top.NORMALIZATION_TOP_KM:
+        values = np.where(raw_h[..., None] > np.asarray([domain.air_end, domain.lower_end, domain.lower_end]), 0, values)
+    return values
 
 
 def profiles(h, optics):
-    z = grid(check_consumed(optics, where='profiles'))
-    h = np.clip(np.asarray(h, float), 0, top.TOP_KM)
+    domain = domain_of(optics)
+    z = grid(check_consumed(optics, where='profiles'), step=domain.step_km, top_km=domain.top_km)
+    raw_h = np.asarray(h, float)
+    h = np.clip(raw_h, 0, domain.top_km)
     t = optics['table']
-    return np.stack([np.interp(h, z, t[:, k]) for k in (0, 1, 2)], -1)
+    values = np.stack([np.interp(h, z, t[:, k]) for k in (0, 1, 2)], -1)
+    if domain.top_km > top.NORMALIZATION_TOP_KM:
+        values = np.where(raw_h[..., None] > np.asarray([domain.air_end, domain.lower_end, domain.lower_end]), 0, values)
+    return values
 
 
 def molecular_profiles(h, optics):
@@ -639,7 +691,11 @@ def molecular_profiles(h, optics):
     air = tab[..., 0] if optics['mask'] & 1 else np.exp(-np.maximum(h, 0) / 8)
     oz = tab[..., 1] if optics['mask'] & 2 else np.maximum(0, 1 - np.abs(h - 25) / 15)
     q = air / (optics['table'][0, 0] if optics['mask'] & 1 else 1.0)
-    return np.stack([air, oz, tab[..., 2], q * q], -1)
+    values = np.stack([air, oz, tab[..., 2], q * q], -1)
+    domain = domain_of(optics)
+    if domain.top_km > top.NORMALIZATION_TOP_KM:
+        values = np.where(np.asarray(h)[..., None] > np.asarray([domain.air_end, domain.lower_end, domain.lower_end, domain.lower_end]), 0, values)
+    return values
 
 
 SUN_METHOD_ENV = 'SOSFUSE2_SUN_METHOD'
@@ -671,7 +727,10 @@ def exact_profile_columns(p, d, end, optics, selected=(0, 1, 2, 3)):
     two partition the path consistently. The path is the caller's: unchanged ray (x=0 mu=mg+1e-9) and
     end=probe.boundaries(p,d)[:,-1] (ground end, zero length at the top). Base/unselected columns, strato columns and the
     Rayleigh scale are not touched here."""
-    from ..rays.column_table import R as RADIUS, Z as TOP, exact_columns, molecular
+    from ..rays.column_table import R as RADIUS, exact_columns, molecular
+
+    domain = domain_of(optics)
+    TOP = domain.top_km
 
     d = np.asarray(d, 'f8')
     p = np.broadcast_to(p, d.shape)
@@ -686,7 +745,7 @@ def exact_profile_columns(p, d, end, optics, selected=(0, 1, 2, 3)):
         return np.maximum(np.minimum(sb, c) - np.maximum(sa, -c), 0)
 
     below = inside(RADIUS)
-    above = np.maximum(end - inside(RADIUS + TOP), 0)
+    above = np.maximum(end - inside(RADIUS + TOP), 0) if TOP == top.TOP_KM else np.zeros_like(end)
     t = molecular_profiles(np.array([0.0, TOP]), optics)
     for k in selected:
         if k >= 2 or optics['mask'] & (1 << k):
@@ -717,7 +776,7 @@ def correct_columns(p, d, base, old, optics, n=24, *, end=None):
 def attach(s, scope, defer_ground=False):
     if hasattr(s, 'density_optics'):
         return s.density_optics
-    optics = build(s.fuse_state)
+    optics = build(s.fuse_state, getattr(scope, 'domain', None))
     old = scope.b.sh.old
     sun = s.geo.sun
     optics['old'] = old
@@ -772,4 +831,12 @@ def attach(s, scope, defer_ground=False):
 
 
 def metadata(s):
-    return dict(LEGACY) if getattr(s, 'density_optics', None) is None else dict(s.density_optics['meta'])
+    optics = getattr(s, 'density_optics', None)
+    if optics is None:
+        return dict(LEGACY)
+    result = dict(optics['meta'])
+    if domain_of(optics).upper_air == 'us76_neff':
+        from .upper_air import connection_metadata
+
+        result['upper_air_connection'] = connection_metadata(s, optics)
+    return result

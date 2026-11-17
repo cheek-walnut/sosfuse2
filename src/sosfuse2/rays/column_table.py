@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 from ..foundation import content_identity as source_identity, paths
-from ..foundation.top import TOP_KM, COLUMN_TOP_MARGIN_KM
+from ..foundation.top import TOP_KM, COLUMN_TOP_MARGIN_KM, Domain
 from ..atmosphere.components import MOLECULAR_COLUMNS
 
 R, Z = 6371.0, TOP_KM
@@ -55,6 +55,16 @@ def aerosol(old):
 
 
 def molecular(optics, k):
+    spec = _molecular(optics, k)
+    if optics is not None and 'domain' in optics:
+        from ..atmosphere.density import domain_of
+
+        domain = domain_of(optics)
+        spec.update(domain=domain.identity(), end_km=domain.air_end if k == 0 else domain.lower_end)
+    return spec
+
+
+def _molecular(optics, k):
     if k == 2:
         from ..atmosphere.density import LEGACY, build
 
@@ -102,10 +112,17 @@ def molecular(optics, k):
 
 
 def strato(profile):
-    return descriptor('gaussian', **{k: float(profile[k]) for k in ('center', 'sigma', 'norm')})
+    result = descriptor('gaussian', **{k: float(profile[k]) for k in ('center', 'sigma', 'norm')})
+    result.update({k: profile[k] for k in ('end_km', 'domain') if k in profile})
+    return result
 
 
 def values(h, spec):
+    result = _values(h, spec)
+    return np.where(np.asarray(h) > spec['end_km'], 0, result) if 'end_km' in spec else result
+
+
+def _values(h, spec):
     kind = spec['kind']
     if kind == 'exp':
         return np.exp(-np.maximum(h, 0) / spec['height'])
@@ -114,7 +131,8 @@ def values(h, spec):
     if kind in ('usstd76', 'air_squared'):
         from ..atmosphere.density import grid
 
-        q = np.interp(h, grid(len(spec['values'])), spec['values'])
+        g = spec.get('grid', {})
+        q = np.interp(h, grid(len(spec['values']), step=g.get('step_km'), top_km=g.get('top_km')), spec['values'])
         return q * q if kind == 'air_squared' else q
     if kind == 'gaussian':
         return np.exp(-0.5 * ((h - spec['center']) / spec['sigma']) ** 2) / spec['norm']
@@ -126,25 +144,33 @@ def values(h, spec):
 
 
 def build_table(spec, ground):
+    ztop = spec.get('domain', {}).get('top_km', Z)
     a = np.linspace(0, 1, NA)
     x = np.linspace(0, 1, NX)
     u, w = np.polynomial.legendre.leggauss(8)
     u = (u + 1) / 2
     w = w / 2
-    rho = R * np.sqrt(1 - a**4) if ground else R + Z * a * a
+    rho = R * np.sqrt(1 - a**4) if ground else R + ztop * a * a
     hlo = np.zeros(NA) if ground else rho - R
     G = np.zeros((NA, NX), 'f8')
     for i in range(NA):
-        vmax = np.sqrt(Z - hlo[i])
+        vmax = np.sqrt(max(ztop - hlo[i], 0))
         dv = vmax / (NX - 1)
         v = x[:-1, None] * vmax + dv * u
+        widths = dv
+        if spec.get('end_km', ztop) < ztop:
+            support = np.sqrt(max(spec['end_km'] - hlo[i], 0))
+            left = np.minimum(x[:-1] * vmax, support)
+            right = np.minimum(x[1:] * vmax, support)
+            widths = (right - left)[:, None]
+            v = left[:, None] + widths * u
         h = hlo[i] + v * v
         r = R + h
         if ground:
             dtdv = 2 * r * v / np.sqrt(v * v * (r + R) + R * R * a[i] ** 4)
         else:
             dtdv = 2 * r / np.sqrt(r + rho[i])
-        G[i, 1:] = np.cumsum(np.sum(values(h, spec) * dtdv * (w * dv), axis=1))
+        G[i, 1:] = np.cumsum(np.sum(values(h, spec) * dtdv * (w * widths), axis=1))
     return G
 
 
@@ -208,7 +234,7 @@ def lookup(G, a, x):
     return out
 
 
-def coordinates(p, d, end):
+def coordinates(p, d, end, top_km=Z):
     p = np.broadcast_to(p, d.shape)
     sa = np.sum(p * d, axis=-1)
     sb = sa + end
@@ -217,15 +243,15 @@ def coordinates(p, d, end):
     ht = rho - R
     ra = np.hypot(rho, sa)
     rb = np.hypot(rho, sb)
-    a = np.where(ground, np.maximum(1 - (rho / R) ** 2, 0) ** 0.25, np.sqrt(np.maximum(ht, 0) / Z))
+    a = np.where(ground, np.maximum(1 - (rho / R) ** 2, 0) ** 0.25, np.sqrt(np.maximum(ht, 0) / top_km))
     # No subtraction r-rho in tangent coordinates, including the ht=0.2 seam.
-    dena = np.sqrt(np.maximum((ra + rho) * (Z - ht), np.finfo(float).tiny))
-    denb = np.sqrt(np.maximum((rb + rho) * (Z - ht), np.finfo(float).tiny))
-    xa = np.where(ground, np.sqrt(np.maximum(ra - R, 0) / Z), np.abs(sa) / dena)
-    xb = np.where(ground, np.sqrt(np.maximum(rb - R, 0) / Z), np.abs(sb) / denb)
+    dena = np.sqrt(np.maximum((ra + rho) * (top_km - ht), np.finfo(float).tiny))
+    denb = np.sqrt(np.maximum((rb + rho) * (top_km - ht), np.finfo(float).tiny))
+    xa = np.where(ground, np.sqrt(np.maximum(ra - R, 0) / top_km), np.abs(sa) / dena)
+    xb = np.where(ground, np.sqrt(np.maximum(rb - R, 0) / top_km), np.abs(sb) / denb)
     corner = ground & (a < 0.05) & (np.minimum(xa, xb) < 0.05)
     tangent = ~ground & (ht < 0.2) & (np.minimum(xa, xb) < 0.05)
-    direct = corner | tangent | (~ground & (ht > Z - COLUMN_TOP_MARGIN_KM))
+    direct = corner | tangent | (~ground & (ht > top_km - COLUMN_TOP_MARGIN_KM))
     short = end < 1e-3
     return dict(sa=sa, sb=sb, rho=rho, ground=ground, a=a, xa=xa, xb=xb, direct=direct & ~short, short=short)
 
@@ -236,7 +262,9 @@ def pieces(spec):
     from ..atmosphere.density import STEP_OF_N
 
     col = np.asarray(spec['values'])
-    step = STEP_OF_N[len(col)]  # N-1 shells of width step
+    step = spec['grid']['step_km'] if 'grid' in spec else STEP_OF_N[len(col)]
+    if 'end_km' in spec:
+        col = col[:round(spec['end_km'] / step) + 1]
     slope = np.diff(col) / step
     lo = R + np.arange(len(col) - 1) * step
     return zip(lo, lo + step, col[:-1] - slope * lo, slope)
@@ -264,7 +292,7 @@ def linear_columns(spec, rho, sa, sb):
 def direct_columns(spec, p, d, end, n=24):
     """Boundary fallback: exact US1976/triangle; split GL for smooth profiles."""
     p = np.broadcast_to(p, d.shape)
-    c = coordinates(p, d, end)
+    c = coordinates(p, d, end, spec.get('domain', {}).get('top_km', Z))
     if spec['kind'] in ('usstd76', 'triangle'):
         return linear_columns(spec, c['rho'], c['sa'], c['sb'])
     if spec['kind'] == 'air_squared':
@@ -275,7 +303,10 @@ def direct_columns(spec, p, d, end, n=24):
 
         out = np.zeros(len(d))
         u, w = np.polynomial.legendre.leggauss(8)
-        z = grid(len(spec['values']))
+        g = spec.get('grid', {})
+        z = grid(len(spec['values']), step=g.get('step_km'), top_km=g.get('top_km'))
+        if 'end_km' in spec:
+            z = z[z <= spec['end_km']]
         for lo, hi in zip(z[:-1], z[1:]):
             ca = np.sqrt(np.maximum((R + lo - c['rho']) * (R + lo + c['rho']), 0))
             cb = np.sqrt(np.maximum((R + hi - c['rho']) * (R + hi + c['rho']), 0))
@@ -292,6 +323,8 @@ def direct_columns(spec, p, d, end, n=24):
         return out
     cuts = [np.zeros(len(d)), end, np.clip(-c['sa'], 0, end)]
     heights = [10.0, 25.0, 40.0]
+    if 'end_km' in spec:
+        heights.append(spec['end_km'])
     if spec['kind'] == 'two_layer':
         v = spec['vector']
         heights += [v[0], v[0] + 1 / v[1]]
@@ -335,10 +368,21 @@ def exact_columns(spec, p, d, end):
 def column(spec, p, d, end, coords=None):
     if method() == 'exact':
         return exact_columns(spec, p, d, end)
-    c = coordinates(p, d, end) if coords is None else coords
+    c = coordinates(p, d, end, spec.get('domain', {}).get('top_km', Z)) if coords is None else coords
     out = np.zeros(len(d))
-    short = c['short']
-    direct = c['direct']
+    short = c['short'].copy()
+    direct = c['direct'].copy()
+    outside = np.zeros(len(d), bool)
+    if spec.get('end_km', Z) < spec.get('domain', {}).get('top_km', Z):
+        support = R + spec['end_km']
+        chord = np.sqrt(np.maximum((support - c['rho']) * (support + c['rho']), 0))
+        outside = (c['sb'] <= -chord) | (c['sa'] >= chord) | (c['rho'] >= support)
+        near = ((abs(np.hypot(c['rho'], c['sa']) - support) < COLUMN_TOP_MARGIN_KM)
+                | (abs(np.hypot(c['rho'], c['sb']) - support) < COLUMN_TOP_MARGIN_KM)
+                | (abs(c['rho'] - support) < COLUMN_TOP_MARGIN_KM))
+        direct |= near
+        direct &= ~outside
+        short &= ~(near | outside)
     if short.any():
         s = c['sa'][short] + end[short] / 2
         rho = c['rho'][short]
@@ -353,7 +397,7 @@ def column(spec, p, d, end, coords=None):
         return np.maximum(out, 0)
     if direct.any():
         out[direct] = direct_columns(spec, np.broadcast_to(p, d.shape)[direct], d[direct], end[direct])
-    use = ~(short | direct)
+    use = ~(short | direct | outside)
     if use.any():
         G = tables(spec)
         for ground, name in ((True, 'ground'), (False, 'tangent')):
@@ -371,11 +415,17 @@ def column(spec, p, d, end, coords=None):
 def integrate(p, d, old, *, legacy=False, optics=None, profile=None, edges=None):
     p = np.broadcast_to(p, d.shape)
     end = old.probe.boundaries(p, d)[:, -1] if edges is None else edges[:, -1]
-    c = coordinates(p, d, end)
+    domain = getattr(old, 'domain', Domain())
+    c = coordinates(p, d, end, domain.top_km)
+
+    def bound(spec):
+        if domain.top_km > TOP_KM:
+            return dict(spec, domain=domain.identity(), end_km=domain.lower_end)
+        return spec
     base = (
         np.column_stack(
             [
-                column(spec, p, d, end, c)
+                column(bound(spec), p, d, end, c)
                 for spec in (
                     molecular(None, 0),
                     aerosol(old),
@@ -403,7 +453,7 @@ def fill(out, kind, starts, cell_off, dirs, old, parameter):
         p = starts[owner]
         d = dirs[lo:hi]
         end = old.probe.boundaries(p, d)[:, -1]
-        c = coordinates(p, d, end)
+        c = coordinates(p, d, end, getattr(old, 'domain', Domain()).top_km)
         if kind == 'strato':
             out[lo:hi] = column(strato(parameter), p, d, end, c)
         else:

@@ -106,6 +106,7 @@ def promote_solver(s, geometry, backend, block_size, threads):
         block_size,
         flags=old.flags,
         L=old.L,
+        domain=old.domain,
         **kernel_kwargs(getattr(old, 'profile_step_km', 0.5)),
     )  # ②b: same PROFILE_N as the CPU kernel
     # setup() holds NumPy constants only; the state identity is unchanged.
@@ -249,10 +250,11 @@ def evaluate_tables(s, field, prepared):
 
 
 def replay_tables(s, prepared, results):
-    from ..outputs.radiance_table import _replay
+    from ..outputs.radiance_table import _replay, first_order_buffer
     import numpy as np
 
     table = np.empty(prepared['shape'], 'f4')
+    first_table = first_order_buffer(s, table.shape)
     dummy = np.empty(0, 'f4')
     for b, (one_values, multiple_values) in zip(prepared['batches'], results):
         offset = 0
@@ -266,6 +268,8 @@ def replay_tables(s, prepared, results):
             if not np.isfinite(spec).all() or (spec < 0).any():
                 raise RuntimeError('E_RADIANCE_INVALID: nonfinite/negative')
             table[j] = spec
+            if first_table is not None:
+                first_table[j] = one[..., 0]
     return table
 
 
@@ -335,6 +339,7 @@ def device_payload(s, geometry):
         block_size=s.kernel.block_size,
         L=s.kernel.L,
         profile_step_km=getattr(s.kernel, 'profile_step_km', 0.5),
+        domain=s.kernel.domain,
     )
 
 
@@ -342,6 +347,8 @@ def install_constants(kernel, s, constants):
     """Prepared constants installed without setup() (payload restore, persistent service): each PROFILE table is checked
     against the kernel's PROFILE_N first; setup() checks again on every later read."""
     for c in constants.values():
+        if c.get('domain', kernel.domain) != kernel.domain:
+            raise RuntimeError('E_PROFILE_N_MISMATCH: installed execution domain differs from kernel')
         if 'density_optics' in c:
             kernel.check_profile(c['density_optics'], 'install')
     kernel.constants = {(id(s), nq): c for nq, c in constants.items()}
@@ -380,6 +387,7 @@ def restore_device_payload(payload, compiled):
         payload['block_size'],
         flags=payload['flags'],
         L=payload['L'],
+        domain=payload.get('domain'),
         **kernel_kwargs(payload.get('profile_step_km', 0.5)),
     )  # consumers re-check N (source_solver.check_profile)
     kernel.raw, kernel.attributes = compiled
@@ -647,6 +655,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                             block_size,
                             flags=payload['flags'],
                             L=payload['L'],
+                            domain=payload.get('domain'),
                             **kernel_kwargs(payload.get('profile_step_km', 0.5)),
                         )
                         xp = prototype.xp
@@ -682,6 +691,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                     block_size,
                     flags=payload['flags'],
                     L=payload['L'],
+                    domain=payload.get('domain'),
                     **kernel_kwargs(payload.get('profile_step_km', 0.5)),
                 )
 

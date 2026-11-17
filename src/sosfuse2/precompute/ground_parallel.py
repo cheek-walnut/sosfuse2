@@ -29,9 +29,12 @@ def workers():
 
 
 def _functions(scope, sun):
+    from ..foundation.top import Domain
+
     old = scope.b.sh.old
     incoming = scope.b.sh.incoming
     return types.SimpleNamespace(
+        domain=getattr(old, 'domain', Domain()),
         incoming=incoming,
         frame=old.probe.frame,
         boundaries=old.probe.boundaries,
@@ -147,7 +150,7 @@ def cells(s, scope, kind, optics=None, profile=None, suncol=None, method=None):
     if method not in SUN_METHODS:
         raise ValueError('E_SUN_METHOD: expected gl or exact')
     g = s.geo
-    sun = types.SimpleNamespace(h=g.sun.h, x=g.sun.x, col=g.sun.col)
+    sun = types.SimpleNamespace(h=g.sun.h, x=g.sun.x, col=g.sun.col, domain=g.sun.domain)
     optics = None if optics is None else {k: v for k, v in optics.items() if k != 'old'}
     data = (g.h, g.chi, 6371.0 if kind == 'strato' else scope.b.R, sun, optics, profile, suncol, method)
     return _map(_functions(scope, g.sun), data, kind, list(range(g.ns)))

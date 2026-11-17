@@ -108,6 +108,8 @@ PRODUCTION_MODULES = (
     'asset_tools/__init__',
     'foundation/available_cpus',
     'foundation/top',
+    'atmosphere/upper_air',
+    'asset_tools/generate_upper_air',
     'backends/flags_env',
     'solve/engine',
     'outputs/pack_state',

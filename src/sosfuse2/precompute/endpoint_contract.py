@@ -100,7 +100,7 @@ def check(gm):
     column = squeeze(inspect.getsource(gm.aerosol_column))
     csr = squeeze(inspect.getsource(gm._csr_vector))
     for needle, text, name in (
-        ('forheightin(10.0,25.0,40.0):', pack, 'pack shells'),
+        ("forheightingetattr(old,'domain',Domain()).extra_shells:", pack, 'pack shells'),
         ('integrate(p,d,old,24,', pack, 'pack columns'),
         ('re<6371.0+1e-5', pack, 'hits_ground'),
         ('4.0,True)', cell, 'incoming radius factor'),
@@ -122,7 +122,10 @@ def identity(s):
     """Common-layer identity: grid + quadrature counts + geometry rules file + upstream hashes; no scale height."""
     files = {'sosfuse2/' + name: source_identity.file_sha(ROOT / name) for name in UPSTREAM}
     files[paths.rel(__file__)] = source_identity.file_sha(Path(__file__))
+    from ..foundation.top import Domain
+
     content = dict(
+        domain=getattr(s.geo, 'domain', getattr(getattr(s, 'kernel', None), 'domain', Domain())).identity(),
         h=s.geo.h.tolist(),
         chi=s.geo.chi.tolist(),
         cfg=s.geo.cfg,

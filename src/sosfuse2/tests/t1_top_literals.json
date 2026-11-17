@@ -1,0 +1,161 @@
+{
+  "foundation/top.py": {
+    "TOP_KM = 80.0": 1,
+    "NORMALIZATION_TOP_KM = 80.0": 1,
+    "SUN_HEIGHT_INTERVALS = 80": 1,
+    "top_km: float = TOP_KM": 1,
+    "return self.top_km if self.upper_air == 'us76_neff' else min(self.top_km, NORMALIZATION_TOP_KM)": 1,
+    "return min(self.top_km, NORMALIZATION_TOP_KM)": 1,
+    "return (10.0, 25.0, 40.0) + ((NORMALIZATION_TOP_KM,) if self.top_km > NORMALIZATION_TOP_KM else ())": 1,
+    "(NORMALIZATION_TOP_KM, self.top_km) if self.top_km > NORMALIZATION_TOP_KM else (self.top_km,)": 1,
+    "stop = [2, -3, -6, -9, -12] + ([-15] if self.top_km > NORMALIZATION_TOP_KM else [])": 1,
+    "return dict(stop=stop, acceleration=list(stop), record=[-18] if self.top_km > NORMALIZATION_TOP_KM else [])": 1,
+    "value = settings.get('top_km', TOP_KM)": 1,
+    "if type(value) not in (int, float) or not math.isfinite(value) or not TOP_KM <= value <= 200:": 1,
+    "raise ValueError('E_SETTINGS_TOP: top_km must be a finite number in [80, 200]')": 1,
+    "if value == TOP_KM:": 1,
+    "raise ValueError('E_SETTINGS_TOP: upper settings require top_km > 80')": 1,
+    "or any(b <= a for a, b in zip([TOP_KM, *nodes[:-1]], nodes)) or nodes[-1] != value):": 1,
+    "raise ValueError('E_SETTINGS_TOP: upper heights must increase strictly above 80 and end at top_km')": 1,
+    "top = TOP_KM if top is None else top": 2,
+    "f'-DPROFILE_INV={_float_literal(inverse)}',": 1,
+    "f'-DTOP_KM={_float_literal(top)}',": 1
+  },
+  "solve/engine.py": {
+    "from ..foundation.top import NORMALIZATION_TOP_KM, Domain": 1,
+    "column = H * (-np.expm1(-NORMALIZATION_TOP_KM / H)) if aerosol is None else aerosol.column": 1,
+    "HS=(2, -3, -6, -9, -12) + ((-15,) if domain.top_km > NORMALIZATION_TOP_KM else ()),": 1,
+    "HS_RECORD=(-18,) if domain.top_km > NORMALIZATION_TOP_KM else (),": 1
+  },
+  "jobs/cache_store.py": {
+    "raise CacheStoreError('E_CACHE_STAGED_INCOMPLETE', f'unexpected member {rel[:80]}')": 1,
+    "raise CacheStoreError('E_CACHE_STAGED_INCOMPLETE', f'sha256 {rel[:80]}')": 1
+  },
+  "rays/column_table.py": {
+    "from ..foundation.top import TOP_KM, COLUMN_TOP_MARGIN_KM, Domain": 1,
+    "R, Z = 6371.0, TOP_KM": 1,
+    "if domain.top_km > TOP_KM:": 1
+  },
+  "atmosphere/density.py": {
+    "(by default 0..80 km and 161/321/641 rows, linear interpolation, air/ozone plus NO2, mask bits 1/2 select air/ozone). Omitted = 0.5 = the historical air/ozone table,": 1,
+    "built by the unchanged expressions (no interpolation, no renormalization). The asset (v1, 161 x 0.5 km) is normalized on": 1,
+    "z = grid(len(base['table']))   # 641 nodes, 0.125 km": 1,
+    "LEGACY_COLUMN = 8 * (-np.expm1(-top.NORMALIZATION_TOP_KM / 8))": 1,
+    "ASSET_TOP_KM = 80.0": 1,
+    "ASSET_N = int(ASSET_TOP_KM / ASSET_STEP_KM) + 1": 1,
+    "\"\"\"PROFILE nodes for n rows; the default grid is np.arange(161)*.5.\"\"\"": 1,
+    "boundary = top.NORMALIZATION_TOP_KM": 1,
+    "raise ValueError(f'E_PROFILE_GRID: z_km must equal arange(N)*{STEP_OF_N[len(z)]} km (0..{top.TOP_KM:g})')": 1,
+    "air_column = float(normalization_integral(z, optics['table'][:, 0])) if optics['mask'] & 1 else LEGACY_COLUMN": 1,
+    "if domain.top_km > top.NORMALIZATION_TOP_KM:": 4,
+    "if domain.top_km == top.TOP_KM:": 1,
+    "rayleigh_tau550=0.013558 * LEGACY_COLUMN,": 1,
+    "require_asset_range('usstd76_profile.json', z, [top.NORMALIZATION_TOP_KM])": 1,
+    "[air * LEGACY_COLUMN / normalization_integral(z, air), oz * 15 / normalization_integral(z, oz)]": 1,
+    "scale = 1.0 if opt['rayleigh_column'] == 'keep' else data['rayleigh_tau550_0_80'] / (0.013558 * LEGACY_COLUMN)": 1,
+    "rayleigh_tau550=0.013558 * LEGACY_COLUMN * scale,": 2,
+    "# Normalized on the asset's own 161 nodes above; linear refinement keeps the function (and its integrals).": 1,
+    "NORMALIZATION_ASSET = 'asset: air*LEGACY_COLUMN/trapezoid, ozone*15/trapezoid on the 0.5 km asset nodes'": 1,
+    "if top.TOP_KM == top.NORMALIZATION_TOP_KM": 1,
+    "else f'ozone column scaled to 15 on 0..{top.NORMALIZATION_TOP_KM:g} km')": 1,
+    "q(clip(h,0,TOP_KM)) (profiles). Only mask-selected columns are filled (replace() reads no other).": 1,
+    "0..TOP_KM) + q(0) times the path length inside the ground sphere + q(TOP_KM) outside the top sphere.": 1,
+    "above = np.maximum(end - inside(RADIUS + TOP), 0) if TOP == top.TOP_KM else np.zeros_like(end)": 1
+  },
+  "solve/source_solver.py": {
+    "key += (('PROFILE_N', self.profile_n), ('TOP_KM', self.domain.top_km), ('PROFILE_STEP', self.profile_step_km),": 1
+  },
+  "checks/gate.py": {
+    "LEGACY_PROFILE_N = 161": 1,
+    "# \u2461b: PROFILE node count (records from before \u2461b carry none: 161)": 1,
+    "cfg = v3.settings_for(NS(reduced=fixture_settings(F, fx).get('top_km', 80) == 80, settings_json=out / 'settings.json'))": 1
+  },
+  "asset_tools/generate_density_profile.py": {
+    "z = [D(i) / 2 for i in range(161)]  # 0..80 km, 0.5 km": 1,
+    "tau550 = sum((t for zz, t in ray if zz < 80), D(0)) * (D(450) / D(550)) ** 4": 1
+  },
+  "asset_tools/generate_tropo_optics.py": {
+    "Particle model = LOWTRAN7/MODTRAN boundary-layer RURAL aerosol (Shettle & Fenn 1979, AFGL-TR-79-0214), the model": 1,
+    "80,": 1
+  },
+  "rays/shell_segments.py": {
+    "from sosfuse2.foundation.top import TOP_KM, SUN_HEIGHT_INTERVALS, Domain": 1,
+    "Z = TOP_KM": 1,
+    "if domain.top_km > TOP_KM:": 1,
+    "np.arange(80, 85, 1),": 1
+  },
+  "jobs/pipeline.py": {
+    "from sosfuse2.foundation.top import NORMALIZATION_TOP_KM": 1,
+    "or not 0 <= center <= NORMALIZATION_TOP_KM": 1
+  },
+  "backends/numpy_reference.py": {
+    "from ..foundation.top import TOP_KM, Domain": 1,
+    "if domain.top_km > TOP_KM:": 2,
+    "if inside is not None and domain.top_km > TOP_KM:": 1,
+    "return np.where(h > F(domain.lower_end), F(0), result) if domain.top_km > TOP_KM else result": 1
+  },
+  "jobs/run_state.py": {
+    "from sosfuse2.foundation.top import TOP_KM": 1,
+    "if domain.top_km > TOP_KM:": 2,
+    "if 'nr' in raw and 'h_refine' not in raw and domain.top_km == TOP_KM:": 1,
+    "if ('h_refine' in raw or domain.top_km > TOP_KM) and 'nr' not in raw:": 1,
+    "if cfg.get('top_km', TOP_KM) > TOP_KM:": 1
+  },
+  "atmosphere/stratosphere.py": {
+    "from ..foundation.top import NORMALIZATION_TOP_KM": 1,
+    "if sigma < 1 or not 0 <= center <= NORMALIZATION_TOP_KM:": 1,
+    "resolution = NORMALIZATION_TOP_KM / sigma * 40": 1,
+    "count = max(int(NORMALIZATION_TOP_KM * 100) + 1, int(math.ceil(resolution)) + 1)": 1,
+    "z = np.linspace(0, NORMALIZATION_TOP_KM, count)": 1,
+    "if domain is not None and domain.top_km > NORMALIZATION_TOP_KM:": 1
+  },
+  "atmosphere/tropo_profile.py": {
+    "Profile (extinction at 550 nm per unit total aod550, km^-1, integral over 0..80 km = 1):": 1,
+    "a_bl = (aod_bl/aod550)/Ib, Ib = integral of b*(1-s) on [0, 80];  a_ft = (aod_ft/aod550)/If, If = integral of f*s on [0, 80]": 1,
+    "from ..foundation.top import NORMALIZATION_TOP_KM": 1,
+    "bl_top_km=_number(full, 'bl_top_km', 0.0, NORMALIZATION_TOP_KM),": 1,
+    "# The transition [bl_top-w/2, bl_top+w/2] must lie inside (0, 80).": 1,
+    "full, 'bl_transition_km', 0.0, 2 * min(out['bl_top_km'], NORMALIZATION_TOP_KM - out['bl_top_km'])": 1,
+    "\"\"\"(Ib, If) = integrals over [0, 80] of exp(-h*kb)*(1-s) and exp(-(h-z)*kf)*s: closed form outside the transition": 1,
+    "+ math.exp(-(z1 - z) * kf) * (-math.expm1(-(NORMALIZATION_TOP_KM - z1) * kf)) / kf": 1,
+    "\"\"\"P = [bl_top-w/2, 1/w, a_bl, k_bl, a_ft, k_ft, bl_top] (float64) and the layer aods; profile integral on [0,80] = 1.\"\"\"": 1
+  },
+  "checks/validate.py": {
+    "from ..foundation.top import TOP_KM": 1,
+    "x = np.array([6371.0 + 0.000001, 6371.0 + 0.1, 6371.0 + TOP_KM])": 1
+  },
+  "checks/stratosphere_checks.py": {
+    "from ..foundation.top import TOP_KM, NORMALIZATION_TOP_KM": 1,
+    "end = np.sqrt(np.maximum(0, (6371.0 + TOP_KM) ** 2 - q[:, 0] ** 2 - q[:, 1] ** 2)) - q[:, 2]": 1,
+    "opt = build_optics(st, np.linspace(0, NORMALIZATION_TOP_KM, 8001), [550.0])": 1,
+    "z = np.linspace(0, NORMALIZATION_TOP_KM, 8001)": 1,
+    "fine = np.linspace(0, NORMALIZATION_TOP_KM, 160001)": 1
+  },
+  "backends/kernel.cu": {
+    "#define PROFILE_N 161": 1,
+    "#ifndef PROFILE_INV": 1,
+    "#define PROFILE_INV 2.f": 1,
+    "#define PROFILE_LAST 159": 1,
+    "#ifndef TOP_KM": 1,
+    "#define TOP_KM 80.f": 1,
+    "#define AIR_END_KM TOP_KM": 1,
+    "#define LOWER_END_KM TOP_KM": 1,
+    "#error \"PROFILE_N, PROFILE_INV, PROFILE_LAST and TOP_KM must be defined together (PROFILE_LAST = PROFILE_N - 2)\"": 1,
+    "if(TOP_KM>LOWER_END_KM && h>(k==0?AIR_END_KM:LOWER_END_KM))return 0.f;": 1,
+    "float x=clip(h,0.f,TOP_KM)*PROFILE_INV;int i=min((int)x,PROFILE_LAST);float f=x-(float)i;": 1,
+    "__device__ __forceinline__ float path_h(DS rr){return clip(dv(dx(rr,{6371,0})),0,TOP_KM);}": 1,
+    "if(TOP_KM>LOWER_END_KM){": 1,
+    "if(!(TOP_KM>LOWER_END_KM))return beta_at(p,d,t,BETA_FWD,gw);": 1,
+    "if(!first && TOP_KM>LOWER_END_KM){": 1
+  },
+  "atmosphere/upper_air.py": {
+    "or not np.array_equal(z, 80. + np.arange(961) * .125)": 1,
+    "boundary_value = optics['table'][int(80. / step), 0]": 1,
+    "_, meta = sample([80.])": 1
+  },
+  "asset_tools/generate_upper_air.py": {
+    "z = np.arange(961, dtype='f8') * .125 + 80.": 1,
+    "normalization='n_eff(z) / n_eff(80 km)', n_tot_80_m3=float(total[0]),": 1,
+    "f_at_km={str(h): float(f[int((h - 80) / .125)]) for h in (100, 120, 200)},": 1
+  }
+}

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from functools import partial
 import numpy as np
 from ..foundation import paths
-from ..foundation.top import NORMALIZATION_TOP_KM
+from ..foundation.top import NORMALIZATION_TOP_KM, Domain
 from ..rays import (
     shell_segments,
     incoming_quadrature,
@@ -37,7 +37,7 @@ SOURCE_FILES = [
 SPECTRA = ROOT / 'assets/spectra.json'
 
 
-def cell_folder(cache, h, chi, cfg):
+def cell_folder(cache, h, chi, cfg, domain=None):
     """Reuse cells only for the code, layout and grid that wrote them.
 
     Native transport requires 18-float point rows. Optics stay the caller's, with one folder per state.
@@ -52,6 +52,7 @@ def cell_folder(cache, h, chi, cfg):
         }
     )
     key = dict(
+        domain=(domain or Domain()).identity(),
         version=2,
         components=list(components.COMPONENTS),
         no2_asset_sha256=density.no2_asset()[2],
@@ -198,18 +199,19 @@ class Kernel:
 class SunGeometryBinder:
     """Bind only the aerosol inputs (profile, scale height, descriptor) while retaining the table identity helpers."""
 
-    def __init__(self, aerosol, aerosol_height, descriptor):
+    def __init__(self, aerosol, aerosol_height, descriptor, domain=None):
         self.aerosol = aerosol
         self.aerosol_height = aerosol_height
         self.descriptor = descriptor
+        self.domain = domain or Domain()
 
     def __call__(self, scale, folder):
         return shell_segments.SunGeometry(
-            scale, folder, aerosol=self.aerosol, aerosol_height=self.aerosol_height, descriptor=self.descriptor
+            scale, folder, aerosol=self.aerosol, aerosol_height=self.aerosol_height, descriptor=self.descriptor, domain=self.domain
         )
 
     def identity(self, scale):
-        return shell_segments.SunGeometry.identity(scale, self.aerosol_height, self.descriptor)
+        return shell_segments.SunGeometry.identity(scale, self.aerosol_height, self.descriptor, self.domain)
 
     stored_identity = staticmethod(shell_segments.SunGeometry.stored_identity)
 
@@ -218,10 +220,12 @@ class EngineContext(Mapping):
     """Per-state bindings; read-only scope indexing is retained for one release."""
 
     _keys = ('b', 'Solver', 'basis_at', 'pack', 'C', 'AER_PROFILE', 'AER_HEIGHT', 'AER_G', 'R', 'Z')
-    R, Z = R, Z
+    R = R
     basis_at = staticmethod(engine_core.basis_at)
 
-    def __init__(self, b, height, g, profile, prepare_ground):
+    def __init__(self, b, height, g, profile, prepare_ground, domain=None):
+        self.domain = domain or Domain()
+        self.Z = self.domain.top_km
         self.b = b
         self.C = 3 / (16 * np.pi)
         self.AER_HEIGHT, self.AER_G, self.AER_PROFILE = height, g, profile
@@ -289,12 +293,13 @@ class Geometry:
 
     def __init__(self, ctx, state_id, h, ch, cache, cfg, sun, mode):
         self.ctx = ctx
+        self.domain = ctx.domain
         nmu, nphi, path_n = cfg["nmu"], cfg["nphi"], cfg["path_n"]
         self.name = state_id
         self.h, self.chi = h, ch
         self.ns = len(h) * len(ch)
         self.folder = cache
-        self.cache = cell_folder(cache, h, ch, dict(nmu=nmu, nphi=nphi, path_n=path_n))
+        self.cache = cell_folder(cache, h, ch, dict(nmu=nmu, nphi=nphi, path_n=path_n), ctx.domain)
         self.cfg = dict(nmu=nmu, nphi=nphi, path_n=path_n)
         self.compact = False
         self.poly, self.left = zenith_interpolation.chi_poly(ch)
@@ -364,6 +369,7 @@ def create(
     sun_geometry=None,
     prepare_ground=True,
     aerosol=None,
+    domain=None,
 ):
     """Create a solver, its private context, and the selected settings.
 
@@ -379,7 +385,10 @@ def create(
                       context.prepare_ground to True to prepare subsequent solvers, or call solver.prepare_ground().
       aerosol         None (exponential profile) or a namespace with profile(h), column (aod normalisation), folder(cache)
                       (sun-cache folder per profile) and vector (two-layer parameters for the native kernel): tropo_profile.engine_hooks."""
+    from sosfuse2.atmosphere import density, components, minor_absorbers
+
     params = state['parameters']
+    domain = domain or Domain(step_km=density.profile_step_km(state))
     H = params['scale_height_km']
     gg = params['g']
     obs = OBS if observer_km is None else observer_km
@@ -390,28 +399,28 @@ def create(
         if aerosol is None
         else dict(kind='two_layer', vector=np.asarray(aerosol.vector).tolist())
     )
+    descriptor.update(domain=domain.identity(), end_km=domain.lower_end)
     probe = types.SimpleNamespace(
-        gl=shell_segments.gl, frame=shell_segments.frame, boundaries=shell_segments.boundaries
+        gl=shell_segments.gl, frame=shell_segments.frame, boundaries=partial(shell_segments.boundaries, domain=domain)
     )
     old = types.SimpleNamespace(
         R=R,
-        Z=Z,
+        Z=domain.top_km,
+        domain=domain,
         OBS=obs,
         SPEC=spectral,
         AER_PROFILE=profile,
         AER_HEIGHT=H,
         probe=probe,
         grids=shell_segments.grids,
-        profiles=partial(shell_segments.profiles, profile),
-        geometry_segments=partial(shell_segments.geometry_segments, profile),
-        total_columns=partial(shell_segments.total_columns, profile),
+        profiles=partial(shell_segments.profiles, profile, domain=domain),
+        geometry_segments=partial(shell_segments.geometry_segments, profile, domain=domain),
+        total_columns=partial(shell_segments.total_columns, profile, domain=domain),
         coefficients=partial(extinction.coefficients, spectral),
-        SunGeometry=SunGeometryBinder(profile, H, descriptor),
+        SunGeometry=SunGeometryBinder(profile, H, descriptor, domain),
         aerosol_descriptor=descriptor,
     )
-    from sosfuse2.atmosphere import density, components, minor_absorbers
-
-    optical = density.build(state)
+    optical = density.build(state, domain)
     amounts = components.optics_state(state, optical)
     if not components.reference_active() and 'no2' not in spectral:
         spectral.update(minor_absorbers.representative(None, spectral['wavelength_nm'], o4=amounts['o4']))
@@ -427,9 +436,10 @@ def create(
         no2_H_f_km=optical['meta']['no2']['H_f_km'],
     )
     sh = types.SimpleNamespace(
-        old=old, NORMAL=old.NORMAL, OBS=obs, incoming=incoming_quadrature.incoming, spatial_lookup=incoming_quadrature.spatial_lookup
+        old=old, NORMAL=old.NORMAL, OBS=obs, incoming=incoming_quadrature.incoming,
+        spatial_lookup=partial(incoming_quadrature.spatial_lookup, top_km=domain.top_km)
     )
-    legacy = types.SimpleNamespace(ring_edges=incoming_rings.ring_edges, incoming=incoming_rings.incoming)
+    legacy = types.SimpleNamespace(ring_edges=incoming_rings.ring_edges, incoming=partial(incoming_rings.incoming, domain=domain))
     b = types.SimpleNamespace(
         sh=sh,
         R=R,
@@ -444,10 +454,11 @@ def create(
             ('side', 10, 90),
             ('zenith', 89, 0),
         ],
-        HS=(2, -3, -6, -9, -12),
+        HS=(2, -3, -6, -9, -12) + ((-15,) if domain.top_km > NORMALIZATION_TOP_KM else ()),
+        HS_RECORD=(-18,) if domain.top_km > NORMALIZATION_TOP_KM else (),
     )
     ctx = EngineContext(
-        b, H, gg, ExponentialProfile(H, clamp=False) if aerosol is None else aerosol.profile, prepare_ground
+        b, H, gg, ExponentialProfile(H, clamp=False) if aerosol is None else aerosol.profile, prepare_ground, domain
     )
     if mode == 'full':
         h, ch = old.grids(1)

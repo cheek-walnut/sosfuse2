@@ -524,6 +524,9 @@ def test_lut_launch_only():
     k.flags = ('STRATO',)
     k.deterministic = True
     k.profile_step_km = 0.5
+    from sosfuse2.foundation.top import Domain
+
+    k.domain = Domain()
     k.metrics = {}
     coeff = np.ones((33, 15), 'f4')
     out = k.strato_lut_device(coeff, 15)

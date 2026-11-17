@@ -54,8 +54,8 @@ def incoming(r, chi, qscale):
     return np.column_stack([st * np.cos(phi), st * np.sin(phi), mu]), np.array(allw)
 
 
-def spatial_lookup(q, r, d, h, chi):
-    height = np.clip(r - R, 0, Z)
+def spatial_lookup(q, r, d, h, chi, *, top_km=Z):
+    height = np.clip(r - R, 0, top_km)
     ch = np.arccos(np.clip(q[..., 2] / r, -1, 1))
     ih = np.clip(np.searchsorted(h, height, side='right') - 1, 0, len(h) - 2)
     ic = np.clip(np.searchsorted(chi, ch, side='right') - 1, 0, len(chi) - 2)

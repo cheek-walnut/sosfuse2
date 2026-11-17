@@ -526,7 +526,8 @@ def test_g_one_key_rule_and_profile_option(subtests, monkeypatch):
                 assert flagged == [f'-DPROFILE_N={n}']
                 assert all(option in raw.options for option in top.profile_kernel_defines(step))
                 base = (tuple(k.config(W).defines), W, W, 0, 0, 0, ('L', 16))
-                assert list(k.raw) == [base + (('PROFILE_N', n), ('TOP_KM', 80.0), ('PROFILE_STEP', step))]
+                assert list(k.raw) == [base + (('PROFILE_N', n), ('TOP_KM', 80.0), ('PROFILE_STEP', step),
+                                             ('AIR_END_KM', 80.0), ('LOWER_END_KM', 80.0))]
                 assert set(k.attributes) == {
                     f'{"+".join(k.config(W).defines) or "default"}:{W}_first0_phase0_boundary0_tile{W}'
                     + k.attribute_suffix(),
@@ -615,6 +616,7 @@ def test_g_promotion_payload_restore_carry_step():
         def __init__(self, threads, height, g, backend, block_size, flags=None, L=32, **kw):
             self.height, self.g, self.block_size, self.flags, self.L = height, g, block_size, flags, L
             self.profile_step_km = kw.get('profile_step_km', 0.5)
+            self.domain = kw['domain']
             self.xp = np
             self.raw = {}
             self.attributes = {}
@@ -626,7 +628,8 @@ def test_g_promotion_payload_restore_carry_step():
 
     for step in (0.5, 0.125):
         old = SimpleNamespace(
-            height=1.2, g=0.8, flags=('STRATO',), block_size=256, L=16, constants={}, profile_step_km=step
+            height=1.2, g=0.8, flags=('STRATO',), block_size=256, L=16, constants={}, profile_step_km=step,
+            domain=top.Domain(step_km=step)
         )
         s = SimpleNamespace(kernel=old, W=15, ext=0, rf=0, af=0, asca=0, geo=SimpleNamespace(ns=1, h=0, chi=0))
         geo = SimpleNamespace(s=None, bundle=None, ground_bundle=None)
@@ -636,9 +639,8 @@ def test_g_promotion_payload_restore_carry_step():
             payload = pe.device_payload(s, geo)
             restored, _ = pe.restore_device_payload(payload, ({}, {}))
         assert s.kernel.profile_step_km == payload['profile_step_km'] == restored.kernel.profile_step_km == step
-        assert calls == (
-            [{}, {}] if step == 0.5 else [dict(profile_step_km=step)] * 2
-        )  # 0.5: the historical constructor call
+        expected = dict(domain=top.Domain(step_km=step), **density.kernel_kwargs(step))
+        assert calls == [expected, expected]
 
 
 def test_g_precompile_jobs_and_gate_keys(monkeypatch, tmp_path):
@@ -669,7 +671,7 @@ def test_g_precompile_jobs_and_gate_keys(monkeypatch, tmp_path):
         precompile.main()
         assert (
             jobs
-            and all(j[-2:] == tail for j in jobs)
+            and all(j[-3:-1] == tail and j[-1] == top.Domain(step_km=tail[1]) for j in jobs)
             and jobs[-1][0] in ('strato_lut_build',) + (() if tail[0] == 1 else (('ksplit', 1, 0),))
         )
         assert (tail[0] == 1) == (not any(isinstance(j[0], tuple) and j[0][0] == 'ksplit' for j in jobs))
@@ -779,7 +781,10 @@ def test_h_outputs_independent_of_N(tmp_path, env):
     for name in ('h', 'chi'):
         x, y = getattr(a.geo, name), getattr(b.geo, name)
         assert (x.dtype.str, x.shape, x.tobytes()) == (y.dtype.str, y.shape, y.tobytes())
-    assert (a.geo.ns, source_size(a), a.kernel.K, identity(a)) == (b.geo.ns, source_size(b), b.kernel.K, identity(b))
+    assert (a.geo.ns, source_size(a), a.kernel.K) == (b.geo.ns, source_size(b), b.kernel.K)
+    ia, ib = identity(a)[0], identity(b)[0]
+    assert ia.pop('domain')['step_km'] == .5 and ib.pop('domain')['step_km'] == .125
+    assert ia == ib
     ta, tb = ray_geometry.TransientGeometry(a, sa), ray_geometry.TransientGeometry(b, sb)
     for i in (0, 13, a.geo.ns - 1):
         ga, gb = ta.cell(i), tb.cell(i)

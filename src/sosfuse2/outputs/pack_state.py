@@ -119,6 +119,10 @@ def pack_state(out, pack, compression='auto', started=None, *, reuse_previews=Fa
     target = pack / (out.name + suffix)
     tmp = target.with_suffix(target.suffix + '.tmp')
     names = ('table.npz', 'meta.json', 'preview_m03.png', 'preview_m06.png')
+    if meta.get('settings', {}).get('export_first_order'):
+        if not (out / 'first_order.npz').is_file() or meta.get('first_order', {}).get('file') != 'first_order.npz':
+            raise RuntimeError('E_FIRST_ORDER_MISSING: first-order file or metadata missing')
+        names += ('first_order.npz',)
     try:
         if use_zstd:
             with tmp.open('wb') as f:

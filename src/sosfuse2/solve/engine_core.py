@@ -87,6 +87,8 @@ class Solver:
         self.asca = np.ascontiguousarray(self.ext[1] * self.ctx.b.sh.NORMAL['ssa'])
         self.hr = np.exp(-g.h / 8)
         self.ha = self.ctx.AER_PROFILE(g.h)
+        if self.ctx.domain.top_km > self.ctx.domain.lower_end:
+            self.ha = np.where(g.h > self.ctx.domain.lower_end, 0, self.ha)
         self.solar = np.interp(self.wl, self.ctx.b.sh.old.SPEC['wavelength_nm'], self.ctx.b.sh.old.SPEC['solar'])
         self.levels = np.array([l for l in range(33) for m in range(l + 1)])
         self.rf = (self.levels[:6] == 0) + 0.1 * (self.levels[:6] == 2)
@@ -228,8 +230,8 @@ class Solver:
         az = np.array([z + dz for _, e, z in self.ctx.b.DIRS for de in u for dz in u])
         return np.stack(
             [
-                np.einsum('dnwl,n->dwl', self.query(h, el, az, field, first).reshape(7, 16, self.W, 2), ww)
-                for h in self.ctx.b.HS
+                np.einsum('dnwl,n->dwl', self.query(h, el, az, field, first).reshape(len(self.ctx.b.DIRS), 16, self.W, 2), ww)
+                for h in (*self.ctx.b.HS, *getattr(self.ctx.b, 'HS_RECORD', ()))
             ]
         )
 

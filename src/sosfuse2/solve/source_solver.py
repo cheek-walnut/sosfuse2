@@ -147,7 +147,7 @@ def ksplit_setting(backend, flags, L):
 
 class Kernel(KsplitMixin):
     def __init__(
-        self, threads=4, height=1.2, g=0.8, backend='numpy', block_size=128, flags=None, L=32, *, profile_step_km=0.5
+        self, threads=4, height=1.2, g=0.8, backend='numpy', block_size=128, flags=None, L=32, *, profile_step_km=0.5, domain=None
     ):
         if backend not in ('numpy', 'cupy'):
             raise ValueError('E_BACKEND: select numpy or cupy explicitly')
@@ -160,8 +160,10 @@ class Kernel(KsplitMixin):
         # PROFILE boundary and spacing are compile constants.
         from ..atmosphere.density import profile_n
 
-        self.profile_n = profile_n(profile_step_km)
-        self.profile_step_km = float(profile_step_km)
+        profile_n(profile_step_km)
+        self.domain = domain or top.Domain(step_km=float(profile_step_km))
+        self.profile_n = self.domain.n
+        self.profile_step_km = self.domain.step_km
         self.flags = resolve_config(default_flags() if flags is None else flags).flags
         from .ground_sh import configured_order
 
@@ -305,6 +307,7 @@ class Kernel(KsplitMixin):
                     gd[cell, : b - a] = s.gdir[a:b]
                     gv[cell, : b - a] = s.gval[a:b]
                 c = dict(
+                    domain=self.domain,
                     L=self.L,
                     W=s.W,
                     height=F(self.height),
@@ -592,7 +595,8 @@ class Kernel(KsplitMixin):
         """The one RawKernel memo-key rule (raw_kernel, fl_project_kernel, vprod_kernels, slim_proj_kernel): shared raw dicts
         (persistent service, payload restore) must not mix SH orders or PROFILE grids."""
         key = (tuple(flags), W, width, int(first), int(phase), int(boundary), ('L', self.L))
-        key += (('PROFILE_N', self.profile_n), ('TOP_KM', float(top.TOP_KM)), ('PROFILE_STEP', self.profile_step_km))
+        key += (('PROFILE_N', self.profile_n), ('TOP_KM', self.domain.top_km), ('PROFILE_STEP', self.profile_step_km),
+                ('AIR_END_KM', self.domain.air_end), ('LOWER_END_KM', self.domain.lower_end))
         if ground_sh_l:
             key += (('GROUND_SH_L', ground_sh_l),)
         if ray_limit:
@@ -600,14 +604,14 @@ class Kernel(KsplitMixin):
         return (key, stage1) if stage1 else key
 
     def attribute_suffix(self):
-        return f'_profileN{self.profile_n}_top{float(top.TOP_KM).hex()}_step{self.profile_step_km.hex()}'
+        return f'_profileN{self.profile_n}_top{float(self.domain.top_km).hex()}_step{self.profile_step_km.hex()}_air{float(self.domain.air_end).hex()}_lower{float(self.domain.lower_end).hex()}'
 
     def check_profile(self, optics, where, rows=None):
         """compiled N == declared optics N == table rows (== uploaded rows): density.check_consumed with this Kernel's
         PROFILE_N. Also on restored/persistent kernels whose setup() never ran (installed constants)."""
         from ..atmosphere.density import check_consumed
 
-        return check_consumed(optics, self.profile_n, rows, where)
+        return check_consumed(optics, self.profile_n, rows, where, domain=self.domain)
 
     def check_upload(self, c, dc, where):
         """The uploaded PROFILE buffer still is the optics' table: N as check_profile, and the identity
@@ -665,7 +669,7 @@ class Kernel(KsplitMixin):
                 from .ground_sh import GRID_INTERVALS
 
                 options += (f'-DGROUND_SH_L={ground_sh_l}', f'-DGROUND_SH_GRID={GRID_INTERVALS}')
-            options += top.profile_kernel_defines(self.profile_step_km)
+            options += self.domain.defines()
             with stage('raw_compile'):
                 raw = self.xp.RawKernel(code, 'sos_fused', options=options, backend='nvrtc')
                 raw.compile()
@@ -816,7 +820,7 @@ class Kernel(KsplitMixin):
         options = ('-std=c++17', '--fmad=false', '--prec-div=true', '--prec-sqrt=true', f'-DFW={W}')
         options += (f'-DSOSFUSE2_DETERMINISTIC={int(self.deterministic)}',)
         options += tuple('-D' + f for f in resolve_config(self.flags, role='lut', W=W).flags)
-        options += top.profile_kernel_defines(self.profile_step_km)
+        options += self.domain.defines()
         with stage('raw_compile'):
             builder = self.xp.RawKernel(code, 'strato_lut_build', options=options, backend='nvrtc')
             builder.compile()
@@ -1386,6 +1390,7 @@ class Solver:
         self.fixed_boxes = fixed_boxes
         self.box_group = box_group
         self._box_rays = None
+        self.monitor_sets = getattr(self.kernel, 'domain', top.Domain()).monitors()
         self.timings = dict(apply_seconds=[], gpu_kernel_seconds=[], setup_seconds=0.0)
 
     def initialize(self):
@@ -1480,7 +1485,7 @@ class Solver:
         with stage('observer'):
             full = np.zeros((self.s.geo.ns, field.shape[1], 2 * self.s.W), 'f4')
             full[..., ::2] = self.kernel.host(field)
-            return self.s.boxes(full)[..., 0].reshape(5, 7, self.s.W)
+            return self.s.boxes(full)[..., 0].reshape(-1, 7, self.s.W)
 
     def boxes_fixed(self, field):
         """A5: same 35 boxes as boxes(); rays are captured once from the accepted
@@ -1533,7 +1538,7 @@ class Solver:
                 del kernel.transport
             if next(index, None) is not None:
                 raise RuntimeError('E_REPLAY_COUNT')
-            return result[..., 0].reshape(5, 7, s.W)
+            return result[..., 0].reshape(-1, 7, s.W)
 
     def solve(self, max_eval=16, tolerance=0.005):
         """Same Anderson4 normalization, regularization and candidate guard."""
@@ -1561,7 +1566,9 @@ class Solver:
             query_start = time.perf_counter()
             new = boxes(g)
             query_seconds = old_query_seconds + time.perf_counter() - query_start
-            rr = np.max(abs(new - old) / np.maximum(abs(new), 1e-30), axis=(0, 1))
+            stop_count = len(self.monitor_sets['stop'])
+            stop_old, stop_new = old[:stop_count], new[:stop_count]
+            rr = np.max(abs(stop_new - stop_old) / np.maximum(abs(stop_new), 1e-30), axis=(0, 1))
             ss = self.kernel.host(xp.max(abs(g - x), axis=(0, 1)) / xp.maximum(xp.max(abs(g), axis=(0, 1)), 1e-30))
             if iteration >= 2:
                 done |= np.maximum(rr, ss) <= tolerance
@@ -1576,6 +1583,10 @@ class Solver:
                     seconds=time.perf_counter() - started,
                 )
             )
+            if self.monitor_sets['record']:
+                history[-1]['record_observer_relative'] = np.max(
+                    abs(new[stop_count:] - old[stop_count:]) / np.maximum(abs(new[stop_count:]), 1e-30), axis=1
+                ).tolist()
             print(
                 f'SOSFUSE EVAL {iteration} obs={max(rr):.6g} source={max(ss):.6g} done={done.sum()}/{s.W}', flush=True
             )
@@ -1593,8 +1604,8 @@ class Solver:
                 scale = xp.maximum(norm, norm.max() * 1e-8)
                 feature = ((g[:, :, w] - x[:, :, w]) / scale[:, None]).astype('f8').ravel()
                 obs = xp.asarray(
-                    ((new[:, :, w] - old[:, :, w]) / np.maximum(abs(new[:, :, w]), 1e-20)).ravel()
-                    * math.sqrt(len(feature) / 35)
+                    ((stop_new[:, :, w] - stop_old[:, :, w]) / np.maximum(abs(stop_new[:, :, w]), 1e-20)).ravel()
+                    * math.sqrt(len(feature) / (stop_new.shape[0] * stop_new.shape[1]))
                 )
                 gs[w].append(g[:, :, w].copy())
                 fs[w].append(xp.concatenate([feature, obs]))
@@ -1629,4 +1640,5 @@ class Solver:
             tolerance=tolerance,
             converged=done.tolist(),
             history=history,
+            **(dict(monitor_sets=self.monitor_sets, convergence_path='extended-top-observer') if self.monitor_sets['record'] else {}),
         )

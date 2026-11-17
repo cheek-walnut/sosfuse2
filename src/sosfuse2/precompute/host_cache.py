@@ -241,7 +241,9 @@ def sun_geometry(old, scale, folder, height, shared=None):
                 str(PKG / 'assets/no2_afglus_profile.json'),
             }
         )
-        source = hashlib.sha256(json.dumps(dict(R=float(old.R), Z=float(old.Z))).encode())
+        from ..foundation.top import Domain
+
+        source = hashlib.sha256(json.dumps(dict(R=float(old.R), Z=float(old.Z), domain=getattr(old, 'domain', Domain()).identity())).encode())
         for name in files:
             p = Path(name)
             digest = source_identity.asset_sha(p) if p.name in source_identity.ASSET_NOTES else source_identity.file_sha(p)
@@ -276,7 +278,7 @@ def sun_geometry(old, scale, folder, height, shared=None):
         break
     from ..rays.shell_segments import sun_grid
 
-    h, x = sun_grid(scale)
+    h, x = sun_grid(scale, old.Z)
     if (len(sun.h), len(sun.x)) != (len(h), len(x)):
         raise RuntimeError(
             f'E_SUN_TABLE_SCALE: {folder} holds a {len(sun.h)}x{len(sun.x)} table, scale {scale} expected'

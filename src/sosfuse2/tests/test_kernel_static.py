@@ -22,7 +22,7 @@ from sosfuse2.tests.test_support_strato import C, C2, BYTE
 STUB = r'''// Deliberately header-free syntax stubs; no host math implementation is used.
 template<class T> inline T min(T a,T b){return a<b?a:b;}
 template<class T> inline T max(T a,T b){return a>b?a:b;}
-float fmaf(float,float,float); float sqrtf(float);float expf(float);float logf(float);
+float fmaf(float,float,float); float sqrtf(float);float expf(float);float logf(float);float nextafterf(float,float);
 float fabsf(float);float cosf(float);float sinf(float);float atan2f(float,float);
 float fminf(float,float);float fmaxf(float,float);
 double sqrt(double);double fmin(double,double);double fmax(double,double);

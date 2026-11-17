@@ -49,6 +49,8 @@ def workers():
 def freeze(namespace, names):
     """Serialize only the selected bindings, without the engine context."""
     try:
+        if hasattr(namespace, 'domain') and 'domain' not in names:
+            names = [*names, 'domain']
         return pickle.dumps(types.SimpleNamespace(**{name: getattr(namespace, name) for name in names}))
     except Exception as exc:
         raise TypeError('E_COLUMN_PARALLEL_FREEZE: ' + str(exc)) from exc

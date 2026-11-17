@@ -9,6 +9,7 @@ if __name__ == '__main__':
     sys.dont_write_bytecode = True
 from sosfuse2.foundation import paths
 from sosfuse2.foundation.top import TOP_KM
+from sosfuse2.foundation import top
 
 # Solar column table resolution (sos_sky.SunGeometry scale). 4 = production (measured:
 # scale 1 gives -2.38 % first order at -10 deg AOD .6, scale 4 +0.20 %); 1 = the accepted engine table.
@@ -312,9 +313,10 @@ def refined_chi(ch, step, window=None):
     if step not in (None, 0.5):
         degrees = np.unique(np.r_[degrees[(degrees < 85) | (degrees > 110)], np.arange(85, 110 + step / 2, step)])
     if window is not None:
-        lo, hi = window
-        middle = [(u + v) / 2 for u, v in zip(degrees[:-1], degrees[1:]) if u >= lo - 1e-9 and v <= hi + 1e-9]
-        degrees = np.unique(np.r_[degrees, middle])
+        windows = window if isinstance(window[0], list) else [window]
+        for lo, hi in windows:
+            middle = [(u + v) / 2 for u, v in zip(degrees[:-1], degrees[1:]) if u >= lo - 1e-9 and v <= hi + 1e-9]
+            degrees = np.unique(np.r_[degrees, middle])
     return np.deg2rad(degrees)
 
 
@@ -323,6 +325,14 @@ def _chi_window(value, step, base_chi):
     85-110 deg, lo below hi; each is replaced by its node."""
     import numpy as np
 
+    if isinstance(value, list) and value and isinstance(value[0], list):
+        nodes = refined_chi(base_chi, step)
+        windows = []
+        for window in value:
+            checked = _chi_window(window, None, nodes)
+            windows.append(checked)
+            nodes = refined_chi(nodes, None, checked)
+        return windows
     if isinstance(value, list) and len(value) == 2 and all(type(x) in (int, float) for x in value):
         nodes = np.round(np.rad2deg(refined_chi(base_chi, step)), 12)
         nodes = nodes[(nodes >= 85) & (nodes <= 110)]
@@ -361,8 +371,16 @@ def settings_for(a):
     # Spectral keys leave raw before the key check; legacy adds nothing, so explicit-legacy settings bytes are unchanged.
     spectral_raw = {k: raw.pop(k) for k in spectral.KEYS if isinstance(raw, dict) and k in raw}
     # chi_refine_deg has no default entry: absent (or null) means no refinement, so settings without it stay as they were.
-    if not isinstance(raw, dict) or set(raw) - set(cfg) - {'chi_refine_deg'}:
+    if not isinstance(raw, dict) or set(raw) - set(cfg) - {'chi_refine_deg', 'top_km', 'upper_heights_km', 'upper_air', 'export_first_order'}:
         raise ValueError('E_SETTINGS_KEYS: unknown settings')
+    domain = top.resolve(raw, 0.125, reduced=a.reduced)
+    if 'export_first_order' in raw:
+        if type(raw['export_first_order']) is not bool:
+            raise ValueError('E_SETTINGS_VALUE: export_first_order must be bool')
+        if not raw['export_first_order']:
+            del raw['export_first_order']
+    if domain.top_km > TOP_KM:
+        raw.update(top_km=domain.top_km, upper_heights_km=list(domain.upper_heights_km), upper_air=domain.upper_air)
     # Product grid default band BM45; the reduced 550 nm smoke grid stays legacy unless a mode is named.
     if not a.reduced:
         spectral.product_default(spectral_raw, raw)
@@ -371,7 +389,7 @@ def settings_for(a):
     for k in ('nr', 'nchi', 'nmu', 'nphi', 'path_n', 'L', 'wavelengths'):
         if type(cfg[k]) is not int or cfg[k] < 1:
             raise ValueError('E_SETTINGS_VALUE: ' + k)
-    if 'nr' in raw and 'h_refine' not in raw:
+    if 'nr' in raw and 'h_refine' not in raw and domain.top_km == TOP_KM:
         cfg['h_refine'] = 'none' if a.reduced else pairs.get(cfg['nr'])
     if 'wavelengths' in raw and 'wavelengths_nm' not in raw:
         n = cfg['wavelengths']
@@ -403,8 +421,8 @@ def settings_for(a):
                 'b<m>a<k>[.<k2>.<k3>.<k4>.<k5>] with m, k in 1-12 (nr 20, 39, 44 alone name the first three)'
                 % ((cfg['nr'], cfg['h_refine']),)
             )
-        want = len(refined_heights(base_h, cfg['h_refine']))
-        if 'h_refine' in raw and 'nr' not in raw:
+        want = len(refined_heights(base_h, cfg['h_refine'])) + len(domain.upper_heights_km)
+        if ('h_refine' in raw or domain.top_km > TOP_KM) and 'nr' not in raw:
             cfg['nr'] = want
         if cfg['nr'] != want:
             raise ValueError(
@@ -421,7 +439,7 @@ def settings_for(a):
                 'E_SETTINGS_GRID: received nchi %d; chi_step_deg and chi_refine_deg give %d' % (cfg['nchi'], want)
             )
         cfg['nchi'] = want
-    if not 0 <= cfg['observer_km'] <= TOP_KM:
+    if not 0 <= cfg['observer_km'] <= domain.top_km:
         raise ValueError('E_SETTINGS_OBSERVER')
     if (
         not isinstance(cfg['view_shape'], list)
@@ -443,12 +461,26 @@ def settings_for(a):
     return cfg
 
 
+def execution_domain(cfg, state):
+    """Resolve a calculation domain and reject unsupported density inputs before preparation."""
+    from sosfuse2.atmosphere import density
+
+    domain = top.resolve(cfg, 0.125, reduced=cfg.get('nr') == 4)
+    if domain.top_km > TOP_KM:
+        raw = state.get('density', {})
+        if not isinstance(raw, dict) or raw.get('density_profile') != 'usstd76' or 'external_profile' in raw:
+            raise ValueError('E_SETTINGS_TOP: extended top requires an explicit usstd76 air profile without external PROFILE')
+        density.options(state)
+    return top.resolve(cfg, density.profile_step_km(state), reduced=cfg.get('nr') == 4)
+
+
 def resolve_settings(cfg, state):
     """Per-state settings (A′ resolver): a profile_mean spectral block takes
     its q identity from this (effective) state; the shared cfg is never changed (a new copy is returned). Without a
     profile_mean block the same cfg object comes back. Callers: run, run_extra, geometry_only, plan_queue.probe, gate worker."""
     from sosfuse2.atmosphere import spectral
 
+    execution_domain(cfg, state)
     block = cfg.get('spectral')
     resolved = spectral.resolve(block, state)
     if resolved is block:
@@ -466,7 +498,11 @@ def grid_metadata(cfg, h=None):
         from sosfuse2.rays.shell_segments import grids, small_heights
 
         h = refined_heights(grids(1)[0], cfg['h_refine']) if cfg['nr'] != 4 else small_heights()
-    return dict(h_refine=cfg['h_refine'], h_sha256=hashlib.sha256(np.ascontiguousarray(h).tobytes()).hexdigest())
+        if cfg.get('top_km', TOP_KM) > TOP_KM:
+            h = np.r_[h, cfg['upper_heights_km']]
+    result = dict(h_refine=cfg['h_refine'], h_sha256=hashlib.sha256(np.ascontiguousarray(h).tobytes()).hexdigest())
+    result.update({k: cfg[k] for k in ('top_km', 'upper_heights_km', 'upper_air') if k in cfg})
+    return result
 
 
 def create_configured(output, cfg, wavelengths, backend, state, block_size=128, geometry_cache=None):
@@ -475,6 +511,7 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
     built over `wavelengths` (a second Solver in the same scope when more than one)."""
     from sosfuse2.atmosphere import spectral
 
+    domain = execution_domain(cfg, state)
     spectral.check_state(
         cfg.get('spectral'), state
     )  # A′: a block resolved for another (or no) state never reaches SPEC
@@ -489,7 +526,8 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
     threads_budget = int(os.environ.get('OMP_NUM_THREADS', str(os.cpu_count() or 1)))
     from sosfuse2.atmosphere.density import profile_step_km, kernel_kwargs
 
-    kw = kernel_kwargs(profile_step_km(state))  # ②b: compiled PROFILE node count follows the state (0.5 km = no option)
+    kw = kernel_kwargs(profile_step_km(state))
+    kw['domain'] = domain
 
     def kernel_factory(threads, H, g):
         return gm.Kernel(threads_budget, H, g, backend, block_size, L=cfg['L'], **kw)
@@ -498,6 +536,10 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
         # The settings own the grid: full mode refines the accepted h/chi, every mode takes the quadrature counts from cfg.
         if mode == 'full':
             h = refined_heights(h, cfg['h_refine'])
+            if domain.upper_heights_km:
+                import numpy as np
+
+                h = np.r_[h, domain.upper_heights_km]
             ch = refined_chi(ch, cfg['chi_step_deg'], cfg.get('chi_refine_deg'))
         if len(h) != cfg['nr'] or len(ch) != cfg['nchi']:
             raise ValueError('E_SETTINGS_GRID_COUNT: actual grid disagrees with nr/nchi')
@@ -537,12 +579,14 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
         sun_geometry=sun_geometry,
         prepare_ground=not fast_host,
         aerosol=tropo_profile.engine_hooks(state),
+        domain=domain,
     )
     s = initial if len(wavelengths) == 1 else scope.Solver(initial.geo, initial.kernel, wavelengths, 1, 0.03)
     s.levels = s.levels[: s.kernel.K]
     s.af = s.af[: s.kernel.K]
     s.active[1::2] = 0
     s.fuse_state = state
+    s.export_first_order = cfg.get('export_first_order', False)
     tropo_profile.attach(s)
     if fast_host:
         scope.prepare_ground = True
@@ -597,8 +641,13 @@ def verify_pack(path, signature):
                     else:
                         while f.read(1024 * 1024):
                             pass
+                expected = ['table.npz', 'meta.json', 'preview_m03.png', 'preview_m06.png']
+                if isinstance(meta, dict) and meta.get('settings', {}).get('export_first_order'):
+                    expected.append('first_order.npz')
+                    if meta.get('first_order', {}).get('file') != 'first_order.npz':
+                        raise RuntimeError('E_PACK_VERIFY: first-order metadata missing')
                 if (
-                    sorted(names) != sorted(['table.npz', 'meta.json', 'preview_m03.png', 'preview_m06.png'])
+                    sorted(names) != sorted(expected)
                     or not isinstance(meta, dict)
                     or meta.get('complete') is not True
                     or meta.get('signature') != signature
@@ -982,6 +1031,7 @@ def run(a):
     el = 90 - (np.arange(nr) + 0.5) * 90 / nr
     az = (np.arange(nc) + 0.5) * 180 / nc
     tables = []
+    first_tables = []
     fields = []
     moments = []
     stats_all = []
@@ -1144,6 +1194,8 @@ def run(a):
                 sec = time.monotonic() - t
                 query_seconds += sec
                 tables.append(table[..., :count])
+                if cfg.get('export_first_order'):
+                    first_tables.append(s.first_order_table[..., :count])
                 phase(name, 'table_done', chunk=index, seconds=sec)
                 # Device buffers belong to the chunk kernel, not to geometry.
                 s.kernel.constants.clear()
@@ -1158,6 +1210,8 @@ def run(a):
                 sec = time.monotonic() - t
                 query_seconds += sec
                 tables.append(table[..., :count])
+                if cfg.get('export_first_order'):
+                    first_tables.append(table_s.first_order_table[..., :count])
                 phase(name, 'table_done', chunk=index, seconds=sec, deferred_replay=True)
             pending_tables.clear()
         table = np.concatenate(tables, axis=-1)
@@ -1210,6 +1264,9 @@ def run(a):
                 units=np.array('W m^-2 sr^-1 nm^-1'),
             )
         os.replace(out / 'table.npz.tmp', out / 'table.npz')
+        from sosfuse2.outputs.radiance_table import save_first_order
+
+        first_meta = save_first_order(out, first_tables, wl, hs, el, az) if cfg.get('export_first_order') else {}
         from sosfuse2.atmosphere.stratosphere import computed_metadata
 
         optical_meta = computed_metadata(state, getattr(s, 'strato', None))
@@ -1225,6 +1282,7 @@ def run(a):
             sun_method=getattr(s, 'density_sun_method', None),
         )  # ③ 0(b): gl/exact PROFILE columns of sun table+ground, None = no PROFILE
         meta = dict(
+            **first_meta,
             density=metadata(s),
             profile=profile_meta,
             complete=True,
@@ -1274,8 +1332,11 @@ def run(a):
                 block_size=s.kernel.block_size,
                 launch=getattr(s.kernel, 'launch_log', None),
                 profile_n=s.kernel.profile_n,
+                domain=s.kernel.domain.identity(),
             ),
         )
+        if s.kernel.domain.monitors()['record']:
+            meta.update(monitor_sets=s.kernel.domain.monitors(), convergence_path='extended-top-observer')
         if getattr(s, 'tropo', None) is not None:
             meta['troposphere_phase_computed'] = s.tropo['meta']
         if getattr(s, 'aerosol_profile', None) is not None:
@@ -1438,6 +1499,7 @@ def run_extra(a):
         source_sha = hashlib.sha256(src.read_bytes()).hexdigest()
         phase(name, 'source_reuse_done', seconds=time.monotonic() - started, source_sha256=source_sha)
         tables = []
+        first_tables = []
         query_seconds = 0.0
         start = 0
         for index, chunk in enumerate(chunks):
@@ -1465,6 +1527,8 @@ def run_extra(a):
             sec = time.monotonic() - t
             query_seconds += sec
             tables.append(part[..., :count])
+            if cfg.get('export_first_order'):
+                first_tables.append(s.first_order_table[..., :count])
             phase(name, 'table_done', chunk=index, seconds=sec, rows=len(hs))
             if len(chunks) > 1:
                 s.kernel.constants.clear()
@@ -1498,9 +1562,11 @@ def run_extra(a):
                 units=np.array('W m^-2 sr^-1 nm^-1'),
             )
         os.replace(out / 'table.npz.tmp', out / 'table.npz')
+        first_meta = tf.save_first_order(out, first_tables, wl, hs, el, az) if cfg.get('export_first_order') else {}
         from sosfuse2.atmosphere.density import metadata
 
         meta = dict(
+            **first_meta,
             density=metadata(s),
             complete=True,
             contract=CONTRACT_VERSION,

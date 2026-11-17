@@ -105,7 +105,7 @@ def process(root, ident, source, state, a, log):
         check_same_state(old, dict(physics=physics(), optics_state=optics_state(state)))
         if old.get('signature') != signature:
             raise ValueError('E_OUTPUT_IDENTITY: batch table signature differs')
-        if old.get('complete') and (out / 'table.npz').is_file():
+        if old.get('complete') and (out / 'table.npz').is_file() and tf.first_order_complete(out, old):
             pack_state(out, root / 'pack', 'zstd')
             return 'packed-existing'
     if settings is None:
@@ -123,7 +123,7 @@ def process(root, ident, source, state, a, log):
         optical_meta = dict(computed_metadata(state, getattr(s, 'strato', None)), density=density_metadata(s))
     else:
         table, seconds, create_seconds, table_seconds, optical_meta = tf.restored_table(
-            source, state, settings, root / 'tmp' / ident / 'prepare', a.backend, a.group, a.batch, log
+            source, state, settings, root / 'tmp' / ident / 'prepare', a.backend, a.group, a.batch, log, first_order_out=out
         )
     tf.save_table(out / 'table.npz', table, wl, hs, el, az)
     meta = dict(
@@ -187,6 +187,7 @@ def main():
     if a.gpu is not None:
         os.environ['CUDA_VISIBLE_DEVICES'] = a.gpu
     from .run_state import read_states
+    from ..outputs import radiance_table as tf
 
     states = {s['id']: s for s in read_states(a.states, True) if s.get('runnable')}
     roots = [r.resolve() for r in a.work_roots]
@@ -195,7 +196,7 @@ def main():
     failed = False
     for root, ident, source in candidates(roots, set(a.ids or [])):
         out = root / 'out' / ident
-        if (out / 'table.npz').is_file() and (root / 'pack' / f'{ident}.tar.zst').is_file():
+        if (out / 'table.npz').is_file() and (root / 'pack' / f'{ident}.tar.zst').is_file() and tf.first_order_complete(out):
             continue
         if (str(root), ident) in live:
             log(f'SKIP {root.name}/{ident}: live worker owns it')
@@ -221,7 +222,7 @@ def main():
                 except BlockingIOError:
                     log(f'SKIP {root.name}/{ident}: a worker owns the output (.worker.lock)')
                     continue
-                if (out / 'table.npz').is_file() and (root / 'pack' / f'{ident}.tar.zst').is_file():
+                if (out / 'table.npz').is_file() and (root / 'pack' / f'{ident}.tar.zst').is_file() and tf.first_order_complete(out):
                     log(f'SKIP {root.name}/{ident}: finished while waiting for the locks')
                     continue
                 try:

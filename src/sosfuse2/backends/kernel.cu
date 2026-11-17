@@ -279,10 +279,17 @@ __device__ int search(const float*a,int n,float x){int lo=0,hi=n;while(lo<hi){in
 #ifndef TOP_KM
 #define TOP_KM 80.f
 #endif
+#ifndef AIR_END_KM
+#define AIR_END_KM TOP_KM
+#endif
+#ifndef LOWER_END_KM
+#define LOWER_END_KM TOP_KM
+#endif
 #if PROFILE_LAST != PROFILE_N - 2
 #error "PROFILE_N, PROFILE_INV, PROFILE_LAST and TOP_KM must be defined together (PROFILE_LAST = PROFILE_N - 2)"
 #endif
 __device__ float profile_value(float h,const float*table,int k){
+ if(TOP_KM>LOWER_END_KM && h>(k==0?AIR_END_KM:LOWER_END_KM))return 0.f;
  float x=clip(h,0.f,TOP_KM)*PROFILE_INV;int i=min((int)x,PROFILE_LAST);float f=x-(float)i;
  return table[i*3+k]+f*(table[(i+1)*3+k]-table[i*3+k]);
 }
@@ -459,6 +466,10 @@ __device__ __forceinline__ void profile_at(float h,PROF_PARAM,float*prof,float &
 #else
  st_prof=0.f;
 #endif
+ if(TOP_KM>LOWER_END_KM){
+  if(h>AIR_END_KM)prof[0]=0.f;
+  if(h>LOWER_END_KM){prof[1]=0.f;prof[2]=0.f;prof[3]=0.f;prof[4]=0.f;st_prof=0.f;}
+ }
 }
 // Extinction of wavelength column gw from profile components (sum_k prof_k ext_k, then the stratospheric layer).
 __device__ __forceinline__ float extinction_at(const float*prof,float st_prof,const float*ext SP_EXT_PARAM,int gw){
@@ -473,6 +484,19 @@ __device__ __forceinline__ float extinction_at(const float*prof,float st_prof,co
 template<class Coord>
 __device__ __forceinline__ float beta_at(const Coord*p,const Coord*d,DS t,BETA_PARAM,int gw){
  DS q[3],q2[3];float pr[NCOMP],pst;profile_at(path_h(path_q(p,d,t,q,q2)),PROF_FWD,pr,pst);
+ return extinction_at(pr,pst,ext SP_EXT_ARG,gw);
+}
+// At a support boundary, use the one-sided value belonging to this segment.
+template<class Coord>
+__device__ __forceinline__ float beta_at_side(const Coord*p,const Coord*d,DS t,DS inside,BETA_PARAM,int gw){
+ if(!(TOP_KM>LOWER_END_KM))return beta_at(p,d,t,BETA_FWD,gw);
+ DS q[3],q2[3];float h=path_h(path_q(p,d,t,q,q2));
+ const float ih=path_h(path_q(p,d,inside,q,q2));
+ const float ends[2]={LOWER_END_KM,AIR_END_KM};
+ for(int k=0;k<2;k++){const float e=ends[k];
+  if(h>=nextafterf(e,e-1.f)&&h<=nextafterf(e,e+1.f))h=ih>e?nextafterf(e,e+1.f):e;
+ }
+ float pr[NCOMP],pst;profile_at(h,PROF_FWD,pr,pst);
  return extinction_at(pr,pst,ext SP_EXT_ARG,gw);
 }
 // Simpson on the panel [t0,t1] with end extinctions b0,b1: (t1-t0)/6 (b0 + 4 beta(mid) + b1), mid = (t0+t1)/2 (exact DS halving).
@@ -558,7 +582,7 @@ __device__ POINT_INLINE void point(Sample &s,const Coord*p
 // KSPLIT=3 consumer: mode-2 SLIM reads only T, sw, cell and ir of a sample, so the batch keeps this
 // 112 B record (PointData 292 B) and point_m2 evaluates exactly point()'s expressions for those fields (nothing else).
 // 16-byte aligned (112 B) so the step loop reads T, sw and cell as 128-bit shared loads (slimray is LSU-issue-bound).
-struct __align__(16) PointM2 { float T[16],sw[4];int cell[4],ir; };
+struct __align__(16) PointM2 { float T[16],sw[4];int cell[4],ir;float h; };
 // Coord/Scalar as point(): PATH_DS passes the ray's DS p/d, the segment-end DS and the lane's node DS.
 template<class Coord,class Scalar>
 __device__ POINT_INLINE void point_m2(PointM2 &s,const Coord*p,const Coord*d,const float*B,const float*dl,
@@ -566,7 +590,7 @@ __device__ POINT_INLINE void point_m2(PointM2 &s,const Coord*p,const Coord*d,con
  DS ad=ds(a),bd=ds(b),length=dx(bd,ad),u=ds(gu),v=lower?u:dx({1,0},u);
  DS t=path_t(ad,bd,length,u,v,lower);
  DS q[3],q2[3];DS rr=path_q(p,d,t,q,q2),xy=dr(da(q2[0],q2[1]));
- const float sh=path_h(rr);float rho=dv(xy);
+ const float sh=path_h(rr);s.h=sh;float rho=dv(xy);
  float cx=rho>1e-12f?dq(q[0],xy):1.f,sx=rho>1e-12f?dq(q[1],xy):0.f;
  float angle=atan2f(rho,dv(q[2]));
  int ir=search(hgrid,nh,sh),j=search(chi,nc,angle);s.ir=ir;
@@ -965,7 +989,8 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
 #else
     sp_t=ds(a);
 #endif
-    sp_acc=0.f;if(lane<TW && !PROD_ON SINV_AND_SIMPSON)sp_b=beta_at(beta_p,beta_d,sp_t,BETA_ARG,GW(lane));
+    const DS seg_inside=ds((a+b)*.5);
+    sp_acc=0.f;if(lane<TW && !PROD_ON SINV_AND_SIMPSON)sp_b=beta_at_side(beta_p,beta_d,sp_t,seg_inside,BETA_ARG,GW(lane));
 #ifdef PT_ACTIVE
     for(int step0=0;step0<nq;step0+=PT_NB){
      const int nb=min(PT_NB,nq-step0);
@@ -1011,18 +1036,21 @@ double st=sqrt(fmax(0.,1.-d[2]*d[2]));float cp=st>1e-12?(float)(d[0]/st):1.f;cp=
      const float4 qT0=*(const float4*)(q_.T),qT1=*(const float4*)(q_.T+4),qT2=*(const float4*)(q_.T+8),qT3=*(const float4*)(q_.T+12);
      const float4 qsw=*(const float4*)q_.sw;const int4 qcell=*(const int4*)q_.cell;const int qir=q_.ir;
 #define PT_IR qir
+#define SAMPLE_HEIGHT q_.h
 #define PT_CELL(c) ((c)==0?qcell.x:(c)==1?qcell.y:(c)==2?qcell.z:qcell.w)
 #define PT_SW(c) ((c)==0?qsw.x:(c)==1?qsw.y:(c)==2?qsw.z:qsw.w)
 #else
      {const int *pw=(const int*)&pts[step-step0];int *sw_=(int*)static_cast<PointData*>(&s);
       for(int k=lane;k<(int)(sizeof(PointData)/4);k+=32)sw_[k]=pw[k];}
 #define PT_IR s.ir
+#define SAMPLE_HEIGHT s.h
 #define PT_CELL(c) s.cell[c]
 #define PT_SW(c) s.sw[c]
 #endif
 #else
     for(int step=0;step<nq;step++){
      SECTION_BEGIN()
+#define SAMPLE_HEIGHT s.h
 #endif
 #ifdef PATH_DS
      DS su,swu;   // all lanes are converged here
@@ -1396,6 +1424,14 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
        if(!first)saero*=st_density[ir];
 #endif
 #endif
+       if(!first && TOP_KM>LOWER_END_KM){
+        if(SAMPLE_HEIGHT>AIR_END_KM)density=0.f;
+        if(SAMPLE_HEIGHT>LOWER_END_KM){aero=0.f;
+#ifdef STRATO
+         saero=0.f;
+#endif
+        }
+       }
        float tr=(rm[0]+rm[1])+rm[2],tensors[3];
        #pragma unroll
        for(int component=0;component<4;component++){
@@ -1552,7 +1588,7 @@ clip(m0+m1,-1,1),aerosol_g)+hg(clip(m0-m1,-1,1),aerosol_g))/2.f;}
 #else
     if(lane<TW && !PROD_ON SINV_AND_SIMPSON){const DS te=ds(b);
 #endif
-    const float be=beta_at(beta_p,beta_d,te,BETA_ARG,GW(lane));
+    const float be=beta_at_side(beta_p,beta_d,te,seg_inside,BETA_ARG,GW(lane));
      sp_acc+=simpson_piece(beta_p,beta_d,sp_t,te,sp_b,be,BETA_ARG,GW(lane));kah(tau_lane,tc_lane,sp_acc);}
    }
 #ifdef WARM_LANE_ON

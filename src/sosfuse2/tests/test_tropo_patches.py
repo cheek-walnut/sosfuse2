@@ -172,7 +172,9 @@ def test_two_layer_column_callables_freeze_and_pickle(tmp_path, monkeypatch):
     assert restored.folder(tmp_path) == hooks.folder(tmp_path)
     column = tp.column_function(SimpleNamespace(fuse_state=state))
     np.testing.assert_allclose(pickle.loads(pickle.dumps(column))(h), hooks.profile(h), rtol=1e-6, atol=0)
-    assert column.descriptor() == column_table.aerosol(old)
+    from sosfuse2.foundation.top import Domain
+
+    assert dict(column.descriptor(), domain=Domain().identity(), end_km=80.0) == column_table.aerosol(old)
 
 
 def test_profile_identities_keep_state_dependencies(tmp_path, monkeypatch):

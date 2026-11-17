@@ -512,6 +512,7 @@ DATA_ASSETS = (
     'temperature_usstd76.json',
     'no2_afglus_profile.json',
     'no2_vandaele1998_fine.json',
+    'upper_air_us76_neff.json',
 )
 STATE_ASSETS = ('states_v1.json', 'states_v2.json', 'states_v1_usstd.json')  # hashed as 'json'
 

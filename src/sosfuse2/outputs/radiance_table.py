@@ -143,7 +143,11 @@ def _evaluate(s, raws, field, first, group, bundle=None):
 
 
 def make_table(s, source, hs, el, az, group=32, batch=25, log=print):
-    """Return (table[len(hs),nr,nc,W] float32, per-batch seconds)."""
+    """Return (table[len(hs),nr,nc,W] float32, per-batch seconds).
+
+    export_first_order keeps a separate host array in s.first_order_table before addition.
+    This observed first-order term includes reflection of direct sunlight by the ground.
+    """
     from sosfuse2.foundation.timers import stage
 
     if batch < 1:
@@ -157,6 +161,7 @@ def make_table(s, source, hs, el, az, group=32, batch=25, log=print):
     dummy = np.empty(0, 'f4')
     ee, aa = np.meshgrid(el, az, indexing='ij')
     table = np.empty((len(hs), len(el), len(az), s.W), 'f4')
+    first_table = first_order_buffer(s, table.shape)
     seconds = []
     for b0 in range(0, len(hs), batch):
         t = time.monotonic()
@@ -180,11 +185,47 @@ def make_table(s, source, hs, el, az, group=32, batch=25, log=print):
                 if not np.isfinite(spec).all() or (spec < 0).any():
                     raise RuntimeError('E_RADIANCE_INVALID: nonfinite/negative')
                 table[j] = spec
+                if first_table is not None:
+                    first_table[j] = one[..., 0]
         seconds.append(time.monotonic() - t)
         log(
             f'TABLE_FAST sun={hs[part[0]]:+g}..{hs[part[-1]]:+g} rays={sum(len(g["d"]) for g in flat)} seconds={seconds[-1]:.2f}'
         )
     return table, seconds
+
+
+def first_order_buffer(s, shape):
+    """Allocate only host storage for the optional observed term, including direct-ground reflection."""
+    if not getattr(s, 'export_first_order', False):
+        return None
+    s.first_order_table = np.empty(shape, 'f4')
+    return s.first_order_table
+
+
+def save_first_order(out, parts, wl, hs, el, az):
+    """Save the observed first-order term, including direct-ground reflection, with the table axes."""
+    if not parts:
+        raise RuntimeError('E_FIRST_ORDER_MISSING: no first-order arrays collected')
+    table = np.concatenate(parts, axis=-1)
+    if table.shape != (len(hs), len(el), len(az), len(wl)) or table.dtype != np.dtype('f4') or not np.isfinite(table).all():
+        raise RuntimeError('E_FIRST_ORDER_ARRAY: invalid shape, dtype or values')
+    save_table(Path(out) / 'first_order.npz', table, wl, hs, el, az)
+    return dict(first_order=dict(file='first_order.npz', shape=list(table.shape), dtype='float32', includes_ground_reflection=True))
+
+
+def first_order_complete(out, meta=None):
+    """A cached exported table is incomplete until its first-order file exists.
+
+    Without readable metadata the export setting is unknown and the table/pack rule of the caller decides.
+    """
+    if meta is None:
+        try:
+            meta = json.loads((Path(out) / 'meta.json').read_text())
+        except (OSError, ValueError):
+            return True
+    if not meta.get('settings', {}).get('export_first_order'):
+        return True
+    return meta.get('first_order', {}).get('file') == 'first_order.npz' and (Path(out) / 'first_order.npz').is_file()
 
 
 def save_table(path, table, wl, hs, el, az):
@@ -313,6 +354,7 @@ def restored_settings(path, state, reduced, backend):
     recorded = np.asarray(cfg.get('wavelengths_nm', legacy_wl))
     if (
         cfg.get('spectral') is None
+        and not any(k in cfg for k in ('top_km', 'export_first_order'))
         and cfg.get('L') == 32
         and cfg.get('wavelengths', len(legacy_wl)) == len(legacy_wl)
         and wl.shape == recorded.shape == legacy_wl.shape
@@ -364,10 +406,13 @@ def restored_axes(cfg):
     return wl, hs, 90 - (np.arange(nr) + 0.5) * 90 / nr, (np.arange(nc) + 0.5) * 180 / nc
 
 
-def restored_table(path, state, cfg, prepare, backend, group, batch, log):
+def restored_table(path, state, cfg, prepare, backend, group, batch, log, *, first_order_out=None):
     """Replay the production source in the same FW=15 chunks as run_extra()."""
     from ..solve import ray_geometry as gm
     from ..jobs.run_state import create_configured
+
+    if cfg.get('export_first_order') and first_order_out is None:
+        raise ValueError('E_FIRST_ORDER_MISSING: restored output requires first_order_out')
 
     if backend == 'numpy':
 
@@ -388,6 +433,7 @@ def restored_table(path, state, cfg, prepare, backend, group, batch, log):
     if full.shape != expected:
         raise ValueError(f'E_SOURCE_SHAPE: {full.shape}')
     tables = []
+    first_tables = []
     seconds = []
     start = 0
     table_seconds = 0.0
@@ -407,6 +453,8 @@ def restored_table(path, state, cfg, prepare, backend, group, batch, log):
         part, times = make_table(s, field, hs, el, az, group, batch, log)
         table_seconds += time.monotonic() - t
         tables.append(part[..., :count])
+        if cfg.get('export_first_order'):
+            first_tables.append(s.first_order_table[..., :count])
         seconds.extend(times)
         if len(chunks) > 1:
             s.kernel.constants.clear()
@@ -414,12 +462,14 @@ def restored_table(path, state, cfg, prepare, backend, group, batch, log):
     from ..atmosphere.stratosphere import computed_metadata
     from ..atmosphere.density import metadata as density_metadata
 
+    first_meta = save_first_order(first_order_out, first_tables, wl, hs, el, az) if cfg.get('export_first_order') else {}
+
     return (
         np.concatenate(tables, -1),
         seconds,
         create_seconds,
         table_seconds,
-        dict(computed_metadata(state, getattr(s, 'strato', None)), density=density_metadata(s)),
+        dict(computed_metadata(state, getattr(s, 'strato', None)), density=density_metadata(s), **first_meta),
     )
 
 
@@ -481,7 +531,7 @@ def main():
     else:
         wl, hs, el, az = restored_axes(settings)
         table, seconds, create_seconds, total, optical_meta = restored_table(
-            a.source, state, settings, a.prepare, a.backend, a.group, a.batch, lambda m: print(m, flush=True)
+            a.source, state, settings, a.prepare, a.backend, a.group, a.batch, lambda m: print(m, flush=True), first_order_out=a.out.parent
         )
     save_table(a.out, table, wl, hs, el, az)
     from ..atmosphere.components import physics, optics_state

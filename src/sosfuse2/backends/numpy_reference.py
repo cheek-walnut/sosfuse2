@@ -7,7 +7,7 @@ import math
 import platform
 import numpy as np
 from ..atmosphere.components import NCOMP
-from ..foundation.top import TOP_KM
+from ..foundation.top import TOP_KM, Domain
 from .sh_layout import count, combined_coefficients
 from .arithmetic import F, R, split, add, sub, neg, mul, root, divide, quotient, rounded, basis, cosine, warp_sum, kahan
 
@@ -150,9 +150,9 @@ def path_point(pp, dd, t):
     return q, q2, rr
 
 
-def path_height(rr):
+def path_height(rr, domain=None):
     """FP32 height above the surface, clipped to the calculation boundary (kernel.cu path_h)."""
-    return np.clip(rounded(sub(rr, (R, F(0)))), F(0), F(TOP_KM))
+    return np.clip(rounded(sub(rr, (R, F(0)))), F(0), F((domain or Domain()).top_km))
 
 
 def profile_at(h, c):
@@ -160,13 +160,14 @@ def profile_at(h, c):
     The one profile evaluation of the transport (kernel.cu profile_at): sample() calls it at the quadrature nodes and the Simpson
     optical-depth prefix at segment ends and panel midpoints. Density table (PROFILE) and two-layer aerosol (AEROSOL_2L) options."""
     h = np.asarray(h, 'f4')
-    from ..atmosphere.density import LEGACY, build, interpolate32, check_consumed
+    from ..atmosphere.density import LEGACY, build, interpolate32, check_consumed, domain_of
 
     optics = c.get('density_optics')
     if optics is None:
         optics = build(dict(density=dict(LEGACY)))
     check_consumed(optics, where='numpy_reference.profile_at')
-    tab = interpolate32(h, optics['table'])
+    domain = c.get('domain', domain_of(optics))
+    tab = interpolate32(h, optics['table'], domain)
     prof = np.stack(
         [
             np.exp(-h / F(8)),
@@ -188,6 +189,8 @@ def profile_at(h, c):
         prof[:, 1] = profile32(h, c['aer2'])
     q = prof[:, 0] / F(optics.get('air_surface', optics['table'][0, 0] if optics['mask'] & 1 else 1.0))
     prof[:, 4] = q * q
+    if domain.top_km > TOP_KM:
+        prof = np.where(h[:, None] > np.asarray([domain.air_end, *([domain.lower_end] * 4)]), F(0), prof)
     return prof
 
 
@@ -215,9 +218,16 @@ class SimpsonPrefix:
         self.tau = np.zeros((len(g['d']), c['W']), 'f4')
         self.tc = np.zeros_like(self.tau)
 
-    def beta(self, t):
+    def beta(self, t, inside=None):
         """Extinction [n, W] at DS path coordinates t."""
-        h = path_height(path_point(self.pp, self.dd, t)[2])
+        domain = self.c.get('domain', Domain())
+        h = path_height(path_point(self.pp, self.dd, t)[2], domain)
+        if inside is not None and domain.top_km > TOP_KM:
+            ih = path_height(path_point(self.pp, self.dd, inside)[2], domain)
+            for end in set((domain.lower_end, domain.air_end)):
+                edge = F(end)
+                near = (h >= np.nextafter(edge, F(-np.inf))) & (h <= np.nextafter(edge, F(np.inf)))
+                h = np.where(near, np.where(ih > edge, np.nextafter(edge, F(np.inf)), edge), h)
         return extinction_profile(
             profile_at(h, self.c), self.c, strato_profile(h, self.c) if 'strato_ext' in self.c else None
         )
@@ -236,7 +246,8 @@ class SimpsonPrefix:
         self.ok = e[:, seg + 1] - e[:, seg] > 1e-8
         self.end = split(e[:, seg + 1])
         self.t = split(e[:, seg])
-        self.b = self.beta(self.t)
+        self.inside = split((e[:, seg] + e[:, seg + 1]) / 2)
+        self.b = self.beta(self.t, self.inside)
         self.acc = np.zeros_like(self.tau)
 
     def node(self, q):
@@ -248,7 +259,7 @@ class SimpsonPrefix:
         """End piece to b, then the segment total into tau (Kahan), valid rays only (kernel.cu: skipped segment)."""
         if not self.ok.any():
             return
-        self.piece(self.end, self.beta(self.end))
+        self.piece(self.end, self.beta(self.end, self.inside))
         tau, tc = kahan(self.tau, self.tc, self.acc)
         self.tau = np.where(self.ok[:, None], tau, self.tau)
         self.tc = np.where(self.ok[:, None], tc, self.tc)
@@ -272,7 +283,7 @@ def sample(g, segment, step, constants, st=None):
     ds = np.where(valid, ds, F(0))
     pp, dd = split(g['p']), split(g['d'])
     q, q2, rr = path_point(pp, dd, tt)
-    h = path_height(rr)
+    h = path_height(rr, constants.get('domain'))
     xy = root(add((q2[0][:, 0], q2[1][:, 0]), (q2[0][:, 1], q2[1][:, 1])))
     rho = rounded(xy)
     cx = np.where(rho > F(1e-12), quotient((q[0][:, 0], q[1][:, 0]), (np.maximum(xy[0], F(1e-30)), xy[1])), F(1))
@@ -386,11 +397,13 @@ def tropo_phase(u, c):
 def strato_profile(h, c):
     p = c['strato_profile']
     t = (h - F(p['center'])) / F(p['sigma'])
-    return np.exp(F(-0.5) * (t * t)) / F(p['norm'])
+    result = np.exp(F(-0.5) * (t * t)) / F(p['norm'])
+    domain = c.get('domain', Domain())
+    return np.where(h > F(domain.lower_end), F(0), result) if domain.top_km > TOP_KM else result
 
 
 def sun_columns(q, c):
-    hh = np.clip(q['h'], F(0), F(TOP_KM))
+    hh = np.clip(q['h'], F(0), F(c.get('domain', Domain()).top_km))
     height = sub(q['r_DS'], (R, F(0)))
     height = tuple(np.where(ftz_value(height) > F(0), x, F(0)) for x in height)
     rad = add((R, F(0)), height)
@@ -563,6 +576,12 @@ def _transport(g, c, field, first=False, boundary=None, statistics=None, return_
                         aero *= c['ha'][ir, None]
                     rm = field[cell, :4].transpose(0, 2, 1)
                     density = c['hr'][ir]
+                    domain = c.get('domain', Domain())
+                    if domain.top_km > TOP_KM:
+                        density = np.where(q['h'] > F(domain.air_end), F(0), density)
+                        aero = np.where(q['h'][:, None] > F(domain.lower_end), F(0), aero)
+                        if strat:
+                            saero = np.where(q['h'][:, None] > F(domain.lower_end), F(0), saero)
                 trace = (rm[:, :, 0] + rm[:, :, 1]) + rm[:, :, 2]
                 tensor = np.zeros_like(total)
                 for k in range(4):

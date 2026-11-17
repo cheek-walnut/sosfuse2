@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from sosfuse2.foundation import content_identity as source_identity, paths
-from sosfuse2.foundation.top import TOP_KM, SUN_HEIGHT_INTERVALS
+from sosfuse2.foundation.top import TOP_KM, SUN_HEIGHT_INTERVALS, Domain
 
 R = 6371.0
 Z = TOP_KM
@@ -24,13 +24,14 @@ def frame(r, chi):
     return r[..., None] * up, up, ex
 
 
-def boundaries(p, d):
+def boundaries(p, d, *, domain=None):
     """Exact shell exit, opaque-ground hit, tangent, and cylindrical shadow hits.
     Sun is +z; only the back half of the Earth cylinder is shadow.
     """
     b = np.sum(p * d, -1)
     pp = np.sum(p * p, -1)
-    end = -b + np.sqrt(np.maximum(b * b - pp + (R + Z) ** 2, 0))
+    domain = domain or Domain()
+    end = -b + np.sqrt(np.maximum(b * b - pp + (R + domain.top_km) ** 2, 0))
     disc = b * b - pp + R * R
     hit = -b - np.sqrt(np.maximum(disc, 0))
     ground = (disc >= 0) & (b < 0) & (hit >= -1e-7)
@@ -49,19 +50,23 @@ def boundaries(p, d):
     return np.sort(np.stack([np.zeros_like(end), tangent, *roots, end], -1), axis=-1)
 
 
-def profiles(aerosol, h):
+def profiles(aerosol, h, *, domain=None):
     from sosfuse2.atmosphere.density import no2_profile
 
-    return np.stack(
+    domain = domain or Domain()
+    values = np.stack(
         [
             np.exp(-np.maximum(h, 0) / 8),
             aerosol(h),
             np.maximum(0, 1 - np.abs(h - 25) / 15),
-            no2_profile(np.minimum(h, Z)),
+            no2_profile(np.minimum(h, domain.lower_end)),
             np.exp(-np.maximum(h, 0) / 4),
         ],
         -1,
     )
+    if domain.top_km > TOP_KM:
+        values = np.where(np.asarray(h)[..., None] > np.array([domain.air_end, *([domain.lower_end] * 4)]), 0, values)
+    return values
 
 
 def grids(scale):
@@ -91,13 +96,14 @@ def sun_grid(scale, top=None):
     return np.linspace(0, np.sqrt(top), SUN_HEIGHT_INTERVALS * scale + 1) ** 2, np.linspace(0, 1, 400 * scale + 1)
 
 
-def geometry_segments(aerosol, p, d, n):
-    edges = boundaries(p, d)
+def geometry_segments(aerosol, p, d, n, *, domain=None):
+    domain = domain or Domain()
+    edges = boundaries(p, d, domain=domain)
     end = edges[:, -1]
     b = np.sum(p * d, -1)
     pp = np.sum(p * p, -1)
     more = []
-    for height in (10.0, 25.0, 40.0):
+    for height in domain.extra_shells:
         disc = b * b - pp + (R + height) ** 2
         for sign in (-1, 1):
             root = -b + sign * np.sqrt(np.maximum(disc, 0))
@@ -119,22 +125,22 @@ def geometry_segments(aerosol, p, d, n):
         q = pa[:, None, :] + t[..., None] * da[:, None, :]
         r = np.sqrt(np.sum(q * q, -1))
         h = r - R
-        dt = profiles(aerosol, h) * ds[..., None]
+        dt = profiles(aerosol, h, domain=domain) * ds[..., None]
         prefix = tau[active, None, :] + np.cumsum(dt, axis=1) - dt / 2
         tau[active] += dt.sum(axis=1)
         yield active, q, r, ds, prefix
 
 
-def total_columns(aerosol, p, d, n):
+def total_columns(aerosol, p, d, n, *, domain=None):
     out = np.zeros((len(d), 5))
-    for active, q, r, ds, prefix in geometry_segments(aerosol, p, d, n):
-        out[active] += np.sum(profiles(aerosol, r - R) * ds[..., None], axis=1)
+    for active, q, r, ds, prefix in geometry_segments(aerosol, p, d, n, domain=domain):
+        out[active] += np.sum(profiles(aerosol, r - R, domain=domain) * ds[..., None], axis=1)
     return out
 
 
 class SunGeometry:
     @staticmethod
-    def identity(scale, aerosol_height, descriptor):
+    def identity(scale, aerosol_height, descriptor, domain=None):
         """Everything the table depends on. A file without this identity, or with another one, is rebuilt: an unkeyed
         3-column table is incompatible with the 5-column solver. descriptor is the
         aerosol profile record (kind and parameters), so two profiles with one scale height never share a table even in
@@ -157,7 +163,8 @@ class SunGeometry:
                 version=3,
                 components=list(components.COMPONENTS),
                 R=float(R),
-                Z=float(Z),
+                Z=float((domain or Domain()).top_km),
+                domain=(domain or Domain()).identity(),
                 scale=int(scale),
                 aerosol_height=None if height is None else float(height),
                 aerosol=descriptor,
@@ -173,10 +180,11 @@ class SunGeometry:
         with np.load(path) as z:
             return str(z['identity']) if 'identity' in z.files else None
 
-    def __init__(self, scale, folder, *, aerosol, aerosol_height, descriptor):
+    def __init__(self, scale, folder, *, aerosol, aerosol_height, descriptor, domain=None):
+        self.domain = domain or Domain()
         path = folder / 'sun_columns.npz'
         t = time.perf_counter()
-        ident = self.identity(scale, aerosol_height, descriptor)
+        ident = self.identity(scale, aerosol_height, descriptor, self.domain)
         if path.exists():
             with np.load(path) as z:  # identity and arrays from one open: a concurrent replace cannot pair them wrongly
                 stored = str(z['identity']) if 'identity' in z.files else None
@@ -190,7 +198,7 @@ class SunGeometry:
                 f"SUN_TABLE_STALE: {path}: {'no identity' if stored is None else 'identity differs'}; rebuilding",
                 RuntimeWarning,
             )
-        self.h, self.x = sun_grid(scale)
+        self.h, self.x = sun_grid(scale, self.domain.top_km)
         col = np.empty((len(self.h), len(self.x), 5))
         for i, h in enumerate(self.h):
             r = R + h
@@ -199,7 +207,7 @@ class SunGeometry:
             mu[0] = mg + 1e-9
             p = np.column_stack([np.zeros(len(mu)), np.zeros(len(mu)), np.full(len(mu), r)])
             d = np.column_stack([np.sqrt(np.maximum(1 - mu * mu, 0)), np.zeros(len(mu)), mu])
-            col[i] = total_columns(aerosol, p, d, 32 * scale)
+            col[i] = total_columns(aerosol, p, d, 32 * scale, domain=self.domain)
         self.col = col
         import os  # tmp + replace: a reader never sees a half-written table (also when a stale one is replaced)
         import tempfile
@@ -215,7 +223,7 @@ class SunGeometry:
         self.build_seconds = time.perf_counter() - t
 
     def lookup(self, q, r):
-        h = np.clip(r - R, 0, Z)
+        h = np.clip(r - R, 0, self.domain.top_km)
         mu = q[..., 2] / r
         mg = -np.sqrt(np.maximum(0, 1 - (R / np.maximum(r, R)) ** 2))
         x = np.sqrt(np.clip((mu - mg) / (1 - mg), 0, 1))

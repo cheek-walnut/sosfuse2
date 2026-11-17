@@ -23,19 +23,24 @@ import multiprocessing as mp
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+from types import SimpleNamespace
 
 # (first, phase, boundary) launched by a state: first light, ground, warm with boundary, observer/table queries.
 SPECS = ((1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, 0), (1, 2, 0), (0, 2, 0))
 
 
 def one(job):
-    name, flags, block_size, cache, L, W, step = job
+    name, flags, block_size, cache, L, W, step, *domain_arg = job
+    from sosfuse2.foundation.top import Domain
+
+    domain = domain_arg[0] if domain_arg else Domain(step_km=step)
     from sosfuse2.backends.compile_cache import configure
 
     configure(cache, 'cupy', block_size)
     from sosfuse2.solve.source_solver import Kernel
 
-    k = Kernel(1, backend='cupy', block_size=block_size, flags=flags, L=L, profile_step_km=step)
+    k = Kernel(1, backend='cupy', block_size=block_size, flags=flags, L=L, profile_step_km=step, domain=domain)
     started = time.perf_counter()
     if name == 'strato_lut_build':
         k.strato_lut_kernel(W)
@@ -59,11 +64,35 @@ def one(job):
     return str(name), time.perf_counter() - started
 
 
+def resolve_inputs(a):
+    """Resolve settings with the runner; explicitly conflicting CLI values are errors."""
+    from sosfuse2.jobs.run_state import settings_for, SH_L
+    from sosfuse2.foundation import top
+    from sosfuse2.atmosphere import spectral
+
+    raw = json.loads(a.settings_json.read_text()) if a.settings_json else {}
+    cfg = settings_for(SimpleNamespace(reduced=False, settings_json=a.settings_json)) if a.settings_json else {}
+
+    def choose(name, cli, setting, explicit, default):
+        if cli is not None and explicit and cli != setting:
+            raise ValueError(f'E_PRECOMPILE_CONFLICT: {name}: CLI {cli!r} disagrees with settings {setting!r}')
+        return cli if cli is not None else setting if explicit else default
+
+    L = choose('L', a.L, cfg.get('L'), 'L' in raw, SH_L)
+    width_explicit = bool(set(raw) & ({'wavelengths', 'wavelengths_nm'} | set(spectral.KEYS)))
+    width = 1 if cfg.get('wavelengths') == 1 else 15
+    W = choose('W', a.W, width, width_explicit, 15)
+    step = a.profile_step_km if a.profile_step_km is not None else 0.5
+    domain = top.resolve(cfg, step)
+    return L, W, step, domain
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--cache', default=os.environ.get('SOSFUSE2_COMPILE_CACHE'), help='NVRTC cache root (deployment)')
     p.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1))
     p.add_argument('--no-strato', action='store_true')
+    p.add_argument('--settings-json', type=Path, help='run_state settings JSON; omitted selects the default boundary')
     p.add_argument('--ray-limit', choices=('auto', 'on', 'off'), default='auto')
     p.add_argument(
         '--L', type=int, choices=(16, 24, 32), default=None, help='SH order (default: run_state.SH_L)'
@@ -72,21 +101,19 @@ def main():
         '--profile-step-km',
         type=float,
         choices=(0.5, 0.25, 0.125),
-        default=0.5,
+        default=None,
         help='PROFILE node spacing of the states (density.profile_step_km); 0.5 = default kernels',
     )
     p.add_argument(
-        '--W', type=int, choices=(1, 15), default=15, help='kernel wavelength width (1: sigma monochromatic C mode)'
+        '--W', type=int, choices=(1, 15), default=None, help='kernel wavelength width (default 15; 1: monochromatic)'
     )
     a = p.parse_args()
     if not a.cache:
         p.error('E_PRECOMPILE: --cache or SOSFUSE2_COMPILE_CACHE required')
     from sosfuse2.solve.source_solver import default_flags, ksplit_setting
     from sosfuse2.backends.flags import resolve_config, deterministic
-    from sosfuse2.jobs.run_state import SH_L
-
     mode = deterministic()
-    L = a.L or SH_L
+    L, W, step, domain = resolve_inputs(a)
     flags = resolve_config(set(default_flags()) | (set() if a.no_strato else {'STRATO'})).flags
     block_size = int(os.environ.get('SOSFUSE2_BLOCK_SIZE', '128'))
     ray = a.ray_limit == 'on'
@@ -95,8 +122,7 @@ def main():
 
         name = smi_device_name()
         ray = bool(select(name)[1]['launch_target_seconds']) or os.environ.get('SOSFUSE2_FL_PROJECT', '').strip() == '1'
-    W, step = a.W, a.profile_step_km
-    tail = (block_size, a.cache, L, W, step)
+    tail = (block_size, a.cache, L, W, step, domain)
     jobs = [(spec, flags) + tail for spec in SPECS]
     if resolve_config(flags, W=W).strato:
         jobs.append(('strato_lut_build', flags) + tail)
@@ -122,6 +148,7 @@ def main():
                 L=L,
                 W=W,
                 profile_step_km=step,
+                domain=domain.identity(),
             )
         ),
         flush=True,

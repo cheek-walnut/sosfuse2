@@ -278,7 +278,8 @@ def test_source_digest_encodings(tmp_path, monkeypatch):
         'foundation/top.py', 'rays/shell_segments.py', 'solve/engine.py', 'precompute/sun_parallel.py', 'precompute/column_parallel.py',
         'atmosphere/tropo_profile.py', 'rays/ray_columns.py', 'atmosphere/density.py', 'assets/no2_afglus_profile.json',
     )
-    expected = hashlib.sha256(json.dumps({'R': 6371.0, 'Z': 80.0}).encode())
+    from sosfuse2.foundation.top import Domain
+    expected = hashlib.sha256(json.dumps({'R': 6371.0, 'Z': 80.0, 'domain': Domain().identity()}).encode())
     for name in sorted(str(paths.PKG / name) for name in names):
         p = Path(name)
         digest = source_identity.asset_sha(p) if p.name in source_identity.ASSET_NOTES else source_identity.file_sha(p)
@@ -295,7 +296,7 @@ def test_source_digest_encodings(tmp_path, monkeypatch):
         expected.update(name.encode())
         expected.update(bytes.fromhex(source_identity.file_sha(paths.PKG / name)))
     expected.update(json.dumps({
-        'profile': [21.0, 3.0, 1.0], 'cfg': {}, 'params': {}, 'density': None,
+        'profile': [21.0, 3.0, 1.0], 'cfg': {}, 'params': {}, 'density': None, 'domain': Domain().identity(),
     }, sort_keys=True, default=str).encode())
     assert stratosphere._geometry_key(s, None, profile) == expected.hexdigest()[:24]
 

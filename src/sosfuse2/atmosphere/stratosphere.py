@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from ..foundation import content_identity as source_identity, paths
-from ..foundation.top import TOP_KM, NORMALIZATION_TOP_KM
+from ..foundation.top import NORMALIZATION_TOP_KM
 
 DEFAULT = paths.ASSETS / 'strato_sulfate_rg0.08_sg1.6_n1.43.json'
 # State parameters the attach geometry never reads (_geometry_key, run_state.attach_lock_name): optics
@@ -61,7 +61,8 @@ def profile_config(state):
 
 def density(h, profile):
     h = np.asarray(h)
-    return np.exp(-0.5 * ((h - profile['center']) / profile['sigma']) ** 2) / profile['norm']
+    value = np.exp(-0.5 * ((h - profile['center']) / profile['sigma']) ** 2) / profile['norm']
+    return np.where(h > profile['end_km'], 0, value) if 'end_km' in profile else value
 
 
 def cell_density(h, profile):
@@ -77,7 +78,8 @@ def cell_density(h, profile):
     if center - 3 * sigma < h[0] or center + 3 * sigma > h[-1]:
         raise ValueError('E_STRATO_PROFILE_UNSUPPORTED')
     edges = np.r_[h[0], (h[:-1] + h[1:]) / 2, h[-1]]
-    cdf = np.array([math.erf((z - center) / (math.sqrt(2) * sigma)) for z in edges])
+    samples = np.minimum(edges, profile['end_km']) if 'end_km' in profile else edges
+    cdf = np.array([math.erf((z - center) / (math.sqrt(2) * sigma)) for z in samples])
     average = np.diff(cdf) * sigma * math.sqrt(math.pi / 2) / profile['norm'] / np.diff(edges)
     if abs(float(average @ np.diff(edges)) - 1) > 1e-6:
         raise ValueError('E_STRATO_PROFILE_UNSUPPORTED')
@@ -167,11 +169,13 @@ def load_table(path):
     return wl, ext, ssa, chi
 
 
-def build_optics(state, h_km, wavelengths_nm):
+def build_optics(state, h_km, wavelengths_nm, domain=None):
     tau = tau_of(state)
     if tau == 0:
         return None  # Deliberately do not read/validate unused layer metadata.
     profile = profile_config(state)
+    if domain is not None and domain.top_km > NORMALIZATION_TOP_KM:
+        profile.update(end_km=domain.lower_end, domain=domain.identity())
     path = table_path(state)
     source_den, cell_edges = cell_density(h_km, profile)
     wl, ce, ssa, chi = load_table(path)
@@ -220,12 +224,14 @@ def _column_nodes(p, d, old, n):
     components separately, avoiding the [ray,node,xyz] temporary while retaining
     the q*q reduction's result.
     """
+    from ..foundation.top import Domain
+
     edges = old.probe.boundaries(p, d)
     end = edges[:, -1]
     b = np.sum(p * d, -1)
     pp = np.sum(p * p, -1)
     more = []
-    for height in (10.0, 25.0, 40.0):
+    for height in getattr(old, 'domain', Domain()).extra_shells:
         disc = b * b - pp + (6371.0 + height) ** 2
         for sign in (-1, 1):
             root = -b + sign * np.sqrt(np.maximum(disc, 0))
@@ -284,7 +290,7 @@ def solar_grid(s, old, profile):
 
 
 def sun_lookup(q, r, sun, grid):
-    h = np.clip(r - 6371.0, 0, TOP_KM)
+    h = np.clip(r - 6371.0, 0, sun.h[-1])
     mu = q[..., 2] / r
     mg = -np.sqrt(np.maximum(0, 1 - (6371.0 / np.maximum(r, 6371.0)) ** 2))
     x = np.sqrt(np.clip((mu - mg) / (1 - mg), 0, 1))
@@ -310,6 +316,7 @@ def _geometry_key(s, scope, profile):
     """Everything the per-cell ground geometry below reads, except the state optics combined afterwards.
     Unknown dependence is fail-safe only if it shows in these inputs."""
     from .density import profile_identity
+    from ..foundation.top import Domain
 
     h = hashlib.sha256()
     for a in (s.geo.h, s.geo.chi, s.geo.sun.h, s.geo.sun.x, s.geo.sun.col):
@@ -333,6 +340,7 @@ def _geometry_key(s, scope, profile):
     h.update(
         json.dumps(
             dict(
+                domain=getattr(scope, 'domain', Domain()).identity(),
                 profile=[profile['center'], profile['sigma'], profile['norm']],
                 cfg=s.geo.cfg,
                 params=p,
@@ -400,7 +408,7 @@ def attach(s, scope):
     """
     if hasattr(s, 'strato'):
         return s.strato
-    optics = build_optics(s.fuse_state, s.geo.h, s.wl)
+    optics = build_optics(s.fuse_state, s.geo.h, s.wl, getattr(scope, 'domain', None))
     if optics is None:
         return None
     from ..backends.sh_layout import count

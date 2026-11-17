@@ -23,6 +23,8 @@ def normal_state():
 
 
 def pack(p, d, n, s, scope, weights=None, ground=True):
+    from ..foundation.top import Domain
+
     p = np.broadcast_to(p, d.shape).copy()
     d = np.ascontiguousarray(d, 'f8')
     old = scope.b.sh.old
@@ -31,7 +33,7 @@ def pack(p, d, n, s, scope, weights=None, ground=True):
     dot = np.sum(p * d, -1)
     pp = np.sum(p * p, -1)
     more = []
-    for height in (10.0, 25.0, 40.0):
+    for height in getattr(old, 'domain', Domain()).extra_shells:
         disc = dot * dot - pp + (6371.0 + height) ** 2
         for sign in (-1, 1):
             rr = -dot + sign * np.sqrt(np.maximum(disc, 0))
@@ -497,7 +499,10 @@ def identity(s, version):
         )
     else:
         files[paths.rel(Path(__file__))] = source_identity.file_sha(Path(__file__))
+    from ..foundation.top import Domain
+
     content = dict(
+        domain=getattr(s.kernel, 'domain', Domain()).identity(),
         h=s.geo.h.tolist(), chi=s.geo.chi.tolist(), cfg=s.geo.cfg, height=s.kernel.height, version=version, files=files
     )
     from ..rays.column_table import identity as column_identity

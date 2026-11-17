@@ -58,7 +58,7 @@ def test_concurrent_sun_builds_are_serialized(tmp_path):
             self.x = [0] * (400 * scale + 1)
             self.build_seconds = 0.0
 
-    old = SimpleNamespace(SunGeometry=Sun)
+    old = SimpleNamespace(SunGeometry=Sun, Z=80.0)
     with mock.patch.object(sun_parallel, 'prebuild', prebuild):
         threads = [threading.Thread(target=host_cache.sun_geometry, args=(old, 4, tmp_path, 1.2)) for _ in range(3)]
         for t in threads:

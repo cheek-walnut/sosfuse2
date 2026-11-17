@@ -37,6 +37,7 @@ GROUPS = (
         ('asset_tools.generate_minor_absorbers', 'NO2 asset and O4 table from their source files'),
         ('asset_tools.generate_strato_optics', 'stratospheric sulfate Mie table'),
         ('asset_tools.generate_tropo_optics', 'tropospheric aerosol Mie table'),
+        ('asset_tools.generate_upper_air', 'effective air density of the upper atmosphere'),
         ('asset_tools.strato_states', 'nine sulfate diagnostic states'),
         ('backends.flags_env', 'shell exports for a kernel config (default C3)'),
     )),

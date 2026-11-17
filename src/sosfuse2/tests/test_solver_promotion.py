@@ -251,6 +251,7 @@ def test_geometry_worker_preserves_aerosol_descriptors(tmp_path, monkeypatch):
         actual = column_table.aerosol(worker)
         assert actual == column_table.aerosol(ctx.b.sh.old)
         descriptors.append(actual)
-    assert descriptors[0] == {'kind': 'exp', 'height': 1.2}
-    assert descriptors[1] == {'kind': 'exp', 'height': 2.4}
+    from sosfuse2.foundation.top import Domain
+    assert descriptors[0] == {'kind': 'exp', 'height': 1.2, 'domain': Domain().identity(), 'end_km': 80.0}
+    assert descriptors[1] == {'kind': 'exp', 'height': 2.4, 'domain': Domain().identity(), 'end_km': 80.0}
     assert descriptors[2]['kind'] == 'two_layer' and len(descriptors[2]['vector']) == 7

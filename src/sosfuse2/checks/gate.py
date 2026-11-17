@@ -156,7 +156,9 @@ def expected_config(F, fx):
     from ..backends.flags import resolve_config
 
     flags = list(resolve_config(set(c['kernel_flags']) | ({'STRATO'} if spec['stratosphere'] else set())).flags)
-    from ..atmosphere.density import profile_n, profile_step_km
+    from ..jobs.run_state import execution_domain
+
+    domain = execution_domain(fixture_settings(F, fx), fixture_state(F, fx))
 
     return dict(
         flags=flags,
@@ -164,7 +166,8 @@ def expected_config(F, fx):
         async_=bool(spec['async']),
         L=F['L'],
         block=c['block_size'],
-        profile_n=profile_n(profile_step_km(fixture_state(F, fx))),
+        profile_n=domain.n,
+        domain=domain.identity(),
     )
 
 
@@ -189,6 +192,10 @@ def check_config(F, fx, meta):
     # ②b: PROFILE node count (records from before ②b carry none: 161)
     if got.get('profile_n', LEGACY_PROFILE_N) != want['profile_n']:
         bad.append(f"profile_n requested {want['profile_n']} measured {got.get('profile_n', LEGACY_PROFILE_N)}")
+    from ..foundation.top import Domain
+
+    if got.get('domain', Domain().identity()) != want['domain']:
+        bad.append(f"domain requested {want['domain']} measured {got.get('domain', Domain().identity())}")
     if 'spectral' in meta and (why := ozone_mismatch(F, fx, meta['spectral'])):
         bad.append(why)
     if meta['backend'] == 'cupy':
@@ -196,6 +203,11 @@ def check_config(F, fx, meta):
             bad.append('no NVRTC options recorded')
         s1 = set(want['stage1'])
         for o in got['options']:
+            if 'domain' in got:
+                d = want['domain']
+                domain = Domain(d['top_km'], d['step_km'], tuple(d['upper_heights_km']), d['upper_air'])
+                if any(value not in o for value in domain.defines()):
+                    bad.append(f'NVRTC options disagree with requested domain: {o}')
             seen = dict(
                 fmad='--fmad=true' in o,
                 div='--prec-div=false' in o,
@@ -213,6 +225,7 @@ def check_config(F, fx, meta):
 def toolkey(meta):
     from ..backends.device_profile import ALIASES
     from ..backends.flags import resolve_config
+    from ..foundation.top import Domain
 
     c = meta['config']
     profile = meta['device'].get('profile')
@@ -226,6 +239,10 @@ def toolkey(meta):
         L=c['L'],
         block=c['block'],
     )
+    # The execution domain joins the toolkey only above the default boundary, so every default-boundary toolkey is unchanged.
+    domain = c.get('domain', Domain().identity())
+    if domain['top_km'] != Domain().top_km:
+        fields['domain'] = domain
     # ②b: N joins the toolkey only off the default, so every 0.5 km toolkey (and its recorded baselines) is unchanged.
     if c.get('profile_n', LEGACY_PROFILE_N) != LEGACY_PROFILE_N:
         fields['profile_n'] = c['profile_n']
@@ -259,7 +276,7 @@ def worker(kind, fx, out, backend):
     from sosfuse2.solve.strato_sh_aux import _async_enabled
 
     (out / 'settings.json').write_text(json.dumps(fixture_settings(F, fx)))
-    cfg = v3.settings_for(NS(reduced=True, settings_json=out / 'settings.json'))
+    cfg = v3.settings_for(NS(reduced=fixture_settings(F, fx).get('top_km', 80) == 80, settings_json=out / 'settings.json'))
     state = v3.effective_state(fixture_state(F, fx), NS())
     cfg = v3.resolve_settings(cfg, state)  # A′ fixtures: FX-AP
     el, az = (np.asarray(F['directions'][n], float) for n in ('elevation_deg', 'azimuth_deg'))
@@ -355,6 +372,7 @@ def worker(kind, fx, out, backend):
             L=k.L,
             block=k.block_size,
             profile_n=k.profile_n,
+            domain=k.domain.identity(),
             options=[list(o) for _, o in getattr(k, 'raw_options', {}).values()],
         ),
         spectral=cfg.get('spectral'),  # the resolved block (FX-AP: A′), check_config

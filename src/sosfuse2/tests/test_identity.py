@@ -774,6 +774,8 @@ def test_package_hashes(monkeypatch):
         'sosfuse2/jobs/tables_from_sources.py',
         'sosfuse2/foundation/timers.py',
         'sosfuse2/foundation/top.py',
+        'sosfuse2/atmosphere/upper_air.py',
+        'sosfuse2/asset_tools/generate_upper_air.py',
         'sosfuse2/atmosphere/tropo_mie.py',
         'sosfuse2/atmosphere/tropo_profile.py',
         'sosfuse2/checks/validate.py',
@@ -796,11 +798,12 @@ def test_package_hashes(monkeypatch):
         'sosfuse2/assets/temperature_usstd76.json',
         'sosfuse2/assets/no2_afglus_profile.json',
         'sosfuse2/assets/no2_vandaele1998_fine.json',
+        'sosfuse2/assets/upper_air_us76_neff.json',
     }
     assert set(hashes) == expected
     assert content_identity.ACCEPTED_SOURCES == ('solve/__init__.py', 'solve/engine.py')
     assert content_identity.HOST_MODULES == ('foundation/__init__.py', 'foundation/available_cpus.py', 'outputs/pack_state.py')
-    assert set(content_identity.STATE_ASSETS) < set(content_identity.DATA_ASSETS) and len(content_identity.DATA_ASSETS) == 12
+    assert set(content_identity.STATE_ASSETS) < set(content_identity.DATA_ASSETS) and len(content_identity.DATA_ASSETS) == 13
     for name in content_identity.DATA_ASSETS:
         path = paths.ASSETS / name
         if name in content_identity.ASSET_NOTES:

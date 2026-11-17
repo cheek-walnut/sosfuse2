@@ -15,6 +15,7 @@ from types import SimpleNamespace as NS
 
 from ..precompute import column_parallel as cp
 from .ray_geometry import PackedCache as SerialPackedCache, ResidentGeometry
+from ..foundation.top import Domain
 
 ENV = 'SOSFUSE2_GEOMETRY_WORKERS'
 _GEOMETRY = None
@@ -37,6 +38,7 @@ def freeze(g):
     old = b.sh.old
     return cp.freeze(
         NS(
+            domain=getattr(old, 'domain', Domain()),
             incoming=b.legacy.incoming,
             frame=old.probe.frame,
             boundaries=old.probe.boundaries,
@@ -57,6 +59,7 @@ def _init(frozen, geo, legacy, optics, profile, sources):
         return
     f = cp.thaw(frozen)
     old = NS(
+        domain=f.domain,
         probe=NS(frame=f.frame, boundaries=f.boundaries, gl=f.gl),
         total_columns=f.total_columns,
         profiles=f.profiles,
@@ -64,7 +67,7 @@ def _init(frozen, geo, legacy, optics, profile, sources):
     )
     g = ResidentGeometry.__new__(ResidentGeometry)
     g.s = NS(geo=geo, density_optics=optics, strato=dict(profile=profile))
-    g.scope = NS(b=NS(legacy=NS(incoming=f.incoming), sh=NS(old=old)), basis_at=f.basis_at)
+    g.scope = NS(b=NS(legacy=NS(incoming=f.incoming), sh=NS(old=old)), basis_at=f.basis_at, domain=f.domain, Z=f.domain.top_km)
     g.legacy = legacy
     g.groups = {}
     g.stats = dict(cells=0, rays=0, samples=0, legacy_cells_read=0)

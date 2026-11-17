@@ -7,6 +7,7 @@ match the engine geometry_segments and its consumers exactly.
 
 import numpy as np
 from ..atmosphere.components import NCOMP, MOLECULAR_COLUMNS
+from ..foundation.top import Domain
 
 
 def segments(p, d, old, n, edges=None):
@@ -16,7 +17,7 @@ def segments(p, d, old, n, edges=None):
         dot = np.sum(p * d, -1)
         pp = np.sum(p * p, -1)
         more = []
-        for height in (10.0, 25.0, 40.0):
+        for height in getattr(old, 'domain', Domain()).extra_shells:
             disc = dot * dot - pp + (6371.0 + height) ** 2
             for sign in (-1, 1):
                 root = -dot + sign * np.sqrt(np.maximum(disc, 0))
