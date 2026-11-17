@@ -7,7 +7,7 @@ import math
 import platform
 import numpy as np
 from ..atmosphere.components import NCOMP
-from ..foundation.top import TOP_KM, Domain
+from ..foundation.top import Domain
 from .sh_layout import count, combined_coefficients
 from .arithmetic import F, R, split, add, sub, neg, mul, root, divide, quotient, rounded, basis, cosine, warp_sum, kahan
 
@@ -155,6 +155,35 @@ def path_height(rr, domain=None):
     return np.clip(rounded(sub(rr, (R, F(0)))), F(0), F((domain or Domain()).top_km))
 
 
+def support_extended(domain):
+    """Whether component ends lie inside the calculation domain; kernel.cu support_extended."""
+    return domain.top_km > domain.lower_end
+
+
+def support_end(domain, air):
+    """Closed upper support boundary of air or a lower-atmosphere component."""
+    return F(domain.air_end if air else domain.lower_end)
+
+
+def support_value(h, value, domain, air=False):
+    """Zero values strictly outside their support; preserve the default clipped profile."""
+    if not support_extended(domain):
+        return value
+    return np.where(h > support_end(domain, air), F(0), value)
+
+
+def support_height(h, inside_h, domain):
+    """Choose a segment's one-sided boundary height within one FP32 ULP."""
+    if not support_extended(domain):
+        return h
+    for air in (False, True):
+        edge = support_end(domain, air)
+        above = np.nextafter(edge, F(np.inf))
+        near = (h >= np.nextafter(edge, F(-np.inf))) & (h <= above)
+        h = np.where(near, np.where(inside_h > edge, above, edge), h)
+    return h
+
+
 def profile_at(h, c):
     """Five profiles at FP32 heights h: air, tropospheric aerosol, O3, NO2, O4; stratosphere is evaluated separately.
     The one profile evaluation of the transport (kernel.cu profile_at): sample() calls it at the quadrature nodes and the Simpson
@@ -189,8 +218,8 @@ def profile_at(h, c):
         prof[:, 1] = profile32(h, c['aer2'])
     q = prof[:, 0] / F(optics.get('air_surface', optics['table'][0, 0] if optics['mask'] & 1 else 1.0))
     prof[:, 4] = q * q
-    if domain.top_km > TOP_KM:
-        prof = np.where(h[:, None] > np.asarray([domain.air_end, *([domain.lower_end] * 4)]), F(0), prof)
+    prof[:, 0] = support_value(h, prof[:, 0], domain, air=True)
+    prof[:, 1:] = support_value(h[:, None], prof[:, 1:], domain)
     return prof
 
 
@@ -222,12 +251,9 @@ class SimpsonPrefix:
         """Extinction [n, W] at DS path coordinates t."""
         domain = self.c.get('domain', Domain())
         h = path_height(path_point(self.pp, self.dd, t)[2], domain)
-        if inside is not None and domain.top_km > TOP_KM:
+        if inside is not None and support_extended(domain):
             ih = path_height(path_point(self.pp, self.dd, inside)[2], domain)
-            for end in set((domain.lower_end, domain.air_end)):
-                edge = F(end)
-                near = (h >= np.nextafter(edge, F(-np.inf))) & (h <= np.nextafter(edge, F(np.inf)))
-                h = np.where(near, np.where(ih > edge, np.nextafter(edge, F(np.inf)), edge), h)
+            h = support_height(h, ih, domain)
         return extinction_profile(
             profile_at(h, self.c), self.c, strato_profile(h, self.c) if 'strato_ext' in self.c else None
         )
@@ -399,7 +425,7 @@ def strato_profile(h, c):
     t = (h - F(p['center'])) / F(p['sigma'])
     result = np.exp(F(-0.5) * (t * t)) / F(p['norm'])
     domain = c.get('domain', Domain())
-    return np.where(h > F(domain.lower_end), F(0), result) if domain.top_km > TOP_KM else result
+    return support_value(h, result, domain)
 
 
 def sun_columns(q, c):
@@ -577,11 +603,10 @@ def _transport(g, c, field, first=False, boundary=None, statistics=None, return_
                     rm = field[cell, :4].transpose(0, 2, 1)
                     density = c['hr'][ir]
                     domain = c.get('domain', Domain())
-                    if domain.top_km > TOP_KM:
-                        density = np.where(q['h'] > F(domain.air_end), F(0), density)
-                        aero = np.where(q['h'][:, None] > F(domain.lower_end), F(0), aero)
-                        if strat:
-                            saero = np.where(q['h'][:, None] > F(domain.lower_end), F(0), saero)
+                    density = support_value(q['h'], density, domain, air=True)
+                    aero = support_value(q['h'][:, None], aero, domain)
+                    if strat:
+                        saero = support_value(q['h'][:, None], saero, domain)
                 trace = (rm[:, :, 0] + rm[:, :, 1]) + rm[:, :, 2]
                 tensor = np.zeros_like(total)
                 for k in range(4):

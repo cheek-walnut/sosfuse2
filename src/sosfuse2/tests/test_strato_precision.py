@@ -24,7 +24,9 @@ F = np.float32
 
 
 def extract_function(text, name):
-    start = text.index('__device__ float ' + name + '(')
+    import re
+
+    start = re.search(r'__device__(?:\s+__forceinline__)?\s+float\s+' + re.escape(name) + r'\s*\(', text).start()
     opening = text.index('{', start)
     depth = 1
     i = opening + 1

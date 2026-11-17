@@ -76,6 +76,7 @@ def test_fixed_component_and_kernel_layout():
     cu = (paths.PKG / 'backends/kernel.cu').read_text()
     assert COMPONENTS == ('air', 'tropo_aerosol', 'o3', 'no2', 'o4')
     assert f'#define NCOMP {NCOMP}' in cu and SINV_F == 7
+    cu = ''.join(cu.split())
     assert 'prof[NCOMP]' in cu and 'sc[NCOMP]' in cu and 'st_prof,st_sc' in cu
     assert 'end_col[NCOMP*ray+k]' in cu and 'if(w<NCOMP+1)' in cu
     assert TRAIL['end_col'] == (5,) and PACKED_LAYOUT_VERSION == 3 and HEIGHT_DEPENDENT_END_COLUMNS == (1,)

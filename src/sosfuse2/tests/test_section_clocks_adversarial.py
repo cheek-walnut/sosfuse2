@@ -503,7 +503,7 @@ class IndependentEvidence(unittest.TestCase):
         source = paths.KERNEL_CU.read_text()
         start = source.index('#ifdef EXP_SECTION_CLOCKS\n#define SECTION_PARAM')
         macros = source[start : source.index('#endif', start) + len('#endif')]
-        slot = re.search(r'int64_t slot=([^;]+);', source).group(1)
+        slot = re.search(r'int64_t\s+slot\s*=\s*([^;]+);', source).group(1)
         program = (
             '''
 #include <cstdio>

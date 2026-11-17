@@ -231,13 +231,15 @@ def test_c_native_profile_value_matches_interpolate32(n, tmp_path):
     clang++ for the host with the default fallback or host grid definitions vs density.interpolate32."""
     testkit.require_tool('clang++')
     src = (HERE / 'backends/kernel.cu').read_text()
-    clip = re.search(r'__device__ float clip\(.*\n', src)[0]
+    from sosfuse2.tests.test_strato_precision import extract_function
+
+    clip = extract_function(src, 'clip') + '\n'
     start = src.index('#ifndef PROFILE_N')
     body = src[start : src.index('\n}\n', src.index('float profile_value(', start)) + 3]
     cpp = tmp_path / 'profile.cpp'
     lib = tmp_path / 'profile.so'
     cpp.write_text(
-        '#include <algorithm>\n#include <cmath>\n#define __device__\nusing std::min; using std::fminf; using std::fmaxf;\n'
+        '#include <algorithm>\n#include <cmath>\n#define __device__\n#define __forceinline__ inline\nusing std::min; using std::fminf; using std::fmaxf;\n'
         + clip
         + body
         + 'extern "C" float profile_c(float h,const float*t,int k){return profile_value(h,t,k);}\n'

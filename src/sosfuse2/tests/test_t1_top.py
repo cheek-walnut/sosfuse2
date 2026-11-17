@@ -136,20 +136,20 @@ def test_native_profiles_and_one_sided_simpson(tmp_path, air):
         pytest.skip('C++ compiler unavailable; NumPy support and Simpson checks above executed')
     src = paths.KERNEL_CU.read_text()
     excerpt = src[src.index('struct DS {'):src.index('__device__ int ix(')]
-    excerpt += src[src.index('#define PROFILE_ARG'):src.index('#define POINT_INLINE')]
+    excerpt += src[src.index('struct ProfileParams {'):src.index('#define POINT_INLINE')]
     cpp = tmp_path / 'profile.cpp'
     cpp.write_text('#include <cmath>\n#include <algorithm>\n#define __device__\n#define __forceinline__ inline\n'
                    '#define TRACE_MIN 1e-30f\n#define FW 1\n#define NCOMP 5\n#define STRATO\n#define AEROSOL_2L\n'
-                   '#define PROFILE_PARAM ,const float*profile_table,int profile_mask,float air_surface\n'
                    'using std::min;using std::max;\n' + excerpt +
                    'extern "C" float sample(float h,const float*t,int k){return profile_value(h,t,k);}\n'
                    'extern "C" void assembled(float h,const float*t,const float*a,float*out){'
-                   'profile_at(h,1.2f,a,t,3,t[0],21.f,3.f,1.f,out,out[5]);}\n'
+                   'ProfileParams profile{1.2f,a,t,3,t[0],21.f,3.f,1.f};profile_at(h,profile,out,out[5]);}\n'
                    'extern "C" float panel(const double*p,const double*d,double end,const float*t,const float*a){'
                    'float ext[5]={1,1,1,1,1},st[1]={1};DS lo=ds(0.),hi=ds(end),mid=ds(end/2);'
-                   'float b0=beta_at_side(p,d,lo,mid,1.2f,a,t,3,t[0],21.f,3.f,1.f,ext,st,0);'
-                   'float b1=beta_at_side(p,d,hi,mid,1.2f,a,t,3,t[0],21.f,3.f,1.f,ext,st,0);'
-                   'return simpson_piece(p,d,lo,hi,b0,b1,1.2f,a,t,3,t[0],21.f,3.f,1.f,ext,st,0);}\n')
+                   'ExtinctionParams optics{{1.2f,a,t,3,t[0],21.f,3.f,1.f},ext,st};'
+                   'float b0=beta_at_side(p,d,lo,mid,optics,0);'
+                   'float b1=beta_at_side(p,d,hi,mid,optics,0);'
+                   'return simpson_piece(p,d,lo,hi,b0,b1,optics,0);}\n')
     lib = tmp_path / 'profile.so'
     subprocess.run([compiler, '-std=c++17', '-ffp-contract=off', '-fPIC',
                     '-dynamiclib' if platform.system() == 'Darwin' else '-shared', *d.defines(),

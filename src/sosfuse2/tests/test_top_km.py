@@ -108,13 +108,14 @@ def test_kernel_and_cpu_clip_and_interpolation(tmp_path):
         from sosfuse2.foundation import paths
         from sosfuse2.tests.test_kernel_static import STUB
         from sosfuse2.tests.test_tropo_mie import SYNTAX_STUB_EXTRA
+        from sosfuse2.tests.test_strato_precision import extract_function
         src = paths.KERNEL_CU.read_text()
         ds = src[src.index('struct DS {'):src.index('__device__ DS dm(')]
-        dv = re.search(r'__device__ float dv\(.*\n', src)[0]
-        clip = re.search(r'__device__ float clip\(.*\n', src)[0]
+        dv = extract_function(src, 'dv') + '\n'
+        clip = extract_function(src, 'clip') + '\n'
         start = src.index('#ifndef PROFILE_N')
         profile = src[start:src.index('\n}\n', src.index('float profile_value(', start)) + 3]
-        path_h = re.search(r'__device__ __forceinline__ float path_h\(.*\n', src)[0]
+        path_h = extract_function(src, 'path_h') + '\n'
         cpp = Path(sys.argv[1]) / 'profile.cpp'
         cpp.write_text('#include <algorithm>\n#include <cmath>\n#define __device__\n#define __forceinline__ inline\n'
                        'using std::min; using std::fminf; using std::fmaxf;\n' + ds + dv + clip + profile + path_h

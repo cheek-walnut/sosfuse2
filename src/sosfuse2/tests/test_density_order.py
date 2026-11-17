@@ -34,7 +34,8 @@ extern "C" float profile_c(float h,const float*t,int k){return profile_value(h,t
 extern "C" void sample_c(const double*p,const double*d,const float*B,const float*dl,
  double a,double b,int lower,double gu,double gw,const float*h,int nh,const float*chi,int nc,float height,
  const float*sun_h,int nsh,const float*sun_col,int nsx,const float*table,int mask,float air_surface,float*out){
- Sample s{};point(s,p,d,B,dl,0.f,a,b,lower,gu,gw,h,nh,chi,nc,height,sun_h,nsh,sun_col,nsx,false,table,mask,air_surface);
+ ProfileParams profile{height,sun_h+nsh,table,mask,air_surface};
+ Sample s{};point(s,p,d,B,dl,0.f,a,b,lower,gu,gw,h,nh,chi,nc,profile,sun_h,nsh,sun_col,nsx,false);
  out[0]=s.h;for(int k=0;k<3;k++)out[k+1]=s.prof[k];}
 '''
     )
