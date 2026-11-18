@@ -1,7 +1,8 @@
 """Host-dependent resource ceilings (stdlib only).
 
 The RSS ceiling is 6 GB on a non-Linux host and on a host of unknown size. A Linux host uses a RAM-dependent
-ceiling: 0.8 x RAM below 24 GB, 0.75 x RAM from 24 GB, and at most 128 GB from 48 GB. SOSFUSE2_RSS_GB replaces the
+ceiling: 0.8 x usable RAM below 24 GB, 0.75 x usable RAM from 24 GB, and at most 128 GB from 48 GB. Usable RAM
+is bounded by physical RAM and visible cgroup memory limits. SOSFUSE2_RSS_GB replaces the
 host rule: it is both the ceiling and the per-process default.
 default_workers (usable CPUs: affinity and cgroup-v2 cpu.max) moved here from column_parallel.py so the stdlib-only
 pipeline controller can size the per-state process pools with the same rule the children use.
@@ -23,6 +24,9 @@ MID_RAM_SHARE = 0.75  # mid-size host: the OS and the controller keep a quarter
 SMALL_RAM_SHARE = 0.8  # small host (under 24 GB): one state process at a time, the rest stays with the OS
 DEFAULT_RAM_SHARE = 0.8  # all per-process defaults together stay within this share of the RAM
 RSS_ENV = 'SOSFUSE2_RSS_GB'  # explicit per-process RSS limit in GB; replaces the host rule
+_PROC_CGROUP = Path('/proc/self/cgroup')
+_PROC_MOUNTINFO = Path('/proc/self/mountinfo')
+_V1_UNLIMITED_MIN = 0x7fffffffffff0000  # LONG_MAX rounded down to a page, allowing pages up to 64 KiB
 
 
 def physical_ram_gb():
@@ -30,6 +34,21 @@ def physical_ram_gb():
         return os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGE_SIZE') / 1e9
     except (ValueError, OSError, AttributeError):
         return 0.0
+
+
+def usable_ram_gb():
+    """RAM in GB bounded by physical size and visible cgroup limits, or None if unknown."""
+    physical = physical_ram_gb()
+    ram = [physical] if physical > 0 else []
+    if sys.platform == 'linux':
+        try:
+            groups = _PROC_CGROUP.read_text()
+            mounts = _PROC_MOUNTINFO.read_text()
+        except (OSError, UnicodeError):
+            pass
+        else:
+            ram.extend(limit / 1e9 for limit in _memory_limits(groups, mounts))
+    return min(ram, default=None)
 
 
 def rss_override_gb():
@@ -47,37 +66,46 @@ def rss_override_gb():
 
 
 def small_host():
-    """A non-Linux host or one with less than 48 GB RAM. Worker counts use this, not the RSS ceiling, so
-    SOSFUSE2_RSS_GB does not change them."""
-    return sys.platform != 'linux' or physical_ram_gb() < RIG_MIN_RAM_GB
+    """A non-Linux host or one with unknown or less than 48 GB of usable RAM."""
+    return sys.platform != 'linux' or (usable_ram_gb() or 0.0) < RIG_MIN_RAM_GB
 
 
 def rss_cap_gb():
     """SOSFUSE2_RSS_GB when set. Otherwise 6 on a non-Linux host (macOS) and on a host of unknown size; on Linux
-    min(128, physical RAM) with at least 48 GB RAM, 0.75 x RAM with 24-48 GB, and 0.8 x RAM below that."""
+    min(128, usable RAM) with at least 48 GB, 0.75 x usable RAM with 24-48 GB, and 0.8 x usable RAM below that."""
     override = rss_override_gb()
     if override is not None:
         return override
     if sys.platform != 'linux':
         return PROTECTED_RSS_GB
-    ram = physical_ram_gb()
+    return _rss_cap_for_ram(usable_ram_gb())
+
+
+def _rss_cap_for_ram(ram):
+    if ram is None:
+        return PROTECTED_RSS_GB
     if ram >= RIG_MIN_RAM_GB:
         return min(RIG_RSS_GB, ram)
     if ram >= MID_MIN_RAM_GB:
         return MID_RAM_SHARE * ram
-    return SMALL_RAM_SHARE * ram if ram > 0 else PROTECTED_RSS_GB
+    return SMALL_RAM_SHARE * ram
 
 
 def default_rss_gb(processes):
     """Per-process --rss-gb when none is given: SOSFUSE2_RSS_GB when set (the caller then owns the sum over the
-    processes); 6 on a non-Linux host; elsewhere [DEFAULT_RAM_SHARE] of the RAM split over the [processes] running at
-    once (workers, plus the persistent service), at least 6 and at most the host cap. The limit is per process, so the
-    cap itself would let them together exceed the RAM. The floor of 6 can still exceed the share when many processes
-    run; the CPU budget, not this, bounds their number."""
-    cap = rss_cap_gb()
-    if rss_override_gb() is not None or sys.platform != 'linux':
-        return cap
-    return min(cap, max(PROTECTED_RSS_GB, DEFAULT_RAM_SHARE * physical_ram_gb() / max(1, processes)))
+    processes); 6 when RAM is unknown or on non-Linux; elsewhere [DEFAULT_RAM_SHARE] of usable RAM split over the
+    concurrent [processes] (workers plus the persistent service). Apply the 6 GB floor first, then the host cap.
+    The floor can make the sum of the per-process limits exceed the shared RAM budget."""
+    override = rss_override_gb()
+    if override is not None:
+        return override
+    if sys.platform != 'linux':
+        return PROTECTED_RSS_GB
+    ram = usable_ram_gb()
+    if ram is None:
+        return PROTECTED_RSS_GB
+    share = DEFAULT_RAM_SHARE * ram / max(1, processes)
+    return min(_rss_cap_for_ram(ram), max(PROTECTED_RSS_GB, share))
 
 
 def over_budget_text(peak, budget):
@@ -107,8 +135,8 @@ def default_workers():
     except (AttributeError, OSError):
         count = max(1, os.cpu_count() or 1)
     try:
-        groups = Path('/proc/self/cgroup').read_text()
-        mounts = Path('/proc/self/mountinfo').read_text()
+        groups = _PROC_CGROUP.read_text()
+        mounts = _PROC_MOUNTINFO.read_text()
     except FileNotFoundError:  # macOS, or procfs unavailable
         return count
     return min([count, *_quota_limits(groups, mounts)])
@@ -119,15 +147,59 @@ def _quota_limits(groups, mounts):
     if group is None:
         return []
     limits = []
+    for current in _cgroup_ancestors(group, mounts, 'cgroup2'):
+        try:
+            quota, period = (current / 'cpu.max').read_text().split()
+            if quota != 'max':
+                limits.append(max(1, int(quota) // int(period)))
+        except FileNotFoundError:
+            pass
+    return limits
+
+
+def _memory_limits(groups, mounts):
+    for line in groups.splitlines():
+        fields = line.split(':', 2)
+        if len(fields) != 3:
+            continue
+        hierarchy, controllers, group = fields
+        if hierarchy == '0' and not controllers:
+            filename = 'memory.max'
+            ancestors = _cgroup_ancestors(group, mounts, 'cgroup2')
+        elif 'memory' in controllers.split(','):
+            filename = 'memory.limit_in_bytes'
+            ancestors = _cgroup_ancestors(group, mounts, 'cgroup', controller='memory')
+        else:
+            continue
+        for current in ancestors:
+            try:
+                value = (current / filename).read_text().strip()
+                if value == 'max':
+                    continue
+                limit = int(value)
+            except (OSError, ValueError):
+                continue
+            if limit >= 0 and (filename == 'memory.max' or limit < _V1_UNLIMITED_MIN):
+                yield limit
+
+
+def _decode_mount_path(value):
+    return Path(value.replace('\\040', ' ').replace('\\011', '\t').replace('\\012', '\n').replace('\\134', '\\'))
+
+
+def _cgroup_ancestors(group, mounts, filesystem, controller=None):
+    group_path = Path(group)
     for line in mounts.splitlines():
         left, sep, right = line.partition(' - ')
-        if not sep or right.split()[0] != 'cgroup2':
-            continue
+        source = right.split()
         fields = left.split()
-        decode = lambda s: s.replace('\\040', ' ').replace('\\011', '\t').replace('\\134', '\\')
-        root, mount = Path(decode(fields[3])), Path(decode(fields[4]))
+        if not sep or len(fields) < 5 or len(source) < 3 or source[0] != filesystem:
+            continue
+        if controller is not None and controller not in source[2].split(','):
+            continue
+        root, mount = _decode_mount_path(fields[3]), _decode_mount_path(fields[4])
         try:
-            relative = Path(group).relative_to(root)
+            relative = group_path.relative_to(root)
         except ValueError:
             if group != '/':
                 continue
@@ -137,16 +209,10 @@ def _quota_limits(groups, mounts):
             relative = Path('.')
         current = mount / relative
         while True:
-            try:
-                quota, period = (current / 'cpu.max').read_text().split()
-                if quota != 'max':
-                    limits.append(max(1, int(quota) // int(period)))
-            except FileNotFoundError:
-                pass
+            yield current
             if current == mount:
                 break
             current = current.parent
-    return limits
 
 
 def peak_rss_bytes():

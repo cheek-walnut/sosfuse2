@@ -24,9 +24,9 @@ from sosfuse2.foundation.host_limits import (
     default_rss_gb,
     default_workers,
     ksplit_fallback_warning,
-    physical_ram_gb,
     rss_cap_gb,
     small_host,
+    usable_ram_gb,
 )
 
 THREAD_ENV = (
@@ -80,17 +80,20 @@ def slot_workers(states, persistent):
 
 def auto_workers(states, threads, backend='numpy', persistent=False):
     """States prepared at once when --workers is not given: as many as the cores read right now allow with
-    [CORES_LEFT_FREE] kept back, never more than the states or than [RAM_SHARE] of the RAM holds. A state's CPU
+    [CORES_LEFT_FREE] kept back, never more than the states or than [RAM_SHARE] of usable Linux RAM holds (minimum
+    one worker). A state's CPU
     preparation is single-threaded, so the cores are filled with states, not with threads (8 threads on one
-    state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). Non-Linux hosts and hosts under 48 GB RAM keep 2."""
+    state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). Non-Linux hosts and hosts under
+    48 GB usable RAM normally keep at most 2 workers unless a GPU slot profile supplies the worker count."""
+    ram = usable_ram_gb() if sys.platform == 'linux' else None
+    by_ram = max(1, int(ram * RAM_SHARE // WORKER_RSS_GB)) if ram is not None else math.inf
     if backend == 'cupy':
         slot = slot_workers(states, persistent)
         if slot is not None:
-            return max(1, min(slot, cpu_budget() // threads))
+            return max(1, min(slot, by_ram, cpu_budget() // threads))
     if small_host():  # non-Linux hosts and Linux hosts under 48 GB keep 2
-        return max(1, min(states, 2, cpu_budget() // threads))
+        return max(1, min(states, 2, by_ram, cpu_budget() // threads))
     by_cores = max(1, (cpu_budget() - CORES_LEFT_FREE) // threads)
-    by_ram = max(1, int(physical_ram_gb() * RAM_SHARE // WORKER_RSS_GB))
     return max(1, min(states, by_cores, by_ram))
 
 
