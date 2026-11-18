@@ -3,7 +3,7 @@
 import argparse
 from types import SimpleNamespace
 
-from common import add_paths, configure_root, dump, package_identity, read, sha, work_path
+from common import add_paths, configure_root, dump, package_identity, read, require_legacy_top, sha, work_path
 
 
 def main():
@@ -27,6 +27,7 @@ def main():
 
     c = read(args.config)
     settings = dict(c['settings'], **arms[args.arm])
+    require_legacy_top(settings)
     dump(dest / 'settings.json', settings)
     cfg = engine.settings_for(SimpleNamespace(reduced=False, settings_json=dest / 'settings.json'))
     if cfg.get('kernel', {}).get('ground_sh', {}).get('order') != 24:

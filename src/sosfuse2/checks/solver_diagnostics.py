@@ -36,6 +36,7 @@ def parser():
     action.add_argument('--iterate', action='store_true', help='one complete source apply, including Lambert boundary')
     action.add_argument('--solve', action='store_true')
     action.add_argument('--states', type=int, choices=(40,))
+    p.add_argument('--full-source', type=Path, help='reference source NPZ for --validate-mac')
     p.add_argument('--grid', choices=('selftest', 'reduced', 'full'), default='full')
     p.add_argument('--wavelengths', choices=('550', '15'), default='15')
     p.add_argument('--block-size', type=int, choices=(32, 64, 128, 256), default=128)
@@ -246,7 +247,9 @@ def main():
 
             if args.validate_mac and args.backend != 'numpy':
                 raise ValueError('E_MAC_BACKEND: Mac final checkpoint uses numpy')
-            report = validate(output, args.backend, full=args.validate_mac, block_size=args.block_size)
+            report = validate(
+                output, args.backend, full=args.validate_mac, block_size=args.block_size, full_source=args.full_source
+            )
             report.update(peak_rss_bytes=peak(), seconds=time.perf_counter() - tt)
             save(output / 'validation.json', report)
             print(json.dumps(report, indent=2), flush=True)

@@ -47,6 +47,7 @@ token-like values removed."""
 
 import argparse, contextlib, errno, fcntl, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, uuid, zipfile
 from pathlib import Path
+from threading import Event, Timer
 from sosfuse2.foundation import paths
 
 # No built-in store: the remote, the rclone config and the mirror are the operator's.
@@ -599,6 +600,15 @@ def stream_tar(remote, key, dst):
     """`rclone cat <key>.tar` piped into extract_tar (no temporary tar). Returns the manifest."""
     with tempfile.TemporaryFile() as err:
         p = subprocess.Popen(rclone_cmd(['cat', f'{remote}/{key}.tar']), stdout=subprocess.PIPE, stderr=err)
+        expired = Event()
+
+        def expire():
+            if p.poll() is None:
+                p.kill()
+                expired.set()
+
+        timer = Timer(7200, expire)
+        timer.start()
         failure = None
         try:
             m = extract_tar(p.stdout, key, dst)
@@ -606,8 +616,17 @@ def stream_tar(remote, key, dst):
         except Exception as e:
             failure = e
         finally:
-            p.stdout.close()
-            rc = p.wait()
+            try:
+                p.stdout.close()
+                rc = p.wait()
+            finally:
+                timer.cancel()
+                timer.join()
+                if p.poll() is None:
+                    p.kill()
+                    p.wait()
+        if expired.is_set():
+            raise CacheStoreError('E_CACHE_RCLONE_TIMEOUT', 'cat after 7200 s') from failure
         # A failed download is reported as such, even when it made the tar unreadable (rclone reason kept).
         if rc:
             err.seek(0)
@@ -913,15 +932,14 @@ def pack_for_rig(keys, out, local=None, remote=None):
     neither the temporary mirror nor a partial tar, so the same command can simply be run again."""
     out = Path(out).resolve()
     tmp_mirror = None
-    part = out.with_name(out.name + '.part')
+    part = None
     try:
         if local is None:
-            tmp_mirror = out.with_name(out.name + '.mirror')
             try:
-                tmp_mirror.mkdir(parents=True, exist_ok=False)
+                out.parent.mkdir(parents=True, exist_ok=True)
+                tmp_mirror = Path(tempfile.mkdtemp(dir=out.parent, prefix=f'.{out.name}.mirror-'))
             except OSError as exc:
-                tmp_mirror = None
-                raise CacheStoreError('E_CACHE_LOCAL_ROOT', f'{out.name}.mirror: {type(exc).__name__}') from None
+                raise CacheStoreError('E_CACHE_LOCAL_ROOT', f'{out.name}: {type(exc).__name__}') from None
             row = pull(tmp_mirror, keys, remote)
             if row['codes']:
                 raise CacheStoreError(row['codes'][0], 'pull for the rig tar failed: ' + json.dumps(row['failed']))
@@ -932,17 +950,23 @@ def pack_for_rig(keys, out, local=None, remote=None):
             if u.requires and u.requires not in chosen:
                 raise CacheStoreError('E_CACHE_ORPHAN', u.key + ' without ' + u.requires)
         try:
-            with tarfile.open(part, 'w', format=tarfile.PAX_FORMAT) as t:
-                for u in ordered(chosen):
-                    for f in u.all():
-                        t.add(Path(local) / f, arcname='cache/' + f, recursive=False, filter=_anonymous)
+            candidate = out.with_name(f'.{out.name}.{uuid.uuid4().hex}.part')
+            with candidate.open('xb') as handle:
+                part = candidate
+                with tarfile.open(fileobj=handle, mode='w', format=tarfile.PAX_FORMAT) as t:
+                    for u in ordered(chosen):
+                        for f in u.all():
+                            t.add(Path(local) / f, arcname='cache/' + f, recursive=False, filter=_anonymous)
+            size = part.stat().st_size
+            digest = _sha_file(part)
             os.replace(part, out)
         except OSError as exc:
             raise CacheStoreError(
                 'E_CACHE_DISK_FULL' if exc.errno == errno.ENOSPC else 'E_CACHE_LOCAL_IO', type(exc).__name__
             ) from None
     finally:
-        part.unlink(missing_ok=True)
+        if part is not None:
+            part.unlink(missing_ok=True)
         if tmp_mirror is not None:
             shutil.rmtree(tmp_mirror, ignore_errors=True)
     row = dict(
@@ -950,8 +974,8 @@ def pack_for_rig(keys, out, local=None, remote=None):
         out=str(out),
         units=len(chosen),
         files=sum(len(u.all()) for u in chosen.values()),
-        bytes=out.stat().st_size,
-        sha256=_sha_file(out),
+        bytes=size,
+        sha256=digest,
         keys=sorted(chosen),
     )
     say(**{k: v for k, v in row.items() if k != 'keys'})

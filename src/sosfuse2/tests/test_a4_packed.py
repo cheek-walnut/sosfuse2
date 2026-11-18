@@ -1,10 +1,10 @@
-"""A4: packed cache loads within numerical tolerance device arrays to the original v1 cache.
+"""A4 checks packed cache arrays against the original v1 reader.
 
 Oracle = the unmodified scripts/sosfuse/geometry.py ResidentGeometry.prepare
 (read-only import), run on a NumPy shim instead of CuPy, writing its v1
 per-cell cache under the scratch folder.  Then sosfuse2 ResidentGeometry
 (a) converts that v1 cache, (b) builds fresh, (c) reloads the complete packed
-cache; bundle + ground_bundle arrays are compared byte for byte.
+cache. Bundle and ground arrays must match in dtype and shape and pass within_tol.
 """
 
 import json
@@ -58,8 +58,8 @@ def run(grid, root):
     root.mkdir(parents=True)
     s, scope, _ = new_geometry.create(root / 'prepare', grid, [550.0], 'numpy', 128)
     cache = root / 'cache'
-    # Oracle: original prepare() with xp shim; v1 folder = original signature.
-    content, legacy = new_geometry.identity(s, 1)
+    # Oracle: original prepare() with xp shim; v1 folder uses the current identity(s, 1).
+    _, legacy = new_geometry.identity(s, 1)
     oracle = old_geometry.ResidentGeometry.__new__(old_geometry.ResidentGeometry)
     old_geometry.TransientGeometry.__init__(oracle, s, scope)
     oracle.cache = cache / ('endpoints_' + legacy)
@@ -84,8 +84,8 @@ def run(grid, root):
     s.kernel.xp = kernel_xp
     del s.kernel.sync
     v1_files = files_under(oracle.cache)
-    # Original code verified as the v1 reader: assert our legacy signature is the original one.
-    legacy_match = (oracle.cache / 'cell_00000' / 'complete.json').exists()
+    # Check that the v1 reader wrote a cell completion marker under that identity.
+    v1_cell_marker_found = (oracle.cache / 'cell_00000' / 'complete.json').exists()
     new_geometry.ResidentGeometry._host_test = True
     rows = {}
     for label in ('convert_v1', 'reload_packed', 'fresh_build'):
@@ -101,8 +101,8 @@ def run(grid, root):
         gcmp = same_arrays(oracle.ground_bundle.arrays, geo.ground_bundle.arrays)
         rows[label] = dict(
             seconds=seconds,
-            bundle_identical=all(cmp.values()),
-            ground_identical=all(gcmp.values()),
+            bundle_within_tol=all(cmp.values()),
+            ground_within_tol=all(gcmp.values()),
             arrays=cmp,
             legacy_cells_read=geo.stats['legacy_cells_read'],
             packed_files=files_under(geo.cache / 'packed'),
@@ -114,7 +114,7 @@ def run(grid, root):
             ),
         )
         print(
-            f"A4 {grid} {label}: identical={rows[label]['bundle_identical']}/{rows[label]['ground_identical']} s={seconds:.2f} "
+            f"A4 {grid} {label}: within_tol={rows[label]['bundle_within_tol']}/{rows[label]['ground_within_tol']} s={seconds:.2f} "
             f"legacy_read={geo.stats['legacy_cells_read']} files={rows[label]['packed_files']}",
             flush=True,
         )
@@ -139,9 +139,9 @@ def run(grid, root):
         f.write(b'\x01' * 13)
     geo.prepare()
     rcmp = same_arrays(oracle.bundle.arrays, geo.bundle.arrays)
-    rows['resume_after_interrupt'] = dict(bundle_identical=all(rcmp.values()), arrays=rcmp)
+    rows['resume_after_interrupt'] = dict(bundle_within_tol=all(rcmp.values()), arrays=rcmp)
     print(
-        f"A4 {grid} resume_after_interrupt: identical={rows['resume_after_interrupt']['bundle_identical']}", flush=True
+        f"A4 {grid} resume_after_interrupt: within_tol={rows['resume_after_interrupt']['bundle_within_tol']}", flush=True
     )
     new_geometry.ResidentGeometry._host_test = False
     return dict(
@@ -151,12 +151,12 @@ def run(grid, root):
         v1_files=v1_files,
         v1_build_seconds=v1_build,
         v1_load_upload_seconds=v1_load,
-        legacy_signature_found=legacy_match,
+        v1_cell_marker_found=v1_cell_marker_found,
         cases=rows,
         pass_=bool(
-            legacy_match
-            and all(r['bundle_identical'] for r in rows.values())
-            and all(r.get('ground_identical', True) and r.get('meta_equal', True) for r in rows.values())
+            v1_cell_marker_found
+            and all(r['bundle_within_tol'] for r in rows.values())
+            and all(r.get('ground_within_tol', True) and r.get('meta_equal', True) for r in rows.values())
             and rows['convert_v1']['legacy_cells_read'] == s.geo.ns
             and rows['fresh_build']['legacy_cells_read'] == 0
         ),

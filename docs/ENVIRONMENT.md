@@ -19,6 +19,7 @@ another, or **optional** for research extras.
 |---|---|---|---|---|
 | `SOSFUSE2_WORK_ROOT` | foundation (`paths.work_root`) | `$XDG_CACHE_HOME/sosfuse2`, else `~/.cache/sosfuse2` | A nonempty path, after trimming, is the writable root for inputs and caches; empty uses the default and an unusable path raises `E_WORK_ROOT`. The runner's `--work-root` names its `out/`, `tmp/` and `pack/` and, unless `--geometry-cache` names another folder, its `geometry_cache/`, without replacing this variable; the walkthrough sets the variable to its own work root. | user |
 | `SOSFUSE2_SKY_SOS_ROOT` | foundation (`paths.sky_sos_root`) | unset: no research extras | A directory path after trimming supplies the research checkout for gate G-F, `checks/validate.py` and some tests. Empty means no extras; a non-directory raises `E_SKY_SOS_ROOT`. | optional |
+| `SOSFUSE2_FULL_SOURCE` | checks (`validate.full_source_path`) | unset | Path to the converged source NPZ required for `--validate-mac`. The `--full-source` option takes precedence. | validation |
 | `SOSFUSE2_PACKAGE_COMMIT` | foundation (`content_identity.package_info`) | unset | Any nonempty string is recorded as the commit beside the signed fields; empty falls through to `direct_url.json`, then this package's git checkout. The commit does not enter the signature. | user |
 | `SOSFUSE2_OFFLINE` | asset_tools (`iprt`, `prepare_minor_absorbers`) | unset (downloads allowed) | An empty value or `0` permits downloads, while any other string disables them with `E_IPRT_OFFLINE` or `E_O4_OFFLINE`. In `iprt.fetch`, an explicit `offline` argument overrides the variable, and an already verified local file is returned before any download. | user |
 | `SOSFUSE2_SUN_METHOD` | atmosphere (`density.sun_method`) | `gl` | After trimming, empty selects `gl`; `gl` keeps quadrature and `exact` uses closed-form profile columns. Other values raise `E_SUN_METHOD`. The choice enters dependent cache keys. | tuning |
@@ -47,12 +48,12 @@ another, or **optional** for research extras.
 | `SOSFUSE2_LAUNCH_TARGET_SECONDS` | backends (`device_profile.select`) | the selected profile | A finite nonnegative number overrides the target. Empty, `0`, `none` or `off` disables it; invalid, negative or nonfinite values, or a target above the budget, raise `E_DEVICE_PROFILE`. | tuning |
 | `SOSFUSE2_LAUNCH_PAUSE_MS` | backends (`device_profile.select`) | the selected profile | A finite nonnegative number overrides the pause. Empty, nonnumeric, negative and nonfinite values raise `E_DEVICE_PROFILE`. | tuning |
 | `SOSFUSE2_LAUNCH_CELLS` | backends (`device_profile.select`) | unset (follows the selected profile) | When empty after trimming, the launch mode follows the profile, normally using adaptive splitting when a target is set and a single launch otherwise; a profile that requires split launches stops with `E_LAUNCH_BUDGET_CONFIG` when a grid of several cells has neither a target nor a fixed cell count. Setting `0` requests a single launch where allowed, and a positive integer sets a fixed upper bound that a predicted time budget may reduce further. Other values raise `E_LAUNCH_CELLS`, and `backends/flags_env.py` accepts only an empty value or `0` for single-launch configs. | tuning |
-| `SOSFUSE2_RSS_GB` | foundation (`host_limits.rss_override_gb`) | unset (see [Host RSS limits](#host-rss-limits)) | A positive finite number in GB replaces both the per-process default and the ceiling for `--rss-gb`. Empty after trimming uses the host rule. Zero, negative, nonfinite or nonnumeric values raise `E_RSS_ENV`. | tuning |
+| `SOSFUSE2_RSS_GB` | foundation (`host_limits.rss_override_gb`) | unset (see [Host RSS limits](#host-rss-limits)) | A positive finite number in GB replaces both the per-process default and the ceiling for `--rss-gb`. Empty after trimming uses the host rule. Zero, negative or nonnumeric values and limits that are nonfinite in bytes raise `E_RSS_ENV`. | tuning |
 | `SOSFUSE2_POOL_LIMIT_GIB` | backends (`device_profile.pool_limit_bytes`) | unset: free device memory minus 1 GiB | A positive finite number caps the CuPy pool in GiB, no higher than the default. Empty after trimming uses the default; invalid, negative or nonfinite values, and values truncating to less than one byte, raise `E_DEVICE_PROFILE`. | tuning |
 | `SOSFUSE2_FIELD_RESERVE` | backends (`device_profile.reserved_field_bytes`) | `30` | A positive finite number sets how many source fields the persistent service reserves. Empty after trimming uses `30`; invalid, zero, negative or nonfinite values raise `E_DEVICE_PROFILE`. Smaller values can risk device memory exhaustion during the solve. | tuning |
 | `SOSFUSE2_FIELD_RESERVE_MIN` | backends and jobs (persistent admission) | unset | A positive finite number at or below `SOSFUSE2_FIELD_RESERVE` allows the service to reduce the reserve for a lone state. Empty after trimming uses the fixed reserve. Invalid bounds raise `E_DEVICE_PROFILE`. See [Device memory diagnostics](#device-memory-diagnostics). | tuning |
 | `SOSFUSE2_VRAM_TRACE` | backends (`vram_trace.enabled`), state runner and persistent service | off | Exactly `1` enables CuPy memory-pool accounting. See [Device memory diagnostics](#device-memory-diagnostics) for the phase events and metadata. | diagnostic |
-| `SOSFUSE2_ANDERSON_HISTORY` | solve (`Solver.solve`) | `device` | `host` keeps up to four source and residual vectors per wavelength in host memory and transfers the active wavelength’s history to the solve backend for mixing. All other strings except `device`, including empty, raise `E_ANDERSON_HISTORY`. The choice is recorded in `timings.anderson_history` for each chunk and leaves the admission estimate unchanged. | tuning |
+| `SOSFUSE2_ANDERSON_HISTORY` | solve (`Solver.solve`) | `device` | `host` keeps up to four source and residual vectors per wavelength in host memory and transfers the active wavelength’s history to the solve backend for mixing. All other strings except `device`, including empty, raise `E_ANDERSON_HISTORY`. The choice is recorded in `timings[i].anderson_history` for each chunk and leaves the admission estimate unchanged. | tuning |
 | `SOSFUSE2_GROUND_SH_L` | solve (`ground_sh.configured_order`) | `0` | After trimming, `0`, `16`, `24` or `32` sets the ground convolution order; `0` is off. Empty and other values raise `E_GROUND_SH_L`. Recorded in signed settings as `kernel.ground_sh`. | tuning |
 | `SOSFUSE2_KSPLIT` | solve (`source_solver.ksplit_setting`) | unset: `3` where CuPy, the stratosphere and order 16 or below allow it, else `0` | After trimming, empty uses the default; `0` through `3` select a mode. Other values or an unsupported explicit mode raise `E_KSPLIT_FLAGS`; instrumented transport forces mode `0`. | tuning |
 | `SOSFUSE2_KSPLIT_FALLBACK` | solve (`ksplit`) | `1`. `checks/gate.py` and benchmark mode of `checks/solver_diagnostics.py` set `0` when unset. | Exactly `1` permits mode `0` when the minimum peak exceeds the solo budget. `0` raises `E_KSPLIT_MEMORY`. Empty and other values raise `E_KSPLIT_FALLBACK` during nonzero split preflight. See [Device memory diagnostics](#device-memory-diagnostics). | tuning |
@@ -66,7 +67,7 @@ another, or **optional** for research extras.
 | `SOSFUSE2_SECTION_CLOCKS_DIR` | solve (`source_solver.Kernel`) | unset | A nonempty path after trimming sets the output folder for section counters. An empty value raises `E_SECTION_CLOCK_OUTPUT` when `EXP_SECTION_CLOCKS` is selected. | diagnostic |
 | `SOSFUSE2_P2MIN_NVTX` | solve (`ksplit`) | `0` | Exactly `1` prints identification lines for the ray-consumer variant; empty and other strings leave them off. | diagnostic |
 | `SOSFUSE2_VPROD_DUMP` | solve (`ksplit`) | unset | A nonempty file path after trimming saves records of one chunk; empty disables the dump. Other paths are used as supplied. | diagnostic |
-| `SOSFUSE2_WF_DUMP` | solve (`ksplit`) | unset | Any nonempty string is the folder for one chunk’s inputs and ray radiances. Empty disables the dump. The path is used as supplied. The `records` array holds six floats per sample point. | diagnostic |
+| `SOSFUSE2_WF_DUMP` | solve (`ksplit`) | unset | Any nonempty string is the folder for one chunk’s inputs and ray radiances. Empty disables the dump. The path is used as supplied. The `records` array changed from seven to six floats per sample point. The six-float layout has `meta.column_record_version = 2` in the NPZ dump. | diagnostic |
 | `SOSFUSE2_TEST_SCRATCH` | checks (`testkit.scratch_parent`) | `sosfuse2-tests-<uid>` in the system temporary folder | A nonempty path after trimming is the parent of test scratch directories; empty uses the default. An unusable path fails when created. | optional |
 
 ## Host RSS limits
@@ -79,13 +80,16 @@ ancestors (v2 `memory.max` and v1 `memory.limit_in_bytes`). The ceiling is 80 % 
 On Linux with known usable RAM, the default divides 80 % of usable RAM by the number of concurrent processes,
 applies a 6 GB floor, and then applies the ceiling. The runner and solver diagnostics count one process each.
 The pipeline counts its state workers and adds one process in persistent mode. The floor can put the sum of the
-per-process limits above the shared budget.
+per-process limits above the shared budget. For example, 4 GB of usable RAM gives a 3.2 GB ceiling and default.
 
 An explicit `--rss-gb` selects a positive limit up to the ceiling, including when `SOSFUSE2_RSS_GB` sets the ceiling.
 The limit applies per process. Pipeline and planner worker sizing use the platform and usable RAM independently of
-the RSS override.
+the RSS override. The watchdog checks the process’s peak RSS every 0.5 seconds. At 95% of the limit or
+above, it prints `E_RSS_LIMIT` and exits with status 75.
 
 ## Device memory diagnostics
+
+In `meta.json`, `i` in `timings[i]` is the chunk index.
 
 The runner writes the KSPLIT decision to `ksplit` in `meta.json` and emits a `ksplit` phase event with the decision.
 The pipeline collects that decision in the state's `ksplit` entry in `pipeline_summary.json`. The metadata also
@@ -100,15 +104,15 @@ when the preflight records its selected plan.
 
 A memory fallback emits `KSPLIT_FALLBACK` and warns on stderr. The warning gives the two largest positive
 byte counts available across `items.peak` and `items.reserve`, along with the modes, peak, solo budget and reason.
-The pipeline collects the event in the state's `ksplit_fallback` summary entry and prints the warning.
+A standalone run prints the warning when the fallback occurs. The pipeline prints it when collecting the logs at the end of the run and includes the event in the state's `ksplit_fallback` summary entry.
 
 In persistent mode, `vram_wait` records a wait for a resident slot or available memory, `vram_rejected` records an
 admission failure, and the per-state `gpu_acquired` event records the initial reservation. Each event includes
 `items` for payload arrays, source fields and the KSPLIT floor. Wait and rejection report estimates at the requested
 reserve. On admission, `items.source_fields` reflects the effective reserve and the chunk's
-`timings.vram_admission` records `reserved_bytes` and `items`.
+`timings[i].vram_admission` records `reserved_bytes` and `items`.
 
-With `SOSFUSE2_FIELD_RESERVE_MIN` set, `gpu_acquired` and the chunk's `timings.field_reserve` record the requested,
+With `SOSFUSE2_FIELD_RESERVE_MIN` set, `gpu_acquired` and the chunk's `timings[i].field_reserve` record the requested,
 minimum and effective factors, the byte counts and the reason (`requested_fits` or `reduced_to_fit`). Only a lone
 state can reduce its field reserve. A lone state whose payload and minimum reserve exceed available capacity fails
 with `E_PERSISTENT_VRAM_ADMISSION`.
@@ -144,8 +148,19 @@ keyed folder under `SOSFUSE2_COMPILE_CACHE` or the caller's root; the runner's d
 
 ## Variables of the tests only
 
+The air wavelength and cache store tests accept a file path for each external input. An unset or blank
+variable, or a path that does not name a file, skips only the cases that need that input.
+
 | Variable | Test | Effect |
 |---|---|---|
+| `SOSFUSE2_TEST_OZONE_SPECTRUM` | `tests/test_air_wavelength.py` | Serdyuchenko ozone spectrum used for relabelling. |
+| `SOSFUSE2_TEST_HSRS` | `tests/test_air_wavelength.py` | Full-resolution TSIS-1 HSRS input CSV. |
+| `SOSFUSE2_TEST_SPECTRA_BUILDER` | `tests/test_air_wavelength.py` | Python script that builds the fine spectral grid. |
+| `SOSFUSE2_TEST_HSRS_P1NM` | `tests/test_air_wavelength.py` | Alternate HSRS product CSV used to check product selection. |
+| `SOSFUSE2_TEST_ALTERNATE_OZONE` | `tests/test_air_wavelength.py` | Alternate ozone spectrum used to check source rejection. |
+| `SOSFUSE2_TEST_SPECTRA_CHECK` | `tests/test_air_wavelength.py` | CPU comparison script with its supporting files. |
+| `SOSFUSE2_TEST_BAKE_DRIVER` | `tests/test_cache_store.py` | Python driver that prepares a run and collects its cache. |
+| `SOSFUSE2_TEST_BAKE_PLANNER` | `tests/test_cache_store.py` | Python script that plans cold and warm runs with the bake driver. |
 | `SOSFUSE2_CPU_REPLAY_SLOW` | `tests/test_cpu_replay.py` | Exactly `1` runs the albedo 0.3 replay; unset, empty and all other strings skip it. |
 | `SOSFUSE2_CPU_REPLAY_RTOL` | `tests/test_cpu_replay.py` | A number in `(0, gate.RTOL]` sets the tolerance. Unset or empty after trimming uses `gate.RTOL`; nonnumeric, nonfinite, zero, negative or looser values fail with `E_TEST_CONFIG`. |
 | `SOSFUSE2_WALKTHROUGH_SLOW` | `tests/test_walkthrough.py` | Exactly `1` runs the comparison against `jobs/run_state.py`; unset, empty and all other strings skip it. |

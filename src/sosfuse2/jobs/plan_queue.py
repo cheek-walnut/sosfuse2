@@ -3,7 +3,7 @@
 
 For every state it computes, with the calculator's own functions, the cold CPU work a queue would do and whether a
 cache already holds it:
-  column   column_cache.cache_key(kernel, bundle, c, 'strato') of the main and ground bundles that
+  column   column_cache.cache_key(s.kernel, bundle, c, 'strato') of the main and ground bundles that
            source_solver.Kernel.strato_end_columns integrates (rays from the packed geometry cache, installed by the
            calculator's ray_geometry.ResidentGeometry.install/prefix; c = the stratosphere profile and `old`);
   attach   run_state.attach_lock_name(state) (the group lock) and stratosphere._geometry_key (the file);
@@ -161,7 +161,7 @@ def resources(a, n_states):
             % (cores, pipeline.CORES_LEFT_FREE, a.gpus, workers)
         )
     # Every GPU's command starts its own W states with T column workers each (see commands()), so the requested parallelism
-    # is G x W x T. This bounds what the plan asks for; pipeline.py may still widen a state's column pool to B // W.
+    # is G x W x T. The command sets the column pool size explicitly.
     if a.gpus * workers * threads > pipeline.cpu_budget():
         raise ValueError(
             'E_PLAN_CPU_BUDGET: %d GPUs x %d workers x %d column workers = %d exceeds this host (pipeline.cpu_budget %d)'
@@ -310,7 +310,9 @@ def probe(state, cfg, geometry_cache, folder):
         chunk = np.r_[chunk, np.repeat(chunk[-1], 15 - len(chunk))]
     records = []
     with recording(records):
-        s, scope = rv.create_configured(folder, cfg, chunk, 'numpy', geo_state, 128, geometry_cache=geometry_cache)
+        s, scope = rv.create_configured(
+            folder, cfg, chunk, 'numpy', geo_state, 128, geometry_cache=geometry_cache, share_sun_geometry=False
+        )
     return SimpleNamespace(s=s, scope=scope, records=records, old=scope.b.sh.old)
 
 
@@ -448,7 +450,7 @@ def collect(a, cfg, states, columns, attach_root):
                 if g['complete']:
                     for name in ('main', 'ground'):
                         bundle = g['bundles'][name]
-                        key = column_cache.cache_key(kernel, bundle, c, 'strato')
+                        key = column_cache.cache_key(s.kernel, bundle, c, 'strato')
                         path = Path(columns) / (key + '.npy') if columns else None
                         hit = bool(path is not None and path.is_file() and path.with_suffix('.sha256').is_file())
                         item(
@@ -631,7 +633,7 @@ def commands(a, lists, columns, attach_root, out, res):
             base += ['--' + key.replace('_', '-'), str(getattr(a, key))]
     # Both fixed: with --threads T the pipeline's own auto_workers would divide the whole host by T for every GPU.
     base += ['--workers', str(res['workers']), '--threads', str(res['column_workers'])]
-    env = {}
+    env = {'SOSFUSE2_COLUMN_WORKERS': str(res['column_workers'])}
     if Path(attach_root).resolve() != (a.geometry_cache / 'attach_cache').resolve():
         env['STRATO_ATTACH_CACHE'] = str(Path(attach_root).resolve())
     for g in lists:

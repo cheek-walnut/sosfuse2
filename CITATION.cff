@@ -6,7 +6,6 @@ message: >-
 title: "sosfuse2: successive-orders-of-scattering twilight sky radiance tables"
 type: software
 version: 1.6.0
-date-released: 2026-11-15
 license: MIT
 authors:
   - name: sosfuse2 developers

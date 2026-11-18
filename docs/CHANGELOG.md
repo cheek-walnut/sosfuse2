@@ -5,8 +5,11 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 
 ## 1.6.0
 
+- Published selftest and gate records omit machine details and recording times. The FX-A description now explains
+  its CUDA tolerance check. Wavelength and cache tests accept optional data and scripts through environment variables.
 - The calculation boundary and profile grid share a domain definition. The default boundary remains 80 km. Full-grid
   settings can extend it with a Rayleigh air profile or a vacuum above 80 km. See [Model](MODEL.md#calculation-boundary).
+- The optional `export_first_order` setting saves single-scattering radiance, including direct-light ground reflection.
 - CUDA transport uses named stages and compile-time policies for feature selection and component support. The NumPy
   path uses the same component support boundaries. A host-compiled test checks the direct convolution with ground SH off.
 - KSPLIT column records hold six floats (24 B per sample point). The consumer computes the path weight and carries it
@@ -19,12 +22,15 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   carry named byte counts in decisions and persistent admission events. A memory fallback warns on stderr with the
   requested and effective modes, peak, solo budget, reason and up to two largest items. The pipeline collects the
   decision and fallback event in its summary and prints the warning.
+- The compile and endpoint cache keys include the calculation domain. Extended domains rebuild cached aerosol
+  columns with the same upper support boundary as a fresh calculation.
+- The RSS policy no longer checks for marker directories in the user's home directory.
 - A kernel that first reads prepared constants configures its wavelength count and KSPLIT mode from that state.
 - `SOSFUSE2_ANDERSON_HISTORY=host` stores Anderson history in host memory and stages it one wavelength at a time.
 - `SOSFUSE2_VRAM_TRACE=1` adds CuPy pool allocation events, out-of-memory diagnostics and `vram_trace` metadata.
 - `SOSFUSE2_FIELD_RESERVE_MIN` lets the persistent service admit a lone state with a reduced field reserve when
-  the requested reserve does not fit. Admission records include the estimate in `timings.vram_admission` and the
-  reserve decision in `timings.field_reserve` when the minimum is configured.
+  the requested reserve does not fit. Admission records include the estimate in `timings[i].vram_admission` and the
+  reserve decision in `timings[i].field_reserve` when the minimum is configured. Here `i` is the chunk index.
 - The profile-table memo keeps nine entries per process, enough for the four legacy profiles,
   four corrected profiles and one stratospheric profile that a cell can use together.
 - The `geometry_parallel` phase records `result=fallback` with a reason when the serial writer

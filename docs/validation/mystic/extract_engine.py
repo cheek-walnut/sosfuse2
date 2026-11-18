@@ -5,7 +5,7 @@ import json
 
 import numpy as np
 
-from common import add_paths, configure_root, dump, sha, work_path
+from common import add_paths, configure_root, dump, require_legacy_top, sha, work_path
 
 
 def validate(meta, st, expected, contract):
@@ -16,6 +16,7 @@ def validate(meta, st, expected, contract):
         raise ValueError('E_ENGINE_INCOMPLETE')
     if meta['parameters'] != st['parameters']:
         raise ValueError('E_ENGINE_PARAMETERS')
+    require_legacy_top(expected)
     if meta['density'] != density.build(st)['meta']:
         raise ValueError('E_ENGINE_DENSITY')
     # Includes all grids, geometry, spectral block, wavelengths, L, path_n and ground SH.

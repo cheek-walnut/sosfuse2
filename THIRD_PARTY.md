@@ -210,9 +210,13 @@ Humidity Variations on Their Optical Properties.* AFGL-TR-79-0214.
 
 ## 8. U.S. Standard Atmosphere 1976 — formulas
 
-`asset_tools/generate_density_profile.py` implements the density and temperature profile formulas, and `temperature_usstd76.json`
-holds the resulting temperature profile. The standard is a U.S. Government publication (NOAA/NASA/USAF 1976) and is not
-subject to copyright in the United States.
+`temperature_usstd76.json` tabulates temperatures from the standard's geopotential-altitude lapse-rate formulas.
+`asset_tools/generate_density_profile.py` writes `usstd76_profile.json` to the work root.
+The standard is a U.S. Government publication (NOAA/NASA/USAF 1976) and is not subject to copyright in the United States.
+
+`upper_air_us76_neff.json` uses US76 species number densities computed with `ussa1976` 0.3.4
+(generation tool under MIT, © 2021 Yvan Nollet). The generator weights the densities by 550 nm cross-section ratios
+from Bates (1984) and Schwerdtfeger & Nagle (2019), then divides by the effective number density at 80 km.
 
 ## 9. Not bundled: IPRT ozone profile shape
 

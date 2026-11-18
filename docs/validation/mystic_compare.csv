@@ -27,11 +27,11 @@
 #   given as P11 only, which MYSTIC treats as fully depolarising, as the engine does.
 #   uvspec binary sha256 d0c5ff763780e13455a95f4eaaa7c5ea936d9f1cbdf1d3eeb4c2a9439b42abb8
 #   Photons: 2,074,640,958 in 260 runs (2 or 4 runs per cell, 456,000 to 30,201,797 photons per run).
-#   Engine: a table baked in the research repository on 2026-10-27 with legacy spectral inputs (assets/spectra.json read as
+#   Engine: a table computed with legacy spectral inputs (assets/spectra.json read as
 #   point values), 30 wavelengths, viewing elevation 20.25 degrees, relative azimuth 0.5 degrees.
 #
 # Provenance (sha256)
-#   MYSTIC and comparison record, compare_main.json of the research repository's MYSTIC check (2026-11-03):
+#   MYSTIC and comparison record, compare_main.json:
 #     1409524f118abb62c23a93e0d9f2779862ad0841be795d6db00a562456ff6b7e
 #   engine table the engine column was read from:
 #     34f082a1fd33e3cc4ff9ef49b7557c74afb1a8e0c6feefcb91e440e9acad83db

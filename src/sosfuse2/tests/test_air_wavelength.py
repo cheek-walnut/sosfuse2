@@ -29,22 +29,23 @@ NIST_DRY = [
     (20, 101.325, 300, 1.000286581),
     (-40, 120, 300, 1.000427233),
 ]
-# Research sources: the raw files are local copies (skip when absent), the builder and the source
-# listings are tracked records (skip without SOSFUSE2_SKY_SOS_ROOT, fail when it is set and they are missing).
-RAW = testkit.sky_sos_optional('results/sigma_tz_20261028/raw/serdyuchenkogorshelev5digits.dat')
-NEEDS_RAW = pytest.mark.skipif(
-    RAW is None, reason='raw Serdyuchenko file is a gitignored sky-sos local copy (SOSFUSE2_SKY_SOS_ROOT)'
-)
-HSRS = testkit.sky_sos_optional('results/d1_axis_20261031/raw/tsis1_hsrs_355_845.csv')
-NEEDS_HSRS = pytest.mark.skipif(
-    HSRS is None, reason='full-resolution TSIS-1 HSRS slice is a gitignored sky-sos local copy (SOSFUSE2_SKY_SOS_ROOT)'
-)
 FINE = paths.ASSETS / 'spectra_fine.json'
 
 
+@pytest.fixture
+def ozone_file():
+    return testkit.test_input_file('SOSFUSE2_TEST_OZONE_SPECTRUM')
+
+
+@pytest.fixture
+def hsrs_file():
+    return testkit.test_input_file('SOSFUSE2_TEST_HSRS')
+
+
+@pytest.fixture
 def builder():
     spec = importlib.util.spec_from_file_location(
-        'build_spectra_fine', testkit.sky_sos('scripts/build_spectra_fine.py')
+        'build_spectra_fine', testkit.test_input_file('SOSFUSE2_TEST_SPECTRA_BUILDER')
     )
     module = importlib.util.module_from_spec(spec)
     with testkit.legacy_module_aliases('air_wavelength', 'spectral'):
@@ -76,11 +77,8 @@ def test_standard_air_chain_and_edlen_record():
     )  # measured: 0.113 @400, 0.220 @800
 
 
-def test_builder_refuses_other_sources(tmp_path):
-    B = builder()
-    p1nm = testkit.sky_sos('results/d1_axis_20261031/sources/hsrs_p1nm_355_845.csv')
-    with pytest.raises(SystemExit, match='E_SPECTRA_SOURCE'):
-        B.read_hsrs(p1nm)  # another HSRS product (p1nm) as the full-resolution source
+def test_builder_refuses_bad_bytes(tmp_path, builder):
+    B = builder
     bad = tmp_path / 'hsrs.csv'
     bad.write_text(B.HSRS_HEADER + '\n355.000,1.0,0.01\n')
     with pytest.raises(SystemExit, match='E_SPECTRA_SOURCE'):
@@ -88,13 +86,22 @@ def test_builder_refuses_other_sources(tmp_path):
     bad.write_bytes(b'\xff\xfe not ascii\n355.000,1.0,0.01\n')
     with pytest.raises(SystemExit, match='E_SPECTRA_SOURCE'):
         B.read_hsrs(bad)  # stable code, not UnicodeDecodeError (sha256 first)
+
+
+def test_builder_checks_hsrs_product(builder):
+    B = builder
+    p1nm = testkit.test_input_file('SOSFUSE2_TEST_HSRS_P1NM')
+    with pytest.raises(SystemExit, match='E_SPECTRA_SOURCE'):
+        B.read_hsrs(p1nm)
     with pytest.raises(SystemExit, match='E_SPECTRA_SOURCE: TSIS-1 HSRS header'):
         B.read_hsrs(p1nm, B.P1NM_SHA)  # header path: bytes pinned, columns not the full-resolution ones
     assert B.read_hsrs(p1nm, B.P1NM_SHA, B.P1NM_HEADER).shape[1] == 4
+
+
+def test_builder_refuses_other_ozone_source(builder):
+    path = testkit.test_input_file('SOSFUSE2_TEST_ALTERNATE_OZONE')
     with pytest.raises(SystemExit, match='E_SPECTRA_SOURCE'):
-        B.read_serdyuchenko(
-            testkit.sky_sos('results/sigma_tz_20261028/out/aprime_p1/wavelength_axis_sources') / 'Spctrm_0.dat'
-        )
+        builder.read_serdyuchenko(path)
 
 
 def test_asset_declarations():
@@ -113,11 +120,10 @@ def test_asset_declarations():
     assert fine['generator']['air_wavelength']['script'] == 'sosfuse2.air_wavelength'  # Recorded in the asset bytes (module name before 1.4.0); not rewritten.
 
 
-@NEEDS_RAW
-def test_independent_relabel():
+def test_independent_relabel(ozone_file):
     """Restates the relabel without the builder: grid columns within the 7-digit rounding, raw-point band means within the
     0.1 nm sampling error (measured max 3.9e-4 at 371.75-383.5 nm, median 2e-6)."""
-    O = np.loadtxt(RAW, skiprows=45)
+    O = np.loadtxt(ozone_file, skiprows=45)
     fine = json.loads(FINE.read_text())
     grid = np.asarray(fine['wavelength_nm'])
     x = O[:, 0] / AW.standard_n(O[:, 0])
@@ -135,22 +141,20 @@ def test_independent_relabel():
         np.testing.assert_allclose(asset, direct, rtol=1e-3, atol=0)
 
 
-@NEEDS_HSRS
-def test_hsrs_jacobian_conserves_energy():
+def test_hsrs_jacobian_conserves_energy(hsrs_file, builder):
     """The builder's air relabel with the Jacobian keeps the source integral (measured 1.04e-14)."""
-    B = builder()
-    H = B.read_hsrs(HSRS)
+    B = builder
+    H = B.read_hsrs(hsrs_file)
     la, ea = B.to_air(H)
     assert np.all(np.diff(la) > 0)
     assert abs(np.trapezoid(ea, la) / np.trapezoid(H[:, 1], H[:, 0]) - 1) <= 1e-12
 
 
-@NEEDS_HSRS
-def test_independent_solar_cell_means():
+def test_independent_solar_cell_means(hsrs_file):
     """Restates the solar column without the builder and without a Jacobian: each air cell [l - 0.05, l + 0.05] is mapped to
     the vacuum axis (fixed-point inverse of vacuum_to_air) and the vacuum source's linear interpolant is integrated there.
     Within the 7-digit rounding (measured max 4.70e-7, rtol 6e-7)."""
-    d = np.loadtxt(HSRS, delimiter=',', skiprows=1)
+    d = np.loadtxt(hsrs_file, delimiter=',', skiprows=1)
     lv, ev = d[:, 0], d[:, 1]
     fine = json.loads(FINE.read_text())
     grid = np.asarray(fine['wavelength_nm'])
@@ -165,14 +169,12 @@ def test_independent_solar_cell_means():
     np.testing.assert_allclose(fine['solar'], np.diff(F) / 0.1, rtol=6e-7, atol=0)
 
 
-@NEEDS_HSRS
-@NEEDS_RAW
-def test_builder_provenance_refuses_bad_solar_columns():
+def test_builder_provenance_refuses_bad_solar_columns(hsrs_file, ozone_file, builder):
     """The builder's solar self-checks fail closed (E_SPECTRA_PROVENANCE) on a NaN, on point samples instead of cell
     means, and on an axis error that the to_air-based checks share (no relabel): only the vacuum-domain check sees the last."""
-    B = builder()
-    H = B.read_hsrs(HSRS)
-    cols = B.columns(H, B.read_serdyuchenko(RAW))
+    B = builder
+    H = B.read_hsrs(hsrs_file)
+    cols = B.columns(H, B.read_serdyuchenko(ozone_file))
     assert set(B.provenance(cols, H)['solar']) >= {
         'jacobian_energy_relative',
         'integral_360_840_relative',
@@ -187,14 +189,14 @@ def test_builder_provenance_refuses_bad_solar_columns():
             B.provenance(dict(cols, solar=bad), H)
 
 
-@NEEDS_HSRS
-def test_cpu_check_thresholds():
+def test_cpu_check_thresholds(hsrs_file):
     """The filtered solar column vs exact source integrals — BM45 1e-3 (measured 7.3e-4),
     bins >= 5 nm 5e-3 (3.9e-3), Rayleigh 1e-4 (4.1e-5), sun |du'v'| 1e-5 (6.7e-7); a point-sampled column fails."""
-    spec = importlib.util.spec_from_file_location('cpu_check', testkit.sky_sos('results/d1_axis_20261031/cpu_check.py'))
+    spec = importlib.util.spec_from_file_location('cpu_check', testkit.test_input_file('SOSFUSE2_TEST_SPECTRA_CHECK'))
     C = importlib.util.module_from_spec(spec)
     with testkit.legacy_module_aliases('spectral', 'air_wavelength'):
         spec.loader.exec_module(C)
+    C.RAW = hsrs_file
     res, _ = C.measure()
     assert C.failures(res) == []
     point = dict(

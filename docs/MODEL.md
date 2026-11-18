@@ -42,10 +42,16 @@ default table stops at −18°.
 ### Calculation boundary
 
 In the runner's `--settings-json`, `top_km` can extend the full grid above 80 km up to 200 km. The top must be a
-multiple of the profile spacing. An extended top requires an explicit `density_profile: usstd76` in the state's
-`density` settings, with no external profile. When `top_km` is a multiple of 10 km, the default upper height nodes
+multiple of the profile spacing. An extended top requires an explicit density block with `density_profile` set to `usstd76`. For example, use
+`{"density":{"density_profile":"usstd76","ozone_profile":"usstd76","rayleigh_column":"usstd"}}`. External profiles
+are unsupported with an extended top. When `top_km` is a multiple of 10 km, the default upper height nodes
 are spaced every 10 km from 90 km to the top. Otherwise supply `upper_heights_km`. A supplied list must increase
 strictly above 80 km and end at `top_km`.
+
+For example, a state with `density.profile_step_km` set to `0.125` can run with
+`{"top_km":80.125,"upper_heights_km":[80.125]}` in `settings.json`. To precompile that grid, use
+`python -m sosfuse2 precompile --cache cache --settings-json settings.json --profile-step-km 0.125`.
+The precompiler reads the profile spacing from the command line and defaults to 0.5 km.
 
 Above 80 km, the default `upper_air: us76_neff` extends Rayleigh scattering with a tabulated effective air density
 matched to the coefficient at 80 km. `upper_air: vacuum` leaves the extension empty. The other components end at
@@ -229,7 +235,10 @@ function of height and angle, and the optical depth along the line of sight is i
 quadrature nodes. Lines of sight are cut where they cross the 10, 25 and 40 km spheres, the Earth's limb, the shadow
 boundary and the ground, and each piece carries 12 Gauss–Legendre nodes, or 24 for the lines of sight of the output
 table. Light reflected once by the ground belongs to the first order and is scattered with the untruncated phase
-functions.
+functions. Setting `"export_first_order": true` in `--settings-json` saves `first_order.npz` as a separate archive
+member with the same axes as the total radiance table, including the ground reflection of direct light.
+For a custom `radiance_table --out sky.npz`, the companion files are `sky.npz.first_order.npz` and
+`sky.npz.meta.json`. The default output name `table.npz` uses `first_order.npz` and `meta.json`.
 
 ### Multiple scattering
 
@@ -288,9 +297,9 @@ its height and `χ` axes. Extended grids append the upper height nodes to the re
 km into m parts and each interval above into k parts, or `b<m>a<k1>.<k2>.<k3>.<k4>.<k5>`, which gives the five intervals
 above 13 km their own counts, with m and k from 1 to 12. The names `none`, `mid` and `below13mid_above13thirds` are
 aliases of `b1a1`, `b2a2` and `b2a3`; the default 44 nodes are `b2a3`. For the `χ` grid, `chi_step_deg` takes 0.5 by
-default, 0.25 or 0.125, and the optional `chi_refine_deg` `[lo, hi]` adds the midpoint of every node pair inside that
-range of the 85–110° part of the `χ` grid. Both ends must be nodes of the chosen `chi_step_deg` grid, with 85 ≤ lo < hi
-≤ 110. The counts `nr` and `nchi` are filled from the rules when omitted and must match them when given, while the
+default, 0.25 or 0.125. The optional `chi_refine_deg` takes one `[lo, hi]` pair or a nonempty list of pairs. In
+list order, each pair inserts the midpoint of every adjacent node pair in its range. Its endpoints must be distinct,
+ordered nodes of the grid as refined so far, with 85 ≤ lo < hi ≤ 110. The counts `nr` and `nchi` are filled from the rules when omitted and must match them when given, while the
 reduced grid stays fixed. For example, `b2a6` gives 59 nodes, and `chi_refine_deg` `[88, 100]` on the 0.5° grid gives 99
 `χ` nodes.
 

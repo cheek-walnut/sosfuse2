@@ -57,14 +57,15 @@ def clocks():
 
 
 CORES_LEFT_FREE = 4  # for the resident GPU service, the queue, telemetry and the OS
-WORKER_RSS_GB = 3.0  # one state's process, measured 1.9-2.6 GB during CPU preparation
+WORKER_RSS_GB = 3.0
 RAM_SHARE = 0.8
 
 
 def slot_workers(states, persistent):
-    """States a memory-budgeted GPU slot holds (device profile slot_pss_gb, e.g. split 5 GB): a persistent queue pays
-    one service plus a worker per state, separate runners a full state process each. None if the profile sets no
-    slot budget (rig). Measured: service PSS 2.99 GB, workers 1.46 and 1.01 GB, so 2 workers = 5.47 GB."""
+    """Worker count from the slot memory budget, or None when no slot budget is set.
+
+    A persistent queue budgets for one service and one worker per state. A separate runner uses a full process per state.
+    """
     from sosfuse2.backends.device_profile import select
 
     name, _ = gpu_memory()
@@ -82,10 +83,8 @@ def slot_workers(states, persistent):
 def auto_workers(states, threads, backend='numpy', persistent=False):
     """States prepared at once when --workers is not given: as many as the cores read right now allow with
     [CORES_LEFT_FREE] kept back, never more than the states or than [RAM_SHARE] of usable Linux RAM holds (minimum
-    one worker). A state's CPU
-    preparation is single-threaded, so the cores are filled with states, not with threads (8 threads on one
-    state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). Non-Linux hosts and hosts under
-    48 GB usable RAM normally keep at most 2 workers unless a GPU slot profile supplies the worker count."""
+    one worker). State preparation is single-threaded. Non-Linux hosts and hosts under 48 GB usable RAM
+    normally keep at most 2 workers unless a GPU slot profile supplies the worker count."""
     ram = usable_ram_gb() if sys.platform == 'linux' else None
     by_ram = max(1, int(ram * RAM_SHARE // WORKER_RSS_GB)) if ram is not None else math.inf
     if backend == 'cupy':
@@ -126,9 +125,8 @@ def gpu_memory():
 
 def auto_gpu_active(workers, backend):
     """Persistent-service states resident on the GPU at once when --gpu-active is not given: as many as [VRAM_SHARE]
-    of the free GPU memory holds at the device profile's state_vram_gb (backends/configs/devices.json: split 4.5, rig 3.7),
-    never more than the workers, plus [KSPLIT_STATE_VRAM_GB] unless SOSFUSE2_KSPLIT=0. The NumPy path keeps the old
-    default 2. (3 on an RTX 4090 ran the GPU 94 %; a 10 GB 3080 holds 1.)"""
+    of the free GPU memory holds at the device profile's per-state cost, capped by workers. The cost includes
+    [KSPLIT_STATE_VRAM_GB] unless SOSFUSE2_KSPLIT=0. The NumPy path defaults to 2."""
     if backend != 'cupy':
         return max(1, min(workers, 2))
     from sosfuse2.backends.device_profile import select
@@ -162,6 +160,8 @@ def prep_workers(workers, threads, host_cores, environ, column_budget=None):
 def cpu_budget():
     if sys.platform == 'darwin':
         return min(4, os.cpu_count() or 1)
+    if sys.platform == 'linux':
+        return default_workers()
     try:
         return len(os.sched_getaffinity(0))
     except AttributeError:

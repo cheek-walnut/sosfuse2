@@ -60,7 +60,7 @@ def rss_override_gb():
         value = float(text)
     except ValueError:
         value = math.nan
-    if not (math.isfinite(value) and value > 0):
+    if not (math.isfinite(value * 1e9) and value > 0):
         raise ValueError(f'E_RSS_ENV: {RSS_ENV} must be a positive number of GB, got {text!r}')
     return value
 

@@ -515,6 +515,7 @@ def test_automatic_bless_cannot_move_fixed_baseline(home, monkeypatch, cc):
     F = gate.load_fixtures()
     base = runs(home / 'drift', cc=cc)
     loaded = {'FX-A': gate.load_run(base, 'FX-A')}
+    loaded['FX-A']['meta']['device'].update(gpu='test device', free=1234)
     original = loaded['FX-A']['radiance'].copy()
     monkeypatch.setattr(gate, 'run_all', lambda *a, **k: loaded)
     args = gate.NS(
@@ -540,7 +541,9 @@ def test_automatic_bless_cannot_move_fixed_baseline(home, monkeypatch, cc):
     current = gate.manifest()
     assert current['cuda'] == fixed['cuda'] and current['golden'] == fixed['golden']
     assert gate.file_sha(gate.GATE / 'baselines' / canonical['file']) == fixed_sha
-    assert current['records']['cuda']['FX-A']
+    entry, = current['records']['cuda']['FX-A'].values()
+    assert 'recorded_utc' not in entry
+    assert entry['metadata']['device'] == {'profile': 'split', 'cc': cc, 'nvrtc': '12.9'}
 
 
 def test_required_ratchet_pair_missing(home):

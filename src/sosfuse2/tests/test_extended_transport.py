@@ -10,7 +10,7 @@ from types import SimpleNamespace as NS
 import numpy as np
 import pytest
 
-from sosfuse2.tests.test_t1_top import small_solver, serial  # noqa: F401
+from sosfuse2.tests.test_extended_top import small_solver, serial  # noqa: F401
 from sosfuse2.foundation.top import Domain
 from sosfuse2.foundation import paths
 from sosfuse2.precompute import column_parallel as cp, sun_parallel as sp, ground_parallel as gp
@@ -20,7 +20,7 @@ from sosfuse2.solve import ray_geometry as rg, ray_geometry_parallel as rp, sour
 def test_boundary_literal_inventory():
     """Exact file/line patterns and multiplicities; additions require classification."""
     pattern = re.compile(r'\b(80|79|6451|161|321|641|159|319|639)\b|TOP_KM|LEGACY_COLUMN|PROFILE_INV')
-    allowed = json.loads((paths.PKG / 'tests/t1_top_literals.json').read_text())
+    allowed = json.loads((paths.PKG / 'tests/boundary_literals.json').read_text())
     unexpected = {}
     for path in (*paths.production_files(), paths.KERNEL_CU):
         hits = collections.Counter(line.strip() for line in path.read_text().splitlines() if pattern.search(line))
@@ -63,6 +63,12 @@ def test_spawn_and_payload(tmp_path, monkeypatch):
     sun_data = (geo.h, geo.chi, ctx.b.R, NS(h=sun.h, x=sun.x, col=sun.col, domain=d),
                 optics, None, None, 'exact')
     args = (*frozen, geo, optics, sun_data)
+    monkeypatch.setattr(cp, '_WORKER', {})
+    monkeypatch.setattr(sp, '_STATE', {})
+    monkeypatch.setattr(gp, '_STATE', None)
+    monkeypatch.setattr(gp, '_SOURCE_DRIFT', None)
+    monkeypatch.setattr(rp, '_GEOMETRY', None)
+    monkeypatch.setattr(rp, '_SOURCE_DRIFT', None)
     expected = worker_values(*args)
     with ProcessPoolExecutor(1, mp_context=multiprocessing.get_context('spawn')) as pool:
         actual = pool.submit(worker_values, *args).result(timeout=60)

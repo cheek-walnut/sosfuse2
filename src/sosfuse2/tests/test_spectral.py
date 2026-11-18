@@ -13,7 +13,7 @@
 usage: python -B -m sosfuse2.tests.test_spectral [--runs --out <dir> --jobs 4]
 """
 
-import argparse, json, subprocess, sys, tempfile
+import argparse, json, re, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,11 +25,8 @@ from sosfuse2.checks import testkit
 from sosfuse2.atmosphere import spectral as SP
 from sosfuse2.jobs import run_state as V3
 
-ROOT = testkit.sky_sos_root()  # The legacy runs and builder rerun need the research data root.
 CUR = paths.SRC  # 'current tree' marker for run(): the installed package
 from sosfuse2.checks.numerical_checks import within_tol
-LEGACY_BASELINE = '6a5c3f5'
-TREE_FILES = ('scripts', 'rig', 'results/sos_full/a2_driver.py', 'results/sos_full/b2_driver.py', 'assets')
 FAILS = []
 ON = ('--stratosphere', 'on')  # attach cache in use; run() supplies an explicit off fixture
 
@@ -193,18 +190,19 @@ def units():
     # without them the self-check the builder stored in the asset is read.
     doc = json.loads(SP.ASSET.read_text())
     sc = doc['self_check']
-    RAW = testkit.sky_sos_optional('results/sigma_tz_20261028/raw/serdyuchenkogorshelev5digits.dat')
-    HSRS = testkit.sky_sos_optional('results/d1_axis_20261031/raw/tsis1_hsrs_355_845.csv')
-    if RAW is not None and HSRS is not None:
+    inputs = testkit.research_inputs('spectral') if testkit.sky_sos_root() is not None else None
+    raw = testkit.sky_sos_optional(inputs['ozone_raw']) if inputs is not None else None
+    hsrs = testkit.sky_sos_optional(inputs['solar_raw']) if inputs is not None else None
+    if raw is not None and hsrs is not None:
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
-            'build_spectra_fine', testkit.sky_sos('scripts/build_spectra_fine.py')
+            'build_spectra_fine', testkit.sky_sos(inputs['builder'])
         )
         B = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(B)
-        H = B.read_hsrs(HSRS)
-        cols = B.columns(H, B.read_serdyuchenko(RAW))
+        H = B.read_hsrs(hsrs)
+        cols = B.columns(H, B.read_serdyuchenko(raw))
         sc = B.provenance(cols, H)
         # tol, not bytes: prepared inputs compare at rtol 1e-6; 6e-7 = 7-digit rounding
         check(
@@ -255,10 +253,10 @@ def units():
         and doc['sources']['ozone']['wavelength_reference'].startswith('air'),
     )
     # The consumer checks that the wavelength count matches the state's settings.
-    if ROOT is not None:
+    if inputs is not None:
         import importlib.util
 
-        spec = importlib.util.spec_from_file_location('bake_run', testkit.sky_sos('rig/bake/bake_run.py'))
+        spec = importlib.util.spec_from_file_location('bake_run', testkit.sky_sos(inputs['bake_checker']))
         BR = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(BR)
         with tempfile.TemporaryDirectory() as tmp:
@@ -282,7 +280,7 @@ def units():
             ok30 and not ok15 and not ok_none,
         )
     else:
-        print(f'bake_run.check_table: sky-sos rig/bake not available ({testkit.ENV} unset), skipped')
+        print(f'bake table checker unavailable ({testkit.ENV} unset), skipped')
     other = dict(band, mode='point')
     check(
         'check_contract: equal passes, mode/legacy mismatch refused',
@@ -309,7 +307,7 @@ sys.argv=[sys.argv[0]]+sys.argv[3:];V3.main()
 '''
 
 
-def run(tree, work, out_name, raw, kind='none', extra=()):
+def run(tree, work, out_name, raw, kind='none', extra=(), *, legacy_runner=None):
     s = Path(work).parent / f'{Path(work).name}.{out_name}.settings.json'
     s.write_text(json.dumps(raw))
     states = s.with_suffix('.states.json')
@@ -336,7 +334,7 @@ def run(tree, work, out_name, raw, kind='none', extra=()):
         cmd, cwd = [sys.executable, '-B', '-c', CHILD, str(paths.SRC), kind] + args, paths.SRC
     else:
         cmd, cwd = (
-            [sys.executable, '-B', str(Path(tree) / 'scripts/sosfuse2/run_gpu_state_v3.py')] + args,
+            [sys.executable, '-B', str(Path(tree) / legacy_runner)] + args,
             Path(tree) / 'scripts',
         )  # legacy layout
     log = Path(work).parent / f'{Path(work).name}.{out_name}.log'
@@ -354,10 +352,15 @@ def load_hs(work, name):
 
 
 def runs(out, jobs):
-    if ROOT is None:
-        raise SystemExit(
-            f'E_SKY_SOS_ROOT: --runs extracts the legacy tree {LEGACY_BASELINE} from the sky-sos checkout ({testkit.ENV})'
-        )
+    root = testkit.sky_sos_root()
+    if root is None:
+        raise SystemExit(f'E_SKY_SOS_ROOT: --runs needs the research checkout ({testkit.ENV})')
+    inputs = testkit.research_inputs('spectral')
+    commit = inputs.get('legacy_commit')
+    if not isinstance(commit, str) or not re.fullmatch(r'[0-9a-f]{40}(?:[0-9a-f]{24})?', commit):
+        raise ValueError('E_SKY_SOS_RECORD: --runs requires a full legacy_commit hash')
+    archive_paths = inputs['legacy_archive']
+    legacy_runner = inputs['legacy_runner']
     out = Path(out)
     if (out.exists() or out.is_symlink()) and not out.is_dir():
         raise SystemExit(f'E_SPECTRAL_OUT_NOT_DIRECTORY: {out}')
@@ -367,7 +370,7 @@ def runs(out, jobs):
     tree = out / 'legacy_tree'
     tree.mkdir()
     with subprocess.Popen(
-        ['git', '-C', str(ROOT), 'archive', LEGACY_BASELINE, *TREE_FILES], stdout=subprocess.PIPE
+        ['git', '-C', str(root), 'archive', commit, *archive_paths], stdout=subprocess.PIPE
     ) as archive:
         try:
             subprocess.run(['tar', '-x', '-C', str(tree)], stdin=archive.stdout, check=True)
@@ -387,7 +390,8 @@ def runs(out, jobs):
         sshared_leg=(CUR, out / 'w_sshared', 'leg', leg, 'none', ON),
     )
     with ThreadPoolExecutor(jobs) as ex:
-        R = {k: f.result() for k, f in {k: ex.submit(run, *v) for k, v in tasks.items()}.items()}
+        futures = {k: ex.submit(run, *v, legacy_runner=legacy_runner) for k, v in tasks.items()}
+        R = {k: f.result() for k, f in futures.items()}
     R['shared_band'] = run(CUR, out / 'w_shared', 'band', band)  # after the legacy state on the same work root
     # More than one FW=15 chunk (16 band wavelengths, 450-800 nm: the reduced grid converges there): a direct run with
     # -4.5 deg in its rows vs M3 rows from the stored chunked source (run_extra)
@@ -404,7 +408,7 @@ def runs(out, jobs):
     R['x16'] = run(CUR, out / 'w_16', 'x16', b16, 'none', ('--source-out-name', 'src16', '--extra-elevations=-4.5'))
     R['sshared_band'] = run(CUR, out / 'w_sshared', 'band', band, 'none', ON)
     hits = [l for l in (out / 'w_sshared.band.log').read_text().splitlines() if '"attach_cache"' in l]
-    check(f'§6-3 legacy table within tol of {LEGACY_BASELINE} tree', (within_tol(R['head'], R['cur'])))
+    check('§6-3 legacy table within tol of archived reference', (within_tol(R['head'], R['cur'])))
     check('band differs from legacy (the mode is live)', R['band'].tobytes() != R['cur'].tobytes())
     r = R['E'][..., 1] / np.where(R['band'][..., 1] != 0, R['band'][..., 1], 1)
     check(

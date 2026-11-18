@@ -55,7 +55,8 @@ def test_settings_and_chi(tmp_path):
     ch = np.rad2deg(rs.refined_chi(shell.grids(1)[1], .5, extended['chi_refine_deg']))
     assert np.min(np.diff(ch)) == pytest.approx(.125)
     assert len(ch) == 119
-    for raw in ({'top_km': 79}, {'top_km': 201}, {'top_km': True}, {'top_km': float('nan')},
+    for raw in ({'top_km': 79}, {'top_km': 201}, {'top_km': 10**500},
+                {'top_km': 120, 'upper_heights_km': [10**500, 120]}, {'top_km': True}, {'top_km': float('nan')},
                 {'upper_air': 'vacuum'},
                 {'top_km': 120, 'upper_air': 'unknown'},
                 {'top_km': 121, 'upper_air': 'vacuum'},
@@ -227,9 +228,15 @@ def test_precompile_settings_conflict(tmp_path):
     args.L = 16
     with pytest.raises(ValueError, match='E_PRECOMPILE_CONFLICT: L'):
         resolve_inputs(args)
+    p.write_text(json.dumps(dict(top_km=80.125, upper_heights_km=[80.125])))
+    args.L = args.profile_step_km = None
+    with pytest.raises(ValueError, match='E_SETTINGS_TOP'):
+        resolve_inputs(args)
+    args.profile_step_km = .125
+    assert resolve_inputs(args)[3].top_km == 80.125
 
 
-def test_worker_bindings_roundtrip():
+def test_worker_bindings_roundtrip(monkeypatch):
     from sosfuse2.precompute import column_parallel as cp, sun_parallel
 
     d = domain(step=.25)
@@ -241,25 +248,37 @@ def test_worker_bindings_roundtrip():
     p, ray = np.array([[0., 0., shell.R + 80]]), np.array([[0., 0., 1.]])
     assert restored.probe.boundaries(p, ray)[0, -1] == pytest.approx(40)
     assert np.all(restored.profiles(np.array([80.25, 120.])) == 0)
+    monkeypatch.setattr(sun_parallel, '_STATE', {})
     sun_parallel._init(frozen, np.array([80., 120.]), np.array([.5, 1.]), shell.R, 24, None, 'gl', cp.SOURCE_HASHES)
     i, value = sun_parallel._run((1, None))
     assert i == 1 and np.isfinite(value).all()
     assert sun_parallel._STATE['old'].domain == d
 
 
-def small_solver(path, T=120, upper_air='vacuum', backend='numpy', step=.5):
+def small_solver(path, T=120, upper_air='vacuum', backend='numpy', step=.5, wavelengths=None):
     """Small full-domain fixture; no production reduced-grid setting is overridden."""
     d = top.resolve(dict(top_km=T, upper_air=upper_air) if T > 80 else {}, step)
 
     def grid(mode, h, ch, nmu, nphi, path_n):
         return np.array([0., .1, 8., 40., 80.] + ([120.] if T > 80 else [])), np.deg2rad([0., 85., 95., 105., 180.]), 1, 2, 12
 
-    s, ctx, _ = engine.create(state(step), path, 'full', 1, domain=d, grid=grid,
+    inputs = state(step)
+    if wavelengths is not None:
+        inputs['stratosphere'] = dict(status='enabled')
+        inputs['parameters']['stratosphere_tau550'] = .01
+    s, ctx, _ = engine.create(inputs, path, 'full', 1, domain=d, grid=grid,
                               kernel_factory=lambda *a: source_solver.Kernel(1, a[1], a[2], backend, L=16, domain=d),
                               prepare_ground=False)
+    if wavelengths is not None:
+        s = ctx.Solver(s.geo, s.kernel, wavelengths, 1, .03)
+        s.active[1::2] = 0
     s.levels, s.af = s.levels[:s.kernel.K], s.af[:s.kernel.K]
-    s.fuse_state = state(step)
-    density.attach(s, ctx)
+    s.fuse_state = inputs
+    density.attach(s, ctx, defer_ground=wavelengths is not None)
+    if wavelengths is not None:
+        from sosfuse2.atmosphere import stratosphere
+
+        stratosphere.attach(s, ctx)
     s.geo.pack = lambda p, rays, n: ray_geometry.pack(p, rays, n, s, ctx, ground=False)
     return s, ctx
 
@@ -314,3 +333,62 @@ def test_small_vacuum_and_first_order(tmp_path, monkeypatch, fixed_grid):
     assert np.isfinite(all_values).all()
     if fixed_grid:
         np.testing.assert_allclose(all_values[1], all_values[0], rtol=1e-5, atol=0)
+
+
+@pytest.mark.parametrize('method', ['table-v1', 'exact', 'gl24'])
+@pytest.mark.parametrize('resumed', [False, True])
+def test_reused_aerosol_column_matches_fresh_pack(tmp_path, monkeypatch, method, resumed):
+    from sosfuse2.atmosphere.tropo_profile import ExponentialProfile, TwoLayerProfile
+    from sosfuse2.solve.ray_geometry_cpu import ensure_column
+
+    monkeypatch.setenv('SOSFUSE2_COLUMN_METHOD', method)
+    d = domain()
+    starts = np.array([[0., 0., shell.R + 90], [0., 0., shell.R + 79.5]])
+    rays = np.array([[1., 0., 0.], [0., 0., 1.]])
+    s = NS(kernel=NS(height=3., domain=d), geo=NS(chi=np.array([0., np.pi])))
+    old = NS(domain=d, probe=NS(boundaries=partial(shell.boundaries, domain=d), gl=shell.gl))
+    scope = NS(b=NS(sh=NS(old=old)), basis_at=lambda p: np.broadcast_to(np.eye(3), (len(p), 3, 3)))
+
+    def fresh(profile):
+        old.profiles = partial(shell.profiles, profile, domain=d)
+        old.aerosol_descriptor = profile.descriptor()
+        return ray_geometry.pack(starts, rays, 1, s, scope)
+
+    common = fresh(ExponentialProfile(1., True))
+    target = ExponentialProfile(3., True)
+    if resumed:
+        target = TwoLayerProfile(np.array([1., 1., 1., 1., 1., .2, 2.]))
+        s.aerosol_profile = dict(tag='two_layer', vector=target.vector)
+    expected = fresh(target)['end_columns'][:, 1]
+    assert expected[0] == 0 and expected[1] > 0
+    counts, edges, _ = ray_geometry._csr_vector(common['edges'], common['lower'])
+    host = dict(starts=starts, dirs=rays, cell_off=np.arange(3), edges=edges,
+                edge_off=np.r_[0, counts.cumsum()], end_col=common['end_columns'].astype('f4'))
+    geometry = ray_geometry.TwoLayerGeometry.__new__(ray_geometry.TwoLayerGeometry)
+    from sosfuse2.precompute import endpoint_contract
+
+    s.geo.h, s.geo.cfg = np.array([0., 80., 120.]), {}
+    with monkeypatch.context() as before:
+        before.setattr(endpoint_contract, 'VERSION', 'sosfuse2-geometry-contract-4')
+        old_key = endpoint_contract.identity(s)[1]
+    key = endpoint_contract.identity(s)[1]
+    assert key != old_key
+    cache = tmp_path / ('endpoints_' + key)
+    cache.mkdir()
+    geometry.cache, geometry.s, geometry.bundle, geometry.stats = cache, s, None, {}
+    geometry.host_arrays = lambda: (host, [])
+    installed = {}
+    geometry.install = lambda host, records, columns: installed.update(columns)
+    (cache / 'source_height.json').write_text(json.dumps(dict(height=None if resumed else 1.)))
+    path = geometry.column_path(3.)
+    stale = tmp_path / ('endpoints_' + old_key) / path.relative_to(cache)
+    stale.parent.mkdir(parents=True)
+    np.ones(2, 'f4').tofile(stale)
+    assert ensure_column(geometry) == 'computed'
+    assert ensure_column(geometry) == 'cached'
+    geometry.prepare()
+    np.testing.assert_allclose(installed['end_col'][:, 1], expected, rtol=1e-3, atol=0)
+    path.unlink()
+    geometry.prepare()
+    assert geometry.stats['aerosol_column'] == 'computed'
+    np.testing.assert_allclose(installed['end_col'][:, 1], expected, rtol=1e-3, atol=0)

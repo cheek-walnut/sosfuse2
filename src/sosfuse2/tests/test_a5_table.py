@@ -65,11 +65,7 @@ def main(out, source_npz):
     for grid, field in (('selftest', src), ('full', None)):
         s, scope, _ = create(work / f'boxes_{grid}', grid, [550.0], 'numpy', 128)
         if field is None:
-            if validate.FULL_SOURCE is None:  # the accepted full-grid source record lives in sky-sos results/
-                raise RuntimeError(
-                    'E_SKY_SOS_ROOT: the full-grid case reads the sky-sos sos_full/b2_run source record (set SOSFUSE2_SKY_SOS_ROOT)'
-                )
-            with np.load(validate.FULL_SOURCE, allow_pickle=False) as z:
+            with np.load(validate.full_source_path(), allow_pickle=False) as z:
                 full = z['source']
             field = np.ascontiguousarray(full[..., ::2], 'f4')
         solver = Solver(s, TransientGeometry(s, scope), fixed_boxes=True)

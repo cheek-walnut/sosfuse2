@@ -5,7 +5,8 @@ from sosfuse2.foundation import paths
 import argparse, copy, ctypes, itertools, json, subprocess, sys
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 import numpy as np
 from sosfuse2.backends import numpy_reference
 from sosfuse2.checks import testkit

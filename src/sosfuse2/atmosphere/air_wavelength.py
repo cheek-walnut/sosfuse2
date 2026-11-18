@@ -4,7 +4,7 @@ Standard air is a coordinate convention (15 °C, 101 325 Pa, dry, CO2 450 µmol/
 not the local medium of a twilight path. standard_n is Ciddor's standard-air dispersion (eq. 1); ciddor_dry adds the
 dry-air density ratio (BIPM-91 compressibility, Ciddor eqs. 2, 4, A) so the chain can be checked against NIST's
 published Ciddor values at other temperatures and pressures (test_air_wavelength.py). edlen1966_n is kept for the
-record only (the 10-30 shift measurement used it; Ciddor - Edlén (n-1) is 1.1-1.4e-8 over 360-840 nm).
+record only (Ciddor - Edlén (n-1) is 1.1-1.4e-8 over 360-840 nm).
 """
 
 import numpy as np

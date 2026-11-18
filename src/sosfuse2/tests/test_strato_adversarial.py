@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -28,7 +29,24 @@ from sosfuse2.checks import testkit
 
 from sosfuse2.checks.numerical_checks import assert_equivalent
 
-OUT = testkit.scratch_parent() / 'strato/adversarial'
+OUT = None
+_output = None
+_color_root = None
+
+
+def setUpModule():
+    global OUT, _output, _color_root
+    if OUT is None:
+        _color_root = testkit.scratch_parent() / 'strato'
+        _output = tempfile.TemporaryDirectory(prefix='strato-adversarial-', dir=_color_root.parent)
+        OUT = Path(_output.name)
+
+
+def tearDownModule():
+    global OUT, _output, _color_root
+    if _output is not None:
+        _output.cleanup()
+        OUT = _output = _color_root = None
 
 
 def _strato_colors(test):
@@ -40,13 +58,6 @@ def _strato_colors(test):
     return color
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('--out', type=Path, default=OUT)
-    args, remaining = parser.parse_known_args()
-    OUT = args.out
-    sys.argv = [sys.argv[0], *remaining]
-OUT.mkdir(parents=True, exist_ok=True)
 MEASUREMENTS = {}
 
 
@@ -794,7 +805,7 @@ class AggregateArtifacts(unittest.TestCase):
         color = _strato_colors(self)
         from PIL import Image
 
-        folder = OUT.parent / 'single_colors'
+        folder = _color_root / 'single_colors'
         if not (folder / 'single_color_summary.json').exists():
             self.skipTest('optional first-order aggregate has not been supplied')
         summary = json.loads((folder / 'single_color_summary.json').read_text())
@@ -872,7 +883,7 @@ class AggregateArtifacts(unittest.TestCase):
         color = _strato_colors(self)
         from PIL import Image
 
-        folder = Path(os.environ.get('SOSFUSE2_STRATO_COLOR_ARTIFACT', str(OUT.parent / 'colors')))
+        folder = Path(os.environ.get('SOSFUSE2_STRATO_COLOR_ARTIFACT', str(_color_root / 'colors')))
         if not (folder / 'color_summary.json').exists():
             self.skipTest('full V5 aggregate not yet supplied; completion gate remains open')
         summary = json.loads((folder / 'color_summary.json').read_text())
@@ -944,7 +955,21 @@ class AggregateArtifacts(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--out', type=Path)
+    args, remaining = parser.parse_known_args()
+    if args.out is None:
+        output = tempfile.TemporaryDirectory(prefix='strato-adversarial-', dir=testkit.scratch_parent())
+        OUT = Path(output.name)
+        _color_root = OUT.parent / 'strato'
+    else:
+        output = None
+        OUT = args.out
+        OUT.mkdir(parents=True, exist_ok=True)
+        _color_root = OUT.parent
     try:
-        unittest.main(verbosity=2)
+        unittest.main(argv=[sys.argv[0], *remaining], verbosity=2)
     finally:
         (OUT / 'measurements.json').write_text(json.dumps(MEASUREMENTS, indent=2) + '\n')
+        if output is not None:
+            output.cleanup()

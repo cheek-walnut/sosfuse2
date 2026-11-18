@@ -414,20 +414,22 @@ def column(spec, p, d, end, coords=None):
     return np.maximum(out, 0)
 
 
+def lower_descriptor(spec, domain):
+    if domain.top_km > domain.lower_end:
+        return dict(spec, domain=domain.identity(), end_km=domain.lower_end)
+    return spec
+
+
 def integrate(p, d, old, *, legacy=False, optics=None, profile=None, edges=None):
     p = np.broadcast_to(p, d.shape)
     end = old.probe.boundaries(p, d)[:, -1] if edges is None else edges[:, -1]
     domain = getattr(old, 'domain', Domain())
     c = coordinates(p, d, end, domain.top_km)
 
-    def bound(spec):
-        if domain.top_km > TOP_KM:
-            return dict(spec, domain=domain.identity(), end_km=domain.lower_end)
-        return spec
     base = (
         np.column_stack(
             [
-                column(bound(spec), p, d, end, c)
+                column(lower_descriptor(spec, domain), p, d, end, c)
                 for spec in (
                     molecular(None, 0),
                     aerosol(old),

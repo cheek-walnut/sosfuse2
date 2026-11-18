@@ -8,6 +8,8 @@ only (historical_delta, never in pass_): the old CPU-engine fixture LEGACY and t
 import hashlib
 import io
 import json
+import os
+from pathlib import Path
 import time
 import numpy as np
 from ..solve.source_solver import Solver, load_engine
@@ -338,22 +340,29 @@ def reduced(output, backend, block_size):
     return report, m['packed']
 
 
-# The accepted converged full source is research material, reachable only via SOSFUSE2_SKY_SOS_ROOT.
-FULL_SOURCE = (
-    (_SKY / 'results/sos_full/b2_run/base550_d0.03_1_684f84f1be89fb8c/source.npz') if _SKY is not None else None
-)
+def full_source_path(path=None):
+    selected = path if path is not None else os.environ.get('SOSFUSE2_FULL_SOURCE')
+    if not selected:
+        raise RuntimeError('E_FULL_SOURCE_INPUT: set --full-source or SOSFUSE2_FULL_SOURCE')
+    try:
+        source = Path(selected).expanduser().resolve()
+        if not source.is_file():
+            raise FileNotFoundError(source.name)
+        with source.open('rb') as handle:
+            handle.read(1)
+    except OSError as exc:
+        raise RuntimeError('E_FULL_SOURCE_INPUT: cannot read the full source') from exc
+    return source
 
 
-def full_queries_values(output, backend, block_size):
+def full_queries_values(output, backend, block_size, full_source=None):
     """35 queries on the accepted converged source: fused values and the original CPU transport (historical); no comparison."""
-    if FULL_SOURCE is None:
-        raise RuntimeError('E_SKY_SOS_ROOT: full_35 needs SOSFUSE2_SKY_SOS_ROOT')
+    artifact = full_source_path(full_source)
     tt = time.perf_counter()
     s, scope, settings = create(
         output / 'full_query_geometry', 'full', [550.0], backend, block_size,
         state=dict(normal_state(), density=dict(DENSITY_LEGACY)),
     )
-    artifact = FULL_SOURCE
     with np.load(artifact, allow_pickle=False) as z:
         field = z['source']
         if not np.array_equal(z['h'], s.geo.h) or not np.array_equal(z['chi'], s.geo.chi):
@@ -387,9 +396,9 @@ def full_queries_values(output, backend, block_size):
     )
 
 
-def full_queries(output, backend, block_size):
+def full_queries(output, backend, block_size, full_source=None):
     tt = time.perf_counter()
-    m = full_queries_values(output, backend, block_size)
+    m = full_queries_values(output, backend, block_size, full_source)
     actual, cpu = m['actual'], m['cpu']
     rec = load_record()
     ident = record_identity(
@@ -567,18 +576,19 @@ def parity(output, block_size, field):
     return dict(pass_=all(r['pass_'] for r in reports), cases=reports)
 
 
-def validate(output, backend='numpy', full=True, block_size=128):
+def validate(output, backend='numpy', full=True, block_size=128, *, full_source=None):
     from .validation_evidence import capture, same
 
     load_record()  # E_SELFTEST_RECORD_MISSING before any work
-    before = capture()
+    source = full_source_path(full_source) if full else None
+    before = capture(source)
     report = dict(backend=backend, risk_class='D1', arithmetic_cases=cases())
     TIMERS.reset()
     timings = {}
     report['selftest'], field = reduced(output, backend, block_size)
     timings['selftest'] = TIMERS.snapshot()
     if full:
-        report['full_35'] = full_queries(output, backend, block_size)
+        report['full_35'] = full_queries(output, backend, block_size, source)
         timings['full_35'] = TIMERS.snapshot()
         report['spectral_15'] = spectral(output, field, block_size)
         timings['spectral_15'] = TIMERS.snapshot()
@@ -589,7 +599,7 @@ def validate(output, backend='numpy', full=True, block_size=128):
         timings['parity'] = TIMERS.snapshot()
     # A1: stage timings are a separate file; the validation gate is unchanged.
     (output / 'timings.json').write_text(json.dumps(timings, indent=2, sort_keys=True) + '\n')
-    after = capture()
+    after = capture(source)
     report['reference_inputs_unchanged'] = same(before, after)
     (output / 'reference_inputs_sha256.json').write_text(json.dumps(before, indent=2) + '\n')
     report['pass'] = (

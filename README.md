@@ -18,8 +18,7 @@ every table with the hashes of the code and data that produced it.
    layers, and `AGENTS.md` lists the files to open first for each kind of task.
 
 This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, the versions
-from 1.3.0 on were published one by one, and the current release, 1.5.2, fixes an error path and two tests and keeps
-the numerical code of 1.5.0. For users of 1.3.x, 1.4.0 moves the module paths into layer folders, with the old-to-new
+from 1.3.0 on were published one by one. Release 1.6.0 lets full-grid runs extend above the default 80 km boundary. For users of 1.3.x, 1.4.0 moves the module paths into layer folders, with the old-to-new
 table in `docs/CHANGELOG.md`.
 `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the configurations the releases
 were verified on. The change that matters most for default output is in 1.5.0: a state without a `density` block now
@@ -219,8 +218,9 @@ The following matters for production queues and gates rather than for a first so
   free`. This replaces the 1.3.4 cap of min(20 GiB, free − 1 GiB), under which a state needing more than 20 GiB failed
   admission on any card with `E_PERSISTENT_VRAM_ADMISSION`. Several pipeline processes on one GPU each size their pool
   from the free memory they see at start, so set `SOSFUSE2_POOL_LIMIT_GIB` to split a card between them. When the
-  persistent service admits a state, it reserves `device_profile.reserved_field_bytes` for source fields, set by
-  `SOSFUSE2_FIELD_RESERVE` fields per state with default 30. A smaller reserve admits larger states or more states at
+  persistent service admits a state, it uses `SOSFUSE2_FIELD_RESERVE` as the requested field reserve factor (default 30).
+  If a lone state exceeds capacity at that factor but fits at `SOSFUSE2_FIELD_RESERVE_MIN`, the service lowers the
+  applied factor to fit available memory. A smaller reserve admits larger states or more states at
   once, though because admission is a reservation, too small a value turns a wait into an out-of-memory error during the
   solve. Neither variable is part of any identity, and numerics are unchanged.
 
@@ -349,8 +349,7 @@ Configurations verified for 1.1.0:
 The package runs on Unix only, because the solver uses `resource`, and Python 3.11 is untested. The NumPy reference runs
 in FP32 flush-to-zero mode, which is available on Darwin arm64, Linux arm64 and Linux x86_64; other platforms, macOS
 x86_64 for example, stop with `E_FTZ_UNSUPPORTED`. The persistent-queue tests default to a
-`PERSISTENT_TEST_DEADLINE` of 2400 s, which CI also uses. The 60 s of 1.3.1 and earlier was too short, since their setup
-queue took 462 s on a 12-core host (`docs/CHECKS.md`).
+`PERSISTENT_TEST_DEADLINE` of 2400 s, which CI also uses.
 
 ## Package layout
 

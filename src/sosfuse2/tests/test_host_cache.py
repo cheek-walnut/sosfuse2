@@ -14,7 +14,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 import numpy as np
 from sosfuse2.precompute import host_cache as hc
 

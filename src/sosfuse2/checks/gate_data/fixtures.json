@@ -29,7 +29,7 @@
   "FX-C3": {"config": "C3", "stratosphere": true, "stage1": {"FMAD": 0, "FASTMATH": 0, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 0, "golden": "FX-C3"},
   "FX-N": {"config": "C3_nostrato", "stratosphere": false, "stage1": {"FMAD": 0, "FASTMATH": 0, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 0, "golden": "FX-N"},
   "FX-S2": {"config": "C3", "stratosphere": true, "stage1": {"FMAD": 1, "FASTMATH": 1, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 1, "golden": "FX-C3", "approximates": "FX-C3", "physics_blocking": false},
-  "FX-A": {"config": "C3", "stratosphere": true, "stage1": {"FMAD": 0, "FASTMATH": 0, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 0, "golden": null, "parameters": {"albedo": 0.3}, "note": "Albedo 0.3 exercises main-ray endpoint columns in the boundary term. G-R only; no NumPy golden."},
+  "FX-A": {"config": "C3", "stratosphere": true, "stage1": {"FMAD": 0, "FASTMATH": 0, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 0, "golden": null, "parameters": {"albedo": 0.3}, "note": "Albedo 0.3 exercises main-ray endpoint columns in the boundary term. CUDA checks fixed radiance and any solve table against the canonical baseline. Exceeding the tolerance fails the gate."},
   "FX-AP": {"config": "C3", "stratosphere": true, "stage1": {"FMAD": 0, "FASTMATH": 0, "FP32_GEOM": 0, "FP32_ACC": 0}, "async": 0, "golden": "FX-AP", "settings": {"ozone_temperature": "profile_mean"}, "note": "FX-C3 with profile_mean ozone temperature. Separate NumPy golden, G-T pair and CUDA canonical."}
  },
  "ratchet_pairs": [["FX-C3", "golden"], ["FX-N", "golden"], ["FX-S2", "golden"], ["FX-S2", "FX-C3"], ["FX-AP", "golden"]]

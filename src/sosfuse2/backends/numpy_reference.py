@@ -194,8 +194,8 @@ def profile_at(h, c):
     optics = c.get('density_optics')
     if optics is None:
         optics = build(dict(density=dict(LEGACY)))
-    check_consumed(optics, where='numpy_reference.profile_at')
     domain = c.get('domain', domain_of(optics))
+    check_consumed(optics, where='numpy_reference.profile_at', domain=domain)
     tab = interpolate32(h, optics['table'], domain)
     prof = np.stack(
         [

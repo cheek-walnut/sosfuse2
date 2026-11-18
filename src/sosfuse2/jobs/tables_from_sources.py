@@ -11,7 +11,7 @@ run_state.signed_contract: run_state refuses such an out_name
 (E_OUTPUT_IDENTITY), so give these tables their own work root.
 """
 
-import argparse, fcntl, hashlib, json, os, re, sys, time
+import argparse, fcntl, hashlib, json, os, re, sys, tarfile, time
 from pathlib import Path
 
 if __name__ == '__main__':
@@ -26,6 +26,32 @@ THREAD_KEYS = (
     'NUMEXPR_NUM_THREADS',
     'BLIS_NUM_THREADS',
 )
+
+
+def output_complete(out, pack):
+    from .run_state import verify_pack
+    from ..outputs.radiance_table import first_order_complete
+
+    if not (out / 'table.npz').is_file() or not pack.is_file():
+        return False
+    try:
+        meta = json.loads((out / 'meta.json').read_text())
+    except (OSError, ValueError):
+        return False  # process() reports unreadable metadata under the state lock.
+    if not isinstance(meta, dict) or meta.get('complete') is not True or not first_order_complete(out, meta):
+        return False
+    settings = meta.get('settings')
+    if isinstance(settings, dict) and settings.get('export_first_order'):
+        signature = meta.get('signature')
+        if not isinstance(signature, str) or not signature:
+            return False
+        try:
+            with (out / 'first_order.npz').open('rb') as stream:
+                digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+            verify_pack(pack, signature, export_first_order=True, first_order_sha=digest)
+        except (OSError, ValueError, RuntimeError, EOFError, tarfile.TarError):
+            return False
+    return True
 
 
 def live_workers():
@@ -101,11 +127,16 @@ def process(root, ident, source, state, a, log):
     signature, hashes = signature_of(state, a.backend, a.reduced, wl, hs, len(el), len(az), settings)
     meta_path = out / 'meta.json'
     if meta_path.exists():
-        old = json.loads(meta_path.read_text())
+        try:
+            old = json.loads(meta_path.read_text())
+        except (OSError, ValueError) as exc:
+            raise ValueError(f'E_OUTPUT_META: cannot read {meta_path.name}: {type(exc).__name__}') from exc
+        if not isinstance(old, dict):
+            raise ValueError('E_OUTPUT_META: expected a metadata object')
         check_same_state(old, dict(physics=physics(), optics_state=optics_state(state)))
         if old.get('signature') != signature:
             raise ValueError('E_OUTPUT_IDENTITY: batch table signature differs')
-        if old.get('complete') and (out / 'table.npz').is_file() and tf.first_order_complete(out, old):
+        if old.get('complete') is True and (out / 'table.npz').is_file() and tf.first_order_complete(out, old):
             pack_state(out, root / 'pack', 'zstd')
             return 'packed-existing'
     if settings is None:
@@ -187,7 +218,6 @@ def main():
     if a.gpu is not None:
         os.environ['CUDA_VISIBLE_DEVICES'] = a.gpu
     from .run_state import read_states
-    from ..outputs import radiance_table as tf
 
     states = {s['id']: s for s in read_states(a.states, True) if s.get('runnable')}
     roots = [r.resolve() for r in a.work_roots]
@@ -196,7 +226,8 @@ def main():
     failed = False
     for root, ident, source in candidates(roots, set(a.ids or [])):
         out = root / 'out' / ident
-        if (out / 'table.npz').is_file() and (root / 'pack' / f'{ident}.tar.zst').is_file() and tf.first_order_complete(out):
+        pack = root / 'pack' / f'{ident}.tar.zst'
+        if output_complete(out, pack):
             continue
         if (str(root), ident) in live:
             log(f'SKIP {root.name}/{ident}: live worker owns it')
@@ -222,12 +253,12 @@ def main():
                 except BlockingIOError:
                     log(f'SKIP {root.name}/{ident}: a worker owns the output (.worker.lock)')
                     continue
-                if (out / 'table.npz').is_file() and (root / 'pack' / f'{ident}.tar.zst').is_file() and tf.first_order_complete(out):
+                if output_complete(out, pack):
                     log(f'SKIP {root.name}/{ident}: finished while waiting for the locks')
                     continue
                 try:
                     log(f'TABLES {root.name}/{ident} {process(root, ident, source, states[ident], a, log)}')
-                except (ValueError, RuntimeError) as e:
+                except (OSError, ValueError, RuntimeError) as e:
                     failed = True
                     log(f'FAIL {root.name}/{ident}: {e}')
     return 1 if failed else 0

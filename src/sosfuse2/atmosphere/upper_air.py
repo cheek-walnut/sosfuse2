@@ -12,7 +12,10 @@ ASSET_NAME = 'upper_air_us76_neff.json'
 
 
 def load():
-    raw = (paths.ASSETS / ASSET_NAME).read_bytes()
+    try:
+        raw = (paths.ASSETS / ASSET_NAME).read_bytes()
+    except OSError as exc:
+        raise ValueError(f'E_UPPER_AIR_ASSET_READ: cannot read {ASSET_NAME}') from exc
     if hashlib.sha256(raw).hexdigest() != ASSET_SHA256:
         raise ValueError('E_UPPER_AIR_ASSET_SHA256: upper air asset differs from the pin')
     data = json.loads(raw)
@@ -54,5 +57,5 @@ def connection_metadata(s, optics):
                 lower_profile_80=float(boundary_value), normalization_scale=float(optics['scale']),
                 lower_profile_normalization_factor=float(boundary_value / lower_air[-1]),
                 absolute_us76_ratio=(beta / absolute).tolist(),
-                absolute_cross_section='Bodhaine (1999), engine air-to-vacuum wavelength conversion',
+                absolute_cross_section='On Rayleigh Optical Depth Calculations, engine air-to-vacuum wavelength conversion',
                 n_tot_80_m3=meta['n_tot_80_m3'], asset_sha256=ASSET_SHA256)

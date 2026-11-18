@@ -66,3 +66,33 @@ def test_real_zstd_round_trip(tmp_path):
     packed = tmp_path / 'p.tar.zst'
     subprocess.run(['zstd', '-q', '-f', str(tar), '-o', str(packed)], check=True)
     V3.verify_pack(packed, 'sig')
+
+
+def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypatch):
+    import numpy as np
+    from sosfuse2.jobs.tables_from_sources import output_complete
+    from sosfuse2.outputs.radiance_table import save_first_order
+
+    fake_zstd(tmp_path, monkeypatch)
+    axes = [np.array([1.])] * 4
+    data = np.ones((1, 1, 1, 1), 'f4')
+    first = save_first_order(tmp_path, [data], *axes)
+    table = tmp_path / 'first_order.npz'
+    (tmp_path / 'table.npz').write_bytes(table.read_bytes())
+    meta = dict(complete=True, signature='exported', settings=dict(export_first_order=True), **first)
+    meta_file = tmp_path / 'meta.json'
+    meta_file.write_text(json.dumps(meta))
+    pack = tmp_path / 'state.tar'
+    with tarfile.open(pack, 'w') as archive:
+        for name in (*MEMBERS, table.name):
+            path = tmp_path / name
+            if not path.exists():
+                path.write_bytes(b'preview')
+            archive.add(path, arcname=name)
+    assert output_complete(tmp_path, pack)
+    save_first_order(tmp_path, [data * 2], *axes)
+    assert not output_complete(tmp_path, pack)
+    table.write_bytes(b'')
+    assert not output_complete(tmp_path, pack)
+    meta_file.write_text('[]')
+    assert not output_complete(tmp_path, pack)

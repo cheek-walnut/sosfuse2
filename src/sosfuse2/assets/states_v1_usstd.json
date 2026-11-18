@@ -50,7 +50,7 @@
       "linear"
     ]
   },
-  "supported_physics": "polarized Rayleigh (US Standard 1976 density shape, column tau550 0.0993) + depolarizing HG + ozone (usstd76 shape, state ozone_du preserved) + Lambert; stratospheric layer disabled (opt-in, status=disabled)",
+  "supported_physics": "polarized Rayleigh (US Standard 1976 density shape, column tau550 0.0972) + depolarizing HG + ozone (usstd76 shape, state ozone_du preserved) + Lambert; stratospheric layer disabled (opt-in, status=disabled)",
   "states": [
     {
       "id": "clear_01",

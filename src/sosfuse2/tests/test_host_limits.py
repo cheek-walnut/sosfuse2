@@ -44,8 +44,8 @@ def cgroup(linux_rig):
 
 def test_home_folders_do_not_change_the_cap(linux_rig):
     """Folders in HOME (the former protection markers) no longer lower the cap."""
-    (linux_rig / 'tools' / 'gpu_guard').mkdir(parents=True)
-    (linux_rig / 'gpu_guard').mkdir()
+    for parent in (linux_rig, linux_rig / 'tools'):
+        (parent / 'gpu_guard').mkdir(parents=True)
     assert hl.rss_cap_gb() == 64.0
 
 
@@ -94,7 +94,7 @@ def test_environment_replaces_the_host_rule(linux_rig, monkeypatch):
     assert hl.small_host()
     monkeypatch.setenv(hl.RSS_ENV, ' ')
     assert hl.rss_cap_gb() == 6.0
-    for bad in ('0', '-1', 'nan', 'inf', 'six'):
+    for bad in ('0', '-1', 'nan', 'inf', '1e300', 'six'):
         monkeypatch.setenv(hl.RSS_ENV, bad)
         with pytest.raises(ValueError, match='E_RSS_ENV'):
             hl.rss_cap_gb()
@@ -121,7 +121,9 @@ def test_small_host_follows_platform_and_ram(linux_rig, monkeypatch):
 
 
 def test_default_splits_ram_over_workers(linux_rig):
-    """The limit is per process: the defaults of all workers together stay within 0.8 x RAM, never below 6."""
+    """Divide 80% of usable RAM among processes, then apply the per-process floor and host cap.
+
+    The total can exceed the budget when the floor applies."""
     assert hl.default_rss_gb(1) == pytest.approx(51.2)
     assert hl.default_rss_gb(4) == pytest.approx(12.8)
     assert hl.default_rss_gb(16) == 6.0

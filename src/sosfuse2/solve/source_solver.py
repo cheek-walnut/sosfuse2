@@ -132,11 +132,11 @@ def load_engine():
 from ..backends.device_profile import first_light_split_error  # noqa: E402 (stdlib-only module; pipeline preflight uses it too)
 
 
-def ksplit_setting(backend, flags, L):
-    """Resolve KSPLIT for an FW15 physical configuration; setup defers FW1 to mode 0.
+def ksplit_setting(backend, flags, L, W=15):
+    """Resolve KSPLIT for the given wavelength count.
     The default needs CuPy, STRATO, L<=16 and uninstrumented transport.
     """
-    return _ksplit_request(backend, resolve_config(flags), L)[0]
+    return _ksplit_request(backend, resolve_config(flags, W=W), L)[0]
 
 
 def _ksplit_request(backend, config, L):
@@ -259,7 +259,13 @@ class Kernel(KsplitMixin):
             raise ValueError('E_KSPLIT_FLAGS: needs STRATO, FW15 and an uninstrumented transport role')
         decision = getattr(s, 'ksplit_decision', None)
         mode = decision['effective'] if decision is not None else int(ks)
-        if self.ksplit_verify and mode not in (2, 3):
+        memory_fallback = (
+            decision is not None and decision.get('requested') in (2, 3) and mode == 0
+            and decision.get('reason') == 'state_minimum_exceeds_solo_budget'
+        )
+        if memory_fallback:
+            self._ksplit_zero_reason = decision['reason']
+        if self.ksplit_verify and mode not in (2, 3) and not memory_fallback:
             if self.xp is not np and W == 15:
                 raise ValueError('E_KSPLIT_VERIFY: requires KSPLIT=2 or 3')
             warnings.warn(
@@ -1519,7 +1525,10 @@ class Solver:
             return self.s.boxes(full)[..., 0].reshape(-1, 7, self.s.W)
 
     def boxes_fixed(self, field):
-        """A5: same 35 boxes as boxes(); rays are captured once from the accepted
+        """Return (solar elevation, seven views, wavelength) as in boxes().
+
+        The default domain uses 5 × 7 stopping boxes. The extended domain uses
+        6 × 7 stopping boxes followed by 1 × 7 recorded for diagnostics. Rays are captured once from the accepted
         s.boxes, packed into one fixed Bundle, and every call launches phase 2 on
         the device field (no host round trip of the source), then replays the
         accepted reshape/quadrature/solar factor with the returned ray values."""

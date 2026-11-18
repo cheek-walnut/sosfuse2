@@ -1086,6 +1086,7 @@ class KsplitMixin:
                     K=int(self.K),
                     L=int(self.L),
                     aero_rows_per_point=4,
+                    column_record_version=2,
                 )
             )
         )

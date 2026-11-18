@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "cross_section_method": "Bates (1984) for N2, O2, Ar, CO2; static dipole polarizability ratio to Ar, Schwerdtfeger & Nagle (2019), for atoms",
+    "cross_section_method": "Molecular cross sections for N2, O2, Ar and CO2 and static dipole polarizabilities relative to Ar for atoms (THIRD_PARTY.md, section 8)",
     "f_80": 0.9999158651386696,
     "f_at_km": {
       "100": 0.9714419884658534,

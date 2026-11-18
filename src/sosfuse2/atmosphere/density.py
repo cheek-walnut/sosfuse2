@@ -135,13 +135,15 @@ def kernel_kwargs(step):
 
 def grid(n, *, step=None, top_km=None):
     """PROFILE nodes for n rows; the default grid is np.arange(161)*.5."""
-    if step is not None:
-        if top.profile_n(step, top_km) != n:
-            raise ValueError('E_PROFILE_N_MISMATCH: profile coordinates disagree with T and S')
-        return np.arange(n) * step
-    if n not in STEP_OF_N:
-        raise ValueError(f'E_PROFILE_N: {n} rows ({sorted(STEP_OF_N)} allowed)')
-    return np.arange(n) * STEP_OF_N[n]
+    if step is None:
+        if n not in STEP_OF_N:
+            raise ValueError(f'E_PROFILE_N: {n} rows ({sorted(STEP_OF_N)} allowed)')
+        step = STEP_OF_N[n]
+        if top_km is None:
+            return np.arange(n) * step
+    if top.profile_n(step, top_km) != n:
+        raise ValueError('E_PROFILE_N_MISMATCH: profile coordinates disagree with T and S')
+    return np.arange(n) * step
 
 
 def normalization_integral(z, values):
@@ -351,6 +353,8 @@ def _sha(a):
 def require_asset_range(name, asset_z, requested_z):
     """Refuse requests above an asset's coordinates before interpolation."""
     requested = np.asarray(requested_z)
+    if not np.isfinite(requested).all():
+        raise ValueError(f'E_ASSET_RANGE: {name}: non-finite requested altitude')
     if requested.size:
         end = float(np.max(requested))
         asset_end = float(np.asarray(asset_z)[-1])
@@ -716,11 +720,12 @@ def sun_method():
 
 
 def exact_profile_columns(p, d, end, optics, selected=(0, 1, 2, 3)):
-    """(n, 4) air/O3/NO2/O4 columns over the straight path [0, end]: integral of the GL rules' integrand
-    q(clip(h,0,TOP_KM)) (profiles). Only mask-selected columns are filled (replace() reads no other).
+    """Integrate the selected air/O3/NO2/O4 profiles along the straight path [0, end].
+    The result has shape (n, 4), with values filled only for the selected components.
 
     = column_table.exact_columns (closed shell integrals of the piecewise-linear table, both tangent sides; q=0 outside
-    0..TOP_KM) + q(0) times the path length inside the ground sphere + q(TOP_KM) outside the top sphere.
+    0..domain.top_km) + q(0) times the path length inside the ground sphere. Above the top, the default domain
+    uses the top value and extended domains contribute zero.
     Real paths have neither (they end on the ground or the top), but the ground-shell half chord sqrt((R-rho)(R+rho))
     of a ray leaving the ground almost horizontally loses digits (rho~R): without the q(0) term such a ray dropped up to
     4e-5 km of air (stage 0(b) exact_check). The extra lengths use the closed form's own first/last shell chords, so the
@@ -839,4 +844,22 @@ def metadata(s):
         from .upper_air import connection_metadata
 
         result['upper_air_connection'] = connection_metadata(s, optics)
+    return result
+
+
+def chunk_metadata(s, wavelengths, previous):
+    """Append only measured lanes from this solver to the table's density metadata."""
+    result = metadata(s)
+    connection = result.get('upper_air_connection')
+    if connection is None:
+        return result
+    count = len(wavelengths)
+    if not np.array_equal(connection['wavelength_nm'][:count], wavelengths):
+        raise ValueError('E_UPPER_AIR_WAVELENGTH: connection differs from table wavelengths')
+    prior = previous['upper_air_connection'] if previous is not None else {}
+    for key in ('beta_rayleigh_80_minus_per_km', 'absolute_us76_ratio', 'wavelength_nm'):
+        lanes = connection[key][:count]
+        if len(lanes) != count:
+            raise ValueError(f'E_UPPER_AIR_WAVELENGTH: incomplete {key}')
+        connection[key] = prior.get(key, []) + lanes
     return result

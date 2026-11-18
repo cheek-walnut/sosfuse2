@@ -1,4 +1,4 @@
-"""Boundary, profile, method and cache rules of the opt-in endpoint table."""
+"""Boundary, profile, method and cache rules of the default table-v1 endpoint method."""
 
 import json
 import os
@@ -117,7 +117,7 @@ class ColumnTableTests(unittest.TestCase):
                 ref = ct.direct_columns(spec, p, d, end, 96)
                 self.assertTrue(np.isfinite(got).all())
                 self.assertTrue((got >= 0).all())
-                # Conservative per-column coefficient >= each bake44 coefficient.
+                # Component coefficient for the optical depth error check.
                 coefficient = 2.0 if spec['kind'] == 'exp' and spec['height'] < 8 else 0.1
                 np.testing.assert_allclose(got * coefficient, ref * coefficient, rtol=0, atol=1e-4)
 

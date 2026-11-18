@@ -132,7 +132,7 @@ class LaunchSplit(unittest.TestCase):
     def test_one_unit_predicted_over_cap_stops_before_launch(self):
         k = kernel(
             {'SOSFUSE2_DEVICE_PROFILE': 'split', 'SOSFUSE2_LAUNCH_BUDGET_SECONDS': '5'}, seconds=[4.9]
-        )  # 5 s: the fan-curve-off budget
+        )  # 5 s test launch budget
         cum = np.r_[0, np.cumsum(np.full(100, 10.0))]
         c1 = k.next_chunk_end('kind', 0, 100, None, cum)
         k.timed_launch('kind', lambda *a, **kw: None, (c1,), (256,), (), 0, c1, cum, 0, c1)
@@ -174,7 +174,7 @@ class LaunchSplit(unittest.TestCase):
         c0, sizes = 0, []
         while c0 < 1500:
             c1 = k.next_chunk_end('kind', c0, 1500, 408, cum)
-            k.xp.seconds.append(0.79 + 0.0134 * (c1 - c0))  # r4-like warm cost
+            k.xp.seconds.append(0.79 + 0.0134 * (c1 - c0))  # fixed and per-cell costs
             k.timed_launch('kind', lambda *a, **kw: None, (c1 - c0,), (256,), (), 0, c1 - c0, cum, c0, c1)
             sizes.append(c1 - c0)
             c0 = c1

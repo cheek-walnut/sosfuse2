@@ -75,3 +75,8 @@ def add_paths(parser, *, arms=False):
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     if arms:
         parser.add_argument('--arms-file', type=Path, default=DEFAULT_ARMS)
+
+
+def require_legacy_top(settings):
+    if settings.get('top_km', 80) != 80:
+        raise ValueError('E_MYSTIC_TOP: comparison requires an 80 km top')

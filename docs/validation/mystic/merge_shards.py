@@ -83,7 +83,7 @@ def merge(sources, dest, H, config, arms):
     # Validate before any output mutation; copying is additive and never overwrites existing runs.
     if (dest / 'out/full.csv').exists() or (dest / 'runs').exists():
         raise ValueError('E_MERGE_DEST_EXISTS')
-    (dest / 'out').mkdir(parents=True, exist_ok=True)
+    copies = []
     for source, p in plans:
         for j in p['jobs']:
             rel = Path('runs') / j['group'] / j['case'] / f'w{j["wi"]:02d}' / f's{j["seed_id"]}'
@@ -92,7 +92,15 @@ def merge(sources, dest, H, config, arms):
                 result = src / 'result.json'
                 if result.exists() and json.loads(result.read_text())['identity'] != j['identity']:
                     raise ValueError('E_SHARD_RUN_SHA')
-                shutil.copytree(src, dest / rel)
+                copies.append((src, rel))
+    # The engine reads the parent bundle named by states.json from the same folder.
+    states = H / 'states.json'
+    parent = json.loads(states.read_text()).get('parent') if states.exists() else None
+    if parent and not (H / parent).is_file():
+        raise ValueError('E_STATES_PARENT: ' + parent + ' is missing next to states.json')
+    (dest / 'out').mkdir(parents=True, exist_ok=True)
+    for src, rel in copies:
+        shutil.copytree(src, dest / rel)
     with (dest / 'out/full.csv').open('w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         writer.writeheader()
@@ -100,11 +108,7 @@ def merge(sources, dest, H, config, arms):
     for source, name in ((config, 'config.json'), (arms, 'arms.json'), (H / 'states.json', 'states.json')):
         if source.exists() and (dest / name).resolve() != source.resolve():
             shutil.copy2(source, dest / name)
-    # The engine reads the parent bundle named by states.json from the same folder.
-    parent = json.loads((H / 'states.json').read_text()).get('parent') if (H / 'states.json').exists() else None
     if parent and (dest / parent).resolve() != (H / parent).resolve():
-        if not (H / parent).is_file():
-            raise ValueError('E_STATES_PARENT: ' + parent + ' is missing next to states.json')
         shutil.copy2(H / parent, dest / parent)
     if (dest / 'out/optics.json').resolve() != (H / 'out/optics.json').resolve():
         shutil.copy2(H / 'out/optics.json', dest / 'out/optics.json')

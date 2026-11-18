@@ -45,9 +45,7 @@ On macOS, the persistent queue (`pipeline --persistent`, `test_r17_port`, `test_
 socket under the run's temporary root, and macOS limits that path to 104 bytes. Keep `TMPDIR` and `SOSFUSE2_TEST_SCRATCH`
 short; the default `/var/folders/...` is fine, whereas a 108-byte `TMPDIR` failed with `E_PERSISTENT_SERVICE_START` in a
 fresh virtual environment outside the source tree. The five `test_pipeline_persistent` cases wait
-`PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, for a 4-state NumPy reduced queue to finish. The default was
-60 s up to 1.3.1, which a busy laptop and a 12-core host both exceeded in fresh virtual environments outside the source
-tree with `TimeoutExpired` errors; on the latter host the setup queue alone took 462 s and the five cases 838 s in total.
+`PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, for a 4-state NumPy reduced queue to finish.
 The public CI also sets `PERSISTENT_TEST_DEADLINE=2400`, and the CUDA G-A gate of tier 2 runs the same cases with 900 s.
 The public CI splits this run into four shards for each platform and Python version and runs the test files of a shard
 side by side, one file per worker (`pytest-xdist` with `--dist loadfile`, one worker per CPU), because most files keep a
@@ -76,6 +74,10 @@ pip install ".[gpu,test]"        # from a checkout of the tagged commit; not on 
 python -B -m sosfuse2.checks.gate --all --out <dir>          # G-R per toolkey, G-P vs NumPy golden, G-T ratchet, G-A, H, PS
 python -B -m sosfuse2.checks.gate --stage --out <dir>        # repeat runs, rtol 1e-5 (bytes only in SOSFUSE2_DETERMINISTIC=1)
 ```
+
+The installed `sosfuse2.tests.test_upper_air` module compares extended-domain radiances for one wavelength and
+for 15 wavelengths with KSPLIT mode 3 against the NumPy result at `rtol=1e-3`. Run it with
+`python -B -m pytest -q -rs --pyargs sosfuse2.tests.test_upper_air` and check that both CUDA cases ran.
 
 The `gpu` extra brings the CUDA libraries that CuPy loads at run time: NVRTC, the runtime, cuBLAS, cuSOLVER, cuSPARSE and
 nvJitLink. A venv without cuSOLVER and nvJitLink fails in the Anderson step with `Failure finding "libnvJitLink.so.12"`
@@ -106,7 +108,7 @@ load the bake template, `test_cache_store` and the G-F cases of `test_gate`, nee
 import the 1.4.0 module names, and the research-record cases of `test_ozone_temperature` need one that holds the files
 its manifest names under `scripts/sosfuse2/assets/`. The provenance check of `test_v14_runner` accepts the current
 format; in 1.4.0 it expected format v3 and failed. D04 of `test_strato_delta_adversarial` reads the retained output of an earlier harness run, skips
-when that output is absent and expects a source of shape `(40, 1132, 1)` in it. None of these cases runs in tier 1. This
+when that output is absent and expects a source of shape `(40, 10 + 2 * sh_count(L), 1)`. Here `L` comes from the retained run’s `meta['settings']['L']`. None of these cases runs in tier 1. This
 tier lies outside the public CI; it is the deployment check of the consumer, sky-sos. `SADDLE_DATA_ROOT`, which is
 optional, names a research input root holding the packed full-grid geometry cache and the rig logs that
 `test_plan_queue` and `test_column_parallel` read. Without it, and without the same data under `SOSFUSE2_SKY_SOS_ROOT`,

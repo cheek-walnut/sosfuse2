@@ -17,7 +17,8 @@ other files are hashed byte for byte, so an edit there changes the identity.
 |---|---|---|---|
 | `tropo_rural_sf79_rh70.json` | tropospheric rural aerosol Mie table (phase matrix, cross sections) | this project (`asset_tools/generate_tropo_optics.py`, Bohren–Huffman spheres); input parameters from Shettle & Fenn 1979, validation rows from LOWTRAN7 | CC0 1.0 (project values); the `lowtran7.rows[*].*_lowtran` fields are LOWTRAN7 table values (U.S. Government work, THIRD_PARTY.md §6) |
 | `strato_sulfate_rg0.08_sg1.6_n1.43.json` | stratospheric sulfate Mie table | this project (`asset_tools/generate_strato_optics.py`) | CC0 1.0 |
-| `temperature_usstd76.json` | US Standard Atmosphere 1976 temperature profile | this project (`asset_tools/generate_density_profile.py`, US Standard Atmosphere 1976 formulas) | CC0 1.0 |
+| `temperature_usstd76.json` | US Standard Atmosphere 1976 temperature profile | US Standard Atmosphere 1976 geopotential-altitude lapse-rate formulas | CC0 1.0 |
+| `upper_air_us76_neff.json` | 80–200 km effective Rayleigh number-density ratio | US76 species densities from `ussa1976` 0.3.4 | See [THIRD_PARTY.md §8](../../../THIRD_PARTY.md#8-us-standard-atmosphere-1976--formulas) |
 | `states_v1.json`, `states_v2.json`, `states_v1_usstd.json` | state (parameter) sets of the baked tables | this project | CC0 1.0 |
 | `rgb_weights.npy` | 15-bin RGB weights derived from the CIE tables below | this project | CC0 1.0 (project contribution); derived from the CIE tables, see THIRD_PARTY.md §1–2 |
 | `kernel_C2_strato_base.cu`, `kernel_strato_off_baseline.cu` | frozen kernel snapshots used by the static kernel tests | this project | MIT (code) |

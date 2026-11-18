@@ -29,6 +29,7 @@ import sys
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -38,7 +39,6 @@ from sosfuse2.foundation import paths
 from sosfuse2.checks import testkit
 from sosfuse2.jobs import run_state as V3
 
-RESEARCH_REL = 'results/sigma_tz_20261028'  # sky-sos research record (A′ reference model); tests that need it skip without SOSFUSE2_SKY_SOS_ROOT
 WL = np.asarray(SP.PRODUCT['wavelengths_nm'])
 SHAPES = ('triangle', 'usstd76')
 SELECTED = [492.1875, 600.875, 650.8125]  # research transport wavelengths (model.SELECTED)
@@ -80,14 +80,11 @@ def raises(code, call):
 
 @pytest.fixture(scope='module')
 def research():
-    relative = Path(RESEARCH_REL)
-    ROOT = testkit.sky_sos(RESEARCH_REL, 'model.py').parents[
-        2
-    ]  # the sky-sos checkout; its assets/ are the research inputs
-    spec = importlib.util.spec_from_file_location('aprime_reference', ROOT / relative / 'model.py')
-    module = importlib.util.module_from_spec(spec)
-    with testkit.legacy_module_aliases('spectral', 'density'):
-        spec.loader.exec_module(module)
+    ROOT = testkit.sky_sos_root()
+    relative = Path(testkit.research_inputs('aprime')['reference'])
+    model_path = testkit.sky_sos(str(relative), 'model.py')
+    with patch.object(sys, 'path', list(sys.path)), testkit.legacy_module_aliases('spectral', 'density'):
+        module = load_research_module('aprime_reference', model_path)
     # Only the ignored raw source may be absent in a worktree. Resolve that one manifest input from the main
     # checkout; still verify its full expected SHA. Model code and all numerical assets remain those of this tree.
     raw = relative / 'raw/serdyuchenkogorshelev5digits.dat'
@@ -763,11 +760,24 @@ def test_09_constant_temperature_reduction(shape, temperature):
 
 
 # ⑥ ------------------------------------------------------------------------------------------------------------------
-def research_transport():
-    sys.path.insert(0, str(testkit.sky_sos(RESEARCH_REL)))
-    import transport
+def load_research_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-    return transport
+
+@pytest.fixture
+def research_transport(monkeypatch):
+    reference = Path(testkit.research_inputs('aprime')['reference'])
+    transport = testkit.sky_sos(str(reference), 'transport.py')
+    with monkeypatch.context() as scoped:
+        scoped.setattr(sys, 'path', [str(transport.parent), *sys.path])
+        with testkit.legacy_module_aliases('spectral', 'density', 'run_gpu_state_v3', 'fused', 'reference', 'geometry'):
+            for name in ('model', 'profile_refine'):
+                module = load_research_module(name, testkit.sky_sos(str(reference), f'{name}.py'))
+                scoped.setitem(sys.modules, name, module)
+            yield load_research_module('aprime_transport', transport)
 
 
 def reduced_solve(T, cfg, st, out):
@@ -799,10 +809,10 @@ def reduced_solve(T, cfg, st, out):
 
 @SLOW
 @pytest.mark.parametrize('shape', SHAPES)
-def test_06_reduced_transport(shape, tmp_path):
+def test_06_reduced_transport(shape, tmp_path, research_transport):
     """Research mac_case grid (states_v2[0], albedo .3, 300 DU, 3 wavelengths, tolerance 4e-5): the production
     resolver path and the research Aprime injection (transport.research) give the same solve."""
-    T = research_transport()
+    T = research_transport
     m = T.Model()
     st = copy.deepcopy(json.loads((paths.ASSETS / 'states_v2.json').read_text())['states'][0])
     st['parameters'].update(ozone_du=300.0, albedo=0.3)

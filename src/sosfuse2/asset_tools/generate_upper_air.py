@@ -1,7 +1,6 @@
 """Generate a normalized US76 effective Rayleigh number-density profile.
 
-Cross-section ratios: Bates (1984) for N2, O2, Ar, CO2; static dipole
-polarizability ratio to Ar, Schwerdtfeger & Nagle (2019), for atoms.
+See THIRD_PARTY.md section 8 for the molecular cross sections and atomic polarizabilities.
 The middle, 550 nm column is used; the other columns quantify spectral variation.
 ussa1976 is a generator dependency only.
 """
@@ -19,7 +18,14 @@ ASSET = Path(__file__).resolve().parents[1] / 'assets' / 'upper_air_us76_neff.js
 
 def generate():
     import numpy as np
-    import ussa1976
+    try:
+        import ussa1976
+    except ModuleNotFoundError as exc:
+        if exc.name != 'ussa1976':
+            raise
+        raise RuntimeError(
+            f'E_UPPER_AIR_GENERATOR_DEP: python -m pip install ussa1976=={VERSION}'
+        ) from exc
 
     version = importlib.metadata.version('ussa1976')
     if version != VERSION:
@@ -45,7 +51,7 @@ def generate():
             normalization='n_eff(z) / n_eff(80 km)', n_tot_80_m3=float(total[0]),
             n_eff_80_m3=float(effective[0]), f_80=float(f[0]),
             f_at_km={str(h): float(f[int((h - 80) / .125)]) for h in (100, 120, 200)},
-            cross_section_method='Bates (1984) for N2, O2, Ar, CO2; static dipole polarizability ratio to Ar, Schwerdtfeger & Nagle (2019), for atoms',
+            cross_section_method='Molecular cross sections for N2, O2, Ar and CO2 and static dipole polarizabilities relative to Ar for atoms (THIRD_PARTY.md, section 8)',
             wavelengths_nm=[450., 550., 650.], ratio_to_air=RATIO_TO_AIR,
             factor_spectral_max_rel=float(np.max(np.abs(factors / f[:, None] - 1))),
             species_sum_max_rel=float(np.max(np.abs(fractions.sum(axis=0) - 1))),
@@ -59,17 +65,24 @@ def encoded():
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=ASSET)
+    parser = argparse.ArgumentParser(description=__doc__, epilog=f'Requires ussa1976=={VERSION}.')
+    parser.add_argument('--output', type=Path)
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
+    output = args.output
+    if args.check:
+        output = output if output is not None else ASSET
+    elif output is None:
+        parser.error('--output is required for generation')
+    elif output.resolve() == ASSET.resolve() or (output.exists() and ASSET.exists() and output.samefile(ASSET)):
+        parser.error('--output must differ from the bundled asset')
     data = encoded()
     digest = hashlib.sha256(data).hexdigest()
     if args.check:
-        if not args.output.is_file() or hashlib.sha256(args.output.read_bytes()).hexdigest() != digest:
+        if not output.is_file() or hashlib.sha256(output.read_bytes()).hexdigest() != digest:
             raise RuntimeError('E_UPPER_AIR_GENERATOR_CHECK: regenerated asset SHA differs')
     else:
-        args.output.write_bytes(data)
+        output.write_bytes(data)
     print(json.dumps(dict(status='UPPER_AIR_CHECK_OK' if args.check else 'UPPER_AIR_GENERATED', sha256=digest)))
 
 

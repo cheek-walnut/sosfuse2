@@ -289,8 +289,9 @@ def release_device(s, geometry, retain_pool=False):
     if kernel.xp is np:
         return
     kernel.sync()
-    geometry.bundle = None
-    geometry.ground_bundle = None
+    if geometry is not None:
+        geometry.bundle = None
+        geometry.ground_bundle = None
     kernel.device_constants.clear()
     kernel.constants.clear()
     # Diagnostic Event objects contain no state arrays. Synchronize before the
@@ -696,7 +697,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
             ksplit = (
                 active_limit > 1
                 and backend == 'cupy'  # one resident state keeps sizing from free VRAM as before
-                and ksplit_setting(backend, payload['flags'], payload['L']) in ('1', '2', '3')
+                and ksplit_setting(backend, payload['flags'], payload['L'], W=state.W) in ('1', '2', '3')
             )
             # Items at the requested reserve. A lone state admitted with a reduced reserve records its own field bytes below.
             items = admission_items(state, payload_bytes, ksplit)
@@ -920,29 +921,38 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
             except (OSError, EOFError):
                 pass
         finally:
-            with gate:
-                solver = field = None
-                if s is not None:
-                    release_device(s, geometry, retain_pool=True)
-                    # First-light caches also own state-private device arrays.
-                    s.kernel.__dict__.pop('_fl_gtab', None)
-                    s.kernel.__dict__.pop('_fl_segoff', None)
-                observer_bundle = bundle = values = kernel = None
-                s = geometry = None
-                if admitted:
-                    reservations.pop(name, None)
-                    allocations.pop(name, None)
-                    emit(
-                        name,
-                        'gpu_released',
-                        seconds=time.monotonic() - start,
-                        roundtrip_seconds=wait_seconds,
-                        cpu_seconds=time.thread_time() - cpu_start,
-                    )
-                if not reservations:
-                    token.release()
-                gate.notify_all()
-            conn.close()
+            try:
+                with gate:
+                    try:
+                        solver = field = None
+                        if s is not None:
+                            release_device(s, geometry, retain_pool=True)
+                            # First-light caches also own state-private device arrays.
+                            s.kernel.__dict__.pop('_fl_gtab', None)
+                            s.kernel.__dict__.pop('_fl_segoff', None)
+                    except Exception as exc:
+                        emit(
+                            name, 'persistent_cleanup_error', reason='E_PERSISTENT_CLEANUP',
+                            detail=f'{type(exc).__name__}: {exc}',
+                        )
+                    finally:
+                        observer_bundle = bundle = values = kernel = None
+                        s = geometry = None
+                        if admitted:
+                            reservations.pop(name, None)
+                            allocations.pop(name, None)
+                            emit(
+                                name,
+                                'gpu_released',
+                                seconds=time.monotonic() - start,
+                                roundtrip_seconds=wait_seconds,
+                                cpu_seconds=time.thread_time() - cpu_start,
+                            )
+                        if not reservations:
+                            token.release()
+                        gate.notify_all()
+            finally:
+                conn.close()
 
     listener = Listener(str(root / 'socket'), backlog=64, authkey=bytes.fromhex(os.environ['SOS_PERSISTENT_KEY']))
     (root / 'ready').write_text(str(os.getpid()))

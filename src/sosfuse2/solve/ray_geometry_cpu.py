@@ -85,15 +85,14 @@ def column_ready(geometry):
 
 
 def ensure_column(geometry):
-    """layers=2 only: write aerosol/H_<hex>.f4 with the same rule as
+    """layers=2 only: write the aerosol column file with the same rule as
     TwoLayerGeometry.prepare() without any upload.
     A per-height lock serialises writers; tmp names are per process.
     Returns 'cached' | 'common layer (same height)' | 'computed' | None (layers=1)."""
     if not hasattr(geometry, 'column_path'):
         return None
     import numpy as np
-    from .ray_geometry import aerosol_column
-    from ..atmosphere.tropo_profile import same_source, column_function
+    from ..atmosphere.tropo_profile import same_source
 
     height = geometry.s.kernel.height
     path = geometry.column_path(height)
@@ -109,7 +108,7 @@ def ensure_column(geometry):
             column = np.array(host['end_col'][:, 1])
             how = 'common layer (same height)'
         else:
-            column = aerosol_column(host, height, profile=column_function(geometry.s))
+            column = geometry.recompute_column(host, height)
             how = 'computed'
         if column.shape != (len(host['dirs']),):
             raise RuntimeError('E_AEROSOL_COLUMN: wrong length')

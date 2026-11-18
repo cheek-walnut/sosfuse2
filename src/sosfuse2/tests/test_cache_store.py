@@ -31,12 +31,12 @@ def load(name, path):
 @pytest.fixture(scope='module')
 def br():
     """Load an optional research driver that consumes the package."""
-    return load('bake_run', testkit.sky_sos('rig/bake/bake_run.py'))
+    return load('bake_run', testkit.test_input_file('SOSFUSE2_TEST_BAKE_DRIVER'))
 
 
 @pytest.fixture(scope='module')
-def eda():
-    return load('eda_bake', testkit.sky_sos('rig/bake/eda_bake.py'))
+def planner():
+    return load('bake_planner', testkit.test_input_file('SOSFUSE2_TEST_BAKE_PLANNER'))
 
 
 SIG, SIG2 = '54b6bf909981453cea6a', '0123456789abcdef0123'
@@ -363,7 +363,7 @@ def test_pull_publishes_under_the_pipeline_locks_and_two_pulls_race(tmp_path, st
     assert (other / f'columns/{COL}.npy').read_text() == 'LOCAL' and cs.pull(other, keys=[e])['files'] == 0
 
 
-def test_gf_and_eda_cold_do_not_use_the_mirror(tmp_path, monkeypatch, br, eda):
+def test_gf_cold_does_not_use_the_mirror(tmp_path, monkeypatch, br):
     mirror = tmp_path / 'sky-cache'
     monkeypatch.setattr(cs, 'MIRROR', str(mirror))
     monkeypatch.setenv('SKY_CACHE_MIRROR', str(mirror))
@@ -374,6 +374,7 @@ def test_gf_and_eda_cold_do_not_use_the_mirror(tmp_path, monkeypatch, br, eda):
         return 1, [], 'E_STOP'
 
     monkeypatch.setattr(gate, 'child', child)
+    monkeypatch.setattr(gate, 'bake_template_path', lambda: Path(br.__file__))
     reference = tmp_path / 'reference.npz'
     np.savez(reference, radiance=np.ones(1))
     monkeypatch.setattr(gate, 'manifest', lambda: dict(gf=dict(radiance_sha256=gate.sha(np.ones(1)))))
@@ -391,13 +392,19 @@ def test_gf_and_eda_cold_do_not_use_the_mirror(tmp_path, monkeypatch, br, eda):
     work.mkdir(parents=True, exist_ok=True)  # the E_GATE_CONFIG cold check still stands
     with pytest.raises(gate.GateError, match='E_GATE_CONFIG'):
         gate.gf(args, gate.load_fixtures(), dict(gates={}))
+
+
+def test_planner_cache_paths(tmp_path, monkeypatch, br, planner):
+    mirror = tmp_path / 'sky-cache'
+    monkeypatch.setattr(cs, 'MIRROR', str(mirror))
+    monkeypatch.setenv('SKY_CACHE_MIRROR', str(mirror))
     states = tmp_path / 'states.json'
     states.write_text(json.dumps(dict(states=[dict(gate.load_fixtures()['state'], runnable=True)])))
     sid = gate.load_fixtures()['state']['id']
     mods = (gate, cs, br)
     base = dict(PATH='/usr/bin')
-    cold = eda.plan(
-        eda.parse(['--states', str(states), '--ids', sid, '--out', str(tmp_path / 'run'), '--cold']), mods, base
+    cold = planner.plan(
+        planner.parse(['--states', str(states), '--ids', sid, '--out', str(tmp_path / 'run'), '--cold']), mods, base
     )
     c = cold.cmds['C3']
     assert (
@@ -408,8 +415,8 @@ def test_gf_and_eda_cold_do_not_use_the_mirror(tmp_path, monkeypatch, br, eda):
     assert c[c.index('--geometry-cache') + 1] == str(cold.cache / 'geometry') and cold.envs['C3'][
         'STRATO_ATTACH_CACHE'
     ] == str(cold.cache / 'attach')
-    warm = eda.plan(
-        eda.parse(['--states', str(states), '--ids', sid, '--out', str(tmp_path / 'run2'), '--workers', '1']),
+    warm = planner.plan(
+        planner.parse(['--states', str(states), '--ids', sid, '--out', str(tmp_path / 'run2'), '--workers', '1']),
         mods,
         base,
     )
@@ -424,12 +431,12 @@ def test_gf_and_eda_cold_do_not_use_the_mirror(tmp_path, monkeypatch, br, eda):
         warm.envs['C3']['SOSFUSE2_KERNEL_FLAGS']
         == gate.fixture_env(gate.load_fixtures(), 'FX-C3', base)['SOSFUSE2_KERNEL_FLAGS']
     )
-    # a push that reports any code makes the eda run exit 12, not 0.
+    # A push that reports any code makes the run exit with status 12.
     assert [
-        eda.final_exit(True, dict(codes=[])),
-        eda.final_exit(True, dict(codes=['E_CACHE_ORPHAN'])),
-        eda.final_exit(True, dict(code='E_CACHE_RCLONE')),
-        eda.final_exit(False, {}),
+        planner.final_exit(True, dict(codes=[])),
+        planner.final_exit(True, dict(codes=['E_CACHE_ORPHAN'])),
+        planner.final_exit(True, dict(code='E_CACHE_RCLONE')),
+        planner.final_exit(False, {}),
     ] == [0, 12, 12, 10]
 
 

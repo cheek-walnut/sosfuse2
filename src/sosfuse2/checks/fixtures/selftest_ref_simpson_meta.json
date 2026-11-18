@@ -16,15 +16,8 @@
  },
  "decision": "b2-s2-gatev2-20261105",
  "description": "E6/G-H pass record: HEAD fused NumPy values (B2 physics: Bodhaine Rayleigh, NO2, O4; continuous Gate v2 trace interpolation) of the reduced selftest, full_35 and spectral_15 (sosfuse2/validate.py); old references stay as historical_delta",
- "env": {
-  "MKL_NUM_THREADS": null,
-  "OMP_NUM_THREADS": "4",
-  "OPENBLAS_NUM_THREADS": "1",
-  "VECLIB_MAXIMUM_THREADS": "1"
- },
  "ftz_active": true,
  "generated_commit": "8e5d24b67935c4d19354e229814eef09ae8b5876",
- "generated_utc": "2026-11-05T10:22:41.809436+00:00",
  "historical_delta_at_generation": {
   "full_35": {
    "multiple": 0.00494715243787487,
@@ -94,7 +87,6 @@
   "phase_depolarization": 0.03,
   "rayleigh": "bodhaine_iprt450air_vac_v1"
  },
- "platform": "Darwin arm64",
  "previous": {
   "decision": "taskB1-simpson-tol001-20261022",
   "sha256": "2543ab1d296780e408cd93f8091bffc118cacbace6d11b3d47306df5471c58b4"
@@ -254,11 +246,5 @@
    "path_n": 4
   }
  },
- "tolerance": 1e-05,
- "worktree_changes_vs_commit": [
-  "src/sosfuse2/fixtures/selftest_ref_simpson.npz",
-  "src/sosfuse2/fixtures/selftest_ref_simpson_meta.json",
-  "src/sosfuse2/test_selftest_record.py",
-  "src/sosfuse2/validate.py"
- ]
+ "tolerance": 1e-05
 }

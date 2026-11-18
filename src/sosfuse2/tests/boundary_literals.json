@@ -11,7 +11,6 @@
     "stop = [2, -3, -6, -9, -12] + ([-15] if self.top_km > NORMALIZATION_TOP_KM else [])": 1,
     "return dict(stop=stop, acceleration=list(stop), record=[-18] if self.top_km > NORMALIZATION_TOP_KM else [])": 1,
     "value = settings.get('top_km', TOP_KM)": 1,
-    "if type(value) not in (int, float) or not math.isfinite(value) or not TOP_KM <= value <= 200:": 1,
     "raise ValueError('E_SETTINGS_TOP: top_km must be a finite number in [80, 200]')": 1,
     "if value == TOP_KM:": 1,
     "raise ValueError('E_SETTINGS_TOP: upper settings require top_km > 80')": 1,
@@ -19,7 +18,9 @@
     "raise ValueError('E_SETTINGS_TOP: upper heights must increase strictly above 80 and end at top_km')": 1,
     "top = TOP_KM if top is None else top": 2,
     "f'-DPROFILE_INV={_float_literal(inverse)}',": 1,
-    "f'-DTOP_KM={_float_literal(top)}',": 1
+    "f'-DTOP_KM={_float_literal(top)}',": 1,
+    "if type(value) not in (int, float) or not TOP_KM <= value <= 200:": 1,
+    "or any(type(x) not in (int, float) or not TOP_KM < x <= value for x in nodes)": 1
   },
   "solve/engine.py": {
     "from ..foundation.top import NORMALIZATION_TOP_KM, Domain": 1,
@@ -67,7 +68,7 @@
   },
   "checks/gate.py": {
     "LEGACY_PROFILE_N = 161": 1,
-    "# \u2461b: PROFILE node count (records from before \u2461b carry none: 161)": 1,
+    "# ②b: PROFILE node count (records from before ②b carry none: 161)": 1,
     "cfg = v3.settings_for(NS(reduced=fixture_settings(F, fx).get('top_km', 80) == 80, settings_json=out / 'settings.json'))": 1
   },
   "asset_tools/generate_density_profile.py": {

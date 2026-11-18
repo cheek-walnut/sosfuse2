@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": "installed Mitsuba CIE1931 XYZ 5nm table, exported read-only without renderer import",
-  "library": "mitsuba 3.9.1 wheel (macOS arm64, CPython 3.14): site-packages/mitsuba/libmitsuba.dylib",
+  "library": "Mitsuba 3.9.1 wheel, libmitsuba",
   "library_sha256": "0be61e4ad6b1eb5f34b3b2333b4519d8e9bae497cb3796c0ed5fe6460b161f69",
   "byte_offset": 6090080,
   "header": "mitsuba 3.9.1 wheel: site-packages/mitsuba/include/mitsuba/core/spectrum.h",

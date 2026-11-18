@@ -17,11 +17,13 @@ except ImportError:
 
 
 def function(source, name):
-    start = (
-        source.index('__device__ void ' + name)
-        if name == 'sh_basis'
-        else source.index('extern "C" __global__', source.index('#define ' + name))
-    )
+    if name == 'sh_basis':
+        start = source.index('__device__ void ' + name)
+    elif name == 'projection_radiance':
+        declaration = source.index('projection_radiance(')
+        start = source.rindex('template <int Threads, int Rays>', 0, declaration)
+    else:
+        start = source.index('extern "C" __global__', source.index('#define ' + name))
     end = source.index('{', start)
     depth = 1
     while depth:
@@ -54,6 +56,7 @@ __device__ float clip(float x,float a,float b){{return fminf(b,fmaxf(a,x));}}
     )
     code = (
         header
+        + function(source, 'projection_radiance')
         + source[fl_start : source.index('extern "C"', fl_start)]
         + function(source, 'FLP_THREADS')
         + source[sp_start : source.index('extern "C"', sp_start)]

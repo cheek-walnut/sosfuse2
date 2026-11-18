@@ -27,11 +27,11 @@ if '--host-only' in sys.argv:
     option = parser.parse_args()
     raise SystemExit(0 if run_strato_host(option.out, occupancy_only=True)['pass_'] else 1)
 
-sys.dont_write_bytecode = True
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
 import numpy as np
 from sosfuse2.solve.source_solver import Kernel
 
-from sosfuse2.checks.numerical_checks import within_tol
 
 SELECTED = ('LANE_GROUND', 'LM_LUT', 'PHASE2_NOBARRIER', 'SH_AUX', 'SPECIALIZE')
 
@@ -74,6 +74,9 @@ def host_tests():
 def benchmark(out, repeats=3, all_cells=False, seed=None):
     if repeats < 3:
         raise ValueError('E_REPEATS: at least three CUDA-event samples')
+    seed_path = seed if seed is not None else out.parent / 'before/selftest_values.npz'
+    if not seed_path.is_file():
+        raise ValueError('E_OCCUPANCY_SEED: supply --seed <selftest_values.npz>')
     thermal()
     import cupy as cp
     from sosfuse2.solve.ray_geometry import create, TransientGeometry, Bundle
@@ -85,7 +88,6 @@ def benchmark(out, repeats=3, all_cells=False, seed=None):
     cell_ids = list(range(s.geo.ns)) if all_cells else [0, 12, 25]
     groups = [geometry.cell(c) for c in cell_ids]
     bundle = Bundle(groups, cp)
-    seed_path = seed if seed is not None else out.parent / 'before/selftest_values.npz'
     with np.load(seed_path) as z:
         field = np.tile(z['source'], (1, 1, 15)) * np.linspace(0.5, 1.5, 15, dtype='f4')
     field = cp.asarray(field)
@@ -98,7 +100,6 @@ def benchmark(out, repeats=3, all_cells=False, seed=None):
     raws = _capture(s, -6.0, ee, aa, np.empty(0, 'f4'))
     query_bundle = _bundle(s, raws, 32)
     records = []
-    baseline = {}
     for tile in (None,):
         s.kernel = Kernel(backend='cupy', block_size=256, flags=SELECTED + (() if tile is None else (tile,)))
         for name, first, phase, bd in (
@@ -133,13 +134,7 @@ def benchmark(out, repeats=3, all_cells=False, seed=None):
             arrays = (
                 query_arrays if phase == 2 else [s.kernel.host(outputs[j]) for j in ((0, 1) if phase == 0 else (1,))]
             )
-            if tile is None:
-                baseline[name] = arrays
-            errors = [
-                float(np.linalg.norm(a - b) / max(np.linalg.norm(b), 1e-300)) for a, b in zip(arrays, baseline[name])
-            ]
             assert all(np.isfinite(a).all() for a in arrays)
-            assert max(errors) <= 1e-6, errors
             raw = s.kernel.raw_kernel(15, first, phase, bd is not None)
             shared = s.kernel.shared_bytes(15, phase, first=first)
             active = cp.cuda.driver.occupancyMaxActiveBlocksPerMultiprocessor(raw.kernel.ptr, 256, shared)
@@ -150,8 +145,6 @@ def benchmark(out, repeats=3, all_cells=False, seed=None):
                 seconds=times,
                 median_seconds=statistics.median(times),
                 launch_seconds=launch_seconds,
-                max_l2=max(errors),
-                within_tol=all((within_tol(a, b)) for a, b in zip(arrays, baseline[name])),
                 dynamic_shared_bytes=shared,
                 attributes=raw.attributes,
                 resident_blocks_per_sm=active,

@@ -29,7 +29,7 @@ from pathlib import Path
 
 from ..foundation import content_identity as source_identity, paths
 
-VERSION = 'sosfuse2-geometry-contract-4'
+VERSION = 'sosfuse2-geometry-contract-5'
 SIGNATURE_VERSION = 7  # v7 also identifies all endpoint-generation sources
 EARTH_RADIUS_KM = 6371.0
 GROUND_TOLERANCE_KM = 1e-5

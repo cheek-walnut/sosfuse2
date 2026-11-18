@@ -19,7 +19,7 @@ from sosfuse2.jobs import cache_store
 from sosfuse2.precompute import column_parallel
 from sosfuse2.rays import column_table
 from sosfuse2.atmosphere import density, tropo_profile
-from sosfuse2.checks import gate
+from sosfuse2.checks import gate, testkit
 from sosfuse2.outputs import radiance_table, quantized_table
 from sosfuse2.tests import (
     test_b2_components,
@@ -416,7 +416,7 @@ def test_source_wavelength_shape_and_values_are_checked(tmp_path, stored, reques
         radiance_table.load_source(path, solver, requested, settings=settings, backend='numpy')
 
 
-def _multispectral_source(tmp_path, monkeypatch, count, block_size=128, strato=False):
+def _multispectral_source(tmp_path, monkeypatch, count, block_size=128, strato=False, export_first_order=False):
     from sosfuse2.foundation import paths
     from sosfuse2.jobs import run_state as run
 
@@ -429,6 +429,8 @@ def _multispectral_source(tmp_path, monkeypatch, count, block_size=128, strato=F
         state['stratosphere']['status'] = 'enabled'
         state['parameters']['stratosphere_tau550'] = 0.01
     raw = dict(view_shape=[1, 2], solar_elevation_deg=[-3.0, -6.0])
+    if export_first_order:
+        raw.update(export_first_order=True)
     if count != 45:
         raw.update(wavelengths=count, spectral_mode='band')
 
@@ -774,7 +776,10 @@ def test_kernel_stamp_rebuild_and_atomic_publication(tmp_path, monkeypatch, inva
 
 
 def test_spectral_output_refuses_nonempty_without_removal(tmp_path, monkeypatch):
-    monkeypatch.setattr(test_spectral, 'ROOT', tmp_path)
+    monkeypatch.setenv(testkit.ENV, str(tmp_path))
+    monkeypatch.setattr(testkit, 'research_inputs', lambda _: dict(
+        legacy_commit='a' * 40, legacy_archive=['assets'], legacy_runner='runner.py'
+    ))
     out = tmp_path / 'out'
     out.mkdir()
     marker = out / 'keep'
@@ -793,7 +798,9 @@ def test_spectral_archive_uses_argument_arrays_and_checks_git(tmp_path, monkeypa
     root.mkdir()
     out = tmp_path / 'output ; $quoted'
     out.mkdir()
-    monkeypatch.setattr(test_spectral, 'ROOT', root)
+    monkeypatch.setenv(testkit.ENV, str(root))
+    inputs = dict(legacy_commit='a' * 40, legacy_archive=['assets', 'scripts'], legacy_runner='runner.py')
+    monkeypatch.setattr(testkit, 'research_inputs', lambda _: inputs)
     calls = []
 
     class Archive:
@@ -826,7 +833,7 @@ def test_spectral_archive_uses_argument_arrays_and_checks_git(tmp_path, monkeypa
     monkeypatch.setattr(test_spectral, 'ThreadPoolExecutor', stop)
     with pytest.raises(StopAfterArchive if archive_rc == 0 else subprocess.CalledProcessError):
         test_spectral.runs(out, 1)
-    assert calls[0][1] == ['git', '-C', str(root), 'archive', test_spectral.LEGACY_BASELINE, *test_spectral.TREE_FILES]
+    assert calls[0][1] == ['git', '-C', str(root), 'archive', inputs['legacy_commit'], *inputs['legacy_archive']]
     assert calls[0][2] == {'stdout': subprocess.PIPE}
     assert calls[1][1] == ['tar', '-x', '-C', str(out / 'legacy_tree')]
     assert calls[1][2]['check'] is True and 'shell' not in calls[1][2]
@@ -897,6 +904,7 @@ def test_batch_rechecks_completed_outputs_after_lock(tmp_path, monkeypatch, caps
         if path.name == '.worker.lock':  # the other writer finishes between the first look and the lock
             (path.parent / 'table.npz').write_bytes(b'x')
             if path.parent.name == 'late':
+                (path.parent / 'meta.json').write_text('{"complete":true,"settings":null}')
                 (tmp_path / 'pack').mkdir(exist_ok=True)
                 (tmp_path / 'pack' / 'late.tar.zst').write_bytes(b'x')
 
@@ -955,3 +963,52 @@ def test_rclone_exe_without_home_is_rclone_missing(monkeypatch):
     with pytest.raises(cache_store.CacheStoreError) as caught:
         cache_store.rclone_exe()
     assert caught.value.code == 'E_CACHE_RCLONE_MISSING'
+
+
+@pytest.mark.parametrize('count', [31, 45])
+def test_replay_first_order_outputs_and_connection_lanes(tmp_path, monkeypatch, count):
+    from sosfuse2.jobs import run_state
+
+    state, cfg, arrays, _, source = _multispectral_source(tmp_path, monkeypatch, count, export_first_order=True)
+    states = tmp_path / 'states.json'
+    states.write_text(json.dumps({'states': [state]}))
+    recorded = []
+
+    def create(path, cfg, wl, backend, state, block):
+        return SimpleNamespace(W=len(wl), wl=wl, fuse_state=state,
+                               geo=SimpleNamespace(h=arrays['h'], chi=arrays['chi'], ns=1),
+                               kernel=SimpleNamespace(K=1, constants={}, device_constants={})), None
+
+    def make(s, field, hs, el, az, *args):
+        table = np.broadcast_to(field[0, 0], (len(hs), len(el), len(az), s.W)).copy()
+        s.first_order_table = table * (1 + len(recorded))
+        return table, []
+
+    def connection(s):
+        return dict(upper_air_connection=dict(wavelength_nm=s.wl.tolist(),
+                    beta_rayleigh_80_minus_per_km=(2 * s.wl).tolist(), absolute_us76_ratio=(3 * s.wl).tolist()))
+
+    monkeypatch.setattr(run_state, 'create_configured', create)
+    monkeypatch.setattr(density, 'metadata', connection)
+    monkeypatch.setattr(radiance_table, 'make_table', make)
+    argv = ['radiance_table', '--id', state['id'], '--states', str(states), '--source', str(source),
+            '--prepare', str(tmp_path / 'prepare'), '--out']
+    for name in ('table.npz', 'other.npz'):
+        monkeypatch.setattr(sys, 'argv', argv + [str(tmp_path / name)])
+        radiance_table.main()
+        meta_name = 'meta.json' if name == 'table.npz' else name + '.meta.json'
+        meta = json.loads((tmp_path / meta_name).read_text())
+        conn = meta['density']['upper_air_connection']
+        waves = np.array(cfg['wavelengths_nm'])
+        np.testing.assert_array_equal(conn['wavelength_nm'], waves)
+        np.testing.assert_array_equal(conn['beta_rayleigh_80_minus_per_km'], 2 * waves)
+        np.testing.assert_array_equal(conn['absolute_us76_ratio'], 3 * waves)
+        recorded.append(tmp_path / meta['first_order']['file'])
+    assert recorded[0] != recorded[1]
+    for i, path in enumerate(recorded, start=1):
+        with np.load(path) as saved:
+            np.testing.assert_array_equal(saved['radiance'][0, 0, 0], arrays['source'][0, 0] * i)
+        monkeypatch.setattr(sys, 'argv', argv + [str(path)])
+        with pytest.raises(SystemExit) as exc:
+            radiance_table.main()
+        assert exc.value.code == 2

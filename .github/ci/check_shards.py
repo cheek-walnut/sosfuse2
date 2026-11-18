@@ -141,7 +141,8 @@ def main():
     weights = args.weights.resolve() if args.weights is not None else None
     try:
         load_weights(weights)
-        return check(args.python, args.counts, weights)
+        python = os.path.abspath(args.python) if os.path.dirname(args.python) else args.python
+        return check(python, args.counts, weights)
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"shard check failed: {exc}", file=sys.stderr)
         return 1

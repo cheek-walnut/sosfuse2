@@ -8,6 +8,7 @@ Both unittest and pytest honour unittest.SkipTest, so the same helper serves the
 
 import contextlib
 import importlib
+import json
 import os
 import shutil
 import sys
@@ -113,6 +114,21 @@ def sky_sos_root():
     return paths.sky_sos_root()
 
 
+def research_inputs(section):
+    """Read a section of the research checkout's optional test input configuration."""
+    root = sky_sos_root()
+    if root is None:
+        raise unittest.SkipTest(f'needs research test inputs (set {ENV})')
+    manifest = root / '.sosfuse2-test-inputs.json'
+    try:
+        values = json.loads(manifest.read_text())[section]
+        if not isinstance(values, dict):
+            raise ValueError('expected an object')
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise AssertionError(f'E_SKY_SOS_RECORD: cannot read research input section {section!r} from {manifest.name}') from exc
+    return values
+
+
 def sky_sos(*relative):
     """Path of a research record: SkipTest when the root is unset, AssertionError when the record is missing."""
     root = sky_sos_root()
@@ -123,6 +139,17 @@ def sky_sos(*relative):
     if not p.exists():
         raise AssertionError(f'E_SKY_SOS_RECORD: {ENV} is set but {p} is missing')
     return p
+
+
+def test_input_file(variable):
+    """Return the configured file, or skip the case that needs it."""
+    value = os.environ.get(variable, '').strip()
+    if not value:
+        raise unittest.SkipTest(f'set {variable} to run this case')
+    path = Path(value).expanduser()
+    if not path.is_file():
+        raise unittest.SkipTest(f'{variable} does not name an available file')
+    return path
 
 
 def sky_sos_optional(*relative):

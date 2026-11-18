@@ -7,7 +7,7 @@ TOP_KM = 80.0
 NORMALIZATION_TOP_KM = 80.0
 SUN_HEIGHT_INTERVALS = 80
 COLUMN_TOP_MARGIN_KM = 1.0
-UPPER_AIR_ASSET_SHA256 = '0bc815afb9fca955b9b9df345824e0dd8148e7d73b47e3d548de6654061e5f88'
+UPPER_AIR_ASSET_SHA256 = '0998e1812dd22f8eee39e5a1057e320c2d098864a15ac6ad22e9fdf4e2f02787'
 
 
 @dataclass(frozen=True)
@@ -60,7 +60,7 @@ class Domain:
 def resolve(settings, step=0.5, *, reduced=False):
     """Validate top settings without changing an absent default or shared input."""
     value = settings.get('top_km', TOP_KM)
-    if type(value) not in (int, float) or not math.isfinite(value) or not TOP_KM <= value <= 200:
+    if type(value) not in (int, float) or not TOP_KM <= value <= 200:
         raise ValueError('E_SETTINGS_TOP: top_km must be a finite number in [80, 200]')
     try:
         profile_n(step, value)
@@ -78,7 +78,7 @@ def resolve(settings, step=0.5, *, reduced=False):
             raise ValueError('E_SETTINGS_TOP: upper_heights_km is required for a top not divisible by 10')
         nodes = list(range(90, int(value) + 1, 10))
     if (not isinstance(nodes, list) or not nodes
-            or any(type(x) not in (int, float) or not math.isfinite(x) for x in nodes)
+            or any(type(x) not in (int, float) or not TOP_KM < x <= value for x in nodes)
             or any(b <= a for a, b in zip([TOP_KM, *nodes[:-1]], nodes)) or nodes[-1] != value):
         raise ValueError('E_SETTINGS_TOP: upper heights must increase strictly above 80 and end at top_km')
     air = settings.get('upper_air', 'us76_neff')

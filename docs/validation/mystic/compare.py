@@ -118,6 +118,9 @@ def main():
     manifest = json.loads((H / 'out/manifest.json').read_text())
     c = json.loads(a.config.read_text())
     expected_arms = json.loads(a.arms_file.read_text())
+    partial_shard = manifest.get('shard', [1, 1])[1] > 1
+    if partial_shard and not a.allow_partial:
+        raise ValueError('E_MC_UNMERGED_SHARD')
     if manifest.get('complete') is not True and not a.allow_partial:
         raise ValueError('E_MC_INCOMPLETE')
     digest = sha(H / 'out/optics.json')
@@ -287,7 +290,7 @@ def main():
             config_file=a.config.name,
             config_sha256=sha(a.config),
             status='PARTIAL'
-            if manifest.get('complete') is not True
+            if partial_shard or manifest.get('complete') is not True
             else 'WAITING_ENGINE'
             if not engines
             else 'PARTIAL'

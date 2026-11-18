@@ -85,7 +85,7 @@ HEADER_TEMPLATE = (
     '#   ratio_ci_low/high     95 % Student t interval of ratio, ratio -/+ 2.131449546 * ratio_se (1'
     '5 degrees of freedom); single\n'
     '#                         states only, empty for mean8\n'
-    '#   n_seeds               independent MYSTIC runs (random seeds) combined in the value\n'
+    '#   n_seeds               seed labels per state (16 per state for mean8)\n'
     '#\n'
     '# Definition of the ratio: MYSTIC divided by engine, so a value above 1 means MYSTIC is brighte'
     'r. Y is the photopic luminance of\n'

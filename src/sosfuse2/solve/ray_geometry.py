@@ -11,6 +11,7 @@ import shutil
 import time
 from pathlib import Path
 import numpy as np
+from ..foundation.top import Domain
 from .source_solver import Kernel, load_engine
 from ..foundation import content_identity as source_identity, paths
 from ..backends import numpy_reference, vram_trace
@@ -23,8 +24,6 @@ def normal_state():
 
 
 def pack(p, d, n, s, scope, weights=None, ground=True):
-    from ..foundation.top import Domain
-
     p = np.broadcast_to(p, d.shape).copy()
     d = np.ascontiguousarray(d, 'f8')
     old = scope.b.sh.old
@@ -502,7 +501,6 @@ def identity(s, version):
         )
     else:
         files[paths.rel(Path(__file__))] = source_identity.file_sha(Path(__file__))
-    from ..foundation.top import Domain
 
     content = dict(
         domain=getattr(s.kernel, 'domain', Domain()).identity(),
@@ -524,7 +522,7 @@ def identity(s, version):
     return content, hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()[:20]
 
 
-def aerosol_column(arrays, height, chunk=50_000, workers=None, profile=None):
+def aerosol_column(arrays, height, chunk=50_000, workers=None, profile=None, domain=Domain()):
     """end_columns[:,1] from cached endpoints, operation-identical to
     the total column calculation used by pack() (the integrate(...) call in this module).
 
@@ -546,6 +544,7 @@ def aerosol_column(arrays, height, chunk=50_000, workers=None, profile=None):
             if profile is None
             else profile.descriptor()
         )
+        spec = ct.lower_descriptor(spec, domain)
         dirs = arrays['dirs']
         co = arrays['cell_off']
         starts = arrays['starts']
@@ -599,7 +598,11 @@ def aerosol_column(arrays, height, chunk=50_000, workers=None, profile=None):
             r = np.sqrt(np.sum(q * q, -1))
             # profiles(h)*ds[...,None] restricted to column 1; columns 0/2 are 0.
             z = np.zeros(r.shape + (3,))
-            z[..., 1] = (np.exp(-np.maximum(r - R, 0) / H) if profile is None else profile(r - R)) * ds
+            h = r - R
+            aerosol = np.exp(-np.maximum(h, 0) / H) if profile is None else profile(h)
+            if domain.top_km > domain.lower_end:
+                aerosol = np.where(h > domain.lower_end, 0, aerosol)
+            z[..., 1] = aerosol * ds
             acc[active] += np.sum(z, axis=1)[:, 1]
         out[lo:hi] = acc.astype('f4')
 
@@ -805,7 +808,7 @@ class TwoLayerGeometry(ResidentGeometry):
 
     The common layer is any complete packed build; it may be converted from a compatible v1
     cache of ANY scale height (identity equal except height).  The aerosol column
-    of the current height is loaded from common/aerosol/H_<hex>.f4 or recomputed by
+    of the current height is loaded from the profile-specific column file or recomputed by
     aerosol_column() and stored.  The device end_col is the composite (rays,5)
     contiguous array, so kernel.cu's boundary attenuation reads this state's column.
     """
@@ -835,8 +838,12 @@ class TwoLayerGeometry(ResidentGeometry):
         return found[0][1]
 
     def column_path(self, height):
-        # 'H_<float.hex(height)>' without a troposphere_profile block (unchanged), else the profile tag
-        return self.cache / 'aerosol' / f'{tropo_profile.column_name(getattr(self, "s", None), height)}.f4'
+        name = tropo_profile.column_name(getattr(self, 's', None), height)
+        return self.cache / 'aerosol' / f'{name}.f4'
+
+    def recompute_column(self, host, height):
+        return aerosol_column(host, height, profile=tropo_profile.column_function(self.s),
+                             domain=self.s.kernel.domain)
 
     def build_packed(self):
         journal = self.cache / 'packed' / 'journal.jsonl'
@@ -876,7 +883,7 @@ class TwoLayerGeometry(ResidentGeometry):
             how = 'common layer (same height)'
         else:
             with stage('aerosol_column_compute'):
-                column = aerosol_column(host, height, profile=tropo_profile.column_function(self.s))
+                column = self.recompute_column(host, height)
             how = 'computed'
         if how != 'cached':
             path.parent.mkdir(exist_ok=True)

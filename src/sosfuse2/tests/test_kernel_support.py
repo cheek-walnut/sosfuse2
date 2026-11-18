@@ -224,3 +224,24 @@ def test_split_role_syntax(tmp_path, domain, order):
         )
         assert result.returncode == 0, (waves, flags, spec, result.stderr)
     print(f'SPLIT {len(variants)} syntax: L={order}, domain={domain.upper_air or 'default'} PASS')
+
+
+def test_wavefront_dump_identifies_column_layout(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from sosfuse2.solve.ksplit import KsplitMixin
+
+    buf, _, hdr = components.allocate_column_records(np, 1)
+    row = np.arange(components.SINV_F, dtype='f4')
+    components.column_record_chunk(buf, 0, 1)[:] = row
+    device = SimpleNamespace(synchronize=lambda: None)
+    kernel = SimpleNamespace(xp=SimpleNamespace(cuda=SimpleNamespace(Device=lambda: device)),
+                             host=np.asarray, ksplit_aero=np.zeros(16, 'f4'), K=1, L=0,
+                             raw_kernel=lambda *a, **kw: SimpleNamespace(code='', options=[]))
+    args = [0] * 54
+    args[42] = np.zeros((1, 4, 1), 'f4')
+    KsplitMixin.wf_dump(kernel, tmp_path, 'sample', dict(buf=buf, hdr64=hdr, pcum=[0, 1], co=[0, 1]),
+                        dict(args=args, sinv_index=44), None, 1, False, 0, 1, np.zeros(4), 1, 0, 0, 1, 0., {})
+    with np.load(tmp_path / 'sample.npz') as saved:
+        assert json.loads(saved['meta'].item())['column_record_version'] == 2
+        np.testing.assert_array_equal(saved['records'], row)

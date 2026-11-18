@@ -506,7 +506,7 @@ class PipelineRunnerSeam(unittest.TestCase):
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--print-main-digest':
-        # Maintenance: digest of a given kernel.cu (e.g. `git show main:src/sosfuse2/kernel.cu > k.cu`).
+        # Maintenance: digest of a given kernel.cu (e.g. `git show main:src/sosfuse2/backends/kernel.cu > k.cu`).
         print(token_digest(Path(sys.argv[2]))[0])
         raise SystemExit(0)
     unittest.main(verbosity=2)

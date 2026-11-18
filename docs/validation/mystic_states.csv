@@ -30,7 +30,7 @@
 #                         share a seed)
 #   ratio_ci_low/high     95 % Student t interval of ratio, ratio -/+ 2.131449546 * ratio_se (15 degrees of freedom); single
 #                         states only, empty for mean8
-#   n_seeds               independent MYSTIC runs (random seeds) combined in the value
+#   n_seeds               seed labels per state (16 per state for mean8)
 #
 # Definition of the ratio: MYSTIC divided by engine, so a value above 1 means MYSTIC is brighter. Y is the photopic luminance of
 # the 30 radiances, Y = sum_i L_i w_i with w_i = 683 * integral of the CIE 1931 2-degree y-bar x E_sun over bin i / E_sun(lambda_i).

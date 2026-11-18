@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """C++ syntax / preprocessing gates, with explicit non-CUDA scope.
 
-Runs without the full repository on macOS/Linux (clang++, Python >=3.9).
+Runs without the full repository on macOS/Linux (clang++, Python >=3.12).
 Syntax and unsupported flag conflicts are checked; numerical tolerance is the
 requirement. Historical token identity is not a requirement.
 """
@@ -54,7 +54,7 @@ def defines(W, flags, spec=(1, 2, 1)):
     return opts
 
 
-def run(out, jobs=8, baseline=None):
+def run(out, jobs=8):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     compiler = shutil.which('clang++')
@@ -156,6 +156,5 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--jobs', type=int, default=8)
-    p.add_argument('--baseline', type=Path)
     a = p.parse_args()
-    raise SystemExit(0 if run(a.out, max(1, a.jobs), a.baseline)['pass_'] else 1)
+    raise SystemExit(0 if run(a.out, max(1, a.jobs))['pass_'] else 1)

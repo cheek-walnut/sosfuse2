@@ -138,13 +138,11 @@ def static(out):
     hg_rows.append(
         dict(set='strato_lut_build', spec=None, tokens_identical=ra == 0 and rb == 0 and tokens(a) == tokens(b))
     )
+    ground = tuple(f for f in C2OFF if f != 'LANE_GROUND') + ('PROFILE', 'TROPO_MIE')
+    ground_rc, _, _ = preprocess(new, ground, (1, 2, 0))
     errors = []
     for flags, spec, want in (
-        (
-            tuple(f for f in C2OFF if f != 'LANE_GROUND') + ('PROFILE', 'TROPO_MIE'),
-            (1, 2, 0),
-            'E_TROPO_MIE_UNSUPPORTED_GROUND_PATH',
-        ),
+        (lut + ('LUT_ONLY', 'TROPO_MIE'), None, 'E_TROPO_MIE_UNSUPPORTED_GROUND_PATH'),
         (
             tuple(f for f in C3 if f != 'STRATO_MIE_LUT_FINE') + ('STRATO', 'PROFILE', 'TROPO_MIE'),
             (1, 0, 0),
@@ -189,6 +187,7 @@ def static(out):
     ok = (
         all(r['tokens_identical'] for r in hg_rows)
         and all(r['rc'] == 0 for r in mie_rows)
+        and ground_rc == 0
         and all(e['pass_'] for e in errors)
     )
     ok = ok and all(r['rc'] == 0 for r in syntax)
@@ -199,6 +198,7 @@ def static(out):
         baseline=f'git show {BASE}:scripts/sosfuse2/kernel.cu',
         hg_token_identity=hg_rows,
         mie_preprocess=mie_rows,
+        ground_without_lane_rc=ground_rc,
         expected_errors=errors,
         syntax=syntax,
         scope='clang preprocessing + host C++ syntax with stubbed CUDA builtins; NVRTC compile and numerics are the --gpu part',

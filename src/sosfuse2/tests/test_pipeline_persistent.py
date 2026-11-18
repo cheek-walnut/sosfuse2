@@ -86,12 +86,20 @@ def test_field_reserve_reaches_chunk_metadata(tmp_path):
     args = ['--states', paths.ASSETS / 'states_v1_usstd.json', '--ids', 'clear_01']
     args += ['--work-root', tmp_path, '--gpu-lock', tmp_path / 'gpu.lock']
     args += ['--backend', 'numpy', '--reduced', '--persistent', '--gpu-active', '1', '--workers', '1']
-    subprocess.run(
-        paths.module_command('jobs.pipeline', *args),
-        env=env,
-        check=True,
-        timeout=float(os.environ.get('PERSISTENT_TEST_DEADLINE', '2400')),
-    )
+    cmd = paths.module_command('jobs.pipeline', *args)
+    with subprocess.Popen(cmd, env=env) as proc:
+        try:
+            code = proc.wait(timeout=float(os.environ.get('PERSISTENT_TEST_DEADLINE', '2400')))
+        except BaseException:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            raise
+    if code:
+        raise subprocess.CalledProcessError(code, cmd)
     events = PersistentTests.events(next((tmp_path / 'logs').glob('*/GPU_SERVICE.log')))
     (acquired,) = [e for e in events if e['id'] == 'clear_01' and e['phase'] == 'gpu_acquired']
     (timing,) = json.loads((tmp_path / 'out/clear_01/meta.json').read_text())['timings']
@@ -284,13 +292,10 @@ class PersistentTests(unittest.TestCase):
             trace = testkit.sky_sos_optional(
                 'scripts', 'sosfuse2_dev', 'pipeline_trace.py'
             )  # Skip if the renderer is absent.
-            if trace is None:
-                self.skipTest(
-                    'the timeline renderer is not available in the research checkout'
-                )
-            subprocess.run([sys.executable, '-B', str(trace), str(self.root / 'interleaved')], check=True, timeout=10)
-            self.assertTrue((self.root / 'interleaved/timeline.html').is_file())
-            print('TIMELINE', self.root / 'interleaved/timeline.html', flush=True)
+            if trace is not None:
+                subprocess.run([sys.executable, '-B', str(trace), str(self.root / 'interleaved')], check=True, timeout=10)
+                self.assertTrue((self.root / 'interleaved/timeline.html').is_file())
+                print('TIMELINE', self.root / 'interleaved/timeline.html', flush=True)
 
 
 if __name__ == '__main__':

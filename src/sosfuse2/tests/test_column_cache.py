@@ -59,6 +59,8 @@ class ColumnCacheTests(unittest.TestCase):
             '--backend',
             base.BACKEND,
             '--reduced',
+            '--gpu-lock',
+            str(cls.root / 'gpu.lock'),
             '--geometry-cache',
             str(cls.root / 'geometry'),
             *base.settings_args(cls.root),

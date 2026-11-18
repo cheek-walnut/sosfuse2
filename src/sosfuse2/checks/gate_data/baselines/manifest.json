@@ -14,8 +14,7 @@
     "sha256": "b59e03363c0fb0d29e289aa583b6ca0377ae1c168818cc1d4d9d0239a326d95e",
     "pass_": true
    },
-   "host_inputs": "6ac45f8c7aa9ca9a2ac04f9fb0fff46d39c88937cd8195d0103fcc6a24430ff7",
-   "blessed_utc": "2026-11-05T10:26:06.350051+00:00"
+   "host_inputs": "6ac45f8c7aa9ca9a2ac04f9fb0fff46d39c88937cd8195d0103fcc6a24430ff7"
   },
   "FX-N": {
    "file": "numpy/FX-N.npz",
@@ -30,8 +29,7 @@
     "sha256": "b59e03363c0fb0d29e289aa583b6ca0377ae1c168818cc1d4d9d0239a326d95e",
     "pass_": true
    },
-   "host_inputs": "d7f3ee57e41e9bfa44cbbc46cf67cd88508a2f9f89b7ba86db7d9caaf5401570",
-   "blessed_utc": "2026-11-05T10:26:06.397560+00:00"
+   "host_inputs": "d7f3ee57e41e9bfa44cbbc46cf67cd88508a2f9f89b7ba86db7d9caaf5401570"
   },
   "FX-AP": {
    "file": "numpy/FX-AP.npz",
@@ -46,8 +44,7 @@
     "sha256": "b59e03363c0fb0d29e289aa583b6ca0377ae1c168818cc1d4d9d0239a326d95e",
     "pass_": true
    },
-   "host_inputs": "3a7d5ae42acd940853491167a1c3ca46e1a9e844f20870c138ed0d5eb74de82e",
-   "blessed_utc": "2026-11-05T10:26:06.282273+00:00"
+   "host_inputs": "3a7d5ae42acd940853491167a1c3ca46e1a9e844f20870c138ed0d5eb74de82e"
   }
  },
  "cuda": {
@@ -83,7 +80,6 @@
     },
     "canonical": true,
     "commit": "04ec83a",
-    "blessed_utc": "2026-11-05T12:00:09.398514+00:00",
     "decision": "b2-s2-gatev2-20261105",
     "reason": "b2-s2-gatev2-20261105: sosfuse2 1.1.0 physics (Bodhaine Rayleigh, NO2 Vandaele 220 K, O4 HITRAN 2024 CIA) and the continuous Gate v2 trace interpolation; validation in docs/VALIDATION.md",
     "replaced_by": "one-off reviewed fixed-reference update (maintainer harness replace_fixed.py, not packaged)",
@@ -96,7 +92,6 @@
       "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
-      "gpu": "NVIDIA GeForce RTX 3080",
       "driver": 13000,
       "runtime": 12090,
       "cupy": "14.2.0"
@@ -135,14 +130,12 @@
      },
      "canonical": true,
      "commit": "2129e44",
-     "blessed_utc": "2026-10-31T14:09:18.189204+00:00",
      "decision": "d1v2-hsrs-20261031",
      "metadata": {
       "device": {
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -187,7 +180,6 @@
     },
     "canonical": true,
     "commit": "04ec83a",
-    "blessed_utc": "2026-11-05T12:00:09.398514+00:00",
     "decision": "b2-s2-gatev2-20261105",
     "reason": "b2-s2-gatev2-20261105: sosfuse2 1.1.0 physics (Bodhaine Rayleigh, NO2 Vandaele 220 K, O4 HITRAN 2024 CIA) and the continuous Gate v2 trace interpolation; validation in docs/VALIDATION.md",
     "replaced_by": "one-off reviewed fixed-reference update (maintainer harness replace_fixed.py, not packaged)",
@@ -200,7 +192,6 @@
       "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
-      "gpu": "NVIDIA GeForce RTX 3080",
       "driver": 13000,
       "runtime": 12090,
       "cupy": "14.2.0"
@@ -237,14 +228,12 @@
      },
      "canonical": true,
      "commit": "2129e44",
-     "blessed_utc": "2026-10-31T14:09:18.189204+00:00",
      "decision": "d1v2-hsrs-20261031",
      "metadata": {
       "device": {
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -294,7 +283,6 @@
     },
     "canonical": true,
     "commit": "04ec83a",
-    "blessed_utc": "2026-11-05T12:00:09.398514+00:00",
     "decision": "b2-s2-gatev2-20261105",
     "reason": "b2-s2-gatev2-20261105: sosfuse2 1.1.0 physics (Bodhaine Rayleigh, NO2 Vandaele 220 K, O4 HITRAN 2024 CIA) and the continuous Gate v2 trace interpolation; validation in docs/VALIDATION.md",
     "replaced_by": "one-off reviewed fixed-reference update (maintainer harness replace_fixed.py, not packaged)",
@@ -307,7 +295,6 @@
       "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
-      "gpu": "NVIDIA GeForce RTX 3080",
       "driver": 13000,
       "runtime": 12090,
       "cupy": "14.2.0"
@@ -349,14 +336,12 @@
      },
      "canonical": true,
      "commit": "2129e44",
-     "blessed_utc": "2026-10-31T14:09:18.189204+00:00",
      "decision": "d1v2-hsrs-20261031",
      "metadata": {
       "device": {
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -403,7 +388,6 @@
     },
     "canonical": true,
     "commit": "04ec83a",
-    "blessed_utc": "2026-11-05T12:00:09.398514+00:00",
     "decision": "b2-s2-gatev2-20261105",
     "reason": "b2-s2-gatev2-20261105: sosfuse2 1.1.0 physics (Bodhaine Rayleigh, NO2 Vandaele 220 K, O4 HITRAN 2024 CIA) and the continuous Gate v2 trace interpolation; validation in docs/VALIDATION.md",
     "replaced_by": "one-off reviewed fixed-reference update (maintainer harness replace_fixed.py, not packaged)",
@@ -416,7 +400,6 @@
       "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
-      "gpu": "NVIDIA GeForce RTX 3080",
       "driver": 13000,
       "runtime": 12090,
       "cupy": "14.2.0"
@@ -455,14 +438,12 @@
      },
      "canonical": true,
      "commit": "2129e44",
-     "blessed_utc": "2026-10-31T14:09:18.189204+00:00",
      "decision": "d1v2-hsrs-20261031",
      "metadata": {
       "device": {
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -509,7 +490,6 @@
     },
     "canonical": true,
     "commit": "04ec83a",
-    "blessed_utc": "2026-11-05T12:00:09.398514+00:00",
     "decision": "b2-s2-gatev2-20261105",
     "reason": "b2-s2-gatev2-20261105: sosfuse2 1.1.0 physics (Bodhaine Rayleigh, NO2 Vandaele 220 K, O4 HITRAN 2024 CIA) and the continuous Gate v2 trace interpolation; validation in docs/VALIDATION.md",
     "replaced_by": "one-off reviewed fixed-reference update (maintainer harness replace_fixed.py, not packaged)",
@@ -522,7 +502,6 @@
       "profile": "split",
       "cc": "8.6",
       "nvrtc": "12.9",
-      "gpu": "NVIDIA GeForce RTX 3080",
       "driver": 13000,
       "runtime": 12090,
       "cupy": "14.2.0"
@@ -561,14 +540,12 @@
      },
      "canonical": true,
      "commit": "7838f96",
-     "blessed_utc": "2026-11-01T03:23:42.413282+00:00",
      "decision": "p2-aprime-default-20261101",
      "metadata": {
       "device": {
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -596,7 +573,6 @@
   "reference": "gf_L19s3_tau0p01_aod0p4_g0p65_e2620f6f90c39dcb.npz",
   "made_in": "table.npz",
   "commit": "04ec83a",
-  "recorded_utc": "2026-11-05T12:00:09.398514+00:00",
   "decision": "b2-s2-gatev2-20261105",
   "reason": "b2-s2-gatev2-20261105: sosfuse2 1.1.0 physics (Bodhaine Rayleigh, NO2 Vandaele 220 K, O4 HITRAN 2024 CIA) and the continuous Gate v2 trace interpolation; validation in docs/VALIDATION.md",
   "change_vs_previous": {
@@ -611,9 +587,6 @@
    "requested": {
     "requested": 3,
     "effective": 0,
-    "peak": 7064462016,
-    "budget": 6742288896,
-    "free": 8011812352,
     "points": 240513396,
     "reason": "state_minimum_exceeds_solo_budget"
    },
@@ -631,7 +604,6 @@
    "reference": "gf_L19s3_tau0p01_aod0p4_g0p65_9d744c0e7d0dd403.npz",
    "made_in": "table.npz",
    "commit": "7838f96",
-   "recorded_utc": "2026-11-01T03:23:42.413282+00:00",
    "decision": "p2-aprime-default-20261101",
    "reason": "p2-aprime-default-20261101: ozone A\u2032 (profile_mean, layer-mean sigma_bar) is the product default, settings {} = BM45 + profile_mean; new A\u2032 fixture FX-AP = FX-C3 + profile_mean, the fixed-233 K fixtures stay",
    "change_vs_previous": {
@@ -675,7 +647,6 @@
       "solve.source_solve": "db9657615daf503e73037c57df1ddca92906c05d2baa4325aeac1164856ac20a"
      },
      "commit": "04ec83a",
-     "recorded_utc": "2026-11-05T12:00:12.190449+00:00",
      "pass_": true,
      "comparisons": {
       "R": null,
@@ -768,7 +739,6 @@
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -805,7 +775,6 @@
       "solve.source_solve": "41316af1b9af08b116ea8e9b37fb8cd7eb0304a9bb960070fbae421e60e0188c"
      },
      "commit": "04ec83a",
-     "recorded_utc": "2026-11-05T12:00:12.201769+00:00",
      "pass_": true,
      "comparisons": {
       "R": null,
@@ -898,7 +867,6 @@
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -940,7 +908,6 @@
       "solve.source_solve": "4a329baf6d86e0574955e5126fc7d92cc137c776d06e6b2a4b0cecac146f45b6"
      },
      "commit": "04ec83a",
-     "recorded_utc": "2026-11-05T12:00:12.219421+00:00",
      "pass_": true,
      "comparisons": {
       "R": null,
@@ -1138,7 +1105,6 @@
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -1177,7 +1143,6 @@
       "solve.source_solve": "5e26625142a883e645956a25545eb76fd447ce811a08d65091ee92c704f93aaf"
      },
      "commit": "04ec83a",
-     "recorded_utc": "2026-11-05T12:00:12.241251+00:00",
      "pass_": true,
      "comparisons": {
       "R": null,
@@ -1231,7 +1196,6 @@
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -1270,7 +1234,6 @@
       "solve.source_solve": "36a609f7b772834e2be03837c57725eaca59e3d4d3a444cc404115533c91d847"
      },
      "commit": "04ec83a",
-     "recorded_utc": "2026-11-05T12:00:12.251553+00:00",
      "pass_": true,
      "comparisons": {
       "R": null,
@@ -1363,7 +1326,6 @@
        "profile": "split",
        "cc": "8.6",
        "nvrtc": "12.9",
-       "gpu": "NVIDIA GeForce RTX 3080",
        "driver": 13000,
        "runtime": 12090,
        "cupy": "14.2.0"
@@ -1485,7 +1447,6 @@
     "code": null
    },
    "commit": "7838f96",
-   "recorded_utc": "2026-11-01T03:28:25.934219+00:00",
    "note": "Historical G-F run against the previous fixed reference; no G-F run against the current fixed reference is recorded here."
   }
  }

@@ -18,11 +18,11 @@ from sosfuse2.checks import testkit
 if testkit.sky_sos_root() is None:  # the V14 grid harness is a sky-sos research record, loaded at import
     pytest.skip(f'V14 harness results/quad2_deep_twilight_20261020 needs {testkit.ENV}', allow_module_level=True)
 HARNESS = testkit.sky_sos('results/quad2_deep_twilight_20261020')
-sys.path.insert(0, str(HARNESS))
 spec = importlib.util.spec_from_file_location('v14_grid_harness', HARNESS / 'run_grid_eval.py')
 harness = importlib.util.module_from_spec(spec)
-with testkit.legacy_module_aliases('host_cache', 'fused', 'run_gpu_state_v3'):
-    spec.loader.exec_module(harness)
+with patch.object(sys, 'path', [str(HARNESS), *sys.path]):
+    with testkit.legacy_module_aliases('host_cache', 'fused', 'run_gpu_state_v3'):
+        spec.loader.exec_module(harness)
 
 
 def settings(tmp_path, raw=None, reduced=False):

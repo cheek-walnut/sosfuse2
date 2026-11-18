@@ -1,15 +1,14 @@
-"""Upper air asset, coefficient continuity and an opt-in CUDA reference comparison."""
+"""Upper air asset, coefficient continuity and a CUDA reference comparison."""
 
 import hashlib
 import json
-import os
 
 import numpy as np
 import pytest
 
 from sosfuse2.atmosphere import density, rayleigh, upper_air
 from sosfuse2.foundation import top, content_identity
-from sosfuse2.tests.test_t1_top import config, state, small_solver, serial  # noqa: F401
+from sosfuse2.tests.test_extended_top import config, state, small_solver, serial  # noqa: F401
 
 
 def test_upper_asset_and_default_settings(tmp_path):
@@ -87,13 +86,14 @@ def test_upper_connection_and_lower_columns(tmp_path, step):
     (tmp_path / 'connection.json').write_text(json.dumps(m, indent=2))
 
 
-def reference_tables(path, backend='numpy'):
-    """Small T120 fixture: observed first order and three fixed apply evaluations."""
+def reference_tables(path, backend='numpy', width=1):
+    """Small 120 km grid with observed first order and three fixed apply evaluations."""
     from sosfuse2.solve import source_solver, ray_geometry
     from sosfuse2.atmosphere.stratosphere import source_size
     from sosfuse2.outputs import radiance_table
 
-    s, ctx = small_solver(path, upper_air='us76_neff', backend=backend)
+    wavelengths = np.linspace(450., 650., width) if width > 1 else None
+    s, ctx = small_solver(path, upper_air='us76_neff', backend=backend, wavelengths=wavelengths)
     wrapper = source_solver.Solver(s, ray_geometry.TransientGeometry(s, ctx), prepared=True)
     x = s.kernel.xp.zeros((s.geo.ns, source_size(s), s.W), 'f4')
     values = []
@@ -102,12 +102,15 @@ def reference_tables(path, backend='numpy'):
         values.append(table)
         if iteration < 3:
             x = wrapper.apply(x)
+    if backend == 'cupy' and width == 15:
+        assert wrapper.timings['ksplit']['effective'] == 3
     return np.array(values)
 
 
-def test_numpy_upper_reference(tmp_path):
-    value = reference_tables(tmp_path / 'prepare')
-    assert value.shape == (4, 2, 2, 2, 1)
+@pytest.mark.parametrize('width', [1, 15])
+def test_numpy_upper_reference(tmp_path, width):
+    value = reference_tables(tmp_path / 'prepare', width=width)
+    assert value.shape == (4, 2, 2, 2, width)
     assert np.isfinite(value).all() and np.all(value > 0)
     np.savez(tmp_path / 'numpy_reference.npz', radiance=value)
     (tmp_path / 'reference.json').write_text(json.dumps(dict(
@@ -116,12 +119,14 @@ def test_numpy_upper_reference(tmp_path):
         array_sha256=hashlib.sha256(value.tobytes()).hexdigest())))
 
 
-@pytest.mark.skipif(os.environ.get('SOSFUSE2_TEST_T1_CUDA') != '1',
-                    reason='CUDA comparison is opt-in; set SOSFUSE2_TEST_T1_CUDA=1 on the CUDA validation host')
-def test_cuda_upper_reference(tmp_path):
-    pytest.importorskip('cupy', reason='CuPy/CUDA runtime is unavailable')
-    reference = reference_tables(tmp_path / 'numpy')
-    actual = reference_tables(tmp_path / 'cuda', 'cupy')
+@pytest.mark.parametrize('width', [1, 15])
+def test_cuda_upper_reference(tmp_path, monkeypatch, width):
+    cupy = pytest.importorskip('cupy', reason='CuPy is unavailable')
+    if not cupy.is_available():
+        pytest.skip('CUDA device is unavailable')
+    monkeypatch.delenv('SOSFUSE2_KSPLIT', raising=False)
+    reference = reference_tables(tmp_path / 'numpy', width=width)
+    actual = reference_tables(tmp_path / 'cuda', 'cupy', width)
     np.testing.assert_allclose(actual, reference, rtol=1e-3, atol=0)
     rel = np.abs(actual - reference) / np.maximum(np.abs(reference), 1e-30)
     (tmp_path / 'cuda_comparison.json').write_text(json.dumps(dict(max_rel=float(rel.max()),

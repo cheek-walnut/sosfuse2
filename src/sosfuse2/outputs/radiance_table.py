@@ -18,6 +18,8 @@ no cross-warp reduction; kernel.cu:117-239), so no approximation is introduced.
 """
 
 import argparse, json, os, sys, time
+import zipfile
+import zlib
 from pathlib import Path
 
 if __name__ == '__main__':
@@ -204,19 +206,19 @@ def first_order_buffer(s, shape):
     return s.first_order_table
 
 
-def save_first_order(out, parts, wl, hs, el, az):
+def save_first_order(out, parts, wl, hs, el, az, *, filename='first_order.npz'):
     """Save the observed first-order term, including direct-ground reflection, with the table axes."""
     if not parts:
         raise RuntimeError('E_FIRST_ORDER_MISSING: no first-order arrays collected')
     table = np.concatenate(parts, axis=-1)
     if table.shape != (len(hs), len(el), len(az), len(wl)) or table.dtype != np.dtype('f4') or not np.isfinite(table).all():
         raise RuntimeError('E_FIRST_ORDER_ARRAY: invalid shape, dtype or values')
-    save_table(Path(out) / 'first_order.npz', table, wl, hs, el, az)
-    return dict(first_order=dict(file='first_order.npz', shape=list(table.shape), dtype='float32', includes_ground_reflection=True))
+    save_table(Path(out) / filename, table, wl, hs, el, az)
+    return dict(first_order=dict(file=filename, shape=list(table.shape), dtype='float32', includes_ground_reflection=True))
 
 
 def first_order_complete(out, meta=None):
-    """A cached exported table is incomplete until its first-order file exists.
+    """Check the stored first-order array, axes and units before reusing an export.
 
     Without readable metadata the export setting is unknown and the table/pack rule of the caller decides.
     """
@@ -225,9 +227,23 @@ def first_order_complete(out, meta=None):
             meta = json.loads((Path(out) / 'meta.json').read_text())
         except (OSError, ValueError):
             return True
-    if not meta.get('settings', {}).get('export_first_order'):
+    settings = meta.get('settings') if isinstance(meta, dict) else None
+    if not isinstance(settings, dict) or not settings.get('export_first_order'):
         return True
-    return meta.get('first_order', {}).get('file') == 'first_order.npz' and (Path(out) / 'first_order.npz').is_file()
+    first = meta.get('first_order')
+    if not isinstance(first, dict) or first.get('file') != 'first_order.npz':
+        return False
+    try:
+        with np.load(Path(out) / first['file'], allow_pickle=False) as saved:
+            radiance = saved['radiance']
+            axes = [saved[key] for key in ('solar_elevation_deg', 'view_elevation_deg',
+                                           'relative_azimuth_deg', 'wavelength_nm')]
+            return (all(axis.ndim == 1 and np.isfinite(axis).all() for axis in axes)
+                    and radiance.shape == tuple(map(len, axes))
+                    and list(radiance.shape) == first.get('shape') and radiance.dtype == np.dtype('f4')
+                    and np.isfinite(radiance).all() and saved['units'].item() == UNITS)
+    except (OSError, ValueError, TypeError, RuntimeError, EOFError, KeyError, zipfile.BadZipFile, zlib.error):
+        return False
 
 
 def save_table(path, table, wl, hs, el, az):
@@ -408,7 +424,7 @@ def restored_axes(cfg):
     return wl, hs, 90 - (np.arange(nr) + 0.5) * 90 / nr, (np.arange(nc) + 0.5) * 180 / nc
 
 
-def restored_table(path, state, cfg, prepare, backend, group, batch, log, *, first_order_out=None):
+def restored_table(path, state, cfg, prepare, backend, group, batch, log, *, first_order_out=None, first_order_name='first_order.npz'):
     """Replay the production source in the same FW=15 chunks as run_extra()."""
     from ..solve import ray_geometry as gm
     from ..jobs.run_state import create_configured
@@ -439,12 +455,16 @@ def restored_table(path, state, cfg, prepare, backend, group, batch, log, *, fir
     seconds = []
     start = 0
     table_seconds = 0.0
+    from ..atmosphere.density import chunk_metadata
+
+    table_density = None
     for index, chunk in enumerate(chunks):
         count = len(chunk)
         if index:
             t = time.monotonic()
             s, scope = create_configured(prepare / f'prepare_{index}', cfg, pad(chunk), backend, state, block_size)
             create_seconds += time.monotonic() - t
+        table_density = chunk_metadata(s, chunk, table_density)
         field = full[..., start : start + count]
         start += count
         if count < s.W:
@@ -462,16 +482,15 @@ def restored_table(path, state, cfg, prepare, backend, group, batch, log, *, fir
             s.kernel.constants.clear()
             s.kernel.device_constants.clear()
     from ..atmosphere.stratosphere import computed_metadata
-    from ..atmosphere.density import metadata as density_metadata
 
-    first_meta = save_first_order(first_order_out, first_tables, wl, hs, el, az) if cfg.get('export_first_order') else {}
+    first_meta = save_first_order(first_order_out, first_tables, wl, hs, el, az, filename=first_order_name) if cfg.get('export_first_order') else {}
 
     return (
         np.concatenate(tables, -1),
         seconds,
         create_seconds,
         table_seconds,
-        dict(computed_metadata(state, getattr(s, 'strato', None)), density=density_metadata(s), **first_meta),
+        dict(computed_metadata(state, getattr(s, 'strato', None)), density=table_density, **first_meta),
     )
 
 
@@ -503,7 +522,7 @@ def main():
         '--group',
         type=int,
         default=32,
-        help='rays per CUDA block (A5: 4 -> 32; 64 was also bit-identical on NumPy, CUDA timing is a rig TODO)',
+        help='rays per CUDA block',
     )
     p.add_argument('--batch', type=int, default=25)
     a = p.parse_args()
@@ -515,6 +534,15 @@ def main():
     if state is None:
         p.error(f'E_STATE_ID: no state {a.id!r} in {a.states}')
     settings = restored_settings(a.source, state, a.reduced, a.backend)
+    first_order_name = 'first_order.npz'
+    meta_path = a.out.with_name('meta.json')
+    if a.out.name != 'table.npz':
+        first_order_name = a.out.name + '.first_order.npz'
+        meta_path = a.out.with_name(a.out.name + '.meta.json')
+    names = (a.out.name.casefold(), a.out.resolve().name.casefold())
+    if (any(n in ('first_order.npz', 'meta.json') or n.endswith(('.first_order.npz', '.meta.json')) for n in names)
+            or a.out.resolve() in (a.out.with_name(first_order_name).resolve(), meta_path.resolve())):
+        p.error('E_FIRST_ORDER_OUTPUT_CONFLICT: choose a different --out')
     optical_meta = None
     if settings is None:
         t = time.monotonic()
@@ -533,7 +561,8 @@ def main():
     else:
         wl, hs, el, az = restored_axes(settings)
         table, seconds, create_seconds, total, optical_meta = restored_table(
-            a.source, state, settings, a.prepare, a.backend, a.group, a.batch, lambda m: print(m, flush=True), first_order_out=a.out.parent
+            a.source, state, settings, a.prepare, a.backend, a.group, a.batch, lambda m: print(m, flush=True),
+            first_order_out=a.out.parent, first_order_name=first_order_name,
         )
     save_table(a.out, table, wl, hs, el, az)
     from ..atmosphere.components import physics, optics_state
@@ -552,7 +581,6 @@ def main():
     )
     if optical_meta is not None:
         meta.update(optical_meta, unsupported_parameters=[])
-    meta_path = a.out.with_name('meta.json')
     tmp = meta_path.with_name(meta_path.name + '.tmp')
     tmp.write_text(json.dumps(meta, indent=2, allow_nan=False) + '\n')
     os.replace(tmp, meta_path)

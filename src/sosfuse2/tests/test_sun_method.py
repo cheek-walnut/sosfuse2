@@ -26,6 +26,13 @@ from sosfuse2.asset_tools.strato_states import build as strato_states
 R = 6371.0
 SERIAL = {sp.ENV: '1', gp.ENV: '1', 'SOSFUSE2_COLUMN_WORKERS': '1', 'SOSFUSE2_GEOMETRY_WORKERS': '1'}
 USSTD = dict(density_profile='usstd76', ozone_profile='usstd76', rayleigh_column='usstd')
+_ORIGINAL_SUN_RUN = sp._run
+
+
+def fail_sun_worker(task):
+    if task[0] == 2:
+        raise RuntimeError('E_TEST_SUN_WORKER')
+    return _ORIGINAL_SUN_RUN(task)
 
 
 def reference(p, d, end, table, n):
@@ -205,14 +212,10 @@ class SunMethodTests(unittest.TestCase):
         self.assertEqual(events[0]['result'], 'parallel')
         assert_equivalent(actual, expected)
 
-        def fail(task):
-            if task[0] == 2:
-                raise RuntimeError('E_TEST_SUN_WORKER')
-            return sp._run(task)
-
-        with mock.patch.object(sp, '_run', fail):
+        with mock.patch.object(sp, '_run', fail_sun_worker):
             actual, events = self.rows(self.external, 'exact', 2)
         self.assertEqual(events[0]['result'], 'fallback')
+        self.assertEqual(events[0]['reason'], 'E_TEST_SUN_WORKER')
         assert_equivalent(actual, expected)
         with mock.patch.dict(os.environ, {density.SUN_METHOD_ENV: 'exact'}):  # omitted method = the switch
             assert_equivalent(self.rows(self.external, None)[0], expected)

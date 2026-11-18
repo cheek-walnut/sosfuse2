@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from common import add_paths, configure_root, dump, make_states, package_identity, read, sha, work_path
+from common import add_paths, configure_root, dump, make_states, package_identity, read, require_legacy_top, sha, work_path
 
 
 def main():
@@ -17,13 +17,14 @@ def main():
     from sosfuse2.atmosphere import components, density, extinction, minor_absorbers, rayleigh, spectral, stratosphere
     from sosfuse2.jobs import run_state as engine
 
-    if not minor_absorbers.o4_path().is_file():
-        raise ValueError('E_O4_ASSET_MISSING: run python -m sosfuse2.asset_tools.prepare_minor_absorbers --download')
     c = read(args.config)
-    states_parent = make_states(H, c)
     settings = H / 'settings.json'
     dump(settings, c['settings'])
     cfg = engine.settings_for(SimpleNamespace(reduced=False, settings_json=settings))
+    require_legacy_top(cfg)
+    if not minor_absorbers.o4_path().is_file():
+        raise ValueError('E_O4_ASSET_MISSING: run python -m sosfuse2.asset_tools.prepare_minor_absorbers --download')
+    states_parent = make_states(H, c)
     states_file = H / 'states.json'
     states = {s['id']: s for s in read(states_file)['states'] if s['id'] in c['state_ids']}
     if set(states) != set(c['state_ids']):

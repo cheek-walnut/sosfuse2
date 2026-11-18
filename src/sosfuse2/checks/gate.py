@@ -134,6 +134,13 @@ def fixture_settings(F, fx):
     return dict(F['settings'], **F['fixtures'][fx].get('settings', {}))
 
 
+def fixture_reduced(settings):
+    from ..foundation.top import Domain
+
+    default_top = Domain().top_km
+    return settings.get('top_km', default_top) == default_top
+
+
 def fixture_env(F, fx, base=None):
     """The caller's env (profile, LAUNCH_CELLS, caches) with every kernel control written explicitly."""
     spec = F['fixtures'][fx]
@@ -194,8 +201,16 @@ def check_config(F, fx, meta):
         bad.append(f"profile_n requested {want['profile_n']} measured {got.get('profile_n', LEGACY_PROFILE_N)}")
     from ..foundation.top import Domain
 
-    if got.get('domain', Domain().identity()) != want['domain']:
-        bad.append(f"domain requested {want['domain']} measured {got.get('domain', Domain().identity())}")
+    observed_domain = got.get('domain')
+    if 'domain' not in got:
+        from ..atmosphere.density import STEP_OF_N
+
+        profile_n = got.get('profile_n', LEGACY_PROFILE_N)
+        step = STEP_OF_N.get(profile_n) if type(profile_n) is int else None
+        if step is not None:
+            observed_domain = Domain(step_km=step).identity()
+    if observed_domain != want['domain']:
+        bad.append(f"domain requested {want['domain']} measured {observed_domain}")
     if 'spectral' in meta and (why := ozone_mismatch(F, fx, meta['spectral'])):
         bad.append(why)
     if meta['backend'] == 'cupy':
@@ -275,8 +290,9 @@ def worker(kind, fx, out, backend):
     from sosfuse2.atmosphere.stratosphere import source_size
     from sosfuse2.solve.strato_sh_aux import _async_enabled
 
-    (out / 'settings.json').write_text(json.dumps(fixture_settings(F, fx)))
-    cfg = v3.settings_for(NS(reduced=fixture_settings(F, fx).get('top_km', 80) == 80, settings_json=out / 'settings.json'))
+    settings = fixture_settings(F, fx)
+    (out / 'settings.json').write_text(json.dumps(settings))
+    cfg = v3.settings_for(NS(reduced=fixture_reduced(settings), settings_json=out / 'settings.json'))
     state = v3.effective_state(fixture_state(F, fx), NS())
     cfg = v3.resolve_settings(cfg, state)  # A′ fixtures: FX-AP
     el, az = (np.asarray(F['directions'][n], float) for n in ('elevation_deg', 'azimuth_deg'))
@@ -413,7 +429,7 @@ def log_launch(paths):
 
 
 def run_fixture(F, fx, d, backend, solve, base=None):
-    """② fixed applies in a worker process, then ① pipeline.py --reduced solve (cupy). Writes d/{fixed,solve}.*"""
+    """Run fixed applies, then a CuPy solve on the reduced or extended fixture grid."""
     d.mkdir(parents=True, exist_ok=True)
     env = fixture_env(F, fx, base)
     rc, tail, code = child(
@@ -441,7 +457,8 @@ def run_fixture(F, fx, d, backend, solve, base=None):
     sid = state_id(fx)
     w = d / 'solve'
     (d / 'states.json').write_text(json.dumps(dict(states=[fixture_state(F, fx, solve=True)])))
-    (d / 'settings.json').write_text(json.dumps(fixture_settings(F, fx)))
+    settings = fixture_settings(F, fx)
+    (d / 'settings.json').write_text(json.dumps(settings))
     cmd = [
         *paths.module_command('jobs.pipeline'),
         '--states',
@@ -456,7 +473,7 @@ def run_fixture(F, fx, d, backend, solve, base=None):
         '1',
         '--backend',
         'cupy',
-        '--reduced',
+        *(['--reduced'] if fixture_reduced(settings) else []),
         '--settings-json',
         str(d / 'settings.json'),
         '--gpu-lock',
@@ -724,7 +741,7 @@ def golden_set(M, names):
 
 def log_line(text):
     with record('baselines/BASELINE_LOG.md').open('a') as f:
-        f.write(f'- {utc()} {text}\n')
+        f.write(f'- {text}\n')
 
 
 def commit():
@@ -939,11 +956,29 @@ def historical(out):
 def persistent(out):
     env = {k: v for k, v in os.environ.items() if k not in CONTROLS}
     env.update(PERSISTENT_TEST_BACKEND='cupy', PERSISTENT_TEST_DEADLINE='900', PYTHONDONTWRITEBYTECODE='1')
-    cmd = [sys.executable, '-B', '-m', 'unittest', '-v'] + [
+    runner = '''
+import sys
+import unittest
+
+suite = unittest.defaultTestLoader.loadTestsFromNames(sys.argv[1:])
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+for test, reason in result.skipped:
+    print(f'SKIP {test}: {reason}')
+sys.exit(not (result.wasSuccessful() and result.testsRun == len(sys.argv) - 1 and not result.skipped))
+'''
+    cmd = [sys.executable, '-B', '-c', runner] + [
         f'sosfuse2.tests.test_pipeline_persistent.PersistentTests.{t}' for t in PS_TESTS
     ]
     rc, tail, _ = child(cmd, out / 'persistent.log', env, cwd=paths.SRC, timeout=1800)
     return dict(pass_=rc == 0, rc=rc, tail=tail[-6:], code=None if rc == 0 else 'E_GATE_PERSISTENT')
+
+
+def bake_template_path():
+    sky = paths.sky_sos_root()
+    template = sky / 'rig/bake/bake_run.py' if sky is not None else None
+    if template is None or not template.is_file():
+        raise GateError('E_GATE_CONFIG', 'G-F needs the sky-sos bake template: set SOSFUSE2_SKY_SOS_ROOT')
+    return template
 
 
 def gf(args, F, report):
@@ -959,11 +994,7 @@ def gf(args, F, report):
             f'G-F needs --reference to an existing fixed table; expected {portable(fixed.get("reference") or "unset")} '
             f'radiance {(fixed.get("radiance_sha256") or "unset")[:16]}; supplied {reference}',
         )
-    # G-F reuses the sky-sos bake template: a research-side dependency, reachable only via SOSFUSE2_SKY_SOS_ROOT
-    sky = paths.sky_sos_root()
-    if sky is None or not (sky / 'rig/bake/bake_run.py').is_file():
-        raise GateError('E_GATE_CONFIG', 'G-F needs the sky-sos bake template: set SOSFUSE2_SKY_SOS_ROOT')
-    spec = importlib.util.spec_from_file_location('bake_run', sky / 'rig/bake/bake_run.py')
+    spec = importlib.util.spec_from_file_location('bake_run', bake_template_path())
     br = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(br)
@@ -1077,11 +1108,10 @@ def gf(args, F, report):
                 radiance_sha256=ref,
                 reference=portable(reference),
                 commit=commit(),
-                recorded_utc=utc(),
                 decision=args.decision,
             )
         M.setdefault('records', {})['gf'] = dict(
-            outputs=c, comparison=report['gates']['F'], commit=commit(), recorded_utc=utc()
+            outputs=c, comparison=report['gates']['F'], commit=commit()
         )
         jdump(record('baselines/manifest.json'), M)
         log_line(f'gf run {sid} radiance {c["radiance"][:16]}; fixed {ref[:16]}; reason: {args.reason}')
@@ -1140,17 +1170,18 @@ def bless(F, names, args, report):
     for fx in names:
         key, fields = toolkey(runs[fx]['meta'])
         out = pinned_hashes(runs[fx])
+        device = runs[fx]['meta']['device']
+        versions = {k: device[k] for k in ('cc', 'nvrtc', 'driver', 'runtime', 'cupy') if k in device}
         entry = dict(
             toolkey=key,
             toolkey_fields=fields,
             outputs=out,
             commit=commit(),
-            recorded_utc=utc(),
             pass_=True,
             comparisons={n: g.get(fx) for n, g in report['gates'].items() if n != 'T' and isinstance(g, dict)},
             ratchet={p: v for p, v in report['gates'].get('T', {}).get('pairs', {}).items() if p.startswith(fx + '|')},
             metadata=dict(
-                device=runs[fx]['meta']['device'],
+                device=dict(profile=fields['profile'], **versions),
                 numpy=runs[fx]['meta']['numpy'],
                 host_inputs=runs[fx]['meta']['host_inputs_sha256'],
             ),
@@ -1194,7 +1225,6 @@ def bless_numpy(F, args, report):
             numpy=np.__version__,
             e6=dict(sha256=file_sha(args.e6), pass_=True),
             host_inputs=r['meta']['host_inputs_sha256'],
-            blessed_utc=utc(),
         )
         log_line(
             f'numpy golden {fx} commit {M["golden"][fx]["commit"]}: {"new" if not old else "CHANGED"}; reason: {args.reason}'

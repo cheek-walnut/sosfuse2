@@ -33,7 +33,7 @@ from sosfuse2.tests.cpu_replay import canonical_slice, compare, golden_slice, re
 
 # Work root at import (collection) time: the session fixture of conftest.py has not yet pointed SOSFUSE2_WORK_ROOT at
 # its synthetic root, so this is the root of the caller, where a prepared O4 asset may live.
-ORIGINAL_ROOT = paths.work_root()
+ORIGINAL_ROOT = paths.work_root(create=False)
 APPLIES = 2
 RED = 2  # chunk of bands 30-44
 DRIFT = 1e-5  # a passing comparison above this is reported as a warning

@@ -33,14 +33,27 @@ from sosfuse2.solve.source_solver import Kernel, Solver
 from sosfuse2.solve.ray_geometry import create, TransientGeometry
 from sosfuse2.checks.numerical_checks import assert_equivalent
 
-# The CLI harness (main --out) replaces this; under pytest/unittest collection the cases write into the test scratch instead of
-# failing with OUT=None (harness semantics unchanged).
-OUT = testkit.scratch_parent() / 'strato_revision/delta'
-OUT.mkdir(parents=True, exist_ok=True)
+OUT = None
+_output = None
 MEASUREMENTS = {}
-ARTIFACT = (
-    testkit.scratch_parent() / 'strato_revision'
-)  # earlier harness runs (runner_enabled, val_zero) are read from here
+
+
+def setUpModule():
+    global OUT, _output
+    if OUT is None:
+        _output = tempfile.TemporaryDirectory(prefix='strato-delta-', dir=testkit.scratch_parent())
+        OUT = Path(_output.name)
+
+
+def tearDownModule():
+    global OUT, _output
+    if _output is not None:
+        _output.cleanup()
+        OUT = _output = None
+
+
+def retained_folder():
+    return testkit.scratch_parent() / 'strato_revision'
 
 
 def state(tau=0.003, status='enabled'):
@@ -168,7 +181,7 @@ class Delta(unittest.TestCase):
         MEASUREMENTS['column_cases'] = rows
 
     def test_D09_table_preservation_and_endpoints(self):
-        oldpath = ARTIFACT / 'optics_before.json'
+        oldpath = retained_folder() / 'optics_before.json'
         if not oldpath.is_file():
             raise unittest.SkipTest(f'earlier harness artifact absent: {oldpath}')  # research record, not package data
         self.assertEqual(
@@ -470,13 +483,14 @@ class Delta(unittest.TestCase):
         MEASUREMENTS['disabled_positive_vs_zero'] = rows
 
     def test_D04_D12_D21_retained_runtime_artifacts(self):
+        artifact = retained_folder()
         if not (
-            ARTIFACT / 'runner_enabled/runner_test.json'
+            artifact / 'runner_enabled/runner_test.json'
         ).is_file():  # research record of an earlier harness run, not package data
-            raise unittest.SkipTest(f'earlier harness artifact absent: {ARTIFACT / "runner_enabled"}')
-        report = json.loads((ARTIFACT / 'runner_enabled/runner_test.json').read_text())
+            raise unittest.SkipTest(f'earlier harness artifact absent: {artifact / "runner_enabled"}')
+        report = json.loads((artifact / 'runner_enabled/runner_test.json').read_text())
         self.assertTrue(report['pass_'])
-        work = ARTIFACT / 'runner_enabled/work'
+        work = artifact / 'runner_enabled/work'
         metas = {
             name: json.loads((work / 'out' / name / 'meta.json').read_text())
             for name in ('enabled', 'extra', 'override')
@@ -499,7 +513,7 @@ class Delta(unittest.TestCase):
             width = 10 + 2 * sh_count(metas[name]['settings']['L'])  # stratosphere source: 10 + two SH blocks at the run's L
             with np.load(work / 'tmp' / name / 'source.npz') as data:
                 self.assertEqual(data['source'].shape, (40, width, 1))
-        validation = json.loads((ARTIFACT / 'val_zero/validation.json').read_text())
+        validation = json.loads((artifact / 'val_zero/validation.json').read_text())
         self.assertTrue(validation['pass'])
         from sosfuse2.checks.stratosphere_checks import zero_bytes
 
@@ -510,7 +524,7 @@ class Delta(unittest.TestCase):
             self.skipTest(
                 'SOSFUSE2_STRATO_BASELINE (folder with selftest_values.npz and full_35_values.npz of the fixed measurement) not set'
             )
-        zero = zero_bytes(ARTIFACT / 'val_zero', Path(baseline))
+        zero = zero_bytes(artifact / 'val_zero', Path(baseline))
         self.assertTrue(zero['pass_'])
         MEASUREMENTS['tau_zero_archive_sha256'] = {name: r['sha256'] for name, r in zero['files'].items()}
 

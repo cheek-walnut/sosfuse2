@@ -507,7 +507,9 @@ def grid_metadata(cfg, h=None):
     return result
 
 
-def create_configured(output, cfg, wavelengths, backend, state, block_size=128, geometry_cache=None):
+def create_configured(
+    output, cfg, wavelengths, backend, state, block_size=128, geometry_cache=None, *, share_sun_geometry=True
+):
     """Configure the accepted engine's create() for the production settings through its keyword hooks (observer, kernel,
     grid, spectrum, sun geometry, deferred ground, aerosol profile). Returns the solver and its scope; the solver is
     built over `wavelengths` (a second Solver in the same scope when more than one)."""
@@ -554,7 +556,7 @@ def create_configured(output, cfg, wavelengths, backend, state, block_size=128, 
     if fast_host or SUN_SCALE != 1:
         # host_cache.sun_geometry keys its folder by height and scale; the accepted constructor keys neither.
         def sun_geometry(old, cache, H):
-            return host_cache.sun_geometry(old, SUN_SCALE, cache, H, shared=geometry_cache)
+            return host_cache.sun_geometry(old, SUN_SCALE, cache, H, shared=geometry_cache if share_sun_geometry else None)
 
     spec = None
     if cfg.get('spectral') is not None:
@@ -618,7 +620,7 @@ def effective_state(state, a):
     return with_options(state, a)
 
 
-def verify_pack(path, signature):
+def verify_pack(path, signature, *, export_first_order=None, first_order_sha=None):
     # Read every archived member through zstd; verify both CRC/content and the identity.
     # tarfile's stream mode stops at the end-of-archive marker and leaves the record padding (10240 bytes measured) unread;
     # closing the pipe then can kill a zstd still writing it (SIGPIPE, nonzero exit) when the pipe buffer is small, which
@@ -640,13 +642,21 @@ def verify_pack(path, signature):
                     f = archive.extractfile(member)
                     if member.name == 'meta.json':
                         meta = json.load(f)
+                    elif member.name == 'first_order.npz' and first_order_sha is not None:
+                        if hashlib.file_digest(f, 'sha256').hexdigest() != first_order_sha:
+                            raise RuntimeError('E_PACK_VERIFY: first-order table differs')
                     else:
                         while f.read(1024 * 1024):
                             pass
                 expected = ['table.npz', 'meta.json', 'preview_m03.png', 'preview_m06.png']
-                if isinstance(meta, dict) and meta.get('settings', {}).get('export_first_order'):
+                settings = meta.get('settings') if isinstance(meta, dict) else None
+                exported = isinstance(settings, dict) and bool(settings.get('export_first_order'))
+                if export_first_order is not None and export_first_order != exported:
+                    raise RuntimeError('E_PACK_VERIFY: first-order setting differs')
+                if exported:
                     expected.append('first_order.npz')
-                    if meta.get('first_order', {}).get('file') != 'first_order.npz':
+                    first = meta.get('first_order')
+                    if not isinstance(first, dict) or first.get('file') != 'first_order.npz':
                         raise RuntimeError('E_PACK_VERIFY: first-order metadata missing')
                 if (
                     sorted(names) != sorted(expected)
@@ -726,7 +736,8 @@ def signed_contract(state, cfg, backend, reduced, polarization_model, derived=No
 
     if tau_of(state) > 0:
         path = table_path(state)
-        hashes[path_label(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        key = path_label(path) if path.resolve().is_relative_to(paths.PKG) else f'external/stratosphere/{path.name}'
+        hashes[key] = hashlib.sha256(path.read_bytes()).hexdigest()
     from sosfuse2.atmosphere import density
 
     if density.build(state)['meta'].get('asset_sha256') is not None:
@@ -735,7 +746,8 @@ def signed_contract(state, cfg, backend, reduced, polarization_model, derived=No
 
     if tropo_config(state) is not None:
         path = tropo_path(tropo_config(state))
-        hashes[tropo_label(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        key = tropo_label(path) if path.resolve().is_relative_to(paths.PKG) else f'external/troposphere/{path.name}'
+        hashes[key] = hashlib.sha256(path.read_bytes()).hexdigest()
     if cfg.get('spectral') is not None:
         from sosfuse2.atmosphere import spectral
         from sosfuse2.atmosphere.components import check_current  # a legacy block (copied from an old meta) never signs a new run
@@ -1059,6 +1071,9 @@ def run(a):
         geometry_start = time.monotonic()
         # Independent wavelengths: use unchanged FW=15 kernel, padding the final chunk.
         chunks = [wl] if len(wl) in (1, 15) else [wl[i : i + 15] for i in range(0, len(wl), 15)]
+        from sosfuse2.atmosphere.density import chunk_metadata
+
+        table_density = None
         for index, chunk in enumerate(chunks):
             if trace is not None:
                 trace.chunk, trace.stage, trace.iteration = index, 'setup', None
@@ -1083,6 +1098,7 @@ def run(a):
                     )
                 )
             s, scope = made[0]
+            table_density = chunk_metadata(s, chunk, table_density)
             if ksplit_decision is not None:
                 s.ksplit_decision = ksplit_decision
 
@@ -1303,7 +1319,6 @@ def run(a):
         from sosfuse2.atmosphere.stratosphere import computed_metadata
 
         optical_meta = computed_metadata(state, getattr(s, 'strato', None))
-        from sosfuse2.atmosphere.density import metadata
         from sosfuse2.atmosphere.density import evidence as profile_evidence
 
         # ②b evidence: compiled/uploaded N, consumed mask, effective f8/f4 SHA, identity, policy,
@@ -1317,7 +1332,7 @@ def run(a):
         meta = dict(
             **first_meta,
             **vram_trace.metadata(service_traces),
-            density=metadata(s),
+            density=table_density,
             profile=profile_meta,
             complete=True,
             contract=CONTRACT_VERSION,
@@ -1521,10 +1536,7 @@ def run_extra(a):
         from sosfuse2.atmosphere.stratosphere import computed_metadata
 
         optical_meta = computed_metadata(state, getattr(s, 'strato', None))
-        from sosfuse2.atmosphere.density import metadata
 
-        if source_meta.get('density') != metadata(s):
-            raise RuntimeError('E_EXTRA_SOURCE: density profile differs')
         if any(
             source_meta.get(k) != optical_meta[k]
             for k in ('parameters_requested', 'parameters_computed', 'stratosphere')
@@ -1537,6 +1549,9 @@ def run_extra(a):
         first_tables = []
         query_seconds = 0.0
         start = 0
+        from sosfuse2.atmosphere.density import chunk_metadata
+
+        table_density = None
         for index, chunk in enumerate(chunks):
             trace = vram_trace.current.get()
             if trace is not None:
@@ -1554,6 +1569,9 @@ def run_extra(a):
                     geometry_cache=a.geometry_cache,
                 )
                 create_seconds += time.monotonic() - t
+            table_density = chunk_metadata(s, chunk, table_density)
+            if index == len(chunks) - 1 and source_meta.get('density') != table_density:
+                raise RuntimeError('E_EXTRA_SOURCE: density profile differs')
             field = full[..., start : start + count]
             start += count
             if count < s.W:
@@ -1601,12 +1619,11 @@ def run_extra(a):
             )
         os.replace(out / 'table.npz.tmp', out / 'table.npz')
         first_meta = tf.save_first_order(out, first_tables, wl, hs, el, az) if cfg.get('export_first_order') else {}
-        from sosfuse2.atmosphere.density import metadata
 
         meta = dict(
             **first_meta,
             **vram_trace.metadata(),
-            density=metadata(s),
+            density=table_density,
             complete=True,
             contract=CONTRACT_VERSION,
             physics=physics(),

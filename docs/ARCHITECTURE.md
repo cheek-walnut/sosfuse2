@@ -28,8 +28,8 @@ A module may import only from its own layer and from the layers listed in the `M
 
 | Layer | Role | Modules | May import from |
 |---|---|---|---|
-| `foundation` | where resources are, what identifies a file's content, machine limits, time | `paths`, `content_identity`, `host_limits`, `available_cpus`, `timers` | nothing |
-| `atmosphere` | turn a state and a wavelength into densities and optical coefficients | `components`, `density`, `spectral`, `ozone_temperature`, `minor_absorbers`, `rayleigh`, `air_wavelength`, `tropo_profile`, `tropo_mie`, `stratosphere`, `extinction` | foundation |
+| `foundation` | where resources are, what identifies a file's content, machine limits, time | `paths`, `content_identity`, `host_limits`, `available_cpus`, `timers`, `top` | nothing |
+| `atmosphere` | turn a state and a wavelength into densities and optical coefficients | `components`, `density`, `upper_air`, `spectral`, `ozone_temperature`, `minor_absorbers`, `rayleigh`, `air_wavelength`, `tropo_profile`, `tropo_mie`, `stratosphere`, `extinction` | foundation |
 | `rays` | spherical ray segments, quadrature points for incoming directions and column amounts | `shell_segments`, `incoming_quadrature`, `incoming_rings`, `zenith_interpolation`, `ray_columns`, `column_table` | foundation, atmosphere |
 | `precompute` | reusable CPU-prepared arrays and their caches | `host_cache`, `column_cache`, `column_parallel`, `sun_parallel`, `ground_parallel`, `endpoint_contract` | foundation through rays |
 | `backends` | one transport evaluation (NumPy, CUDA, native), arithmetic, spherical-harmonic (SH) layout, compile rules | `numpy_reference`, `arithmetic`, `sh_layout`, `flags`, `flags_env`, `device_profile`, `compile_cache`, `kernel.cu`, `native/`, `configs/` | foundation through precompute |
@@ -37,7 +37,7 @@ A module may import only from its own layer and from the layers listed in the `M
 | `outputs` | turn the converged field into a table, previews and a pack | `radiance_table`, `quantized_table`, `pack_state`, `preview_functions` | foundation through solve |
 | `jobs` | run one state or many, with caches, queues and records | `run_state`, `pipeline`, `pipeline_execution`, `plan_queue`, `tables_from_sources`, `precompile`, `cache_store`, `walkthrough` | foundation through outputs |
 | `checks` | check calculations, records and test inputs | `gate`, `validate`, `validation_evidence`, `numerical_checks`, `solver_diagnostics`, `kernel_diagnostics`, `stratosphere_checks`, `testkit`, `gate_data/`, `fixtures/` | foundation through jobs |
-| `asset_tools` | build data assets from source data | `generate_density_profile`, `generate_minor_absorbers`, `generate_strato_optics`, `generate_tropo_optics`, `mie`, `iprt`, `prepare_minor_absorbers`, `strato_states` | all of them |
+| `asset_tools` | build data assets from source data | `generate_density_profile`, `generate_upper_air`, `generate_minor_absorbers`, `generate_strato_optics`, `generate_tropo_optics`, `mie`, `iprt`, `prepare_minor_absorbers`, `strato_states` | all of them |
 
 Each folder groups modules by their main duty, though some modules combine two roles and some functions are long. For
 example, `solve/source_solver.py` defines both `Kernel` for CUDA launch planning and `Solver` for the iteration, while

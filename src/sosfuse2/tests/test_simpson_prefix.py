@@ -328,11 +328,6 @@ def old_inline_profile(h, c):
     return prof
 
 
-def errors(a, b):
-    m = np.isfinite(a) & np.isfinite(b)
-    return np.abs(np.asarray(a, 'f8')[m] - np.asarray(b, 'f8')[m]), np.abs(np.asarray(b, 'f8')[m])
-
-
 # ------------------------------------------------------------------------------------------------ tests
 
 
@@ -405,19 +400,23 @@ def test_component_prefix(comp, kind, nq):
     rn, re_ = simpson64(g, c)
     # degenerate segment: no change of tau across it
     assert np.array_equal(ends[0, 1], ends[0, 0])
-    assert np.isfinite(nodes[np.isfinite(nodes)]).all() and np.all(np.diff(ends, axis=1) >= -1e-6 * np.abs(ends[:, 1:]))
+    valid = np.diff(g['edges'], axis=1) > 1e-8
+    assert np.isfinite(nodes[valid]).all() and np.isfinite(ends).all()
+    assert np.all(np.diff(ends, axis=1) >= -1e-6 * np.abs(ends[:, 1:]))
+
+    def values(node_values, end_values):
+        return np.concatenate([node_values[valid].ravel(), end_values.ravel()])
+
     # (a) implementation == rule: FP64 replica of the same panels, FP32 rounding only
-    d, r = errors(np.concatenate([nodes.ravel(), ends.ravel()]), np.concatenate([rn.ravel(), re_.ravel()]))
+    got, replica = values(nodes, ends), values(rn, re_)
+    d, r = np.abs(got - replica), np.abs(replica)
     assert np.all(d <= 3e-6 * r + 1e-9), (d.max(), (d / np.maximum(r, 1e-30)).max())
-    # (b) rule vs truth, elementwise: nodes [n, nseg, nq, W] then segment ends [n, nseg, W]
-    got = np.concatenate([nodes.reshape(-1), ends.reshape(-1)])
-    want = np.concatenate([tn.reshape(-1), te.reshape(-1)])
-    ok = np.isfinite(got)
-    da = np.abs(got[ok] - want[ok])
-    ra = np.abs(want[ok])
+    # (b) rule vs truth, elementwise
+    want = values(tn, te)
+    da = np.abs(got - want)
+    ra = np.abs(want)
     gn, ge = old_gl(g, c)
-    gg = np.concatenate([gn.reshape(-1), ge.reshape(-1)])
-    dg = np.abs(gg[ok] - want[ok])
+    dg = np.abs(values(gn, ge) - want)
     if kind == 'const':
         assert np.all(da <= 2e-6 * ra + 1e-9), (comp, kind, da.max())
         assert (
@@ -425,7 +424,7 @@ def test_component_prefix(comp, kind, nq):
         ).max() > 0.1  # the old rule is wrong at the nodes even for a constant beta (+156 %)
     elif kind == 'exp' and comp in (0, 1, 3):  # smooth: Simpson error bound (cumulative over panels)
         bound = simpson_bound(g, c, comp)
-        tb = np.concatenate([bound[:, :, :nq].reshape(-1), bound[:, :, nq].reshape(-1)])[ok]
+        tb = values(bound[:, :, :nq], bound[:, :, nq])
         assert np.all(da <= tb + 3e-6 * ra + 1e-9), (comp, kind, (da - tb).max())
         assert dg.max() > 30 * da.max()
     else:  # kinks inside panels (density table, ozone triangle, two-layer aerosol): O(l^2) panels, accepted risk (E1_REPORT)
