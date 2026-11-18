@@ -305,7 +305,7 @@ class KsplitMixin:
         return decision
 
     def ksplit_columns(self, bundle, s, field, phase, boundary):
-        """KSPLIT: the bundle's column records (kernel.cu SINV, 28 B/point, recorded once per state by a mode-1 pass) and
+        """KSPLIT: the bundle's column records (kernel.cu SINV, 24 B/point, recorded once per state by a mode-1 pass) and
         the chunk aerosol buffer shared by all bundles ([point][corner][w] FP32, SOSFUSE2_KSPLIT_AERO_MB, default 1024).
         SOSFUSE2_KSPLIT=2 (VPROD) sizes and allocates its own way (vprod_columns); KSPLIT=1 is unchanged."""
         kb = getattr(bundle, 'ksplit', None)
@@ -1080,7 +1080,7 @@ class KsplitMixin:
         )  # chunk-local [point][corner][AW], slot = point-base
         out['records'] = np.asarray(
             H(kb['buf'][16 + SINV_F * base : 16 + SINV_F * (base + npt)])
-        )  # this chunk's SINV_REC rows (7 floats/point); the whole bundle buffer is GBs
+        )  # this chunk's SINV_REC rows (6 floats/point); the whole bundle buffer is GBs
         out['hdr64'] = np.asarray(H(kb['hdr64']))
         out['pcum'] = np.asarray(kb['pcum'])
         out['co'] = np.asarray(kb['co'])

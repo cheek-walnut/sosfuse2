@@ -23,7 +23,7 @@ from ..foundation.content_identity import state_identity
 COMPONENTS = ('air', 'tropo_aerosol', 'o3', 'no2', 'o4')
 NCOMP = len(COMPONENTS)
 MOLECULAR_COLUMNS = (0, 2, 3, 4)
-SINV_F = 1 + NCOMP + 1  # path weight, separable columns, stratosphere
+SINV_F = NCOMP + 1  # separable columns followed by the stratosphere column
 
 LEGACY = dict(rayleigh='lambda4_v0', minor_absorbers='off')
 S1_REFERENCE = dict(rayleigh='lambda4_v0', components=list(COMPONENTS), minor_absorbers='off', fixture='s1_reference')

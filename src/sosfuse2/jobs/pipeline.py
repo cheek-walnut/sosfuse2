@@ -90,7 +90,7 @@ def auto_workers(states, threads, backend='numpy', persistent=False):
 VRAM_SHARE = 0.85  # of the GPU memory free at queue start; the rest for the context, LUTs and fragmentation
 # A KSPLIT state also holds its aerosol chunk buffers: the smallest option for the product grid is 5.07 GB (L4
 # 5 resident states on 22 GB left 3.83 GB, 35 of 39 failed E_KSPLIT_MEMORY while every state waited).
-# B2 SINV_F=7 stores 28 bytes per point; retain this reservation until the 4090 pilot measures it.
+# The per-state KSPLIT reservation includes 24 bytes per point for column records.
 KSPLIT_STATE_VRAM_GB = 5.1
 
 

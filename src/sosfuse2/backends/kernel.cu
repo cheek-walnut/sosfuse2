@@ -37,8 +37,8 @@
 #error E_SLIM_RAYS_REQUIRES_RAY_LIMIT
 #endif
 #define NOOUT_ON (PROD_ON || REC_ON)
-// Column records: ds, five component columns, then the stratospheric column.
-#define SINV_F (NCOMP + 2)
+// Column records: five component columns, then the stratospheric column.
+#define SINV_F (NCOMP + 1)
 // NVRTC, CUDA 12. FW is specialized to 1 or 15. Fast math and FMA contraction only through the
 // stage-1 options (source_solver.Kernel: --fmad, --prec-div/--prec-sqrt and SOSFUSE2_FASTMATH
 // below); the default build has neither. One destination cell (and optional spectral tile)/block,
@@ -766,23 +766,25 @@ point(Record &s, const Coord *p, const Coord *d, const float *B, const float *dl
     }
 }
 
-// KSPLIT=3 consumer: mode-2 SLIM reads only T, sw, cell and ir of a sample, so the batch keeps this
-// 112 B record and point_m2 evaluates exactly point()'s expressions for those fields (nothing
-// else). 16-byte aligned (112 B) so the step loop reads T, sw and cell as 128-bit shared loads
-// (slimray is LSU-issue-bound).
+// Compact batched sample for the KSPLIT=3 consumer. Alignment lets the step loop read T, sw
+// and cell as 128-bit shared loads.
 struct __align__(16) PointM2 {
     float T[16], sw[4];
     int cell[4], ir;
-    float h;
+    float h, ds;
 };
+static_assert(sizeof(PointM2) == 112, "E_POINTM2_LAYOUT");
 // Coord/Scalar as point(): PATH_DS passes the ray's DS p/d, the segment-end DS and the lane's node
 // DS.
 template <class Coord, class Scalar>
 __device__ POINT_INLINE void point_m2(PointM2 &s, const Coord *p, const Coord *d, const float *B,
                                       const float *dl, Scalar a, Scalar b, bool lower, Scalar gu,
-                                      const float *hgrid, int nh, const float *chi, int nc) {
-    DS ad = ds(a), bd = ds(b), length = dx(bd, ad), u = ds(gu), v = lower ? u : dx({1, 0}, u);
+                                      Scalar gw, const float *hgrid, int nh, const float *chi,
+                                      int nc) {
+    DS ad = ds(a), bd = ds(b), length = dx(bd, ad), u = ds(gu), wu = ds(gw),
+       v = lower ? u : dx({1, 0}, u);
     DS t = path_t(ad, bd, length, u, v, lower);
+    s.ds = dv(dm(dm(length, v), wu)) * 2.f;
     DS q[3], q2[3];
     DS rr = path_q(p, d, t, q, q2), xy = dr(da(q2[0], q2[1]));
     const float sh = path_h(rr);
@@ -933,7 +935,7 @@ evaluate_point(Record &s, const Coord *p, const Coord *d, const float *B, const 
                const float *chi, int nc, const ProfileParams &profile, const float *sun_h, int nsh,
                const float *sun_col, int nsx, bool first, const float *st_sun_col = nullptr) {
     if constexpr (TransportPolicy::slim_rays && TransportPolicy::batched_points)
-        point_m2(s, p, d, B, dl, a, b, lower, u, h, nh, chi, nc);
+        point_m2(s, p, d, B, dl, a, b, lower, u, w, h, nh, chi, nc);
     else
         point(s, p, d, B, dl, st, a, b, lower, u, w, h, nh, chi, nc, profile, sun_h, nsh, sun_col,
               nsx, first, st_sun_col);
@@ -2097,7 +2099,7 @@ template <class Record> struct Transport : TransportInputs {
                                                      int64_t ray, uint32_t seg, int step,
                                                      PathScalar seg_a, PathScalar seg_b, bool low,
                                                      const NodeWeights &node,
-                                                     const SampleLane &ownership) {
+                                                     const SampleLane &ownership, float sample_ds) {
         Record &s = samples[warp];
         if (ownership.active && !PROD_ON) {
             int w = ownership.wave;
@@ -2139,16 +2141,14 @@ template <class Record> struct Transport : TransportInputs {
                 }
                 float mid = (r.tau_lane - r.tc_lane) + r.sp_acc;
                 if constexpr (TransportPolicy::warm) {
-                    float lane_att = s.ds * expf(-mid);
+                    float lane_att = sample_ds * expf(-mid);
                     if constexpr (TransportPolicy::column_records) {
                         // mode 1 uses unit-basis extinction tables: five separable columns
                         // and a separate stratosphere column.
                         if (sinv_mode == 1) {
                             float *record = column_record(seg, ray, step);
                             if (w < NCOMP + 1)
-                                record[1 + w] = mid;
-                            if (w == 0)
-                                record[0] = s.ds;
+                                record[w] = mid;
                             // KSPLIT=2 (VPROD): vp_records points to the per-point (c0, cp
                             // bits) int2 records (device memory, or mapped pinned host
                             // memory when the device cannot hold them), bundle-global like
@@ -2168,11 +2168,11 @@ template <class Record> struct Transport : TransportInputs {
                             float tq = 0.f;
                             for (int k = 0; k < NCOMP; ++k)
                                 tq +=
-                                    record[1 + k] *
+                                    record[k] *
                                     (TransportPolicy::preload ? r.ray_ext[k] : ext[k * FW + GW(w)]);
-                            tq += record[NCOMP + 1] *
+                            tq += record[NCOMP] *
                                   (TransportPolicy::preload ? r.ray_st_ext : st_ext[GW(w)]);
-                            lane_att = record[0] * expf(-tq);
+                            lane_att = sample_ds * expf(-tq);
                         }
                     }
 #pragma unroll
@@ -2237,7 +2237,8 @@ template <class Record> struct Transport : TransportInputs {
         SECTION_END(3)
         SECTION_SYNC(__syncwarp());
         SECTION_BEGIN()
-        attenuate_sample(r, scratch, ray, seg, step, seg_a, seg_b, low, node, ownership);
+        attenuate_sample(r, scratch, ray, seg, step, seg_a, seg_b, low, node, ownership,
+                         view.sample.ds);
         SECTION_END(4)
         if constexpr (!TransportPolicy::warm) {
             SECTION_SYNC(__syncwarp());
