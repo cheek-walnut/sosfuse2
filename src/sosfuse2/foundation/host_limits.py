@@ -119,13 +119,25 @@ def over_budget_text(peak, budget):
 
 def ksplit_fallback_warning(decision, state=None):
     """One warning line for a KSPLIT fallback record (requested, effective, peak, budget, reason)."""
-    return 'WARNING KSPLIT fallback%s: requested %s -> %s, %s, %s' % (
+    warning = 'WARNING KSPLIT fallback%s: requested %s -> %s, %s, %s' % (
         '' if state is None else f' in state {state}',
         decision.get('requested'),
         decision.get('effective'),
         over_budget_text(decision.get('peak'), decision.get('budget')),
         decision.get('reason'),
     )
+    items = decision.get('items')
+    if not isinstance(items, dict):
+        return warning
+    costs = []
+    for group in ('peak', 'reserve'):
+        counts = items.get(group)
+        if isinstance(counts, dict):
+            costs.extend((size, f'{group}.{name}') for name, size in counts.items() if type(size) is int and size > 0)
+    if costs:
+        largest = sorted(costs, key=lambda pair: (-pair[0], pair[1]))[:2]
+        warning += ', largest: ' + ', '.join(f'{label}={size:,} B' for size, label in largest)
+    return warning
 
 
 def default_workers():

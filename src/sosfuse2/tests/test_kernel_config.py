@@ -160,7 +160,7 @@ def test_installed_transport_layout(tmp_path, monkeypatch, waves, planes, parts,
     assert k.raw_kernel.call_args.args[0] == k._W == waves
     assert k.ksplit == bool(mode)
     if waves == 1:
-        assert k.ksplit_preflight(restored, []) == dict(requested=0, effective=0, reason='fw1')
+        assert k.ksplit_preflight(restored, []) == dict(requested=0, effective=0, reason='fw1', items=dict(peak={}, reserve={}))
         k.launch(geometry.bundle, restored, field, phase=1)
 
 
@@ -204,7 +204,7 @@ def test_ksplit_zero_records_reason_without_fallback(monkeypatch, capsys, recwar
     solver = Solver(state, SimpleNamespace(evaluate=first_light), prepared=True)
     solver.initialize()
     decision = solver.timings['ksplit']
-    assert decision == state.ksplit_decision == dict(requested=0, effective=0, reason='numpy')
+    assert decision == state.ksplit_decision == dict(requested=0, effective=0, reason='numpy', items=dict(peak={}, reserve={}))
     assert kernel.ksplit_preflight(state, []) == decision
     assert capsys.readouterr() == ('', '')
     assert not recwarn

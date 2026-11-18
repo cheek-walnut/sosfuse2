@@ -3,6 +3,7 @@ producer and its plan, the slimray consumer, the chunk projection and the VERIFY
 methods from KsplitMixin; they use the shared Kernel members (raw_kernel, timed_launch, next_chunk_end, device state)
 through self. Moved verbatim from fused.py; source_solver re-exports the module constants below."""
 
+import itertools
 import json
 import os
 import sys
@@ -11,8 +12,10 @@ import time
 import numpy as np
 
 from ..atmosphere.components import allocate_column_records, column_record_bytes, column_record_chunk
+from ..backends import vram_budget
 from ..backends.flags import KSPLIT_VARIANTS
 from ..backends.sh_layout import source_size
+from ..backends.vram_budget import aero_w, VPROD_STORE_BPP  # noqa: F401 (source_solver re-exports both names)
 from ..foundation.timers import stage
 from .ksplit_tolerance import compare_chunks, compare_tol, log_summary, tolerances
 
@@ -30,16 +33,9 @@ VPROD_ORDER = (
 VPROD_THREADS = 128
 
 
-def aero_w(W):
-    """Aerosol record row stride (floats): W padded to a multiple of 4 (kernel.cu AERO_W; 16 for FW 15). VPROD stores one float4 per
-    thread, the consumer reads lanes < W; the pad lane is never read (measured 2.6x on a 5090)."""
-    return ((W + 3) // 4) * 4
-
-
 VPROD_SENTINEL = 0xFFFFFFFF  # SOSFUSE2_KSPLIT_VERIFY: unwritten aerosol words before each producer
 VPROD_VERIFY_STAGE = 16 << 20  # floats per device compare piece (64 MB)
 VPROD_VERIFY_WINDOW = 512 << 20  # bytes of aerosol words per verify window (pinned host snapshot; cells are not split)
-VPROD_STORE_BPP = 28  # stored plan estimate, B/point (measured 25.4 and 26.1 on two cards; vprod_budget)
 VPROD_COUNT_BLOCKS = 1024  # counting-sort blocks per plan (segment >= 4096 records; vprod_build_plan)
 VPROD_COUNT_SHARED = 48 << 10  # its per-block cell counters (4 B/cell) must fit the default dynamic shared limit
 VPROD_PLAN_SRC = r'''
@@ -171,7 +167,9 @@ class KsplitMixin:
                 return previous
         requested = self.ksplit_mode
         if not requested:
-            s.ksplit_decision = dict(requested=0, effective=0, reason=self._ksplit_zero_reason)
+            s.ksplit_decision = dict(
+                requested=0, effective=0, reason=getattr(self, '_ksplit_zero_reason', None), items=dict(peak={}, reserve={})
+            )
             return s.ksplit_decision
         flag = os.environ.get('SOSFUSE2_KSPLIT_FALLBACK', '1')
         if flag not in ('0', '1'):
@@ -180,56 +178,56 @@ class KsplitMixin:
         nh, nc = len(s.geo.h), len(s.geo.chi)
         field_bytes = nh * nc * source_size(s) * W * 4
         text = os.environ.get('SOSFUSE2_KSPLIT_AERO_MB', '').strip()
-        cap = max(1, int(float(text) * 2**20) // (4 * aero_w(W) * 4)) if text else None
+        cap = vram_budget.aerosol_cap(text, W) if text else None
         rows = []
         for bundle, phase in bundles:
             co = np.asarray(self.host(bundle.arrays['cell_off']), 'i8')
             pcum = (np.asarray(self.host(bundle.arrays['edge_off'][bundle.arrays['cell_off']]), 'i8') - co) * bundle.nq
             points = int(pcum[-1])
-            column = column_record_bytes(points)
             S = 2 if self.config().c3_fw15 else 1
-            fixed = (
-                column + (S * bundle.cells * (4 + self.K) * W * 8 if phase == 0 else 0) + 5 * nh * nc * self.K * W * 4
-            )
-            rows.append(dict(bundle=bundle, co=co, pcum=pcum, points=points, column=column, fixed=fixed))
+            fixed = vram_budget.bundle_fixed_items(column_record_bytes(points), bundle.cells, phase, S, nh * nc, self.K, W)
+            rows.append(dict(bundle=bundle, co=co, pcum=pcum, points=points, fixed=fixed))
         while True:
             live = self.ksplit_memory()
             solo = live + int(getattr(self, 'ksplit_other_bytes', lambda: 0)())
+            reserve = vram_budget.ksplit_reserve(requested, solo, field_bytes)
+            budget = solo - reserve.total()
+            live_budget = live - vram_budget.ksplit_reserve(requested, live, field_bytes).total()
             if requested == 1:
-                peak = (
-                    sum(r['column'] for r in rows)
-                    + (cap or max(1, (1024 << 20) // (4 * aero_w(W) * 4))) * 4 * aero_w(W) * 4
-                )
-                budget = int(0.9 * solo)
-                live_budget = int(0.9 * live)
+                minimum = vram_budget.split_peak_items(rows, cap or vram_budget.aerosol_cap(1024, W), W)
             else:
                 # Enumerate the same stored/rebuilt and device/host options as
                 # vprod_budget. Retained records from OTHER bundles are live too.
-                import itertools
-
                 choices = []
                 for row in rows:
                     result = self.vprod_budget(
-                        row['co'], row['pcum'], row['points'], W, row['fixed'], solo, field_bytes, cap, minimum=True
+                        row['co'],
+                        row['pcum'],
+                        row['points'],
+                        W,
+                        row['fixed'].total(),
+                        solo,
+                        field_bytes,
+                        cap,
+                        minimum=True,
                     )
                     if result.get('error'):
                         raise MemoryError('E_KSPLIT_MEMORY: ' + result['error'])
                     choices.append(result['options'])
 
-                def state_peak(combo):
-                    held = [row['column'] + r['records_bytes'] + r['store_bytes'] for row, r in zip(rows, combo)]
-                    return sum(held) + max(r['peak'] - h for r, h in zip(combo, held))
-
-                combinations = list(itertools.product(*choices))
-                peak = min(map(state_peak, combinations))
-                budget = solo - 16 * field_bytes - max(256 << 20, int(0.03 * solo))
-                live_budget = live - 16 * field_bytes - max(256 << 20, int(0.03 * live))
+                combinations = [
+                    (combo, vram_budget.state_peak_items(rows, combo)) for combo in itertools.product(*choices)
+                ]
+                minimum = min((items for _, items in combinations), key=lambda items: items.total())
+            peak = minimum.total()
             decision = dict(
                 requested=requested,
                 effective=requested,
                 peak=int(peak),
                 budget=int(budget),
                 free=int(live),
+                solo_free=int(solo),
+                items=dict(peak=dict(minimum), reserve=dict(reserve)),
                 points=sum(r['points'] for r in rows),
                 reason='fits',
             )
@@ -247,7 +245,7 @@ class KsplitMixin:
                 if requested >= 2:
                     # Preserve vprod_budget's preference order, but size BOTH
                     # bundles together: the first cannot spend the second's room.
-                    plans = list(next(c for c in combinations if state_peak(c) <= live_budget))
+                    plans = list(next(c for c, items in combinations if items.total() <= live_budget))
                     for i, row in enumerate(rows):
                         lo, hi = plans[i]['cap'], max(plans[i]['cap'], row['points'])
                         if cap is not None:
@@ -259,7 +257,7 @@ class KsplitMixin:
                                 row['pcum'],
                                 row['points'],
                                 W,
-                                row['fixed'],
+                                row['fixed'].total(),
                                 live,
                                 field_bytes,
                                 cap,
@@ -267,7 +265,7 @@ class KsplitMixin:
                             )
                             trial = list(plans)
                             trial[i] = candidate
-                            if state_peak(trial) <= live_budget:
+                            if vram_budget.state_peak_items(rows, trial).total() <= live_budget:
                                 lo = mid
                                 plans = trial
                             else:
@@ -277,7 +275,10 @@ class KsplitMixin:
                         # global estimate. Existing overflow handling rebuilds it.
                         plan['store_allowed'] = plan['store_bytes']
                         row['bundle']._ksplit_plan = (id(s), plan)
-                    self.ksplit_planned_bytes = state_peak(plans)
+                    planned = vram_budget.state_peak_items(rows, plans)
+                    self.ksplit_planned_bytes = planned.total()
+                    decision['items']['planned_peak'] = dict(planned)
+                    decision['planned_peak'] = self.ksplit_planned_bytes
                 else:
                     self.ksplit_planned_bytes = peak
                 hold = getattr(self, 'ksplit_hold', None)
@@ -326,10 +327,10 @@ class KsplitMixin:
         points = int(pcum[-1])
         text = os.environ.get('SOSFUSE2_KSPLIT_AERO_MB', '').strip() or '1024'
         AW = aero_w(W)
-        cap_points = max(1, int(float(text) * 2**20) // (4 * AW * 4))
+        cap_points = vram_budget.aerosol_cap(text, W)
         aero = self.__dict__.get('ksplit_aero')
         need = column_record_bytes(points) + (
-            0 if aero is not None and aero.size >= cap_points * 4 * AW else cap_points * 4 * AW * 4
+            0 if aero is not None and aero.size >= cap_points * 4 * AW else vram_budget.aerosol_bytes(cap_points, W)
         )
         pool = xp.get_default_memory_pool()
         free = int(xp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
@@ -390,13 +391,9 @@ class KsplitMixin:
         S = 2 if self.config().c3_fw15 else 1
         # launch() arrays after this point: moments and CELL_SPLIT scratch (phase 0), the combined SH sidecar and its FP32
         # build temporaries (sh_layout.combined_aux, about 4 planes of [nh*nc][K][W])
-        fixed = (
-            column_record_bytes(points)
-            + (S * bundle.cells * (4 + K) * W * 8 if phase == 0 else 0)
-            + 5 * nh * nc * K * W * 4
-        )
+        fixed = vram_budget.bundle_fixed_items(column_record_bytes(points), bundle.cells, phase, S, nh * nc, K, W)
         text = os.environ.get('SOSFUSE2_KSPLIT_AERO_MB', '').strip()
-        env_cap = max(1, int(float(text) * 2**20) // (4 * aero_w(W) * 4)) if text else None
+        env_cap = vram_budget.aerosol_cap(text, W) if text else None
         hold = getattr(self, 'ksplit_hold', None)
         others = self.__dict__.setdefault('_ksplit_held', {})
         others.pop(id(bundle), None)
@@ -420,7 +417,9 @@ class KsplitMixin:
             bud = (
                 dict(planned[1])
                 if planned is not None and planned[0] == id(s)
-                else self.vprod_budget(co, pcum, points, W, fixed, free, nh * nc * source_size(s) * W * 4, env_cap)
+                else self.vprod_budget(
+                    co, pcum, points, W, fixed.total(), free, nh * nc * source_size(s) * W * 4, env_cap
+                )
             )
             # too little room beside the other resident states: wait until one releases memory (not while all of them wait)
             if not (bud.get('error') and room is not None and self.ksplit_wait()):
@@ -566,13 +565,12 @@ class KsplitMixin:
         (measured 25.1-26.1: slot 4/record, visitor 8, block 12); build workspace 21 B/record + 4 B/point (live bound;
         pool 94 B/point incl. 8 B/point inputs); y K*4 B/ray. Stored mode needs a cap >= points/64 (at most 64 chunks);
         SOSFUSE2_KSPLIT_AERO_MB fixes the cap."""
-        reserve = 16 * field_bytes + max(256 << 20, int(0.03 * free))
+        mode = getattr(self, 'ksplit_mode', 2)
+        reserve = vram_budget.ksplit_reserve(2, free, field_bytes).total()
         B = free - reserve
         K = self.K
         ncell = len(pcum) - 1
         lc = int(np.diff(pcum).max()) if ncell else 1
-        stage = VPROD_VERIFY_STAGE * 4 if self.ksplit_verify else 0
-        mode = getattr(self, 'ksplit_mode', 2)
 
         def partition(cap):
             chunks = []
@@ -591,30 +589,20 @@ class KsplitMixin:
                 return None
             pmax = max(int(pcum[b] - pcum[a]) for a, b in chunks)
             rmax = max(int(co[b] - co[a]) for a, b in chunks)
-            ws = 21 * 4 * pmax + 4 * pmax + (1 << 20)
-            y = rmax * K * 4
-            rec = 8 * points if resident == 'device' else 8 * pmax
-            st = VPROD_STORE_BPP * points if store else 0
-            run = fixed + rec + st + 4 * aero_w(W) * 4 * pmax + y + stage + (0 if store else ws)
-            if mode == 3:  # chunk ray radiances [ray][4W] FP32 (+ the VERIFY ray dump)
-                run += 4 * W * 4 * rmax * (2 if self.ksplit_verify else 1)
-            build = fixed + rec + st + ws
+            cost = vram_budget.vprod_option(
+                fixed, points, pmax, rmax, W, K, mode, store, resident, self.ksplit_verify, VPROD_VERIFY_STAGE * 4
+            )
             return dict(
-                peak=max(run, build) if store else run,
+                **cost,
                 chunks=chunks,
                 pmax=pmax,
                 rmax=rmax,
-                workspace=ws,
-                y_bytes=y,
-                records_bytes=rec,
-                store_bytes=st,
-                run=run,
                 cap=cap,
                 store=store,
                 resident=resident,
                 budget=int(B),
                 reserve=int(reserve),
-                store_allowed=st,
+                store_allowed=cost['store_bytes'],
             )
 
         if option is not None:

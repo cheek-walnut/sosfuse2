@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import traceback
+from sosfuse2.backends.vram_budget import KSPLIT_STATE_VRAM_GB
 from sosfuse2.foundation import paths
 from sosfuse2.foundation.top import NORMALIZATION_TOP_KM
 from sosfuse2.foundation.host_limits import (
@@ -98,10 +99,6 @@ def auto_workers(states, threads, backend='numpy', persistent=False):
 
 
 VRAM_SHARE = 0.85  # of the GPU memory free at queue start; the rest for the context, LUTs and fragmentation
-# A KSPLIT state also holds its aerosol chunk buffers: the smallest option for the product grid is 5.07 GB (L4
-# 5 resident states on 22 GB left 3.83 GB, 35 of 39 failed E_KSPLIT_MEMORY while every state waited).
-# The per-state KSPLIT reservation includes 24 bytes per point for column records.
-KSPLIT_STATE_VRAM_GB = 5.1
 
 
 def gpu_memory():

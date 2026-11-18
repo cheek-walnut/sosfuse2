@@ -123,6 +123,7 @@ PRODUCTION_MODULES = (
     'atmosphere/components',
     'atmosphere/density',
     'backends/device_profile',
+    'backends/vram_budget',
     'backends/vram_trace',
     'solve/source_solver',
     'checks/gate',

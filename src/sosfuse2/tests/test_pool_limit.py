@@ -63,6 +63,8 @@ class PoolLimit(unittest.TestCase):
         source = (paths.PKG / 'jobs/pipeline_execution.py').read_text()
         self.assertNotIn('30 * field_bytes', source)
         self.assertIn('reserved_field_bytes(field_bytes, requested)', source)
+        self.assertIn('admission_items(', source)
+        self.assertIn('reserved_field_bytes(field_bytes)', (paths.PKG / 'backends/vram_budget.py').read_text())
 
     def test_field_reserve_bounds(self):
         for raw, expected in [

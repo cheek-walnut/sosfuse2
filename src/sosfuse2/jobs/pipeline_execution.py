@@ -12,9 +12,8 @@ import time
 import traceback
 from pathlib import Path
 from ..backends import vram_trace
+from ..backends.vram_budget import admission_items
 from ..foundation import content_identity, paths
-
-KSPLIT_STATE_VRAM_GB = 5.1  # = pipeline.KSPLIT_STATE_VRAM_GB (the controller stays import-free of this module)
 
 
 class GpuToken:
@@ -699,10 +698,9 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 and backend == 'cupy'  # one resident state keeps sizing from free VRAM as before
                 and ksplit_setting(backend, payload['flags'], payload['L']) in ('1', '2', '3')
             )
-            # Admit a KSPLIT state only with room for its smallest aerosol option too, and keep that floor reserved: base
-            # reservations alone let two states in whose KSPLIT then fit beside neither (L4: base 7.64 GB each,
-            # 4.7 GB left < 5.07 GB minimum, both waited, E_KSPLIT_MEMORY; pipeline.KSPLIT_STATE_VRAM_GB).
-            floor = int(KSPLIT_STATE_VRAM_GB * 1e9) if ksplit else 0
+            # Items at the requested reserve. A lone state admitted with a reduced reserve records its own field bytes below.
+            items = admission_items(state, payload_bytes, ksplit)
+            floor = items['ksplit_floor']
             with gate:
                 while True:
                     if not reservations and token.file is None:
@@ -731,17 +729,30 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                         free, _ = xp.cuda.runtime.memGetInfo()
                         capacity = min(pool_limit, int(free) + pool.total_bytes() - 1024**3)
                         available = capacity - sum(reservations.values())
-                    required, admission = _admission_reservation(
-                        payload_bytes, field_bytes, requested, minimum, available, floor, alone=not reservations
-                    )
+                    try:
+                        required, admission = _admission_reservation(
+                            payload_bytes, field_bytes, requested, minimum, available, floor, alone=not reservations
+                        )
+                    except RuntimeError:
+                        emit(
+                            name,
+                            'vram_rejected',
+                            base_bytes=items.total() - floor,
+                            reserved_bytes=items.total(),
+                            available_bytes=available,
+                            items=items,
+                        )
+                        raise
                     if len(reservations) < active_limit and admission is not None:
                         break
-                    emit(name, 'vram_wait', required_bytes=required + floor, available_bytes=available)
+                    emit(name, 'vram_wait', required_bytes=required + floor, available_bytes=available, items=items)
                     gate.wait(0.1)
-                reservations[name] = required + floor
+                items['source_fields'] = required - payload_bytes
+                reserved = required + floor
+                reservations[name] = reserved
                 admitted = True
                 start = time.monotonic()
-                emit(name, 'gpu_acquired', reserved_bytes=required + floor, **admission)
+                emit(name, 'gpu_acquired', reserved_bytes=reserved, items=items, **admission)
                 kernel = Kernel(
                     threads,
                     payload['height'],
@@ -874,6 +885,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
 
                 solver = ServiceSolver(s, geometry, prepared=True, observer=observer)
                 solver.timings.update(admission)
+                solver.timings['vram_admission'] = dict(reserved_bytes=reserved, items=dict(items))
                 solve_start = time.monotonic()
                 field, stats = solver.solve(max_eval, ANDERSON_TOLERANCE)
                 end()
