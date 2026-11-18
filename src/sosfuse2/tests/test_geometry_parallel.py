@@ -123,7 +123,7 @@ class GeometryParallelTests(unittest.TestCase):
             g.packed().build(self.s.geo.ns, lambda i: g.cached_cell(i))
         events = [json.loads(line) for line in log.getvalue().splitlines()]
         self.assertEqual([(e['phase'], e['result']) for e in events], [('geometry_parallel', 'fallback')])
-        self.assertTrue(events[0]['reason'].startswith('E_GEOMETRY_CALLBACK:'))
+        self.assertEqual(events[0]['reason'], 'callback is not ResidentGeometry.cached_cell')
         self.assert_same(g)
 
     def test_mixed_legacy_statistics_and_bytes(self):

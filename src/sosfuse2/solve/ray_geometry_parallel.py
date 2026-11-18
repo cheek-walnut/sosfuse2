@@ -112,13 +112,13 @@ class PackedCache(SerialPackedCache):
             not isinstance(g, ResidentGeometry)
             or getattr(cell_arrays, '__func__', None) is not ResidentGeometry.cached_cell
         ):
-            _event('fallback', 1, 0, 'E_GEOMETRY_CALLBACK: expected ResidentGeometry.cached_cell', started)
+            _event('fallback', 1, 0, 'callback is not ResidentGeometry.cached_cell', started)
             return super().build(ncell, cell_arrays, progress)
         requested = workers()
         count = min(requested, ncell)
         if count <= 1:
             if requested > 1:
-                _event('fallback', 1, 0, 'E_GEOMETRY_CELL_COUNT: fewer than two cells', started)
+                _event('fallback', 1, 0, 'fewer than two cells', started)
             return super().build(ncell, cell_arrays, progress)
         completed = 0
         try:
