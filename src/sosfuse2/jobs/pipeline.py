@@ -20,7 +20,13 @@ import time
 import traceback
 from sosfuse2.foundation import paths
 from sosfuse2.foundation.top import NORMALIZATION_TOP_KM
-from sosfuse2.foundation.host_limits import RIG_MIN_RAM_GB, default_rss_gb, default_workers, physical_ram_gb, rss_cap_gb
+from sosfuse2.foundation.host_limits import (
+    default_rss_gb,
+    default_workers,
+    physical_ram_gb,
+    rss_cap_gb,
+    small_host,
+)
 
 THREAD_ENV = (
     'OMP_NUM_THREADS',
@@ -75,12 +81,12 @@ def auto_workers(states, threads, backend='numpy', persistent=False):
     """States prepared at once when --workers is not given: as many as the cores read right now allow with
     [CORES_LEFT_FREE] kept back, never more than the states or than [RAM_SHARE] of the RAM holds. A state's CPU
     preparation is single-threaded, so the cores are filled with states, not with threads (8 threads on one
-    state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). Non-Linux and memory-protected hosts keep 2."""
+    state at a time used 1.08 of 64 cores and left the GPU idle 43 % of the queue). Non-Linux hosts and hosts under 48 GB RAM keep 2."""
     if backend == 'cupy':
         slot = slot_workers(states, persistent)
         if slot is not None:
             return max(1, min(slot, cpu_budget() // threads))
-    if rss_cap_gb() < RIG_MIN_RAM_GB:  # non-Linux, memory-protected hosts and the mid-size VMs keep 2
+    if small_host():  # non-Linux hosts and Linux hosts under 48 GB keep 2
         return max(1, min(states, 2, cpu_budget() // threads))
     by_cores = max(1, (cpu_budget() - CORES_LEFT_FREE) // threads)
     by_ram = max(1, int(physical_ram_gb() * RAM_SHARE // WORKER_RSS_GB))

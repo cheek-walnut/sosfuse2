@@ -1,13 +1,15 @@
 """Host-dependent resource ceilings (stdlib only).
 
-The default RSS ceiling is 6 GB. Linux hosts without a protection marker use
-RAM-dependent ceilings above 24 GB; hosts with at least 48 GB use at most 128 GB.
+The RSS ceiling is 6 GB on a non-Linux host and on a host of unknown size. A Linux host uses a RAM-dependent
+ceiling: 0.8 x RAM below 24 GB, 0.75 x RAM from 24 GB, and at most 128 GB from 48 GB. SOSFUSE2_RSS_GB replaces the
+host rule: it is both the ceiling and the per-process default.
 default_workers (usable CPUs: affinity and cgroup-v2 cpu.max) moved here from column_parallel.py so the stdlib-only
 pipeline controller can size the per-state process pools with the same rule the children use.
 monitor (the RSS watchdog thread of the runners) moved here from checks/solver_diagnostics.py so the runners in jobs/ do
 not import a diagnostics module.
 """
 
+import math
 import os
 import sys
 import time
@@ -18,7 +20,9 @@ RIG_RSS_GB = 128.0
 RIG_MIN_RAM_GB = 48.0
 MID_MIN_RAM_GB = 24.0
 MID_RAM_SHARE = 0.75  # mid-size host: the OS and the controller keep a quarter
+SMALL_RAM_SHARE = 0.8  # small host (under 24 GB): one state process at a time, the rest stays with the OS
 DEFAULT_RAM_SHARE = 0.8  # all per-process defaults together stay within this share of the RAM
+RSS_ENV = 'SOSFUSE2_RSS_GB'  # explicit per-process RSS limit in GB; replaces the host rule
 
 
 def physical_ram_gb():
@@ -28,31 +32,50 @@ def physical_ram_gb():
         return 0.0
 
 
-PROTECTION_MARKERS = ('tools/gpu_guard', 'gpu_guard')  # current marker first, then the older home-relative marker
+def rss_override_gb():
+    """The SOSFUSE2_RSS_GB value, or None when it is unset or empty."""
+    text = os.environ.get(RSS_ENV, '').strip()
+    if not text:
+        return None
+    try:
+        value = float(text)
+    except ValueError:
+        value = math.nan
+    if not (math.isfinite(value) and value > 0):
+        raise ValueError(f'E_RSS_ENV: {RSS_ENV} must be a positive number of GB, got {text!r}')
+    return value
+
+
+def small_host():
+    """A non-Linux host or one with less than 48 GB RAM. Worker counts use this, not the RSS ceiling, so
+    SOSFUSE2_RSS_GB does not change them."""
+    return sys.platform != 'linux' or physical_ram_gb() < RIG_MIN_RAM_GB
 
 
 def rss_cap_gb():
-    """6 on a non-Linux host (macOS), on a host with a protection marker, and on any small/unknown host;
-    min(128, physical RAM) on a Linux host with at least 48 GB RAM; 0.75 x RAM on one with 24-48 GB."""
-    try:
-        markers = [Path.home() / marker for marker in PROTECTION_MARKERS]
-    except RuntimeError:
-        markers = []  # no home directory (container user without a passwd entry): no marker, never an error
-    if sys.platform != 'linux' or any(marker.exists() for marker in markers):
+    """SOSFUSE2_RSS_GB when set. Otherwise 6 on a non-Linux host (macOS) and on a host of unknown size; on Linux
+    min(128, physical RAM) with at least 48 GB RAM, 0.75 x RAM with 24-48 GB, and 0.8 x RAM below that."""
+    override = rss_override_gb()
+    if override is not None:
+        return override
+    if sys.platform != 'linux':
         return PROTECTED_RSS_GB
     ram = physical_ram_gb()
     if ram >= RIG_MIN_RAM_GB:
         return min(RIG_RSS_GB, ram)
-    return MID_RAM_SHARE * ram if ram >= MID_MIN_RAM_GB else PROTECTED_RSS_GB
+    if ram >= MID_MIN_RAM_GB:
+        return MID_RAM_SHARE * ram
+    return SMALL_RAM_SHARE * ram if ram > 0 else PROTECTED_RSS_GB
 
 
 def default_rss_gb(processes):
-    """Per-process --rss-gb when none is given: 6 on a protected host; elsewhere [DEFAULT_RAM_SHARE] of the RAM split
-    over the [processes] running at once (workers, plus the persistent service), at most the host cap. The limit is per
-    process, so the cap itself would let them together exceed the RAM. The floor of 6 (the old default) can still
-    exceed the share when many processes run; the CPU budget, not this, bounds their number."""
+    """Per-process --rss-gb when none is given: SOSFUSE2_RSS_GB when set (the caller then owns the sum over the
+    processes); 6 on a non-Linux host; elsewhere [DEFAULT_RAM_SHARE] of the RAM split over the [processes] running at
+    once (workers, plus the persistent service), at least 6 and at most the host cap. The limit is per process, so the
+    cap itself would let them together exceed the RAM. The floor of 6 can still exceed the share when many processes
+    run; the CPU budget, not this, bounds their number."""
     cap = rss_cap_gb()
-    if cap <= PROTECTED_RSS_GB:
+    if rss_override_gb() is not None or sys.platform != 'linux':
         return cap
     return min(cap, max(PROTECTED_RSS_GB, DEFAULT_RAM_SHARE * physical_ram_gb() / max(1, processes)))
 

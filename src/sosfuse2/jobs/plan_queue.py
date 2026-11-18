@@ -125,7 +125,7 @@ def resources(a, n_states):
     """States per GPU (W) and column workers per state (T) for the commands, each with its basis.
     The planner runs on the queue host, so the cores read here are the queue's."""
     from sosfuse2.jobs import pipeline
-    from sosfuse2.foundation.host_limits import RIG_MIN_RAM_GB, rss_cap_gb
+    from sosfuse2.foundation.host_limits import small_host
 
     try:
         from sosfuse2.foundation import available_cpus
@@ -146,12 +146,12 @@ def resources(a, n_states):
         )
     if a.column_workers is not None:
         threads, tbasis = a.column_workers, '--column-workers'
-    elif rss_cap_gb() < RIG_MIN_RAM_GB:
+    elif small_host():
         threads, tbasis = (
             1,
             (
-                'memory-protected host (host_limits.rss_cap_gb %g GB: non-Linux or a protection marker): the split slot PSS budget '
-                '(backends/configs/devices.json slot_pss_gb) does not count column worker processes' % rss_cap_gb()
+                'small host (host_limits.small_host: non-Linux or under 48 GB RAM): the split slot PSS budget '
+                '(backends/configs/devices.json slot_pss_gb) does not count column worker processes'
             ),
         )
     else:
@@ -210,7 +210,7 @@ def parser():
         '--column-workers',
         type=int,
         help='column worker processes per state (pipeline --threads); default from '
-        'the cores left per concurrent state, 1 on memory-protected hosts (non-Linux, protection marker)',
+        'the cores left per concurrent state, 1 on non-Linux hosts and under 48 GB RAM',
     )
     p.add_argument(
         '--cost-profile', type=lambda name: ALIASES.get(name, name), choices=sorted(COST_PROFILES), default='split'
