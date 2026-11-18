@@ -290,18 +290,13 @@ class KsplitMixin:
         self._ksplit_preflight_state = id(s)
         s.ksplit_decision = decision = previous or decision
         if decision['effective'] == 0:
-            from ..foundation.host_limits import over_budget_text
-
-            print(
-                'WARNING KSPLIT fallback: requested %d -> 0, %s, %s; the state runs without split records'
-                % (decision['requested'], over_budget_text(decision['peak'], decision['budget']), decision['reason']),
-                file=sys.stderr,
-                flush=True,
-            )
             emit = getattr(self, 'ksplit_emit', None)
             if emit is not None:
-                emit(decision)
+                emit(decision)  # the runner serializes its own output; the pipeline controller prints the warning
             else:
+                from ..foundation.host_limits import ksplit_fallback_warning
+
+                print(ksplit_fallback_warning(decision), file=sys.stderr, flush=True)
                 state_id = getattr(s, 'fuse_state', {}).get('id', 'UNKNOWN')
                 from ..precompute.column_parallel import event_fields
 

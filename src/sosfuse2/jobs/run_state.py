@@ -1067,7 +1067,14 @@ def run(a):
             s, scope = made[0]
             if ksplit_decision is not None:
                 s.ksplit_decision = ksplit_decision
-            s.kernel.ksplit_emit = lambda decision: phase(name, 'KSPLIT_FALLBACK', **decision)
+
+            def ksplit_fallback(decision):
+                from sosfuse2.foundation.host_limits import ksplit_fallback_warning
+
+                phase(name, 'KSPLIT_FALLBACK', **decision)
+                print(ksplit_fallback_warning(decision, name), file=sys.stderr, flush=True)
+
+            s.kernel.ksplit_emit = ksplit_fallback
             from sosfuse2.atmosphere.density import evidence as profile_evidence
 
             phase(

@@ -83,6 +83,17 @@ def test_environment_replaces_the_host_rule(linux_rig, monkeypatch):
             hl.rss_cap_gb()
 
 
+def test_over_budget_text_never_raises():
+    assert hl.over_budget_text(3_000_000_000, 2_000_000_000) == 'peak 3.00 GB > budget 2.00 GB (+50.0 %)'
+    assert hl.over_budget_text(3_000_000_000, 0) == 'peak 3.00 GB > budget 0.00 GB'
+    assert hl.over_budget_text(None, 'x') == "peak None > budget 'x'"
+    record = dict(requested=3, effective=0, peak=3_000_000_000, budget=2_000_000_000, reason='r')
+    assert hl.ksplit_fallback_warning(record, 'a') == (
+        'WARNING KSPLIT fallback in state a: requested 3 -> 0, peak 3.00 GB > budget 2.00 GB (+50.0 %), r'
+    )
+    assert hl.ksplit_fallback_warning({}).startswith('WARNING KSPLIT fallback: requested None -> None, peak None')
+
+
 def test_small_host_follows_platform_and_ram(linux_rig, monkeypatch):
     assert not hl.small_host()
     monkeypatch.setattr(hl, 'physical_ram_gb', lambda: 47.0)

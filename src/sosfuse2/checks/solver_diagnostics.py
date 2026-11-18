@@ -49,7 +49,7 @@ def parser():
     p.add_argument('--repeats', type=int, default=3)
     p.add_argument('--max-eval', type=int, default=16)
     p.add_argument('--tolerance', type=float, default=0.005)
-    p.add_argument('--rss-gb', type=float, default=6.0)
+    p.add_argument('--rss-gb', type=float, help='default and ceiling from host_limits (default_rss_gb, rss_cap_gb)')
     p.add_argument(
         '--fixed-boxes', action='store_true', help='A5: observer boxes via one fixed Bundle on the device source'
     )
@@ -215,8 +215,12 @@ def main():
     roots = [paths.work_root()]
     if not any(output == r or r in output.parents for r in roots):
         raise ValueError(f'E_OUTPUT_ROOT: work must be inside the work root {roots[0]}')
-    if not 0 < args.rss_gb <= 6:
-        raise ValueError('E_RSS_BUDGET: require 0<RSS<=6 GB')
+    from sosfuse2.foundation.host_limits import default_rss_gb, rss_cap_gb
+
+    if args.rss_gb is None:
+        args.rss_gb = default_rss_gb(1)
+    if not 0 < args.rss_gb <= rss_cap_gb():
+        raise ValueError('E_RSS_BUDGET: require 0<RSS<=%g GB on this host' % rss_cap_gb())
     if args.repeats < 1 or args.max_eval < 2:
         raise ValueError('E_ITERATIONS: repeats>=1 and max-eval>=2')
     if args.tolerance != 0.005:

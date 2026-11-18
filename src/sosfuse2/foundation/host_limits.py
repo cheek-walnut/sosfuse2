@@ -81,9 +81,23 @@ def default_rss_gb(processes):
 
 
 def over_budget_text(peak, budget):
-    """'peak 7.06 GB > budget 6.88 GB (+2.6 %)' for a byte count that exceeds its byte budget."""
+    """'peak P GB > budget B GB (+X %)' for a byte count over its byte budget; the percentage is left out when the
+    budget is not positive. Values that are not numbers are shown as they are, so a damaged record never raises."""
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (peak, budget)):
+        return f'peak {peak!r} > budget {budget!r}'
     text = f'peak {peak / 1e9:.2f} GB > budget {budget / 1e9:.2f} GB'
     return text + (f' (+{100.0 * (peak / budget - 1):.1f} %)' if budget > 0 else '')
+
+
+def ksplit_fallback_warning(decision, state=None):
+    """One warning line for a KSPLIT fallback record (requested, effective, peak, budget, reason)."""
+    return 'WARNING KSPLIT fallback%s: requested %s -> %s, %s, %s' % (
+        '' if state is None else f' in state {state}',
+        decision.get('requested'),
+        decision.get('effective'),
+        over_budget_text(decision.get('peak'), decision.get('budget')),
+        decision.get('reason'),
+    )
 
 
 def default_workers():
