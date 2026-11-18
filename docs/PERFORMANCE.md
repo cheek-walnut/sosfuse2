@@ -4,7 +4,7 @@ The measurements show where solve time goes, how close the kernels get to hardwa
 question remains open. The solver is fast enough for its purpose, as discussed under
 *Headroom*, but its main kernel has never been bound by memory bandwidth or by arithmetic throughput, and profiling found
 `long_scoreboard` as its largest measured stall reason in earlier probes without accounting for all stalled cycles.
-The release kernel's L4 measurement finds `wait` first and `long_scoreboard` second.
+The 1.2.1 release probe found `wait` first and `long_scoreboard` second.
 The last section asks how to reduce the work per sample.
 
 The research records contain measurements on three cards: a GeForce
@@ -20,20 +20,20 @@ One state solve is a fixed-point iteration over a source field on a (height, χ)
 wavelengths handled in groups of 15 (`FW=15`). Such a group is a chunk, called a bundle in some of the records,
 and the three chunks each converge separately in 7–8 transport evaluations.
 A transport evaluation integrates the source along 12 Gauss–Legendre directions per polar interval for every cell, so it
-walks about 2.4×10⁸ ray samples per chunk (the research records). One evaluation on the
-production grid takes 1.6–1.7 s on the RTX 3080 and a full state takes 53–57 s of kernel time per solve on either
-the 3080 or the L4.
+walks about 2.4×10⁸ ray samples per chunk (the research records). With the pre-1.1.0 research kernel, one evaluation
+on the production grid took 1.6–1.7 s in the reported probe. Full-grid solves took 53–57 s of kernel time in those
+measurements.
 
 The CUDA implementation has one fused kernel, `sos_fused` in `src/sosfuse2/backends/kernel.cu`, specialised into variants at
-NVRTC compile time, and four helpers. With the production configuration `KSPLIT=3`, each chunk of rays goes through
+NVRTC compile time, and four helpers. When the effective mode is `KSPLIT=3`, the solve uses
 the following kernels during an evaluation.
 
 | kernel | job | threads |
 |---|---|---|
 | `sos_fused` K_FIRST | first light: direct sun scattered once into every cell | one cell per block, one ray per warp |
-| `sos_fused` RECORD | walks the rays once and writes the per-sample column records (28 B per sample point) | same |
+| `sos_fused` RECORD | walks the rays once and writes the per-sample column records (24 B per sample point) | same |
 | `vp_scatter`, `sos_vprod_y`, `sos_vprod` | aerosol phase-function value of every sample point and corner, written as one `float4` per thread | plan built by CUB sort/scan |
-| `sos_fused` slimray (SLIM + SLIM_RAYS) | the consumer: rebuilds attenuation from the column records, reads the four corner source rows and the aerosol record, accumulates the four Rayleigh tensor components and the aerosol Legendre moments | two ray steps per warp (half-warp `lane>>4`), wavelength `lane&15` (15 active lanes and one pad) |
+| `sos_fused` slimray (SLIM + SLIM_RAYS) | rebuilds attenuation from the column records and the path weight computed for each sample, reads the four corner source rows and the aerosol record, and accumulates the four Rayleigh tensor components and the aerosol Legendre moments | two ray steps per warp (half-warp `lane>>4`), wavelength `lane&15` (15 active lanes and one pad) |
 | `sos_slim_proj` | projects the accumulated radiance onto the source basis | 32-ray tiles of 64 moments |
 
 There are no floating-point atomics (the only atomics are integer counters that hand out rays and mark finished cells),
@@ -41,16 +41,17 @@ and the current kernel accumulates in a fixed order in both modes;
 `SOSFUSE2_DETERMINISTIC=1` is the mode in which the package guarantees bit-stable repeats. The first-light phase-0
 variant of `sos_fused` carries `__launch_bounds__(256,2)`. In 1.0.x, the slimray variant compiled to 127 registers with 128-thread blocks and 18–19 KB of
 shared memory, limiting it to 4 blocks per SM, or 16 warps and 33 % of maximum occupancy.
-After 1.1.0 added NO₂ and O₄, it compiles to 141 registers, limiting it to 3 blocks per SM and 25 % occupancy, while
-shared memory would still allow 5.
-The kernel is about 2,000 lines of CUDA C, with host launch planning in `src/sosfuse2/solve/source_solver.py` and, for
-the split path, `src/sosfuse2/solve/ksplit.py`.
+With NO₂ and O₄ included, the 1.2.1 probe used 141 registers, limiting it to 3 blocks per SM and 25 % occupancy,
+with enough shared memory for 5 blocks per SM.
+CUDA transport stages and feature policies are in `src/sosfuse2/backends/kernel.cu`. Host launch planning lives in
+`src/sosfuse2/solve/source_solver.py` and, for the split path, `src/sosfuse2/solve/ksplit.py`.
 
-`KSPLIT=3` needs the column records of a whole bundle in device memory. Adding NO₂ and O₄ in 1.1.0 grew the records
-to 28 B per sample point from 20 B. The product state's minimum peak of 7.06 GB exceeds the 6.7 GB solo budget of a
-10 GB card, so the runner falls back to `KSPLIT=0`, in which one `sos_fused` launch does the whole transport step.
-The field `ksplit_effective` in `meta.json` records this choice. The L4 and the 4090 run `KSPLIT=3`.
-The figures below identify the path measured.
+`KSPLIT=3` needs the column records of a whole bundle in device memory. Each record now holds six floats (24 B),
+one for each of the five component columns and one for the stratospheric column. The consumer computes the
+quadrature path weight with the sample and carries it in the 112 B `PointM2` layout.
+
+For an earlier memory fallback, see the 1.1.0 release. The figures below describe the kernel versions and paths
+used in those runs.
 
 ## Where the time goes
 
@@ -67,11 +68,11 @@ size, so launch counts differ from production. The utilisation figures are per l
 | `vp_scatter` | 4 % | 12.1 | 41.1 | 7.5 | 13.3 / 14.6 | 39 | 0 | 2.4× |
 | `sos_vprod_y` | 3 % | 80.4 | 35.4 | 47.9 | 90.6 / 100 | 28 | 82.4 | 1.24× (FP64 pipe) |
 
-That table predates the 1.1.0 absorbers; the slimray variant now compiles to 141 registers, see *Stall reasons*.
+The table reports measurements of the research kernel before 1.1.0. See *Stall reasons* for the 1.2.1 measurements.
 
-On the L4 the split of the 112.9 s of kernel time of a cold and a warm solve is `sos_fused` 60.6 %, `sos_vprod`
-28.9 %, `sos_vprod_y` 2.7 %, an FP64 GEMM from the Anderson step 2.4 % and `sos_slim_proj` 2.2 %
-(the research records, §3).
+A cold and a warm solve with the pre-1.1.0 research kernel took 112.9 s of kernel time. The split
+was `sos_fused` 60.6 %, `sos_vprod` 28.9 %, `sos_vprod_y` 2.7 %, an FP64 GEMM from the Anderson step 2.4 % and
+`sos_slim_proj` 2.2 % (the research records, §3).
 
 In roofline terms the slimray consumer runs at 15.6 % of FP32 peak and 180 GB/s of DRAM traffic (24 % of the 3080's
 peak). Its arithmetic intensity of 25.8 FLOP/B is in the model's bandwidth-limited region, below the ridge point of
@@ -143,16 +144,13 @@ differed between the timing and sampling runs.
 
 The first table gives stalled warps per issue-active cycle, while the second gives percentages of the sum of the
 reported PC categories, including `selected`, which is not a stall.
-The `KSPLIT=0` fused kernel compiles to the hardware limit of 255 registers and generates 1.18×10⁸ local-load sectors
-in a 1.8 s launch, evidence of register spilling. This is the path that the 10 GB card actually runs, unlike the
-127-register slimray variant with spill 0.
+The 1.2.0 `KSPLIT=0` fused kernel compiled to the hardware limit of 255 registers and generated 1.18×10⁸ local-load
+sectors in a 1.8 s launch, evidence of register spilling. The earlier 127-register slimray variant had no spills.
 In the `KSPLIT=0` PC samples, `wait` for fixed-latency dependencies and `long_scoreboard` each account for about a
 quarter, with `selected` at about 17 % and not a stall, a pattern of a kernel constrained by dependencies and spills.
 The largest SASS `long_scoreboard` count in the production captures was 187608 samples at
 `FMUL.FTZ R129, R128, R132`, or 18.1 % of that launch's `long_scoreboard` samples and 5.11 % of all its PC samples.
 This `FMUL` consumes a load result, and PC sampling attributes the wait to the consuming instruction.
-The probe does not establish slimray's current stall distribution: the 10 GB card no longer runs that variant.
-The L4 measurement follows.
 
 On the L4 (23 GB), the installed release 1.2.1 ran the `run_gpu_state_v3` (since 1.4.0 `jobs/run_state.py`) G-F state
 with `KSPLIT=3` under Nsight Compute, with separate one-pass stall metric runs and one PC-sampling run.
@@ -177,25 +175,24 @@ fourth block through `__launch_bounds__` a candidate for the next experiment, no
 ## Headroom
 
 The five kernels `sos_fused` slimray, `sos_vprod`, `sos_slim_proj`, `vp_scatter` and `sos_vprod_y` account for 88.7 % of
-evaluation kernel time. Taking each to its own limiting unit, with the work it does today, shortens the kernel time of
-an evaluation by 1.72× (1.50× if `sos_slim_proj` is already at its limit). Wall time of an evaluation moves by 1.36–1.49×
-with the host gaps left as they are, and by 1.9–2.2× if they were removed entirely (*estimate*). Across cards the kernel
-time of a state follows t ∝ (SM count × clock)^−0.67 over three anchor points (RTX 3060, 3080 and 5090;
-the research records), so doubling the SM count at the same clock returns about 1.6×.
+evaluation kernel time in the pre-1.1.0 profile. Taking each to its own limiting unit at that workload shortens the
+kernel time of an evaluation by 1.72× (1.50× if `sos_slim_proj` is already at its limit). Wall time of an evaluation
+moves by 1.36–1.49× with the same host gaps and by 1.9–2.2× if they were removed entirely (*estimate*). Across cards the kernel
+time of a state follows t ∝ (SM count × clock)^−0.67 in the research records, which implies about 1.6× when
+doubling the SM count at the same clock.
 The kernel figures above point to issue and latency as possible reasons for incomplete scaling, but the fit has three
 anchor points and two parameters, mixes power regimes and `KSPLIT` paths, and includes tails from kernels with small
 grids. The exponent is a clue, not evidence that establishes the bottleneck.
 
-One state of 25 solar elevations, 100 × 180 directions and 45 bands takes
-76 s of wall time per state on an L4 with two states overlapped, and the Monte Carlo alternative needs 17× to over 1,800×
-that for one solar elevation at the same colour noise (`docs/VALIDATION.md`; the research records,
-§3). The remaining 1.5–1.7× would shorten solve time.
+The pre-1.1.0 research kernel took 76 s of wall time per state of 25 solar elevations, 100 × 180 directions and
+45 bands with two states overlapped. The Monte Carlo alternative needed 17× to over 1,800× that
+for one solar elevation at the same colour noise (see `docs/VALIDATION.md` and the research records, §3).
+The estimates then put the remaining room to shorten the solve at 1.5–1.7×.
 
 ## What was tried
 
-The kernel work took the GPU time of the `gate --gf`
-run, a cold and a warm solve of the product state, on the RTX 3080 from 151.0 to 106.9 s (−29 %), that is 53.5 s per
-solve, and cut the L4 time per state by 26 %. The table lists the changes and the dead ends, the largest lesson first.
+In the pre-1.1.0 builds, the kernel work took the GPU time of the `gate --gf` run, a cold and a warm solve of the
+product state, from 151.0 to 106.9 s (−29 %), or 53.5 s per solve. In a separate run it cut time per state by 26 %.
 
 | change | result | kept? |
 |---|---|---|
@@ -212,7 +209,7 @@ solve, and cut the L4 time per state by 26 %. The table lists the changes and th
 | Occupancy: 3 blocks per SM for the ground batch (`GROUND_BATCH_SHFL` + bounds) | slower | rejected |
 | Plan sorting by coefficient, `vp_scatter` without scattering cells, `sos_vprod_y` in double-single | adopted on bit-identical output; the `sos_vprod` shared-memory limit (30 KB, 3 blocks/SM) remains | kept |
 | Host: pinned allocation repeated per launch (about 11 s per state) | removed | fixed |
-| Host: launch issue cost of the plan kernels. On the 10 GB card the plan is rebuilt per chunk because of memory, 12,612 small launches per evaluation, and the gaps after them are 73 % of a 21 % host gap | on the 23 GB L4 the plan is stored, 828 launches per evaluation, and the same gap class is 1.3 %. CUDA graph capture and persistent kernels were considered for the 10 GB case and **not tried** | not pursued |
+| Host launch issue cost of the plan kernels. A pre-1.1.0 run rebuilt the plan per chunk, with 12,612 small launches per evaluation. The gaps after them were 73 % of a 21 % host gap. | A run that stored the plan used 828 launches per evaluation and had a 1.3 % gap of the same class. CUDA graph capture and persistent kernels were considered for the case that rebuilt the plan. | not pursued |
 | Host: bundle switch in production bakes recomputed the stratospheric attach geometry every bundle (23.6–29.1 s), so the client CPU time of a state (103 s) exceeded its GPU time (55 s) and campaign GPU utilisation on the L4 was 66 % | attach cache on and a process memo: 15.7 → 1.1 s per bundle on the 3080; the L4 campaign figure has not been re-measured since | fixed |
 | Port to Apple Metal (MLX) | examined, folded | not pursued |
 
@@ -224,9 +221,9 @@ collected alone in a one-pass run (`-k regex:^sos_fused$ --launch-skip N --launc
 
 ## Power and clocks
 
-The L4 runs this workload at a median SM clock of 1,185–1,260 MHz against a maximum of 2,040, with 69 % of the samples
-throttled at its 72 W cap. The RTX 3080 at 180 W sits at 1,440–1,710 MHz
-depending on the kernel mix, and the RTX 4090 at 337 W is not capped and runs slimray at 0.55 ns per sample, 4.4× the L4.
+In a pre-1.1.0 run, the median SM clock ranged from 1,185 to 1,260 MHz against a maximum of 2,040 MHz, with 69 %
+of the samples throttled. Another run ranged from 1,440 to 1,710 MHz depending on the kernel mix. The uncapped
+slimray run took 0.55 ns per sample.
 On a power-capped card, a kernel that issues more instructions per cycle therefore saves fewer seconds than its
 instruction count suggests, so the table above quotes GPU totals.
 
@@ -243,16 +240,16 @@ The state id is bundled in `assets/states_v2.json`; other ids from that file wor
 `kernel.launch.by_kind`, the launch count and GPU seconds of every kernel variant, measured with CUDA events. The
 tolerance checks of `docs/CHECKS.md` tier 2 run the same kernels on the reduced fixtures. For profiling, run the same
 command under `nsys` for the timeline and under `ncu --target-processes all` with one metric group per run.
-On cards with at least 23 GB, the state runs with `KSPLIT=3` and the launches of interest are `sos_fused` slimray
-with 141 registers and 128-thread blocks. On a 10 GB card it falls back to `KSPLIT=0`, whose `sos_fused` launches
-use 255 registers and 128-thread blocks.
+Use `ksplit_effective` in `meta.json` to identify the path used in a run. With `KSPLIT=3`, look for `sos_fused`
+slimray launches. The `ksplit` decision records the reason and named memory estimates. See
+[Device memory diagnostics](ENVIRONMENT.md#device-memory-diagnostics) for the fallback warning and CuPy pool trace.
 
 ## The open question
 
 The consumer kernel walks rays through a spherical shell, with 15 wavelengths per ray in the lanes of a half-warp and
-two steps per warp. At each sample it needs the column record of the step, the four corner rows of the cell source and
-one aerosol record, interpolates, attenuates and accumulates. On the L4, release 1.2.1 sits at 25 % occupancy because a
-step needs 141 registers, issues on 52 % of the cycles and has 24.7 active lanes out of 32.
+two steps per warp. At each sample it interpolates, attenuates and accumulates using the column record, the sample's
+path weight, four corner rows of the cell source and one aerosol record. In the 1.2.1 probe, a step needed 141 registers.
+The kernel reached 25 % occupancy, issued on 52 % of cycles and had 24.7 active lanes out of 32.
 The largest measured stall is `wait`, the fixed-latency dependency between consecutive instructions, with
 `long_scoreboard` second. It is bound by neither DRAM nor FP32 throughput, nor by load latency: the load knockout gained
 only 2.6 %. Moving the current step's own loads before the

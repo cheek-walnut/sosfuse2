@@ -3,6 +3,33 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## Unreleased
+
+- The calculation boundary and profile grid share a domain definition. The default boundary remains 80 km. Full-grid
+  settings can extend it with a Rayleigh air profile or a vacuum above 80 km. See [Model](MODEL.md#calculation-boundary).
+- CUDA transport uses named stages and compile-time policies for feature selection and component support. The NumPy
+  path uses the same component support boundaries. A host-compiled test checks the direct convolution with ground SH off.
+- KSPLIT column records hold six floats (24 B per sample point). The consumer computes the path weight and carries it
+  in the 112 B `PointM2` layout. The layout is defined once in CUDA and once in Python. A host-compiled test checks
+  the column producer and consumer round trip.
+- Host RSS ceilings and automatic pipeline and planner worker sizing now account for visible Linux cgroup memory
+  limits. The ceiling uses 80 % of usable RAM below 24 GB on Linux. `SOSFUSE2_RSS_GB` overrides both the ceiling
+  and the per-process default. See [Host RSS limits](ENVIRONMENT.md#host-rss-limits).
+- KSPLIT decisions record why the mode was selected, including when it resolves directly to 0. Memory estimates
+  carry named byte counts in decisions and persistent admission events. A memory fallback warns on stderr with the
+  requested and effective modes, peak, solo budget, reason and up to two largest items. The pipeline collects the
+  decision and fallback event in its summary and prints the warning.
+- A kernel that first reads prepared constants configures its wavelength count and KSPLIT mode from that state.
+- `SOSFUSE2_ANDERSON_HISTORY=host` stores Anderson history in host memory and stages it one wavelength at a time.
+- `SOSFUSE2_VRAM_TRACE=1` adds CuPy pool allocation events, out-of-memory diagnostics and `vram_trace` metadata.
+- `SOSFUSE2_FIELD_RESERVE_MIN` lets the persistent service admit a lone state with a reduced field reserve when
+  the requested reserve does not fit. Admission records include the estimate in `timings.vram_admission` and the
+  reserve decision in `timings.field_reserve` when the minimum is configured.
+- The profile-table memo keeps nine entries per process, enough for the four legacy profiles,
+  four corrected profiles and one stratospheric profile that a cell can use together.
+- The `geometry_parallel` phase records `result=fallback` with a reason when the serial writer
+  takes over for an unsupported callback or for fewer than two cells with multiple workers requested.
+
 ## 1.5.2
 
 - **`flags_env` and other JSON files.** `python -m sosfuse2 flags_env devices` read the device profile file, which sits

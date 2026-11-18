@@ -27,8 +27,8 @@ polarisation*, but the code writes no Stokes parameters, degree of polarisation 
 
 ## Geometry
 
-The Earth is a sphere of radius 6371 km with a Lambertian surface, and the atmosphere ends at 80 km with nothing above
-it. Rays are straight lines, so refraction is not modelled. The Sun is a point at infinity without a disc or a penumbra,
+The Earth is a sphere of radius 6371 km with a Lambertian surface. The default atmosphere ends at 80 km. Rays are
+straight lines, so refraction is not modelled. The Sun is a point at infinity without a disc or a penumbra,
 and a point is lit when the straight line from it to the Sun misses the Earth, which makes the Earth's shadow a sharp
 cylinder.
 
@@ -38,6 +38,19 @@ elevation `h_s` sits at `χ = 90° − h_s`, so changing the solar elevation of 
 axis without changing the solved field. The `χ` grid reaches 180°, which leaves the geometry with no limit on solar
 depression; the convergence test of the iteration looks only at +2°, −3°, −6°, −9° and −12° (see *Iteration*), and the
 default table stops at −18°.
+
+### Calculation boundary
+
+In the runner's `--settings-json`, `top_km` can extend the full grid above 80 km up to 200 km. The top must be a
+multiple of the profile spacing. An extended top requires an explicit `density_profile: usstd76` in the state's
+`density` settings, with no external profile. When `top_km` is a multiple of 10 km, the default upper height nodes
+are spaced every 10 km from 90 km to the top. Otherwise supply `upper_heights_km`. A supplied list must increase
+strictly above 80 km and end at `top_km`.
+
+Above 80 km, the default `upper_air: us76_neff` extends Rayleigh scattering with a tabulated effective air density
+matched to the coefficient at 80 km. `upper_air: vacuum` leaves the extension empty. The other components end at
+or below 80 km. The extended grid adds the top shell to the incident-direction quadrature, adds −15° to the stopping
+and acceleration samples, and records −18° in the convergence history.
 
 ## Constituents
 
@@ -230,7 +243,7 @@ corner traces that are at least `FLT_MIN` and `W` is their total weight. With al
 geometric mean, and as `W` goes to 0 the result goes continuously to the linear interpolation. The arriving radiance is
 then projected onto the source basis, which gives the next source field. The incident directions are Gauss–Legendre nodes
 inside intervals whose ends are the limb, the local horizon, the shadow boundary and the directions tangent to the shells
-at 0, 1.2, 8, 25, 40 and 80 km.
+at 0, 1.2, 8, 25, 40 and 80 km on the default grid.
 
 ### Iteration
 
@@ -270,7 +283,8 @@ minor-absorber coefficients of 1.1.0.
 | Anderson tolerance, depth | 10⁻³, 4 |
 
 The table lists the default grid, and the settings `h_refine`, `nr`, `chi_step_deg`, `chi_refine_deg` and `nchi` change
-its height and `χ` axes. In the settings, `h_refine` takes `b<m>a<k>`, which splits each height interval at or below 13
+its height and `χ` axes. Extended grids append the upper height nodes to the refined grid. In the settings,
+`h_refine` takes `b<m>a<k>`, which splits each height interval at or below 13
 km into m parts and each interval above into k parts, or `b<m>a<k1>.<k2>.<k3>.<k4>.<k5>`, which gives the five intervals
 above 13 km their own counts, with m and k from 1 to 12. The names `none`, `mid` and `below13mid_above13thirds` are
 aliases of `b1a1`, `b2a2` and `b2a3`; the default 44 nodes are `b2a3`. For the `χ` grid, `chi_step_deg` takes 0.5 by

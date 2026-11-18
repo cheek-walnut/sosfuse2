@@ -81,14 +81,17 @@ signature and the output files; `jobs/pipeline.py` runs many such states.
 |---|---|
 | Ray geometry | segments and grids in `rays/shell_segments.py`, columns in `rays/ray_columns.py`, endpoint arrays in `solve/ray_geometry.py`, the CPU build in `solve/ray_geometry_cpu.py`, the process pool in `solve/ray_geometry_parallel.py`, and shared build rules in `precompute/endpoint_contract.py` |
 | Stratosphere | optical layer in `atmosphere/stratosphere.py`, single-precision sidecar in `solve/strato_sh_aux.py`, checks in `checks/stratosphere_checks.py`, and assets in `asset_tools/generate_strato_optics.py` and `asset_tools/strato_states.py` |
-| Caches | prepared arrays in `precompute/host_cache.py`, column arrays in `precompute/column_cache.py`, compiled kernels in `backends/compile_cache.py`, and the shared bake store in `jobs/cache_store.py` |
+| Caches | prepared arrays in `precompute/host_cache.py`, column arrays in `precompute/column_cache.py`, profile tables in `rays/column_table.py`, compiled kernels in `backends/compile_cache.py`, and the shared bake store in `jobs/cache_store.py` |
 | Code and data identity | `foundation/content_identity.py::package_hashes`, `foundation/paths.py::PRODUCTION_MODULES`, `checks/gate.py::code_identity` |
-| Split transport (KSPLIT) | host side in `solve/ksplit.py`, tolerance in `solve/ksplit_tolerance.py`, and device code in `backends/kernel.cu` |
+| Split transport (KSPLIT) | host side in `solve/ksplit.py`, tolerance in `solve/ksplit_tolerance.py`, record layout in `atmosphere/components.py` and `backends/kernel.cu` |
+| Device memory | named estimates in `backends/vram_budget.py`, CuPy allocation diagnostics in `backends/vram_trace.py`, and persistent admission in `jobs/pipeline_execution.py` |
 | Machine limits and parallel sizes | `foundation/host_limits.py`, `foundation/available_cpus.py`, `backends/device_profile.py`, `jobs/pipeline.py::cpu_budget` |
 | Diagnostics outside the gate | `checks/solver_diagnostics.py::probe_state`, `checks/kernel_diagnostics.py`, `checks/numerical_checks.py` |
 
 Section 8 lists the files whose paths enter the cache keys, and `backends/compile_cache.py::cache_key` and
 `jobs/cache_store.py` describe their own keys.
+The process-local memo in `rays/column_table.py::tables` holds up to nine profiles, each with a ground and a tangent
+table. A cell can use four legacy profiles, four corrected profiles and one stratospheric profile.
 
 Four connections are hard to find by name:
 
@@ -99,6 +102,10 @@ Four connections are hard to find by name:
 - Importing `solve/ray_geometry_parallel.py` replaces `PackedCache` with its parallel version. `solve/ray_geometry.py`
   imports `solve/ray_geometry_parallel.py` as its last statement, a deliberate cycle inside one layer, and
   `tests/test_structure_imports.py` imports them in both orders with import warnings turned into errors.
+  When a build uses the serial writer because its callback is unsupported or because it has fewer than two cells
+  despite requesting multiple workers, it emits a `PHASE` event with `phase=geometry_parallel` and `result=fallback`.
+  The `reason` is `callback is not ResidentGeometry.cached_cell` or `fewer than two cells`, respectively.
+  With a supported callback and one worker, the build goes straight to the serial writer.
 - `solve/source_solver.py::load_engine` loads the CPU engine module as a private copy.
 
 ## 6. Known upward imports

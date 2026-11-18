@@ -530,9 +530,9 @@ percentile of |r|, 1.00 % for the largest |r|, and 0.50 % for the mean absolute 
 
 The case defines the atmosphere as homogeneous layers, 1 km thick below 25 km, 2.5 km thick from 25 to 50 km and 5 km thick
 above, up to 120 km. The engine has no input for homogeneous layers. It reads a profile table and interpolates linearly, so
-we entered the layers as a table at 0.125 km spacing, which smooths every layer boundary. The engine's top is at 80 km, which
-cuts an optical depth of 2.35e-6. The engine was 1.2.3 with NO₂ and O₄ switched off. Along a line of sight it uses 12 source
-nodes per piece, as above, and 24 output nodes per piece.
+we entered the layers as a table at 0.125 km spacing, which smooths every layer boundary. The runs used engine version
+1.2.3 with NO₂ and O₄ switched off and an 80 km top, which cuts an optical depth of 2.35e-6. Along a line of sight
+the runs used 12 source nodes and 24 output nodes per piece.
 
 | engine setting | SZA 93°: mean of r / 95th percentile of \|r\| / largest \|r\| (%) | SZA 96°: mean of r / 95th percentile of \|r\| / largest \|r\| (%) |
 |---|---|---|
@@ -965,9 +965,9 @@ still a point sample on a 0.1 nm cross-section grid. Its remaining error was not
   `rayleigh_column: usstd`. Both ozone settings contain ozone and differ only in the shape of its profile. The zenith
   rows of research tables of `clear_86` and `clear_80` have the same step, and there the slopes agree to within 0.001
   per degree between height grids of 39 and 89 nodes and between grids in solar zenith angle of 0.5° and 0.25°, for
-  `clear_86` also 0.125°. We have not found the cause, and three candidates are untested. We have not separated
-  first-order from higher-order scattering along this row, and the model has no refraction. The model also ends at 80 km
-  (`docs/MODEL.md`), a top that the comparisons with MYSTIC and SASKTRAN2 share, and the README gives the Earth's shadow
+  `clear_86` also 0.125°. The cause remains open in this comparison. We have not separated
+  first-order from higher-order scattering along this row, and the model has no refraction. The runs used the default 80 km
+  top (`docs/MODEL.md`), which the comparisons with MYSTIC and SASKTRAN2 share, and the README gives the Earth's shadow
   over the observer as about 79 km at a solar depression of 9°.
 - A quantitative comparison of the polarisation with measurements: the absolute DoLP, the depth of the dip, and the inversion
   of the stratospheric optical depth. The Stokes vector comes from MYSTIC on the engine's input, so such a comparison tests
