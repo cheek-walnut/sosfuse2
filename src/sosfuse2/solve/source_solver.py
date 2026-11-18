@@ -1548,6 +1548,12 @@ class Solver:
         """Same Anderson4 normalization, regularization and candidate guard."""
         s = self.s
         xp = self.xp
+        history_storage = os.environ.get('SOSFUSE2_ANDERSON_HISTORY', 'device')
+        if history_storage not in ('host', 'device'):
+            raise ValueError('E_ANDERSON_HISTORY: expected device or host')
+        host_history = history_storage == 'host'
+        history_xp = np if host_history else xp
+        self.timings['anderson_history'] = history_storage
         x = xp.zeros((s.geo.ns, source_size(s), s.W), 'f4')
         gs = [[] for _ in range(s.W)]
         fs = [[] for _ in range(s.W)]
@@ -1611,22 +1617,28 @@ class Solver:
                     ((stop_new[:, :, w] - stop_old[:, :, w]) / np.maximum(abs(stop_new[:, :, w]), 1e-20)).ravel()
                     * math.sqrt(len(feature) / (stop_new.shape[0] * stop_new.shape[1]))
                 )
-                gs[w].append(g[:, :, w].copy())
-                fs[w].append(xp.concatenate([feature, obs]))
+                source = g[:, :, w].copy()
+                residual = xp.concatenate([feature, obs])
+                gs[w].append(self.kernel.host(source) if host_history else source)
+                fs[w].append(self.kernel.host(residual) if host_history else residual)
+                del source, residual
                 if len(fs[w]) > 4:
                     gs[w].pop(0)
                     fs[w].pop(0)
                 if len(fs[w]) > 1:
-                    f = xp.stack(fs[w], 1)
+                    # Stage one wavelength at a time. Gram and mixing arithmetic stay on the solve backend.
+                    f = xp.asarray(history_xp.stack(fs[w], 1))
                     gram = f.T @ f
                     gram += xp.eye(len(gram)) * max(float(self.kernel.host(xp.trace(gram))) * 1e-10, 1e-30)
                     self.kernel.memory()
+                    if host_history:
+                        del f
                     try:
                         alpha = xp.linalg.solve(gram, xp.ones(len(gram)))
                         alpha /= alpha.sum()
                         ah = self.kernel.host(alpha)
                         if np.isfinite(ah).all() and max(abs(ah)) < 8:
-                            nxt[:, :, w] = sum(c * q for c, q in zip(alpha, gs[w]))
+                            nxt[:, :, w] = sum(c * xp.asarray(q) for c, q in zip(alpha, gs[w]))
                     except np.linalg.LinAlgError:
                         pass
             # A converged wavelength is frozen exactly as the accepted active mask.

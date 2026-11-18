@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 import numpy as np
+import pytest
 from sosfuse2.solve.source_solver import Solver
 
 
@@ -65,3 +66,60 @@ def checks():
 
 def test_checks():
     assert checks()['pass_']
+
+
+def test_host_history_matches_device_with_mixed_convergence(monkeypatch):
+    from sosfuse2.foundation.top import Domain
+
+    rng = np.random.default_rng(7)
+    shape = (2, 660, 3)
+    forcing = rng.uniform(0.1, 1, shape).astype('f4')
+    contraction = rng.uniform(0.1, 0.75, shape).astype('f4')
+    contraction[:, :, 0] = 0
+
+    class HostVector(np.ndarray):
+        # Storage must pass through the backend array conversion before mixing.
+        __array_ufunc__ = None
+
+    class Kernel(DummyKernel):
+        L = 24
+        domain = Domain(200)
+
+        def __init__(self):
+            self.saved = []
+
+        def host(self, value):
+            if value.size >= shape[0] * shape[1]:
+                self.saved.append((value.shape, value.dtype))
+                return value.copy().view(HostVector)
+            return value
+
+    def run(storage):
+        monkeypatch.setenv('SOSFUSE2_ANDERSON_HISTORY', storage)
+        kernel = Kernel()
+        state = SimpleNamespace(W=shape[2], geo=SimpleNamespace(ns=shape[0]), kernel=kernel, strato={})
+        solver = Solver(state, None, prepared=True)
+        solver.apply = lambda x: forcing + contraction * x
+        solver.observer = lambda x: np.broadcast_to(x[0, 0], (7, 7, shape[2])).copy()
+        field, stats = solver.solve(max_eval=24, tolerance=1e-5)
+        assert solver.timings['anderson_history'] == storage
+        return field, stats['history'], kernel.saved
+
+    reference, _, device_saved = run('device')
+    field, history, host_saved = run('host')
+    np.testing.assert_allclose(field, reference, rtol=1e-3, atol=0)
+    np.testing.assert_allclose(field, forcing / (1 - contraction), rtol=1e-3, atol=0)
+    assert history[1]['converged'] == [True, False, False]
+    assert len(history) > 5
+    assert all(row['source_relative'][0] == 0 for row in history[2:])
+    active_updates = sum(row['converged'].count(False) for row in history)
+    expected_pair = [(shape[:2], np.dtype('f4')), ((shape[0] * shape[1] + 42,), np.dtype('f8'))]
+    assert not device_saved
+    assert host_saved == expected_pair * active_updates
+
+
+def test_invalid_anderson_storage(monkeypatch):
+    monkeypatch.setenv('SOSFUSE2_ANDERSON_HISTORY', 'unknown')
+    solver = Solver(SimpleNamespace(kernel=DummyKernel()), None, prepared=True)
+    with pytest.raises(ValueError, match='E_ANDERSON_HISTORY'):
+        solver.solve()
