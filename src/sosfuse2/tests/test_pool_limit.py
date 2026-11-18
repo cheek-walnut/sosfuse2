@@ -10,6 +10,7 @@ from unittest import mock
 
 from sosfuse2.backends import device_profile
 from sosfuse2.foundation import paths
+from sosfuse2.jobs.pipeline_execution import _admission_reservation
 
 GIB = 1024**3
 
@@ -61,7 +62,68 @@ class PoolLimit(unittest.TestCase):
                 reserved(1_790_000_000, value)
         source = (paths.PKG / 'jobs/pipeline_execution.py').read_text()
         self.assertNotIn('30 * field_bytes', source)
-        self.assertIn('reserved_field_bytes(field_bytes)', source)
+        self.assertIn('reserved_field_bytes(field_bytes, requested)', source)
+
+    def test_field_reserve_bounds(self):
+        for raw, expected in [
+            ({}, (30, None)),
+            ({'SOSFUSE2_FIELD_RESERVE_MIN': '  '}, (30, None)),
+            ({'SOSFUSE2_FIELD_RESERVE': '12.5', 'SOSFUSE2_FIELD_RESERVE_MIN': ' 1.5 '}, (12.5, 1.5)),
+        ]:
+            with self.subTest(raw=raw), mock.patch.dict(os.environ, raw, clear=True):
+                self.assertEqual(device_profile.field_reserve_factors(), expected)
+        for value in ('0', '-1', 'abc', 'inf', 'nan', '18.01'):
+            env = {'SOSFUSE2_FIELD_RESERVE': '18', 'SOSFUSE2_FIELD_RESERVE_MIN': value}
+            with (
+                self.subTest(value=value),
+                mock.patch.dict(os.environ, env, clear=True),
+                self.assertRaisesRegex(ValueError, 'E_DEVICE_PROFILE: .*SOSFUSE2_FIELD_RESERVE_MIN'),
+            ):
+                device_profile.field_reserve_factors()
+
+    def test_fixed_admission(self):
+        # Payload 100 + 18 fields at 8 bytes = 244. A lone state can defer the KSPLIT floor to preflight.
+        self.assertEqual(_admission_reservation(100, 8, 18, None, 244, 30, alone=True), (244, {}))
+        with self.assertRaisesRegex(RuntimeError, '^E_PERSISTENT_VRAM_ADMISSION$'):
+            _admission_reservation(100, 8, 18, None, 243, 0, alone=True)
+
+    def test_lone_state_uses_largest_reserve_in_bytes(self):
+        for room, factor, base, reason in [
+            (300, 18, 244, 'requested_fits'),
+            (244, 18, 244, 'requested_fits'),
+            (243, 17.875, 243, 'reduced_to_fit'),
+            (110, 1.25, 110, 'reduced_to_fit'),
+        ]:
+            with self.subTest(room=room):
+                required, fields = _admission_reservation(100, 8, 18, 1.25, room, 30, alone=True)
+                self.assertEqual(required, base)
+                self.assertEqual(
+                    fields['field_reserve'],
+                    {
+                        'requested': 18,
+                        'minimum': 1.25,
+                        'effective': factor,
+                        'reason': reason,
+                        'available_bytes': room,
+                        'payload_bytes': 100,
+                        'field_bytes': 8,
+                        'ksplit_floor_bytes': 30,
+                        'reserved_bytes': base + 30,
+                    },
+                )
+        for room in (109, 99):
+            with self.subTest(room=room), self.assertRaisesRegex(RuntimeError, 'E_PERSISTENT_VRAM_ADMISSION: minimum'):
+                _admission_reservation(100, 8, 18, 1.25, room, 30, alone=True)
+        with self.assertRaisesRegex(RuntimeError, 'E_PERSISTENT_VRAM_ADMISSION'):
+            _admission_reservation(100, 8, 18, 18, 243, 0, alone=True)
+
+    def test_another_resident_keeps_full_reserve_and_ksplit_floor(self):
+        for room in (110, 244, 273):
+            with self.subTest(room=room):
+                self.assertEqual(_admission_reservation(100, 8, 18, 1, room, 30, alone=False), (244, None))
+        base, fields = _admission_reservation(100, 8, 18, 1, 274, 30, alone=False)
+        self.assertEqual(base, 244)
+        self.assertEqual(fields['field_reserve']['reserved_bytes'], 274)
 
     def test_no_fixed_cap_left_in_the_package(self):
         root = paths.PKG

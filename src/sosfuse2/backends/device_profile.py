@@ -109,19 +109,33 @@ def pool_limit_bytes(free):
     return limit
 
 
-def reserved_field_bytes(field_bytes):
-    """Bytes the persistent service reserves for a state's source fields next to its payload arrays when it admits the
-    state (pipeline_execution.handle): SOSFUSE2_FIELD_RESERVE fields (a positive number), default 30 (the 1.3.x value,
-    computed in integers as before). A smaller value admits larger states or more states at once; the admission is a
-    reservation, so too small a value turns a wait into an out-of-memory error during the solve."""
-    value = os.environ.get('SOSFUSE2_FIELD_RESERVE', '').strip()
+def _reserve_factor(name, default):
+    value = os.environ.get(name, '').strip()
     if not value:
-        return 30 * int(field_bytes)
-    k = _number('SOSFUSE2_FIELD_RESERVE', value, allow_none=False)
-    out = k * int(field_bytes)
-    if k <= 0 or not math.isfinite(out):
-        raise ValueError(f'E_DEVICE_PROFILE: invalid SOSFUSE2_FIELD_RESERVE={value!r}')
-    return int(out)
+        return default
+    factor = _number(name, value, allow_none=False)
+    if factor <= 0:
+        raise ValueError(f'E_DEVICE_PROFILE: invalid {name}={value!r}')
+    return factor
+
+
+def field_reserve_factors():
+    """Requested field reserve and optional lower bound for a lone state's admission."""
+    requested = _reserve_factor('SOSFUSE2_FIELD_RESERVE', 30)
+    minimum = _reserve_factor('SOSFUSE2_FIELD_RESERVE_MIN', None)
+    if minimum is not None and minimum > requested:
+        raise ValueError('E_DEVICE_PROFILE: SOSFUSE2_FIELD_RESERVE_MIN exceeds SOSFUSE2_FIELD_RESERVE')
+    return requested, minimum
+
+
+def reserved_field_bytes(field_bytes, factor=None):
+    """Reserve whole bytes for a state's source fields, using integer arithmetic for the default."""
+    if factor is None:
+        factor = _reserve_factor('SOSFUSE2_FIELD_RESERVE', 30)
+    size = factor * int(field_bytes)
+    if isinstance(size, float) and not math.isfinite(size):
+        raise ValueError(f'E_DEVICE_PROFILE: invalid SOSFUSE2_FIELD_RESERVE={factor!r}')
+    return int(size)
 
 
 def smi_device_name():

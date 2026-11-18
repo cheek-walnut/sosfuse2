@@ -553,6 +553,46 @@ def persistent_chunk(s, geometry, tables, a, name, emit):
         conn.close()
 
 
+def _admission_reservation(payload_bytes, field_bytes, requested, minimum, available, floor, *, alone):
+    """Return the base reservation and event fields. None for the fields means wait for another resident."""
+    from ..backends.device_profile import reserved_field_bytes
+
+    base = payload_bytes + reserved_field_bytes(field_bytes, requested)
+    effective = requested
+    reason = 'requested_fits'
+    # A lone state can use the exact KSPLIT preflight even when its nominal floor does not fit.
+    if base + (0 if alone else floor) > available:
+        if not alone:
+            return base, None
+        if minimum is None:
+            raise RuntimeError('E_PERSISTENT_VRAM_ADMISSION')
+        minimum_bytes = payload_bytes + reserved_field_bytes(field_bytes, minimum)
+        if minimum_bytes > available:
+            raise RuntimeError(
+                f'E_PERSISTENT_VRAM_ADMISSION: minimum_exceeds_capacity requested={requested} minimum={minimum} '
+                f'minimum_bytes={minimum_bytes} available_bytes={available}'
+            )
+        # Reserve the whole byte budget. The ratio expresses those bytes in units of one field.
+        effective = max(minimum, (available - payload_bytes) / field_bytes)
+        base = available
+        reason = 'reduced_to_fit'
+    if minimum is None:
+        return base, {}
+    return base, {
+        'field_reserve': {
+            'requested': requested,
+            'minimum': minimum,
+            'effective': effective,
+            'reason': reason,
+            'available_bytes': None if available == float('inf') else available,
+            'payload_bytes': payload_bytes,
+            'field_bytes': field_bytes,
+            'ksplit_floor_bytes': floor,
+            'reserved_bytes': base + floor,
+        }
+    }
+
+
 def persistent_service(root, backend, lock, active_limit, rss_gb):
     """One process/context; threads yield the compute gate only for CPU replay.
 
@@ -647,11 +687,10 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
             pickle.dumps(payload, protocol=5, buffer_callback=lambda b: arrays.append(b.raw().nbytes))
             state = payload['solver']
             field_bytes = state.geo.ns * (1132 if state.strato is not None else 571) * state.W * 4
-            # Measured on an RTX 4090: two full-grid strato states resident together used 7.5 GB
-            # (payload arrays 1.2 GB + field 0.1 GB each), i.e. about 3.7 GB per state at peak.
-            from ..backends.device_profile import reserved_field_bytes
+            from ..backends.device_profile import field_reserve_factors
 
-            required = sum(arrays) + reserved_field_bytes(field_bytes)
+            payload_bytes = sum(arrays)
+            requested, minimum = field_reserve_factors()
             # KSPLIT (default on CuPy, source_solver.ksplit_setting) sizes its columns, plans and aerosol buffer from free VRAM. With
             # several resident states it stays out of the other states' reservations (ksplit_room) and adds what it holds to
             # its own (ksplit_hold), so a later state is admitted only into memory nobody claims.
@@ -692,20 +731,17 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                         free, _ = xp.cuda.runtime.memGetInfo()
                         capacity = min(pool_limit, int(free) + pool.total_bytes() - 1024**3)
                         available = capacity - sum(reservations.values())
-                    # A lone state's unsplit base may fit while its KSPLIT floor
-                    # does not. Admit it for the exact preflight/fallback check.
-                    if len(reservations) < active_limit and (
-                        required + floor <= available or not reservations and required <= available
-                    ):
+                    required, admission = _admission_reservation(
+                        payload_bytes, field_bytes, requested, minimum, available, floor, alone=not reservations
+                    )
+                    if len(reservations) < active_limit and admission is not None:
                         break
-                    if not reservations:
-                        raise RuntimeError('E_PERSISTENT_VRAM_ADMISSION')
                     emit(name, 'vram_wait', required_bytes=required + floor, available_bytes=available)
                     gate.wait(0.1)
                 reservations[name] = required + floor
                 admitted = True
                 start = time.monotonic()
-                emit(name, 'gpu_acquired', reserved_bytes=required + floor)
+                emit(name, 'gpu_acquired', reserved_bytes=required + floor, **admission)
                 kernel = Kernel(
                     threads,
                     payload['height'],
@@ -837,6 +873,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                         begin('sos_iteration')
 
                 solver = ServiceSolver(s, geometry, prepared=True, observer=observer)
+                solver.timings.update(admission)
                 solve_start = time.monotonic()
                 field, stats = solver.solve(max_eval, ANDERSON_TOLERANCE)
                 end()

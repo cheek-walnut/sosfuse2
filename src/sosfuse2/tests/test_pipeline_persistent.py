@@ -75,6 +75,31 @@ def numeric(value):
     return value
 
 
+def test_field_reserve_reaches_chunk_metadata(tmp_path):
+    from sosfuse2.atmosphere import density
+
+    with testkit.socket_root('sos-persistent-'):
+        pass
+    density.asset_path()
+    env = paths.child_env()
+    env.update(SOSFUSE2_FIELD_RESERVE='18', SOSFUSE2_FIELD_RESERVE_MIN='1')
+    args = ['--states', paths.ASSETS / 'states_v1_usstd.json', '--ids', 'clear_01']
+    args += ['--work-root', tmp_path, '--gpu-lock', tmp_path / 'gpu.lock']
+    args += ['--backend', 'numpy', '--reduced', '--persistent', '--gpu-active', '1', '--workers', '1']
+    subprocess.run(
+        paths.module_command('jobs.pipeline', *args),
+        env=env,
+        check=True,
+        timeout=float(os.environ.get('PERSISTENT_TEST_DEADLINE', '2400')),
+    )
+    events = PersistentTests.events(next((tmp_path / 'logs').glob('*/GPU_SERVICE.log')))
+    (acquired,) = [e for e in events if e['id'] == 'clear_01' and e['phase'] == 'gpu_acquired']
+    (timing,) = json.loads((tmp_path / 'out/clear_01/meta.json').read_text())['timings']
+    assert timing['field_reserve'] == acquired['field_reserve']
+    assert timing['field_reserve']['reason'] == 'requested_fits'
+    assert timing['field_reserve']['effective'] == 18
+
+
 class PersistentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
