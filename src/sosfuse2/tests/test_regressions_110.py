@@ -190,7 +190,12 @@ def test_source_contract_rejects_wrong_state_settings_and_missing(tmp_path, monk
         radiance_table.load_source(path, solver, [550.0], settings=settings, backend='numpy')
 
 
-def test_table_fast_cli_writes_current_physics_for_q16(tmp_path, monkeypatch):
+@pytest.mark.parametrize('name, sibling', [('table.npz', False), ('sky.npz', False), ('sky.npz', True)])
+def test_table_fast_cli_writes_current_physics_for_q16(tmp_path, monkeypatch, name, sibling):
+    path = tmp_path / name
+    if sibling:
+        (tmp_path / 'table.npz').touch()
+        (tmp_path / 'meta.json').write_text('{}')
     source = tmp_path / 'source.npz'
     solver, settings, _, _ = _source_fixture(source)
     states = tmp_path / 'states.json'
@@ -213,16 +218,19 @@ def test_table_fast_cli_writes_current_physics_for_q16(tmp_path, monkeypatch):
             '--prepare',
             str(tmp_path / 'prepare'),
             '--out',
-            str(tmp_path / 'table.npz'),
+            str(path),
             '--backend',
             'numpy',
             '--reduced',
         ],
     )
     radiance_table.main()
-    quantized_table.save(tmp_path / 'table.npz', tmp_path / 'q.npz')
-    assert quantized_table.load(tmp_path / 'q.npz')['header']['physics'] == physics()
-    assert quantized_table.round_trip(tmp_path / 'table.npz', tmp_path / 'q.npz')['max_rel'] <= quantized_table.MAX_REL
+    sidecar = tmp_path / ('meta.json' if name == 'table.npz' else 'sky.npz.meta.json')
+    assert json.loads(sidecar.read_text())['optics_state'] == optics_state(solver.fuse_state)
+    quantized_table.save(path, tmp_path / 'q.npz')
+    header = quantized_table.load(tmp_path / 'q.npz')['header']
+    assert header['physics'] == physics() and header['optics_state'] == optics_state(solver.fuse_state)
+    assert quantized_table.round_trip(path, tmp_path / 'q.npz')['max_rel'] <= quantized_table.MAX_REL
 
 
 def test_spectral_child_forwards_state():

@@ -5,6 +5,8 @@ of those groups. Missing/unwritten valid slots fail even when both sides agree.
 """
 
 import os
+from fractions import Fraction
+
 import numpy as np
 
 
@@ -120,11 +122,21 @@ def _compare(chunks, r, alpha, details, stage_size):
             bad = (~finite) | (delta > bound)
             norm_delta = np.divide(delta, sg, out=np.where(delta == 0, 0.0, np.inf), where=sg > 0)
             norm_ref = np.divide(b, sg, out=np.zeros_like(b), where=sg > 0)
+            # Two overflowed magnitudes carry no ordering information. Compare the
+            # original binary floats exactly for just those entries, including ties.
+            for i in np.flatnonzero(finite & np.isinf(delta) & np.isinf(bound)):
+                actual, ref, scale_i = (Fraction(float(x)) for x in (a[i], b[i], sg[i]))
+                diff = abs(actual - ref)
+                limit = Fraction(float(r)) * abs(ref) + Fraction(float(alpha)) * scale_i
+                bad[i] = diff > limit
+                error[i] = float(diff / limit)
+                rel[i] = float(diff / abs(ref))
+                norm_delta[i] = float(diff / scale_i)
             # add.at preserves input accumulation order across staging boundaries.
             np.add.at(dl, inv, norm_delta**2)
             np.add.at(bl, inv, norm_ref**2)
         local_peak = int(error.argmax())
-        if peak is None or error[local_peak] > emax or (np.isnan(error[local_peak]) and not np.isnan(emax)):
+        if peak is None or error[local_peak] > emax:
             peak = int(indices[local_peak])
             emax = float(error[local_peak])
         max_abs = max(max_abs, float(delta.max()))

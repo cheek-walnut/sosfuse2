@@ -55,6 +55,7 @@ def test_record_is_pinned_with_decision_and_provenance():
     digest = hashlib.sha256(v.RECORD.read_bytes()).hexdigest()
     assert digest == v.RECORD_SHA256
     meta = json.loads(v.RECORD_META.read_text())
+    assert v.paths.SRC / meta['record']['file'] == v.RECORD
     assert meta.keys().isdisjoint({'generated_utc', 'env', 'platform', 'worktree_changes_vs_commit'})
     rec = v.load_record()
     assert meta['decision'] == rec['contract']['decision'] == v.DECISION == 'b2-s2-gatev2-20261105'

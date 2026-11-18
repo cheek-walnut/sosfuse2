@@ -316,7 +316,9 @@ def test_small_vacuum_and_first_order(tmp_path, monkeypatch, fixed_grid):
             observed.append(table.copy())
             if iteration == 0:
                 np.testing.assert_allclose(s.first_order_table, table, rtol=1e-6, atol=0)
-                meta = rt.save_first_order(tmp_path / str(T), [s.first_order_table], *map(np.array, ([550.], [-3., -6.], [10., 45.], [0., 180.])))
+                axes = tuple(map(np.array, ([550.], [-3., -6.], [10., 45.], [0., 180.])))
+                rt.save_table(tmp_path / str(T) / 'table.npz', table, *axes)
+                meta = rt.save_first_order(tmp_path / str(T), [s.first_order_table], *axes)
                 with np.load(tmp_path / str(T) / 'first_order.npz') as saved:
                     np.testing.assert_allclose(saved['radiance'], table, rtol=1e-6, atol=0)
                 assert rt.first_order_complete(tmp_path / str(T), dict(settings=dict(export_first_order=True), **meta))

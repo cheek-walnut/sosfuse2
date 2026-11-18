@@ -67,12 +67,14 @@ def decode(lo, hi, planes, shape):
 
 
 def table_meta(table_npz):
-    """Physics identity of a table.npz from its meta.json (spectral.check_meta_contract). A table without meta.json, or
-    whose meta has no physics, was written before B2: the legacy identity. Unreadable
-    metadata is refused."""
+    """Read the matching metadata. A table without metadata or a physics field uses the legacy identity."""
     from ..atmosphere.spectral import check_meta_contract
+    from .radiance_table import table_meta_path
 
-    path = Path(table_npz).with_name('meta.json')
+    path = table_meta_path(table_npz)
+    if not path.exists() and not path.with_name('table.npz').exists():
+        # Older custom outputs used the directory metadata before they had named sidecars.
+        path = path.with_name('meta.json')
     try:
         meta = json.loads(path.read_text()) if path.exists() else {}
     except (OSError, ValueError) as exc:
@@ -89,7 +91,9 @@ def table_physics(table_npz):
 
 def save(table_npz, out_path):
     """Write table_q.npz from a table.npz; returns its header dict (log range, width)."""
-    physics = table_physics(table_npz)
+    from ..atmosphere.components import identity
+
+    meta = table_meta(table_npz)
     with np.load(table_npz, allow_pickle=False) as z:
         r = z['radiance']
         coords = {k: z[k] for k in COORDS}
@@ -99,7 +103,7 @@ def save(table_npz, out_path):
     lo, hi, planes = encode(r)
     header = dict(
         format=FORMAT,
-        physics=physics,
+        physics=identity(meta.get('physics')),
         log_lo=lo.tolist(),
         log_hi=hi.tolist(),
         width=float((hi - lo).max()),
@@ -108,7 +112,6 @@ def save(table_npz, out_path):
         dtype=r.dtype.str,
         delta_axis=delta_axis(r.ndim),
     )
-    meta = table_meta(table_npz)
     if 'optics_state' in meta:
         header['optics_state'] = meta['optics_state']
     buf = io.BytesIO()

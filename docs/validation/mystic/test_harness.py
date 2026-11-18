@@ -108,3 +108,24 @@ def test_partial_manifest_refusal_and_opt_in(tmp_path):
     assert rejected.returncode != 0 and 'E_MC_INCOMPLETE' in rejected.stderr
     subprocess.run(cmd + ['--allow-partial'], env=env, check=True, capture_output=True, text=True)
     assert read(out / 'compare.json')['status'] == 'PARTIAL'
+
+
+@pytest.mark.parametrize('top, reason', [(120, 'E_MYSTIC_TOP'), (80, 'E_O4_ASSET_MISSING')])
+def test_rejected_optics_preserves_previous_settings(tmp_path, monkeypatch, top, reason):
+    import export_optics
+
+    work = tmp_path / 'work'
+    out = work / 'out'
+    out.mkdir(parents=True)
+    previous = {'top_km': 80, 'wavelengths': 15}
+    (work / 'settings.json').write_text(json.dumps(previous))
+    (out / 'optics.json').write_text(json.dumps({'settings': previous}))
+    candidate = read(DEFAULT_CONFIG)
+    candidate['settings']['top_km'] = top
+    config = tmp_path / 'candidate.json'
+    config.write_text(json.dumps(candidate))
+    monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(tmp_path / 'missing-assets'))
+    monkeypatch.setattr(sys, 'argv', ['export_optics', '--work', str(work), '--config', str(config)])
+    with pytest.raises(ValueError, match=reason):
+        export_optics.main()
+    assert read(work / 'settings.json') == read(out / 'optics.json')['settings'] == previous

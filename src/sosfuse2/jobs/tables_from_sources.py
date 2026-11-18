@@ -28,8 +28,15 @@ THREAD_KEYS = (
 )
 
 
-def output_complete(out, pack):
+def verify_first_order_pack(out, pack, signature):
     from .run_state import verify_pack
+
+    with (out / 'first_order.npz').open('rb') as stream:
+        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+    verify_pack(pack, signature, export_first_order=True, first_order_sha=digest)
+
+
+def output_complete(out, pack):
     from ..outputs.radiance_table import first_order_complete
 
     if not (out / 'table.npz').is_file() or not pack.is_file():
@@ -46,9 +53,7 @@ def output_complete(out, pack):
         if not isinstance(signature, str) or not signature:
             return False
         try:
-            with (out / 'first_order.npz').open('rb') as stream:
-                digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-            verify_pack(pack, signature, export_first_order=True, first_order_sha=digest)
+            verify_first_order_pack(out, pack, signature)
         except (OSError, ValueError, RuntimeError, EOFError, tarfile.TarError):
             return False
     return True
@@ -114,7 +119,7 @@ def candidates(roots, ids):
 def process(root, ident, source, state, a, log):
     from sosfuse2.outputs import radiance_table as tf
     from sosfuse2.outputs.pack_state import pack_state
-    from sosfuse2.jobs.run_state import CONTRACT_VERSION, ANDERSON_TOLERANCE
+    from sosfuse2.jobs.run_state import CONTRACT_VERSION, ANDERSON_TOLERANCE, FirstOrderConflict
     from sosfuse2.atmosphere.components import physics, optics_state, check_same_state, production_only
 
     production_only()
@@ -136,6 +141,14 @@ def process(root, ident, source, state, a, log):
         check_same_state(old, dict(physics=physics(), optics_state=optics_state(state)))
         if old.get('signature') != signature:
             raise ValueError('E_OUTPUT_IDENTITY: batch table signature differs')
+        pack = root / 'pack' / f'{ident}.tar.zst'
+        if tf.exports_first_order(old) and pack.is_file() and (out / 'first_order.npz').is_file():
+            try:
+                verify_first_order_pack(out, pack, signature)
+            except FirstOrderConflict:
+                raise
+            except (OSError, ValueError, RuntimeError, EOFError, tarfile.TarError) as exc:
+                log(f'REPAIR {ident}: {exc}')
         if old.get('complete') is True and (out / 'table.npz').is_file() and tf.first_order_complete(out, old):
             pack_state(out, root / 'pack', 'zstd')
             return 'packed-existing'

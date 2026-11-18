@@ -303,13 +303,16 @@ def test_aero_stage_boundaries_with_offset_and_empty_cells(monkeypatch):
         assert (info['max_cell'], info['max_wavelength']) == (3, 0)
 
 
-def test_overflow_diagnostic_is_stage_invariant():
+@pytest.mark.parametrize('r, passes', [(1.8, False), (2, True), (10, True)])
+def test_overflow_diagnostic_is_stage_invariant(r, passes):
     a = np.array([0.0, 1e308, 0.0])
     b = np.array([0.0, -1e308, 0.0])
     for size in (1, 2, 3):
-        out = compare_tol(a, b, True, 0, r=10.0, stage_size=size)
-        assert np.isnan(out['E_inf']) and out['peak'] == [1]
-        assert out['pass_'] and out['violations'] == 0
+        out = compare_tol(a, b, True, 0, r=r, alpha=0, stage_size=size)
+        assert out['E_inf'] == pytest.approx(2 / r) and out['peak'] == [1]
+        assert out['pass_'] is passes and out['violations'] == int(not passes)
+        assert out['first'] == (None if passes else [1])
+        assert out['max_rel'] == 2 and out['groups']['0']['rel_l2'] == 2
 
 
 def test_aero_pad_lanes_are_ignored():

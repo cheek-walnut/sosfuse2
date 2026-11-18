@@ -1,6 +1,8 @@
 """Export CPU optical profiles from installed sosfuse2; no GPU required."""
 
 import argparse
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import numpy as np
@@ -19,11 +21,14 @@ def main():
 
     c = read(args.config)
     settings = H / 'settings.json'
-    dump(settings, c['settings'])
-    cfg = engine.settings_for(SimpleNamespace(reduced=False, settings_json=settings))
-    require_legacy_top(cfg)
-    if not minor_absorbers.o4_path().is_file():
-        raise ValueError('E_O4_ASSET_MISSING: run python -m sosfuse2.asset_tools.prepare_minor_absorbers --download')
+    with TemporaryDirectory(dir=H) as stage:
+        candidate = Path(stage) / settings.name
+        dump(candidate, c['settings'])
+        cfg = engine.settings_for(SimpleNamespace(reduced=False, settings_json=candidate))
+        require_legacy_top(cfg)
+        if not minor_absorbers.o4_path().is_file():
+            raise ValueError('E_O4_ASSET_MISSING: run python -m sosfuse2.asset_tools.prepare_minor_absorbers --download')
+        candidate.replace(settings)
     states_parent = make_states(H, c)
     states_file = H / 'states.json'
     states = {s['id']: s for s in read(states_file)['states'] if s['id'] in c['state_ids']}

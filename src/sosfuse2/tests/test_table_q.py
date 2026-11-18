@@ -36,6 +36,7 @@ def test_round_trip_within_bound_at_the_width_limit(tmp_path):
     row = round_trip(f, tmp_path / 'q.npz')
     assert row['max_rel'] <= MAX_REL and row['width'] <= MAX_WIDTH
     back = load(tmp_path / 'q.npz')
+    assert back['header']['physics'] == physics()  # older named tables used the directory metadata
     assert back['radiance'].dtype == np.float32 and back['radiance'].shape == SHAPE
     assert all(np.array_equal(back[k], np.load(f)[k]) for k in COORDS)
 

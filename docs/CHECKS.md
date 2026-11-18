@@ -105,7 +105,10 @@ always requires `--reference <table.npz>` and stops with `E_GATE_BASELINE_MISSIN
 (`checks/gate.py` `gf`); the SHA check `E_GATE_MANIFEST_SHA` still applies. The research tests (`test_cache_store`,
 `test_v14_runner`, the kernel_ab evidence packs and others) run in this tier as well. `gate --gf` and the cases that
 load the bake template, `test_cache_store` and the G-F cases of `test_gate`, need a research checkout whose scripts
-import the 1.4.0 module names, and the research-record cases of `test_ozone_temperature` need one that holds the files
+import the 1.4.0 module names. For `test_cache_store`, set `SOSFUSE2_TEST_BAKE_DRIVER` to the bake driver script and
+`SOSFUSE2_TEST_BAKE_PLANNER` to the planner script. Cases that use either script skip when its path is unset or missing.
+See the [test environment variables](ENVIRONMENT.md#variables-of-the-tests-only).
+The research-record cases of `test_ozone_temperature` need a checkout that holds the files
 its manifest names under `scripts/sosfuse2/assets/`. The provenance check of `test_v14_runner` accepts the current
 format; in 1.4.0 it expected format v3 and failed. D04 of `test_strato_delta_adversarial` reads the retained output of an earlier harness run, skips
 when that output is absent and expects a source of shape `(40, 10 + 2 * sh_count(L), 1)`. Here `L` comes from the retained run’s `meta['settings']['L']`. None of these cases runs in tier 1. This

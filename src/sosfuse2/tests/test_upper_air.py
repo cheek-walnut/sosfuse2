@@ -119,12 +119,26 @@ def test_numpy_upper_reference(tmp_path, width):
         array_sha256=hashlib.sha256(value.tobytes()).hexdigest())))
 
 
+@pytest.fixture
+def default_transport(monkeypatch):
+    monkeypatch.delenv('SOSFUSE2_KERNEL_FLAGS', raising=False)
+    monkeypatch.delenv('SOSFUSE2_KSPLIT', raising=False)
+
+
+def test_upper_reference_default_split(monkeypatch, request):
+    from sosfuse2.solve.source_solver import default_flags, ksplit_setting
+
+    monkeypatch.setenv('SOSFUSE2_KERNEL_FLAGS', 'WARM_RAYSPLIT')
+    monkeypatch.setenv('SOSFUSE2_KSPLIT', '0')
+    request.getfixturevalue('default_transport')
+    assert ksplit_setting('cupy', (*default_flags(), 'STRATO'), L=16, W=15) == '3'
+
+
 @pytest.mark.parametrize('width', [1, 15])
-def test_cuda_upper_reference(tmp_path, monkeypatch, width):
+def test_cuda_upper_reference(tmp_path, default_transport, width):
     cupy = pytest.importorskip('cupy', reason='CuPy is unavailable')
     if not cupy.is_available():
         pytest.skip('CUDA device is unavailable')
-    monkeypatch.delenv('SOSFUSE2_KSPLIT', raising=False)
     reference = reference_tables(tmp_path / 'numpy', width=width)
     actual = reference_tables(tmp_path / 'cuda', 'cupy', width)
     np.testing.assert_allclose(actual, reference, rtol=1e-3, atol=0)

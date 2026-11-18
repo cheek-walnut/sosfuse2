@@ -620,6 +620,10 @@ def effective_state(state, a):
     return with_options(state, a)
 
 
+class FirstOrderConflict(RuntimeError):
+    """The loose and archived first-order files have different digests."""
+
+
 def verify_pack(path, signature, *, export_first_order=None, first_order_sha=None):
     # Read every archived member through zstd; verify both CRC/content and the identity.
     # tarfile's stream mode stops at the end-of-archive marker and leaves the record padding (10240 bytes measured) unread;
@@ -627,6 +631,8 @@ def verify_pack(path, signature, *, export_first_order=None, first_order_sha=Non
     # can reject a valid pack. The rest of the stream
     # is drained before close, and a real decode failure reports zstd's exit code and stderr.
     import tempfile
+
+    from ..outputs.radiance_table import exports_first_order
 
     with tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(['zstd', '-q', '-dc', str(path)], stdout=subprocess.PIPE, stderr=err)
@@ -644,13 +650,12 @@ def verify_pack(path, signature, *, export_first_order=None, first_order_sha=Non
                         meta = json.load(f)
                     elif member.name == 'first_order.npz' and first_order_sha is not None:
                         if hashlib.file_digest(f, 'sha256').hexdigest() != first_order_sha:
-                            raise RuntimeError('E_PACK_VERIFY: first-order table differs')
+                            raise FirstOrderConflict('E_PACK_VERIFY: first-order table differs')
                     else:
                         while f.read(1024 * 1024):
                             pass
                 expected = ['table.npz', 'meta.json', 'preview_m03.png', 'preview_m06.png']
-                settings = meta.get('settings') if isinstance(meta, dict) else None
-                exported = isinstance(settings, dict) and bool(settings.get('export_first_order'))
+                exported = isinstance(meta, dict) and exports_first_order(meta)
                 if export_first_order is not None and export_first_order != exported:
                     raise RuntimeError('E_PACK_VERIFY: first-order setting differs')
                 if exported:

@@ -132,3 +132,10 @@ def test_every_environment_variable_in_the_code_is_documented(texts):
     table = texts['docs/ENVIRONMENT.md']
     absent = sorted(n for n in names if not re.search(r'(?<![A-Z0-9_])%s(?![A-Z0-9_])' % n, table))
     assert names and not absent, f'docs/ENVIRONMENT.md lacks: {absent}'
+
+
+def test_cache_research_setup_points_to_script_settings(texts):
+    guide = (ROOT / 'docs/CHECKS.md').read_text()
+    for variable in ('SOSFUSE2_TEST_BAKE_DRIVER', 'SOSFUSE2_TEST_BAKE_PLANNER'):
+        assert variable in guide and variable in texts['docs/ENVIRONMENT.md']
+    assert '(ENVIRONMENT.md#variables-of-the-tests-only)' in guide

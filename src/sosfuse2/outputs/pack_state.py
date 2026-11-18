@@ -96,7 +96,9 @@ def pack_state(out, pack, compression='auto', started=None, *, reuse_previews=Fa
     if not meta.get('complete'):
         raise RuntimeError('E_PACK_INCOMPLETE')
     from sosfuse2.atmosphere.spectral import check_meta_contract
+    from .radiance_table import exports_first_order
 
+    exported = exports_first_order(meta)
     check_meta_contract(meta)
     if not reuse_previews:
         previews(out)
@@ -119,8 +121,7 @@ def pack_state(out, pack, compression='auto', started=None, *, reuse_previews=Fa
     target = pack / (out.name + suffix)
     tmp = target.with_suffix(target.suffix + '.tmp')
     names = ('table.npz', 'meta.json', 'preview_m03.png', 'preview_m06.png')
-    settings = meta.get('settings')
-    if isinstance(settings, dict) and settings.get('export_first_order'):
+    if exported:
         first = meta.get('first_order')
         if not (out / 'first_order.npz').is_file() or not isinstance(first, dict) or first.get('file') != 'first_order.npz':
             raise RuntimeError('E_FIRST_ORDER_MISSING: first-order file or metadata missing')

@@ -208,7 +208,7 @@
     ]
    }
   },
-  "file": "sosfuse2/fixtures/selftest_ref_simpson.npz",
+  "file": "sosfuse2/checks/fixtures/selftest_ref_simpson.npz",
   "sha256": "6fab113dc99e71ee2dc59fdb934919fe2fe2f7fcab52156634d54bc6737832e4"
  },
  "settings": {

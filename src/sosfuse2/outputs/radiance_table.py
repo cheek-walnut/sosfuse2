@@ -217,6 +217,15 @@ def save_first_order(out, parts, wl, hs, el, az, *, filename='first_order.npz'):
     return dict(first_order=dict(file=filename, shape=list(table.shape), dtype='float32', includes_ground_reflection=True))
 
 
+def exports_first_order(meta):
+    settings = meta.get('settings')
+    if settings is None:
+        return False
+    if not isinstance(settings, dict):
+        raise ValueError('E_FIRST_ORDER_SETTINGS: expected a settings object or null')
+    return bool(settings.get('export_first_order'))
+
+
 def first_order_complete(out, meta=None):
     """Check the stored first-order array, axes and units before reusing an export.
 
@@ -227,23 +236,37 @@ def first_order_complete(out, meta=None):
             meta = json.loads((Path(out) / 'meta.json').read_text())
         except (OSError, ValueError):
             return True
-    settings = meta.get('settings') if isinstance(meta, dict) else None
-    if not isinstance(settings, dict) or not settings.get('export_first_order'):
+    if not isinstance(meta, dict):
+        return False
+    try:
+        exported = exports_first_order(meta)
+    except ValueError:
+        return False
+    if not exported:
         return True
     first = meta.get('first_order')
     if not isinstance(first, dict) or first.get('file') != 'first_order.npz':
         return False
     try:
-        with np.load(Path(out) / first['file'], allow_pickle=False) as saved:
+        with (np.load(Path(out) / first['file'], allow_pickle=False) as saved,
+              np.load(Path(out) / 'table.npz', allow_pickle=False) as total):
             radiance = saved['radiance']
-            axes = [saved[key] for key in ('solar_elevation_deg', 'view_elevation_deg',
-                                           'relative_azimuth_deg', 'wavelength_nm')]
-            return (all(axis.ndim == 1 and np.isfinite(axis).all() for axis in axes)
-                    and radiance.shape == tuple(map(len, axes))
+            shape = []
+            for key in ('solar_elevation_deg', 'view_elevation_deg', 'relative_azimuth_deg', 'wavelength_nm'):
+                axis = saved[key]
+                if axis.ndim != 1 or not np.isfinite(axis).all() or not np.array_equal(axis, total[key]):
+                    return False
+                shape.append(len(axis))
+            return (radiance.shape == tuple(shape)
                     and list(radiance.shape) == first.get('shape') and radiance.dtype == np.dtype('f4')
                     and np.isfinite(radiance).all() and saved['units'].item() == UNITS)
     except (OSError, ValueError, TypeError, RuntimeError, EOFError, KeyError, zipfile.BadZipFile, zlib.error):
         return False
+
+
+def table_meta_path(path):
+    path = Path(path)
+    return path.with_name('meta.json' if path.name == 'table.npz' else path.name + '.meta.json')
 
 
 def save_table(path, table, wl, hs, el, az):
@@ -535,10 +558,9 @@ def main():
         p.error(f'E_STATE_ID: no state {a.id!r} in {a.states}')
     settings = restored_settings(a.source, state, a.reduced, a.backend)
     first_order_name = 'first_order.npz'
-    meta_path = a.out.with_name('meta.json')
+    meta_path = table_meta_path(a.out)
     if a.out.name != 'table.npz':
         first_order_name = a.out.name + '.first_order.npz'
-        meta_path = a.out.with_name(a.out.name + '.meta.json')
     names = (a.out.name.casefold(), a.out.resolve().name.casefold())
     if (any(n in ('first_order.npz', 'meta.json') or n.endswith(('.first_order.npz', '.meta.json')) for n in names)
             or a.out.resolve() in (a.out.with_name(first_order_name).resolve(), meta_path.resolve())):
