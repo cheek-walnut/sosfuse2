@@ -3,7 +3,7 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
-## Unreleased
+## 1.6.0
 
 - The calculation boundary and profile grid share a domain definition. The default boundary remains 80 km. Full-grid
   settings can extend it with a Rayleigh air profile or a vacuum above 80 km. See [Model](MODEL.md#calculation-boundary).
