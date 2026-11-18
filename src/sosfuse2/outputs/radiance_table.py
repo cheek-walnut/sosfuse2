@@ -23,6 +23,7 @@ from pathlib import Path
 if __name__ == '__main__':
     sys.dont_write_bytecode = True
 from sosfuse2.foundation import paths, content_identity
+from sosfuse2.backends import vram_trace
 import numpy as np
 
 UNITS = 'W m^-2 sr^-1 nm^-1'
@@ -157,7 +158,8 @@ def make_table(s, source, hs, el, az, group=32, batch=25, log=print):
     source = np.ascontiguousarray(source, 'f4')
     if source.shape != (s.geo.ns, 10 + s.kernel.K * (2 if getattr(s, "strato", None) is not None else 1), s.W):
         raise ValueError(f'E_SOURCE_SHAPE: {source.shape}')
-    field = source if xp is np else xp.asarray(source)
+    with vram_trace.item('query.source'):
+        field = source if xp is np else xp.asarray(source)
     dummy = np.empty(0, 'f4')
     ee, aa = np.meshgrid(el, az, indexing='ij')
     table = np.empty((len(hs), len(el), len(az), s.W), 'f4')

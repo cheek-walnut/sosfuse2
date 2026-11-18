@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 from .source_solver import Kernel, load_engine
 from ..foundation import content_identity as source_identity, paths
-from ..backends import numpy_reference
+from ..backends import numpy_reference, vram_trace
 from ..atmosphere import tropo_profile
 from ..foundation.timers import stage
 
@@ -281,7 +281,10 @@ class Bundle:
             hits=np.concatenate([g['hits_ground'] for g in groups]).astype('u1'),
         )
         with stage('bundle_upload', device=True):
-            self.arrays = {k: xp.asarray(np.ascontiguousarray(v)) for k, v in a.items()}
+            self.arrays = {}
+            for k, v in a.items():
+                with vram_trace.item(f'geometry.bundle.{k}'):
+                    self.arrays[k] = xp.asarray(np.ascontiguousarray(v))
         self.bytes = sum(v.nbytes for v in self.arrays.values())
 
 
@@ -730,14 +733,11 @@ class ResidentGeometry(TransientGeometry):
         before = time.perf_counter()
         replace = replace or {}
         with stage('geometry_upload', device=True):
-            a = {
-                k: (
-                    xp.asarray(np.ascontiguousarray(replace.get(k, v)))
-                    if xp is not np
-                    else np.asarray(replace.get(k, v))
-                )
-                for k, v in host.items()
-            }
+            a = {}
+            for k, v in host.items():
+                with vram_trace.item(f'geometry.main.{k}'):
+                    value = replace.get(k, v)
+                    a[k] = xp.asarray(np.ascontiguousarray(value)) if xp is not np else np.asarray(value)
             self.s.kernel.sync()
         self.stats['upload_seconds'] = time.perf_counter() - before
         offsets = np.array(host['cell_off'], 'i8')

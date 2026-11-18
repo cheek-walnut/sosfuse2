@@ -1,6 +1,7 @@
 """SH transport layout; L32 renders the unchanged historical translation unit."""
 
 from pathlib import Path
+from sosfuse2.backends import vram_trace
 
 
 def count(L=32):
@@ -57,7 +58,8 @@ def combined_aux(src, c, L=32, xp=None, skip_thin=False):
     import numpy as np
 
     xp = np if xp is None else xp
-    values = combined_coefficients(src, c, L, xp, skip_thin)
+    with vram_trace.item('sh.combine_scratch'):
+        values = combined_coefficients(src, c, L, xp, skip_thin)
     cells, K, waves = values.shape
     out = xp.zeros((cells, (waves + 1) // 2, padded(L), 2), 'f4')
     out[:, :, :K, 0] = xp.transpose(values[:, :, ::2], (0, 2, 1))

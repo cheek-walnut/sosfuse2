@@ -11,6 +11,7 @@ import os
 import time
 import traceback
 from pathlib import Path
+from ..backends import vram_trace
 from ..foundation import content_identity, paths
 
 KSPLIT_STATE_VRAM_GB = 5.1  # = pipeline.KSPLIT_STATE_VRAM_GB (the controller stays import-free of this module)
@@ -83,10 +84,16 @@ def prepare_geometry(s, geometry, reduced):
 def promote_bundle(bundle, xp):
     """New device allocation with the exact host bytes and state-private sidecars."""
     result = copy.copy(bundle)
-    result.arrays = {k: xp.asarray(v) for k, v in bundle.arrays.items()}
+    trace = vram_trace.current.get()
+    label = (trace.item_name if trace else None) or 'geometry.main'
+    result.arrays = {}
+    for k, v in bundle.arrays.items():
+        with vram_trace.item(f'{label}.{k}'):
+            result.arrays[k] = xp.asarray(v)
     for attr in ('density_columns', 'strato_columns'):
         if hasattr(bundle, attr):
-            setattr(result, attr, {k: xp.asarray(v) for k, v in getattr(bundle, attr).items()})
+            with vram_trace.item(f'{label}.{attr}'):
+                setattr(result, attr, {k: xp.asarray(v) for k, v in getattr(bundle, attr).items()})
     return result
 
 
@@ -114,7 +121,8 @@ def promote_solver(s, geometry, backend, block_size, threads):
     s.kernel = kernel
     geometry.s = s
     geometry.bundle = promote_bundle(geometry.bundle, kernel.xp)
-    geometry.ground_bundle = promote_bundle(geometry.ground_bundle, kernel.xp)
+    with vram_trace.item('geometry.ground'):
+        geometry.ground_bundle = promote_bundle(geometry.ground_bundle, kernel.xp)
     kernel.sync()
 
 
@@ -240,7 +248,8 @@ def evaluate_tables(s, field, prepared):
     device_field = np.ascontiguousarray(field, 'f4') if xp is np else field
     results = []
     for b in prepared['batches']:
-        bundle = None if xp is np else promote_bundle(b['bundle'], xp)
+        with vram_trace.item('query.table_geometry'):
+            bundle = None if xp is np else promote_bundle(b['bundle'], xp)
         one = _evaluate(s, b['flat'], device_field, True, prepared['group'], bundle)
         multiple = _evaluate(s, b['flat'], device_field, False, prepared['group'], bundle)
         s.kernel.sync()
@@ -395,7 +404,8 @@ def restore_device_payload(payload, compiled):
     s.kernel = kernel
     geometry = TransientGeometry(s, None)
     geometry.bundle = promote_bundle(payload['bundle'], kernel.xp)
-    geometry.ground_bundle = promote_bundle(payload['ground_bundle'], kernel.xp)
+    with vram_trace.item('geometry.ground'):
+        geometry.ground_bundle = promote_bundle(payload['ground_bundle'], kernel.xp)
     return s, geometry
 
 
@@ -500,6 +510,9 @@ def persistent_chunk(s, geometry, tables, a, name, emit):
         observer = Solver(s, geometry, prepared=True, box_evaluate=capture)
         observer.boxes_fixed(np.empty(0, 'f4'))
         payload = device_payload(s, geometry)
+        trace = vram_trace.current.get()
+        if trace is not None:
+            payload['vram_chunk'] = trace.chunk
         if a.backend == 'numpy':
             for (_, nq), original in s.kernel.constants.items():
                 target = payload['constants'][nq]
@@ -604,7 +617,15 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
     pool_limit = None
     ksplit_waiting = set()  # states whose KSPLIT allocation waits for room (source_solver.vprod_columns)
 
+    ledger = vram_trace.Ledger() if vram_trace.enabled(backend) else None
+
     def handle(conn):
+        if ledger is None:
+            return serve(conn, None)
+        with vram_trace.session('UNKNOWN', emit, ledger) as trace:
+            return serve(conn, trace)
+
+    def serve(conn, trace):
         nonlocal xp, pool_limit
         name = 'UNKNOWN'
         admitted = False
@@ -616,6 +637,8 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
         try:
             name, max_eval, block_size, threads = conn.recv()
             payload = wire_recv(conn, emit, name)
+            if trace is not None:
+                trace.name, trace.chunk = name, payload['vram_chunk']
             # Reservation is deliberately conservative; no active state is evicted.
             # Includes resident geometry/constants plus Anderson vectors and scratch.
             import pickle
@@ -746,9 +769,11 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 geometry = TransientGeometry(s, None)
                 geometry.groups = payload['groups']
                 geometry.bundle = promote_bundle(payload['bundle'], xp)
-                geometry.ground_bundle = promote_bundle(payload['ground_bundle'], xp)
+                with vram_trace.item('geometry.ground'):
+                    geometry.ground_bundle = promote_bundle(payload['ground_bundle'], xp)
                 rays = payload['observer']['raws']
-                observer_bundle = promote_bundle(payload['observer']['bundle'], xp)
+                with vram_trace.item('query.observer_geometry'):
+                    observer_bundle = promote_bundle(payload['observer']['bundle'], xp)
                 emit(
                     name,
                     'service_setup_done',
@@ -761,6 +786,8 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 def begin(kind):
                     nonlocal sequence, current
                     sequence += 1
+                    if trace is not None:
+                        trace.stage, trace.piece = kind, sequence
                     current = (sequence, kind, time.monotonic(), time.thread_time())
                     emit(name, 'gpu_piece_start', piece=sequence, kind=kind)
 
@@ -822,11 +849,15 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 table_seconds = time.monotonic() - table_start
                 result = (kernel.host(field), stats, solver.timings, collected, solve_seconds, table_seconds)
                 end()
+                if trace is not None:
+                    solver.timings['vram_trace'] = trace.summary()
                 conn.send('done')
                 with wire_send(conn, result, root, emit, name):
                     conn.recv()
                 del observer_bundle, result
         except BaseException as exc:
+            if trace is not None:
+                trace.report_oom(exc)
             # The traceback names the failing call (str(exc) alone hid the KSPLIT=3 rig-profile c0+None).
             emit(
                 name,

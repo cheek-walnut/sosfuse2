@@ -168,3 +168,9 @@ def apply_pool_limit(xp):
     limit = pool_limit_bytes(free)
     xp.get_default_memory_pool().set_limit(size=limit)
     return limit, free
+
+
+def vram_pool_api(xp):
+    """Resolve the tracing API on the installed CUDA backend after acquiring the device."""
+    pool = xp.get_default_memory_pool()
+    return pool, xp.cuda.MemoryHook, xp.cuda.memory.OutOfMemoryError

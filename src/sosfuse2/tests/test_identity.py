@@ -720,6 +720,7 @@ def test_package_hashes(monkeypatch):
         'sosfuse2/atmosphere/components.py',
         'sosfuse2/atmosphere/density.py',
         'sosfuse2/backends/device_profile.py',
+        'sosfuse2/backends/vram_trace.py',
         'sosfuse2/solve/source_solver.py',
         'sosfuse2/checks/gate.py',
         'sosfuse2/checks/kernel_diagnostics.py',

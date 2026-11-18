@@ -4,6 +4,8 @@
 import argparse, contextlib, copy, fcntl, hashlib, json, os, re, shutil
 import subprocess, sys, tarfile, threading, time
 from pathlib import Path
+from functools import wraps
+from sosfuse2.backends import vram_trace
 
 if __name__ == '__main__':
     sys.dont_write_bytecode = True
@@ -924,6 +926,18 @@ def geometry_only(a):
         stop.set()
 
 
+def trace_state(func):
+    @wraps(func)
+    def wrapped(a):
+        if not vram_trace.enabled(a.backend):
+            return func(a)
+        with vram_trace.session(a.out_name or a.id, phase):
+            return func(a)
+
+    return wrapped
+
+
+@trace_state
 def run(a):
     from ..atmosphere.components import production_only
 
@@ -1036,6 +1050,8 @@ def run(a):
     moments = []
     stats_all = []
     timings = []
+    trace = vram_trace.current.get()
+    service_traces = []
     source_seconds = query_seconds = 0.0
     ksplit_decision = None
     try:
@@ -1044,6 +1060,8 @@ def run(a):
         # Independent wavelengths: use unchanged FW=15 kernel, padding the final chunk.
         chunks = [wl] if len(wl) in (1, 15) else [wl[i : i + 15] for i in range(0, len(wl), 15)]
         for index, chunk in enumerate(chunks):
+            if trace is not None:
+                trace.chunk, trace.stage, trace.iteration = index, 'setup', None
             count = len(chunk)
             padded = (
                 chunk
@@ -1141,6 +1159,8 @@ def run(a):
                     host, stats, stiming, collected, sec, qsec = persistent_chunk(
                         s, geometry, prepared_table, a, name, phase
                     )
+                    if trace is not None:
+                        service_traces.append(stiming.pop('vram_trace'))
                     ksplit_decision = stiming.get('ksplit', ksplit_decision)
                     fields.append(host[..., :count])
                     stats_all.append(stats)
@@ -1162,6 +1182,8 @@ def run(a):
 
                     apply_pool_limit(xp)
             phase(name, 'source_start', chunk=index, wavelengths=count)
+            if trace is not None:
+                trace.stage = 'source'
             t = time.monotonic()
             solver = Solver(s, geometry, fixed_boxes=a.fixed_boxes)
             field, stats = solver.solve(a.max_eval, ANDERSON_TOLERANCE)
@@ -1183,6 +1205,8 @@ def run(a):
             s.ms[..., ::2] = host
             from sosfuse2.outputs.radiance_table import make_table
 
+            if trace is not None:
+                trace.stage, trace.iteration = 'table_transport', None
             t = time.monotonic()
             if pipeline_lock:
                 collected = evaluate_tables(s, field, prepared_table)
@@ -1292,6 +1316,7 @@ def run(a):
         )  # ③ 0(b): gl/exact PROFILE columns of sun table+ground, None = no PROFILE
         meta = dict(
             **first_meta,
+            **vram_trace.metadata(service_traces),
             density=metadata(s),
             profile=profile_meta,
             complete=True,
@@ -1382,6 +1407,7 @@ def run(a):
         stop.set()
 
 
+@trace_state
 def run_extra(a):
     """M3: table rows at extra solar elevations from a stored source
     (<work-root>/tmp/<source_out_name>/source.npz written by run()); no solve, no geometry cache."""
@@ -1512,6 +1538,9 @@ def run_extra(a):
         query_seconds = 0.0
         start = 0
         for index, chunk in enumerate(chunks):
+            trace = vram_trace.current.get()
+            if trace is not None:
+                trace.chunk, trace.stage = index, 'table_transport'
             count = len(chunk)
             if index:
                 t = time.monotonic()
@@ -1576,6 +1605,7 @@ def run_extra(a):
 
         meta = dict(
             **first_meta,
+            **vram_trace.metadata(),
             density=metadata(s),
             complete=True,
             contract=CONTRACT_VERSION,

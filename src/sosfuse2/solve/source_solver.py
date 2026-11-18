@@ -15,6 +15,7 @@ import warnings
 from pathlib import Path
 import numpy as np
 from ..backends import numpy_reference
+from sosfuse2.backends import vram_trace
 from ..atmosphere.components import NCOMP
 from ..backends.arithmetic import F, norm_constants
 from ..backends.sh_layout import count, padded, workspace, source_size, kernel_source, combined_aux
@@ -205,6 +206,9 @@ class Kernel(KsplitMixin):
             if cupy.cuda.runtime.getDeviceCount() < 1:
                 raise RuntimeError('E_CUDA_DEVICE: no CUDA device')
             self.xp = cupy
+            trace = vram_trace.current.get()
+            if trace is not None:
+                trace.bind(cupy)
         self.raw = {}
         self.constants = {}
         self.device_constants = {}
@@ -758,12 +762,17 @@ class Kernel(KsplitMixin):
                     'u',
                     'wu',
                 )
-                dc = {name: self.xp.asarray(np.ascontiguousarray(c[name])) for name in names}
+                dc = {}
+                for name in names:
+                    with vram_trace.item(f'constants.{name}'):
+                        dc[name] = self.xp.asarray(np.ascontiguousarray(c[name]))
                 if 'strato_ext' in c:
                     for name in ('strato_ext', 'strato_sca', 'strato_chi', 'strato_density', 'strato_sun_col'):
-                        dc[name] = self.xp.asarray(np.ascontiguousarray(c[name]))
+                        with vram_trace.item(f'constants.{name}'):
+                            dc[name] = self.xp.asarray(np.ascontiguousarray(c[name]))
                 if 'strato_ext' in c and self.config().strato:
-                    dc['strato_chi'] = self.strato_lut_device(dc['strato_chi'], c['W'])
+                    with vram_trace.item('lut.strato'):
+                        dc['strato_chi'] = self.strato_lut_device(dc['strato_chi'], c['W'])
                 if self.ground_sh_l and c['gval'].size:
                     from .ground_sh import lut_eigenvalues, project, synthesize
 
@@ -775,7 +784,8 @@ class Kernel(KsplitMixin):
                         lut = self.host(dc['strato_chi']).reshape(-1, c['W'])[33:]
                         eigen = lut_eigenvalues(lut, self.ground_sh_l)
                         coeff = project(c['goff'], c['gdir'], c['gval'], c['g'], eigen, self.ground_sh_l)
-                        self.ground_sh_tables[ground_key] = synthesize(coeff, self.ground_sh_l, self.xp)
+                        with vram_trace.item('lut.ground_sh'):
+                            self.ground_sh_tables[ground_key] = synthesize(coeff, self.ground_sh_l, self.xp)
                     dc['ground_sh'] = self.ground_sh_tables[ground_key]
                     self.metrics['ground_sh_order'] = self.ground_sh_l
                     self.metrics['ground_sh_bytes'] = int(dc['ground_sh'].nbytes)
@@ -879,7 +889,8 @@ class Kernel(KsplitMixin):
                 return out
 
             out = cached_columns(self, bundle, c, 'strato', build)
-            bundle.strato_columns[key] = self.xp.asarray(out)
+            with vram_trace.item('geometry.strato_columns'):
+                bundle.strato_columns[key] = self.xp.asarray(out)
         return bundle.strato_columns[key]
 
     def density_end_columns(self, bundle, c):
@@ -911,7 +922,8 @@ class Kernel(KsplitMixin):
                 return out
 
             out = cached_columns(self, bundle, c, 'density', build)
-            bundle.density_columns[key] = self.xp.asarray(np.ascontiguousarray(out, 'f4'))
+            with vram_trace.item('geometry.density_columns'):
+                bundle.density_columns[key] = self.xp.asarray(np.ascontiguousarray(out, 'f4'))
         return bundle.density_columns[key]
 
     def launch(self, bundle, s, field, first=False, phase=0, boundary=None, timed=False, _ksplit=None):
@@ -946,10 +958,14 @@ class Kernel(KsplitMixin):
                 dc = dict(dc, ext=e.reshape(dc['ext'].shape), strato_ext=se.reshape(dc['strato_ext'].shape))
             else:
                 kb['hdr32'][0:1].fill(2)
-        src = xp.ascontiguousarray(field, dtype='f4')
-        moments = xp.empty((ncell, 4 + self.K, W), 'f8') if phase == 0 else xp.empty(1, 'f8')
-        flux = xp.empty((ncell, W), 'f8')
-        query = xp.empty((nr, W, 4), 'f4') if phase == 2 else (kb['buf'] if ks else xp.empty(1, 'f4'))
+        with vram_trace.item('source.contiguous'):
+            src = xp.ascontiguousarray(field, dtype='f4')
+        with vram_trace.item('moments.first' if first else 'moments.transport'):
+            moments = xp.empty((ncell, 4 + self.K, W), 'f8') if phase == 0 else xp.empty(1, 'f8')
+        with vram_trace.item('transport.flux'):
+            flux = xp.empty((ncell, W), 'f8')
+        with vram_trace.item('query.radiance'):
+            query = xp.empty((nr, W, 4), 'f4') if phase == 2 else (kb['buf'] if ks else xp.empty(1, 'f4'))
         bd = xp.ascontiguousarray(boundary, dtype='f8') if boundary is not None else xp.zeros((len(s.geo.chi), W), 'f8')
         names = (
             'cell_off',
@@ -1015,7 +1031,7 @@ class Kernel(KsplitMixin):
         if ks:
             args += self.ksplit_pointer_args(kb)
         sh_index = len(args)  # the SH sidecar appended below (VPROD reads the same combined plane)
-        with stage('sh_aux_build', device=True):
+        with stage('sh_aux_build', device=True), vram_trace.item('sh.sidecar'):
             if 'strato_ext' in c and self.config().strato:
                 if src.shape != (len(s.geo.h) * len(s.geo.chi), 10 + 2 * self.K, W):
                     raise ValueError(f'E_STRATO_SH_SOURCE: expected [nh*nc,{10 + 2 * self.K},W]')
@@ -1059,7 +1075,8 @@ class Kernel(KsplitMixin):
             lpt_index = len(args)
             args.append(lpt_order(0, ncell))
             if S > 1:
-                args.append(xp.empty(max(1, (S - 1) * ncell * (4 + self.K) * W) if phase == 0 else 1, 'f8'))
+                with vram_trace.item('moments.split'):
+                    args.append(xp.empty(max(1, (S - 1) * ncell * (4 + self.K) * W) if phase == 0 else 1, 'f8'))
                 args.append(xp.empty(S * ncell * W, 'f8'))
                 split_count = xp.zeros(ncell, 'i4')
                 args.append(split_count)
@@ -1088,7 +1105,8 @@ class Kernel(KsplitMixin):
             # single-warp projections may dominate its 11.9 s first light on a 4090; not measured yet).
             ray_mode = mode != 'single' or os.environ.get('SOSFUSE2_FL_PROJECT', '').strip() == '1'
             ray_sync = xp.zeros(ncell + 2, 'i4')  # [queue head, cell counters, ray-range end (LAUNCH_RAY_LIMIT)]
-            ray_rads = xp.empty((max(nr, 1), 4 * W), 'f4')
+            with vram_trace.item('transport.ray_radiance'):
+                ray_rads = xp.empty((max(nr, 1), 4 * W), 'f4')
             args += [ray_rads, ray_sync]
         rs = bool(self.device()[1].get('requires_split'))
         if first and phase == 0 and (not ray_mode):
@@ -1408,7 +1426,8 @@ class Solver:
         s = self.s
         xp = self.xp
         with stage('first_light_total'):
-            zero = xp.zeros((s.geo.ns, source_size(s), s.W), 'f4')
+            with vram_trace.item('source.first_zero'):
+                zero = xp.zeros((s.geo.ns, source_size(s), s.W), 'f4')
             first_moments, first_flux = self.geometry.evaluate(s, zero, first=True, phase=0)
             self.kernel.sync()
         del zero
@@ -1451,37 +1470,39 @@ class Solver:
             self.last_moment = (
                 moment  # Opt-in: incident-radiance SH moments of this evaluation
             )
-        out = xp.empty_like(field)
-        out[:, :4] = (moment[:, :4] * xp.asarray(F(3 / (8 * math.pi)) * s.ext[0].astype('f4'))[None, None, :]).astype(
-            'f4'
-        )
-        out[:, 4:10] = (
-            moment[:, 4:10]
-            * xp.asarray(s.rf.astype('f4'))[None, :, None]
-            * xp.asarray(s.ext[0].astype('f4'))[None, None, :]
-        ).astype('f4')
-        if getattr(s, 'tropo', None) is not None:
-            from ..atmosphere.tropo_mie import eigen_by_sh as tropo_eigen
+        with vram_trace.item('source.output'):
+            out = xp.empty_like(field)
+        with vram_trace.item('source.composition_scratch'):
+            out[:, :4] = (moment[:, :4] * xp.asarray(F(3 / (8 * math.pi)) * s.ext[0].astype('f4'))[None, None, :]).astype(
+                'f4'
+            )
+            out[:, 4:10] = (
+                moment[:, 4:10]
+                * xp.asarray(s.rf.astype('f4'))[None, :, None]
+                * xp.asarray(s.ext[0].astype('f4'))[None, None, :]
+            ).astype('f4')
+            if getattr(s, 'tropo', None) is not None:
+                from ..atmosphere.tropo_mie import eigen_by_sh as tropo_eigen
 
-            out[:, 10 : 10 + self.kernel.K] = (
-                moment[:, 4:]
-                * xp.asarray(tropo_eigen(s.tropo, self.kernel.L).astype('f4'))[None, :, :]
-                * xp.asarray(s.asca.astype('f4'))[None, None, :]
-            ).astype('f4')
-        else:
-            out[:, 10 : 10 + self.kernel.K] = (
-                moment[:, 4:]
-                * xp.asarray(s.af.astype('f4'))[None, :, None]
-                * xp.asarray(s.asca.astype('f4'))[None, None, :]
-            ).astype('f4')
-        if getattr(s, 'strato', None) is not None:
-            from ..atmosphere.stratosphere import eigen_by_sh
+                out[:, 10 : 10 + self.kernel.K] = (
+                    moment[:, 4:]
+                    * xp.asarray(tropo_eigen(s.tropo, self.kernel.L).astype('f4'))[None, :, :]
+                    * xp.asarray(s.asca.astype('f4'))[None, None, :]
+                ).astype('f4')
+            else:
+                out[:, 10 : 10 + self.kernel.K] = (
+                    moment[:, 4:]
+                    * xp.asarray(s.af.astype('f4'))[None, :, None]
+                    * xp.asarray(s.asca.astype('f4'))[None, None, :]
+                ).astype('f4')
+            if getattr(s, 'strato', None) is not None:
+                from ..atmosphere.stratosphere import eigen_by_sh
 
-            out[:, 10 + self.kernel.K :] = (
-                moment[:, 4:]
-                * xp.asarray(eigen_by_sh(s.strato, self.kernel.L).astype('f4'))[None, :, :]
-                * xp.asarray(s.strato['sca'].astype('f4'))[None, None, :]
-            ).astype('f4')
+                out[:, 10 + self.kernel.K :] = (
+                    moment[:, 4:]
+                    * xp.asarray(eigen_by_sh(s.strato, self.kernel.L).astype('f4'))[None, :, :]
+                    * xp.asarray(s.strato['sca'].astype('f4'))[None, None, :]
+                ).astype('f4')
         if xp is np:
             out[np.abs(out) < numpy_reference.TRACE_MIN] = (
                 0  # FP32 flush-to-zero of the device composition (no subnormal source on CUDA, numpy_reference.flush_to_zero)
@@ -1560,7 +1581,8 @@ class Solver:
         host_history = history_storage == 'host'
         history_xp = np if host_history else xp
         self.timings['anderson_history'] = history_storage
-        x = xp.zeros((s.geo.ns, source_size(s), s.W), 'f4')
+        with vram_trace.item('source.iterate'):
+            x = xp.zeros((s.geo.ns, source_size(s), s.W), 'f4')
         gs = [[] for _ in range(s.W)]
         fs = [[] for _ in range(s.W)]
         done = np.zeros(s.W, bool)
@@ -1568,6 +1590,9 @@ class Solver:
         started = time.perf_counter()
         boxes = self.observer or (self.boxes_fixed if self.fixed_boxes else self.boxes)
         for iteration in range(1, max_eval + 1):
+            trace = vram_trace.current.get()
+            if trace is not None:
+                trace.iteration = iteration
             evaluation_start = time.perf_counter()
             old = boxes(x)
             old_query_seconds = time.perf_counter() - evaluation_start
@@ -1578,14 +1603,16 @@ class Solver:
             nonfinite = int(xp.count_nonzero(~xp.isfinite(g)))
             if nonfinite:
                 raise RuntimeError(f'E_NONFINITE_SOURCE: {nonfinite} values after evaluation {iteration}')
-            g = xp.where(xp.asarray(done)[None, None, :], x, g)
+            with vram_trace.item('source.masked'):
+                g = xp.where(xp.asarray(done)[None, None, :], x, g)
             query_start = time.perf_counter()
             new = boxes(g)
             query_seconds = old_query_seconds + time.perf_counter() - query_start
             stop_count = len(self.monitor_sets['stop'])
             stop_old, stop_new = old[:stop_count], new[:stop_count]
             rr = np.max(abs(stop_new - stop_old) / np.maximum(abs(stop_new), 1e-30), axis=(0, 1))
-            ss = self.kernel.host(xp.max(abs(g - x), axis=(0, 1)) / xp.maximum(xp.max(abs(g), axis=(0, 1)), 1e-30))
+            with vram_trace.item('source.residual_test'):
+                ss = self.kernel.host(xp.max(abs(g - x), axis=(0, 1)) / xp.maximum(xp.max(abs(g), axis=(0, 1)), 1e-30))
             if iteration >= 2:
                 done |= np.maximum(rr, ss) <= tolerance
             history.append(
@@ -1612,19 +1639,23 @@ class Solver:
                 history[-1]['Anderson_seconds'] = 0.0
                 break
             anderson_start = time.perf_counter()
-            nxt = g.copy()  # A1: Anderson time recorded below as stage 'anderson'
+            with vram_trace.item('source.candidate'):
+                nxt = g.copy()  # A1: Anderson time recorded below as stage 'anderson'
             for w in range(s.W):
                 if done[w]:
                     continue
                 norm = xp.linalg.norm(g[:, :, w], axis=1)
                 scale = xp.maximum(norm, norm.max() * 1e-8)
-                feature = ((g[:, :, w] - x[:, :, w]) / scale[:, None]).astype('f8').ravel()
+                with vram_trace.item('anderson.feature'):
+                    feature = ((g[:, :, w] - x[:, :, w]) / scale[:, None]).astype('f8').ravel()
                 obs = xp.asarray(
                     ((stop_new[:, :, w] - stop_old[:, :, w]) / np.maximum(abs(stop_new[:, :, w]), 1e-20)).ravel()
                     * math.sqrt(len(feature) / (stop_new.shape[0] * stop_new.shape[1]))
                 )
-                source = g[:, :, w].copy()
-                residual = xp.concatenate([feature, obs])
+                with vram_trace.item('anderson.source_history'):
+                    source = g[:, :, w].copy()
+                with vram_trace.item('anderson.residual_history'):
+                    residual = xp.concatenate([feature, obs])
                 gs[w].append(self.kernel.host(source) if host_history else source)
                 fs[w].append(self.kernel.host(residual) if host_history else residual)
                 del source, residual
@@ -1633,7 +1664,8 @@ class Solver:
                     fs[w].pop(0)
                 if len(fs[w]) > 1:
                     # Stage one wavelength at a time. Gram and mixing arithmetic stay on the solve backend.
-                    f = xp.asarray(history_xp.stack(fs[w], 1))
+                    with vram_trace.item('anderson.stack'):
+                        f = xp.asarray(history_xp.stack(fs[w], 1))
                     gram = f.T @ f
                     gram += xp.eye(len(gram)) * max(float(self.kernel.host(xp.trace(gram))) * 1e-10, 1e-30)
                     self.kernel.memory()
@@ -1648,7 +1680,8 @@ class Solver:
                     except np.linalg.LinAlgError:
                         pass
             # A converged wavelength is frozen exactly as the accepted active mask.
-            x = xp.where(xp.asarray(done)[None, None, :], g, nxt)
+            with vram_trace.item('source.iterate'):
+                x = xp.where(xp.asarray(done)[None, None, :], g, nxt)
             self.kernel.sync()
             history[-1]['Anderson_seconds'] = time.perf_counter() - anderson_start
             TIMERS.add('anderson', history[-1]['Anderson_seconds'])
