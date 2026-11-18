@@ -605,6 +605,7 @@ def run_queue(a):
     counts = {r['id']: dict(hit=0, miss=0, invalid=0, disabled=0) for r in rows}
     profiles = {r['id']: [] for r in rows}  # ②b PROFILE evidence (run_state host, persistent service upload)
     attach = {r['id']: dict(hit=0, miss=0, unused=0, disabled=0) for r in rows}
+    decisions = {r['id']: None for r in rows}
     for path in [*(Path(r['log']) for r in rows), logs / 'GPU_SERVICE.log']:
         if not path.is_file() or (path.name == 'GPU_SERVICE.log' and not a.persistent):
             continue
@@ -628,6 +629,8 @@ def run_queue(a):
                 if isinstance(event, dict) and event.get('phase') == 'attach_cache' and event.get('id') in attach:
                     if event.get('result') in attach[event['id']]:
                         attach[event['id']][event['result']] += 1
+                if isinstance(event, dict) and event.get('phase') == 'ksplit' and event.get('id') in decisions:
+                    decisions[event['id']] = event.get('decision')
                 if isinstance(event, dict) and event.get('phase') == 'KSPLIT_FALLBACK':
                     for row in rows:
                         if row['id'] == event.get('id'):
@@ -639,6 +642,7 @@ def run_queue(a):
         row['attach_cache'] = attach[row['id']]
     for row in rows:
         row['profile'] = profiles[row['id']]
+        row['ksplit'] = decisions[row['id']]
     summary['attach_cache'] = {k: sum(v[k] for v in attach.values()) for k in ('hit', 'miss', 'unused', 'disabled')}
     summary['column_cache'] = {k: sum(v[k] for v in counts.values()) for k in ('hit', 'miss', 'invalid', 'disabled')}
     (a.work_root / 'pipeline_summary.json').write_text(json.dumps(summary, indent=2, allow_nan=False) + '\n')

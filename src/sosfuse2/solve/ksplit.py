@@ -171,7 +171,7 @@ class KsplitMixin:
                 return previous
         requested = self.ksplit_mode
         if not requested:
-            s.ksplit_decision = dict(requested=0, effective=0)
+            s.ksplit_decision = dict(requested=0, effective=0, reason=self._ksplit_zero_reason)
             return s.ksplit_decision
         flag = os.environ.get('SOSFUSE2_KSPLIT_FALLBACK', '1')
         if flag not in ('0', '1'):

@@ -5,7 +5,6 @@ import json
 import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
-
 import numpy as np
 import pytest
 from sosfuse2.checks import testkit
@@ -161,8 +160,54 @@ def test_installed_transport_layout(tmp_path, monkeypatch, waves, planes, parts,
     assert k.raw_kernel.call_args.args[0] == k._W == waves
     assert k.ksplit == bool(mode)
     if waves == 1:
-        assert k.ksplit_preflight(restored, []) == dict(requested=0, effective=0)
+        assert k.ksplit_preflight(restored, []) == dict(requested=0, effective=0, reason='fw1')
         k.launch(geometry.bundle, restored, field, phase=1)
+
+
+@pytest.mark.parametrize(
+    ('backend', 'flags', 'L', 'W', 'env', 'expected'),
+    [
+        ('cupy', ('STRATO',), 16, 15, '', ('3', None)),
+        ('cupy', ('STRATO',), 24, 15, '', ('0', 'sh_order_gt_16')),
+        ('cupy', ('STRATO',), 16, 1, '', ('0', 'fw1')),
+        ('cupy', ('STRATO', 'EXP_SECTION_CLOCKS'), 16, 15, '3', ('0', 'instrumented')),
+        ('cupy', (), 16, 15, '', ('0', 'no_strato')),
+        ('cupy', ('STRATO', 'WARM_RAYSPLIT'), 16, 15, '', ('0', 'warm_raysplit')),
+        ('cupy', ('STRATO',), 16, 15, '0', ('0', 'explicit_zero')),
+        ('cupy', ('STRATO',), 24, 15, '1', ('1', None)),
+        ('cupy', ('STRATO',), 16, 1, '3', ('3', None)),
+        ('numpy', ('STRATO',), 16, 1, '', ('0', 'numpy')),
+    ],
+)
+def test_ksplit_request_reason(monkeypatch, backend, flags, L, W, env, expected):
+    from sosfuse2.solve.source_solver import _ksplit_request
+
+    monkeypatch.setenv('SOSFUSE2_KSPLIT', env)
+    assert _ksplit_request(backend, resolve_config(flags, W=W), L) == expected
+
+
+def test_ksplit_zero_records_reason_without_fallback(monkeypatch, capsys, recwarn):
+    from sosfuse2.jobs.pipeline_execution import install_constants
+    from sosfuse2.solve.source_solver import Solver
+
+    monkeypatch.delenv('SOSFUSE2_KSPLIT', raising=False)
+    monkeypatch.delenv('SOSFUSE2_KSPLIT_VERIFY', raising=False)
+    kernel = Kernel(backend='numpy', flags=(), L=16)
+    kernel.ksplit_emit = lambda _: pytest.fail('unexpected fallback')
+    state = SimpleNamespace(kernel=kernel, W=1, geo=SimpleNamespace(ns=1))
+    install_constants(kernel, state, {1: dict(W=1)})
+
+    def first_light(s, _field, **_):
+        assert kernel.setup(s, 1) == dict(W=1)
+        return np.empty(0), np.empty(0)
+
+    solver = Solver(state, SimpleNamespace(evaluate=first_light), prepared=True)
+    solver.initialize()
+    decision = solver.timings['ksplit']
+    assert decision == state.ksplit_decision == dict(requested=0, effective=0, reason='numpy')
+    assert kernel.ksplit_preflight(state, []) == decision
+    assert capsys.readouterr() == ('', '')
+    assert not recwarn
 
 
 def test_retired_names_do_not_change_cache_or_toolkey(monkeypatch):

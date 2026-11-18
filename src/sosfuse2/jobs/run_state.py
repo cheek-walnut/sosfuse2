@@ -1209,6 +1209,8 @@ def run(a):
                 s.kernel.device_constants.clear()
                 del solver, field, host
                 solver = field = None
+        if ksplit_decision is not None:
+            phase(name, 'ksplit', decision=ksplit_decision)
         if pipeline_lock:
             phase(name, 'cpu_finalize_start')
             for table_s, prepared_table, collected, count, index in pending_tables:

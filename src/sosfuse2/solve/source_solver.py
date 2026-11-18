@@ -135,14 +135,24 @@ def ksplit_setting(backend, flags, L):
     """Resolve KSPLIT for an FW15 physical configuration; setup defers FW1 to mode 0.
     The default needs CuPy, STRATO, L<=16 and uninstrumented transport.
     """
-    config = resolve_config(flags)
+    return _ksplit_request(backend, resolve_config(flags), L)[0]
+
+
+def _ksplit_request(backend, config, L):
     if config.instrumented:
-        return '0'
+        return '0', 'instrumented'
     text = os.environ.get('SOSFUSE2_KSPLIT', '').strip()
     if text:
-        return text
-    fits = backend == 'cupy' and config.ksplit_supported and L <= 16
-    return KSPLIT_DEFAULT if fits else '0'
+        return text, 'explicit_zero' if text == '0' else None
+    if backend != 'cupy':
+        return '0', 'numpy'
+    if config.W == 1:
+        return '0', 'fw1'
+    if L > 16:
+        return '0', 'sh_order_gt_16'
+    if not config.ksplit_supported:
+        return '0', 'no_strato' if not config.strato else 'warm_raysplit'
+    return KSPLIT_DEFAULT, None
 
 
 class Kernel(KsplitMixin):
@@ -172,7 +182,7 @@ class Kernel(KsplitMixin):
         # unset means KSPLIT=3 (VPROD + warm ray consumer + projection) where it applies (CuPy, STRATO/FW15, L<=16, FP64
         # projection accumulator) and the unsplit kernel elsewhere; SOSFUSE2_KSPLIT=0 forces the unsplit kernel, and an
         # explicit 1-3 still fails loudly on an unsupported configuration.
-        ks_text = ksplit_setting(backend, self.flags, L)
+        ks_text, self._ksplit_zero_reason = _ksplit_request(backend, self.config(15), L)
         if ks_text not in ('0', '1', '2', '3'):
             raise ValueError(f'E_KSPLIT_FLAGS: SOSFUSE2_KSPLIT must be 0, 1, 2 or 3 (got {ks_text!r})')
         self.ksplit = ks_text in ('1', '2', '3')
@@ -240,13 +250,7 @@ class Kernel(KsplitMixin):
         cfg = self.config(W)
         if self.ground_sh_l and not cfg.ground_sh_supported:
             raise ValueError('E_GROUND_SH_FLAGS: requires fused strato ground, split first light and HG')
-        ks = (
-            ksplit_setting(self.backend, self.flags, self.L)
-            if W == 15
-            else os.environ.get('SOSFUSE2_KSPLIT', '').strip() or '0'
-        )
-        if cfg.instrumented:
-            ks = '0'
+        ks, self._ksplit_zero_reason = _ksplit_request(self.backend, cfg, self.L)
         if ks not in ('0', '1', '2', '3') or (ks != '0' and not cfg.ksplit_supported):
             raise ValueError('E_KSPLIT_FLAGS: needs STRATO, FW15 and an uninstrumented transport role')
         decision = getattr(s, 'ksplit_decision', None)
@@ -1408,6 +1412,7 @@ class Solver:
             first_moments, first_flux = self.geometry.evaluate(s, zero, first=True, phase=0)
             self.kernel.sync()
         del zero
+        bundles = []
         if xp is not np:
             if self.geometry.bundle is None:
                 if hasattr(self.geometry, 'prepare'):
@@ -1426,6 +1431,7 @@ class Solver:
             for bundle, _ in bundles:
                 prepare_bundle(self.kernel, s, bundle)
                 self.kernel.constants_device(s, bundle.nq)
+        if xp is not np or not self.kernel.ksplit:
             self.timings['ksplit'] = self.kernel.ksplit_preflight(s, bundles)
         self.first_moments, self.first_flux = first_moments, first_flux
         self.timings['setup_seconds'] = time.perf_counter() - tt

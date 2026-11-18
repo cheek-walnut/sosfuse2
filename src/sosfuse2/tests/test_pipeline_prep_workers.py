@@ -1,5 +1,4 @@
-"""Per-state preparation pool sizes exported by pipeline.py (prep_workers). CPU only, no GPU, no real state run:
-the controller's subprocess.Popen is replaced and only the child environment is checked."""
+"""CPU checks for pipeline worker budgets and summary records using stub runners."""
 
 import json
 import os
@@ -118,3 +117,31 @@ def test_column_keeps_the_cpu_budget_cap():
     assert updates['SOSFUSE2_COLUMN_WORKERS'] == '4' and updates['SOSFUSE2_SUN_WORKERS'] == '10'
     _, _, updates = pl.prep_workers(2, 3, 10, {}, column_budget=4)
     assert updates['SOSFUSE2_COLUMN_WORKERS'] == '3' and updates['SOSFUSE2_GROUND_WORKERS'] == '5'
+
+
+def test_pipeline_reports_ksplit_decision_per_state(tmp_path, capsys):
+    states = tmp_path / 'states.json'
+    states.write_text(json.dumps(dict(states=[dict(id=i, runnable=True) for i in ('off', 'fallback')])))
+    runner = tmp_path / 'runner.py'
+    runner.write_text(
+        'import sys\n'
+        'from sosfuse2.jobs.run_state import phase\n'
+        'state = sys.argv[sys.argv.index("--id") + 1]\n'
+        'decision = dict(requested=0, effective=0, reason="sh_order_gt_16")\n'
+        'if state == "fallback":\n'
+        '    decision.update(requested=3, peak=3_000_000_000, budget=2_000_000_000,\n'
+        '                    reason="state_minimum_exceeds_solo_budget")\n'
+        '    phase(state, "KSPLIT_FALLBACK", **decision)\n'
+        'phase(state, "ksplit", decision=decision)\n'
+    )
+    args = ['--states', str(states), '--ids', 'off,fallback', '--work-root', str(tmp_path)]
+    a = pl.parser().parse_args(args + ['--workers', '1', '--backend', 'numpy', '--reduced', '--runner', str(runner)])
+    assert pl.run_queue(pl.validate(a)) == 0
+    off, fallback = json.loads((tmp_path / 'pipeline_summary.json').read_text())['states']
+    assert off['ksplit'] == dict(requested=0, effective=0, reason='sh_order_gt_16')
+    assert 'ksplit_fallback' not in off
+    assert fallback['ksplit']['reason'] == 'state_minimum_exceeds_solo_budget'
+    assert fallback['ksplit']['requested'] == 3 and fallback['ksplit']['effective'] == 0
+    assert len(fallback['ksplit_fallback']) == 1
+    warnings = [line for line in capsys.readouterr().err.splitlines() if line.startswith('WARNING KSPLIT')]
+    assert len(warnings) == 1 and warnings[0].startswith('WARNING KSPLIT fallback in state fallback: requested 3 -> 0,')
