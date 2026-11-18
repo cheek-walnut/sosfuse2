@@ -51,7 +51,7 @@ void run_segment(int mode, int ray, int seg, int lower, double a, double b,
     k.nh = nh;
     k.nc = nc;
     k.sinv_mode = mode;
-    k.sinv_rec = columns;
+    k.column_rows = reinterpret_cast<ColumnRecord *>(columns);
     k.profile = {5.5f, nullptr, table, 3, 1.2f, 12.f, 7.f, 1.7f};
     k.ext = coeff;
     k.st_ext = coeff + NCOMP * FW;

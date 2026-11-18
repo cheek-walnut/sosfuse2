@@ -2,7 +2,6 @@
 
 import copy
 import json
-import re
 
 import numpy as np
 import pytest
@@ -13,7 +12,7 @@ from sosfuse2.atmosphere import density, spectral
 from sosfuse2.foundation import paths
 from sosfuse2.rays import ray_columns
 from sosfuse2.backends import numpy_reference
-from sosfuse2.atmosphere.components import COMPONENTS, NCOMP, SINV_F, physics
+from sosfuse2.atmosphere.components import COMPONENTS, NCOMP, physics
 
 
 def atmosphere(table=False, step=0.5):
@@ -77,11 +76,9 @@ def test_fixed_component_and_kernel_layout():
     cu = (paths.PKG / 'backends/kernel.cu').read_text()
     assert COMPONENTS == ('air', 'tropo_aerosol', 'o3', 'no2', 'o4')
     assert f'#define NCOMP {NCOMP}' in cu.splitlines()
-    width = re.search(r'^#define SINV_F \(NCOMP \+ (\d+)\)$', cu, re.MULTILINE)
-    assert width and NCOMP + int(width[1]) == SINV_F == 6
     cu = ''.join(cu.split())
     assert 'prof[NCOMP]' in cu and 'sc[NCOMP]' in cu and 'st_prof,st_sc' in cu
-    assert 'end_col[NCOMP*ray+k]' in cu and 'if(w<NCOMP+1)' in cu
+    assert 'end_col[NCOMP*ray+k]' in cu
     assert TRAIL['end_col'] == (5,) and PACKED_LAYOUT_VERSION == 3 and HEIGHT_DEPENDENT_END_COLUMNS == (1,)
     assert Kernel(backend='numpy').shared_bytes(15, 0) > 0
 

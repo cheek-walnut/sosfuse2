@@ -471,7 +471,7 @@ def test_ksplit_fallback_strict_and_wait(monkeypatch, capsys):
         assert d['effective'] == mode and len(waits) == 1
         if mode >= 2:
             plans = [bundle._ksplit_plan[1] for bundle, _ in bundles]
-            held = [(16 + C.SINV_F * 12 * 4) * 4 + p['records_bytes'] + p['store_bytes'] for p in plans]
+            held = [C.column_record_bytes(12 * 4) + p['records_bytes'] + p['store_bytes'] for p in plans]
             # Both retained records plus the largest live scratch must fit; the
             # same plans are consumed by vprod_columns, not re-sized greedily.
             peak = sum(held) + max(p['peak'] - h for p, h in zip(plans, held))

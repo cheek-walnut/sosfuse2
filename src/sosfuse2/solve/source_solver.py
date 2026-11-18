@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 from ..backends import numpy_reference
 from sosfuse2.backends import vram_trace
-from ..atmosphere.components import NCOMP
+from ..atmosphere.components import NCOMP, STRATO_COLUMN_SLOT
 from ..backends.arithmetic import F, norm_constants
 from ..backends.sh_layout import count, padded, workspace, source_size, kernel_source, combined_aux
 from ..foundation.timers import TIMERS, stage
@@ -949,12 +949,12 @@ class Kernel(KsplitMixin):
                 )
             kb = bundle.ksplit if _ksplit else self.ksplit_columns(bundle, s, field, phase, boundary)
             if _ksplit == 'record':
-                # Unit-basis extinction: five profile columns, then the separate stratosphere column.
+                # Each recorded wavelength integrates one unit-basis extinction column.
                 e = xp.zeros(dc['ext'].size, dc['ext'].dtype)
                 for k in range(NCOMP):
                     e[k * W + k] = 1
                 se = xp.zeros(dc['strato_ext'].size, dc['strato_ext'].dtype)
-                se[NCOMP] = 1
+                se[STRATO_COLUMN_SLOT] = 1
                 dc = dict(dc, ext=e.reshape(dc['ext'].shape), strato_ext=se.reshape(dc['strato_ext'].shape))
             else:
                 kb['hdr32'][0:1].fill(2)

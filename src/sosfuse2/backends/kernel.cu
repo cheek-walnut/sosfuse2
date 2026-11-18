@@ -37,8 +37,6 @@
 #error E_SLIM_RAYS_REQUIRES_RAY_LIMIT
 #endif
 #define NOOUT_ON (PROD_ON || REC_ON)
-// Column records: five component columns, then the stratospheric column.
-#define SINV_F (NCOMP + 1)
 // NVRTC, CUDA 12. FW is specialized to 1 or 15. Fast math and FMA contraction only through the
 // stage-1 options (source_solver.Kernel: --fmad, --prec-div/--prec-sqrt and SOSFUSE2_FASTMATH
 // below); the default build has neither. One destination cell (and optional spectral tile)/block,
@@ -1381,6 +1379,31 @@ struct SampleLane {
 
 // ---- Fused transport ----
 
+// One KSPLIT quadrature point. The record pass assigns one unit-basis wave to each slot.
+struct ColumnRecord {
+    static constexpr int header_words = 16;
+    static constexpr int strato_slot = NCOMP;
+    static constexpr int width = strato_slot + 1;
+
+    static __device__ __forceinline__ ColumnRecord *rows(float *query) {
+        return reinterpret_cast<ColumnRecord *>(query + header_words);
+    }
+    __device__ __forceinline__ void write_basis(int wave, float mid) {
+        if (wave < width)
+            values[wave] = mid;
+    }
+    __device__ __forceinline__ float component(int k) const { return values[k]; }
+    __device__ __forceinline__ float stratosphere() const { return values[strato_slot]; }
+    __device__ __forceinline__ void preload_from(const ColumnRecord &row) {
+#pragma unroll
+        for (int k = 0; k < width; ++k)
+            values[k] = row.values[k];
+    }
+
+  private:
+    float values[width];
+};
+
 // The launch ABI is normalized once here. Optional inputs are never read by an
 // inactive compile-time role; no device allocation or record layout changes.
 struct TransportInputs {
@@ -1464,7 +1487,7 @@ template <class Record> struct Transport : TransportInputs {
     ProfileParams profile;
     ExtinctionParams optics;
     int sinv_mode = 0;
-    float *sinv_rec = nullptr;
+    ColumnRecord *column_rows = nullptr;
     int64_t slim_base = 0;
     unsigned long long live_a = ~0ull, live_s = ~0ull;
 #ifdef EXP_SECTION_CLOCKS
@@ -1475,8 +1498,9 @@ template <class Record> struct Transport : TransportInputs {
     using PtBatch = typename SelectType<TransportPolicy::slim_rays, PointM2, PointData>::type;
     PtBatch *pts = nullptr;
     unsigned char *rs_key = nullptr, *rs_perm = nullptr;
-    __device__ __forceinline__ float *column_record(uint32_t seg, int64_t ray, int step) const {
-        return sinv_rec + ((int64_t)(seg - ray) * nq + step) * SINV_F;
+    __device__ __forceinline__ ColumnRecord &column_record(uint32_t seg, int64_t ray,
+                                                           int step) const {
+        return column_rows[(int64_t)(seg - ray) * nq + step];
     }
     __device__ __forceinline__ float *aerosol_record(uint32_t seg, int64_t ray, int step,
                                                      int corner) const {
@@ -1705,7 +1729,8 @@ template <class Record> struct Transport : TransportInputs {
     };
     struct SampleScratch {
         float paired[4] = {};
-        float aero[4] = {}, rm[4][4] = {}, column[SINV_F] = {};
+        float aero[4] = {}, rm[4][4] = {};
+        ColumnRecord column{};
         float air[2] = {}, strato[2] = {};
     };
 
@@ -1945,12 +1970,8 @@ template <class Record> struct Transport : TransportInputs {
                             src[(pc * SRC_ROWS_ST + k) * FW + GW(ownership.wave)];
                 }
             }
-            if (sinv_mode == 2) {
-                const float *record = column_record(seg, ray, ownership.sample);
-#pragma unroll
-                for (int k = 0; k < SINV_F; k++)
-                    scratch.column[k] = record[k];
-            }
+            if (sinv_mode == 2)
+                scratch.column.preload_from(column_record(seg, ray, ownership.sample));
         }
 #pragma unroll
         for (int corner = 0; corner < 4; corner++) {
@@ -2143,16 +2164,12 @@ template <class Record> struct Transport : TransportInputs {
                 if constexpr (TransportPolicy::warm) {
                     float lane_att = sample_ds * expf(-mid);
                     if constexpr (TransportPolicy::column_records) {
-                        // mode 1 uses unit-basis extinction tables: five separable columns
-                        // and a separate stratosphere column.
                         if (sinv_mode == 1) {
-                            float *record = column_record(seg, ray, step);
-                            if (w < NCOMP + 1)
-                                record[w] = mid;
+                            column_record(seg, ray, step).write_basis(w, mid);
                             // KSPLIT=2 (VPROD): vp_records points to the per-point (c0, cp
                             // bits) int2 records (device memory, or mapped pinned host
                             // memory when the device cannot hold them), bundle-global like
-                            // SINV_REC; 0 (KSPLIT=1) writes nothing. c0 = s.cell[0], cp =
+                            // the column rows; 0 (KSPLIT=1) writes nothing. c0 = s.cell[0], cp =
                             // s.cm[1] (point()). RECORD variant only (compiled out of
                             // PROD/SLIM and the unsplit kernel).
                             if (REC_ON && w == 0) {
@@ -2162,15 +2179,14 @@ template <class Record> struct Transport : TransportInputs {
                             }
                         }
                         if (sinv_mode == 2) {
-                            const float *record = TransportPolicy::preload
-                                                      ? scratch.column
-                                                      : column_record(seg, ray, step);
+                            const ColumnRecord &record = TransportPolicy::preload
+                                                             ? scratch.column
+                                                             : column_record(seg, ray, step);
                             float tq = 0.f;
                             for (int k = 0; k < NCOMP; ++k)
-                                tq +=
-                                    record[k] *
-                                    (TransportPolicy::preload ? r.ray_ext[k] : ext[k * FW + GW(w)]);
-                            tq += record[NCOMP] *
+                                tq += record.component(k) *
+                                      (TransportPolicy::preload ? r.ray_ext[k] : ext[k * FW + GW(w)]);
+                            tq += record.stratosphere() *
                                   (TransportPolicy::preload ? r.ray_st_ext : st_ext[GW(w)]);
                             lane_att = sample_ds * expf(-tq);
                         }
@@ -2709,7 +2725,7 @@ template <class Record> struct Transport : TransportInputs {
                 sinv_mode = 2;
             else
                 sinv_mode = (!first && phase != 2) ? ((const int *)query)[0] : 0;
-            sinv_rec = query + 16;
+            column_rows = ColumnRecord::rows(query);
             slim_base = ((const int64_t *)query)[2];
         }
         int cell = blockIdx.x, split_part = 0;

@@ -18,16 +18,43 @@ from contextvars import ContextVar
 import math
 import re
 
+import numpy as np
+
 from ..foundation.content_identity import state_identity
 
 COMPONENTS = ('air', 'tropo_aerosol', 'o3', 'no2', 'o4')
 NCOMP = len(COMPONENTS)
 MOLECULAR_COLUMNS = (0, 2, 3, 4)
-SINV_F = NCOMP + 1  # separable columns followed by the stratosphere column
+
+# KSPLIT stores one unit-basis wave per slot, with a separate control header.
+STRATO_COLUMN_SLOT = NCOMP
+SINV_F = STRATO_COLUMN_SLOT + 1
+COLUMN_VALUE_DTYPE = np.dtype('f4')
+_COLUMN_HEADER_BYTES = 16 * 4
 
 LEGACY = dict(rayleigh='lambda4_v0', minor_absorbers='off')
 S1_REFERENCE = dict(rayleigh='lambda4_v0', components=list(COMPONENTS), minor_absorbers='off', fixture='s1_reference')
 _REFERENCE = ContextVar('sosfuse2_s1_reference', default=False)
+
+
+def column_record_bytes(points):
+    """Byte offset of row `points`, also the size of a buffer holding that many rows."""
+    return _COLUMN_HEADER_BYTES + int(points) * SINV_F * COLUMN_VALUE_DTYPE.itemsize
+
+
+def allocate_column_records(xp, points):
+    """Allocate contiguous records and initialize the two integer views of their header."""
+    storage = xp.empty(column_record_bytes(points), dtype='u1')
+    header = storage[:column_record_bytes(0)]
+    hdr64 = header.view('i8')
+    hdr64.fill(0)
+    return storage.view(COLUMN_VALUE_DTYPE), header.view('i4'), hdr64
+
+
+def column_record_chunk(buf, first, count):
+    """Flat view of just the requested rows for a chunk dump."""
+    data = buf.view('u1')[column_record_bytes(first) : column_record_bytes(first + count)]
+    return data.view(COLUMN_VALUE_DTYPE)
 
 
 @contextmanager

@@ -10,7 +10,7 @@ import time
 
 import numpy as np
 
-from ..atmosphere.components import SINV_F
+from ..atmosphere.components import allocate_column_records, column_record_bytes, column_record_chunk
 from ..backends.flags import KSPLIT_VARIANTS
 from ..backends.sh_layout import source_size
 from ..foundation.timers import stage
@@ -186,7 +186,7 @@ class KsplitMixin:
             co = np.asarray(self.host(bundle.arrays['cell_off']), 'i8')
             pcum = (np.asarray(self.host(bundle.arrays['edge_off'][bundle.arrays['cell_off']]), 'i8') - co) * bundle.nq
             points = int(pcum[-1])
-            column = (16 + SINV_F * points) * 4
+            column = column_record_bytes(points)
             S = 2 if self.config().c3_fw15 else 1
             fixed = (
                 column + (S * bundle.cells * (4 + self.K) * W * 8 if phase == 0 else 0) + 5 * nh * nc * self.K * W * 4
@@ -309,7 +309,7 @@ class KsplitMixin:
         return decision
 
     def ksplit_columns(self, bundle, s, field, phase, boundary):
-        """KSPLIT: the bundle's column records (kernel.cu SINV, 24 B/point, recorded once per state by a mode-1 pass) and
+        """KSPLIT: the bundle's column records (recorded once per state by a mode-1 pass) and
         the chunk aerosol buffer shared by all bundles ([point][corner][w] FP32, SOSFUSE2_KSPLIT_AERO_MB, default 1024).
         SOSFUSE2_KSPLIT=2 (VPROD) sizes and allocates its own way (vprod_columns); KSPLIT=1 is unchanged."""
         kb = getattr(bundle, 'ksplit', None)
@@ -323,12 +323,12 @@ class KsplitMixin:
         nq = bundle.nq
         co = np.asarray(self.host(bundle.arrays['cell_off']), 'i8')
         pcum = (np.asarray(self.host(bundle.arrays['edge_off'][bundle.arrays['cell_off']]), 'i8') - co) * nq
-        points = int(pcum[-1])  # SINV_REC indexes (seg-ray)*nq+step from ray 0
+        points = int(pcum[-1])
         text = os.environ.get('SOSFUSE2_KSPLIT_AERO_MB', '').strip() or '1024'
         AW = aero_w(W)
         cap_points = max(1, int(float(text) * 2**20) // (4 * AW * 4))
         aero = self.__dict__.get('ksplit_aero')
-        need = (16 + SINV_F * points) * 4 + (
+        need = column_record_bytes(points) + (
             0 if aero is not None and aero.size >= cap_points * 4 * AW else cap_points * 4 * AW * 4
         )
         pool = xp.get_default_memory_pool()
@@ -341,10 +341,7 @@ class KsplitMixin:
         if aero is None or aero.size < cap_points * 4 * AW:
             self.ksplit_aero = aero = None
             aero = self.ksplit_aero = xp.empty(cap_points * 4 * AW, 'f4')
-        buf = xp.empty(16 + SINV_F * points, 'f4')
-        hdr32 = buf[:16].view('i4')
-        hdr64 = buf[:16].view('i8')
-        hdr64.fill(0)
+        buf, hdr32, hdr64 = allocate_column_records(xp, points)
         kb = bundle.ksplit = dict(state=id(s), buf=buf, hdr32=hdr32, hdr64=hdr64, pcum=pcum, cap_points=cap_points)
         print(
             'KSPLIT '
@@ -389,12 +386,12 @@ class KsplitMixin:
         K = self.K
         co = np.asarray(self.host(bundle.arrays['cell_off']), 'i8')
         pcum = (np.asarray(self.host(bundle.arrays['edge_off'][bundle.arrays['cell_off']]), 'i8') - co) * nq
-        points = int(pcum[-1])  # SINV_REC indexes (seg-ray)*nq+step from ray 0
+        points = int(pcum[-1])
         S = 2 if self.config().c3_fw15 else 1
         # launch() arrays after this point: moments and CELL_SPLIT scratch (phase 0), the combined SH sidecar and its FP32
         # build temporaries (sh_layout.combined_aux, about 4 planes of [nh*nc][K][W])
         fixed = (
-            (16 + SINV_F * points) * 4
+            column_record_bytes(points)
             + (S * bundle.cells * (4 + K) * W * 8 if phase == 0 else 0)
             + 5 * nh * nc * K * W * 4
         )
@@ -435,10 +432,7 @@ class KsplitMixin:
             )
         if aero is not None:
             self.ksplit_aero = aero = None  # released before the plans are built
-        buf = xp.empty(16 + SINV_F * points, 'f4')
-        hdr32 = buf[:16].view('i4')
-        hdr64 = buf[:16].view('i8')
-        hdr64.fill(0)
+        buf, hdr32, hdr64 = allocate_column_records(xp, points)
         kb = bundle.ksplit = dict(
             state=id(s),
             buf=buf,
@@ -1082,9 +1076,7 @@ class KsplitMixin:
         out['aero'] = np.asarray(
             H(self.ksplit_aero[: npt * 4 * AW])
         )  # chunk-local [point][corner][AW], slot = point-base
-        out['records'] = np.asarray(
-            H(kb['buf'][16 + SINV_F * base : 16 + SINV_F * (base + npt)])
-        )  # this chunk's SINV_REC rows (6 floats/point); the whole bundle buffer is GBs
+        out['records'] = np.asarray(H(column_record_chunk(kb['buf'], base, npt)))
         out['hdr64'] = np.asarray(H(kb['hdr64']))
         out['pcum'] = np.asarray(kb['pcum'])
         out['co'] = np.asarray(kb['co'])

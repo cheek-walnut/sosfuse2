@@ -8,6 +8,7 @@ import subprocess
 import numpy as np
 import pytest
 
+from sosfuse2.atmosphere import components
 from sosfuse2.backends import numpy_reference as reference
 from sosfuse2.checks import testkit
 from sosfuse2.foundation import paths
@@ -17,6 +18,64 @@ from sosfuse2.tests.test_tropo_mie import SYNTAX_STUB_EXTRA
 
 DOMAINS = (Domain(), Domain(120.0, 0.5, (120.0,), 'vacuum'), Domain(120.0, 0.5, (120.0,), 'us76_neff'))
 DOMAIN_IDS = ('default', 'vacuum', 'us76_neff')
+
+
+def test_native_column_record_layout(tmp_path):
+    """Write a nonzero row in C++ and compare direct, preloaded and dumped values."""
+    compiler = testkit.require_tool('clang++')
+    buf, hdr32, hdr64 = components.allocate_column_records(np, 8)
+    header = components.column_record_bytes(0)
+    stride = components.column_record_bytes(1) - header
+    assert buf.nbytes == components.column_record_bytes(8)
+    assert header == hdr64.nbytes == hdr32.nbytes and not hdr64.any()
+    assert np.shares_memory(buf, hdr32) and np.shares_memory(buf, hdr64)
+    cpp = tmp_path / 'columns.cpp'
+    cpp.write_text(
+        '#include <math.h>\n' + STUB + SYNTAX_STUB_EXTRA
+        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { double shared[50000]; }\n'
+        + f'#include "{paths.KERNEL_CU}"\n'
+        + f'static_assert(ColumnRecord::width == {components.SINV_F});\n'
+        + f'static_assert(sizeof(ColumnRecord) == {stride});\n'
+        + f'static_assert(ColumnRecord::header_words * sizeof(float) == {header});\n'
+        + f'static_assert(ColumnRecord::strato_slot == {components.STRATO_COLUMN_SLOT});\n'
+        + r'''
+extern "C" void columns(float *buffer, float *direct, float *preloaded) {
+    Transport<Sample> transport{};
+    transport.nq = 3;
+    transport.column_rows = ColumnRecord::rows(buffer);
+    ColumnRecord &row = transport.column_record(8, 7, 1);
+    for (int w = 0; w < FW; ++w)
+        row.write_basis(w, w + 0.5f);
+    ColumnRecord cached{};
+    cached.preload_from(row);
+    for (int k = 0; k < NCOMP; ++k) {
+        direct[k] = row.component(k);
+        preloaded[k] = cached.component(k);
+    }
+    direct[NCOMP] = row.stratosphere();
+    preloaded[NCOMP] = cached.stratosphere();
+}
+'''
+    )
+    library = tmp_path / 'columns.so'
+    link = ['-dynamiclib'] if platform.system() == 'Darwin' else ['-shared', '-fPIC', '-nostdinc++']
+    subprocess.run(
+        [compiler, '-std=c++17', '-O2', *defines(15, ('SINV', 'RECORD'), (0, 0, 1)), *link, str(cpp), '-o', str(library)],
+        check=True, capture_output=True,
+    )
+    columns = ctypes.CDLL(str(library)).columns
+    columns.argtypes, columns.restype = [ctypes.c_void_p] * 3, None
+    buf.fill(-1)
+    direct = np.full(components.NCOMP + 1, -1, 'f4')
+    preloaded = direct.copy()
+    columns(buf.ctypes.data, direct.ctypes.data, preloaded.ctypes.data)
+    values = np.arange(components.SINV_F, dtype='f4') + 0.5
+    for observed in (direct, preloaded, components.column_record_chunk(buf, 4, 1)):
+        np.testing.assert_allclose(observed, values, rtol=1e-3, atol=0)
+    assert np.all(buf[:header // buf.itemsize] == -1)
+    assert np.all(components.column_record_chunk(buf, 0, 4) == -1)
+    assert np.all(components.column_record_chunk(buf, 5, 3) == -1)
+    assert components.column_record_chunk(buf, 8, 0).size == 0
 
 
 @pytest.mark.parametrize('domain', DOMAINS, ids=DOMAIN_IDS)
