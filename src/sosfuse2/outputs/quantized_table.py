@@ -67,18 +67,26 @@ def decode(lo, hi, planes, shape):
 
 
 def table_meta(table_npz):
-    """Read the matching metadata. A table without metadata or a physics field uses the legacy identity."""
+    """Read the table metadata. A first-order input must be named by its total table's metadata."""
     from ..atmosphere.spectral import check_meta_contract
     from .radiance_table import table_meta_path
 
-    path = table_meta_path(table_npz)
-    if not path.exists() and not path.with_name('table.npz').exists():
+    table = Path(table_npz)
+    path = table_meta_path(table)
+    first_order = table.name == 'first_order.npz' or table.name.endswith('.first_order.npz')
+    if first_order:
+        path = table.with_name(table.name.removesuffix('first_order.npz') + 'meta.json')
+    elif not path.exists() and not path.with_name('table.npz').exists():
         # Older custom outputs used the directory metadata before they had named sidecars.
         path = path.with_name('meta.json')
     try:
         meta = json.loads(path.read_text()) if path.exists() else {}
     except (OSError, ValueError) as exc:
         raise TableQError('E_PHYSICS_CONTRACT: table metadata unreadable') from exc
+    if first_order:
+        first = meta.get('first_order') if isinstance(meta, dict) else None
+        if not isinstance(first, dict) or first.get('file') != table.name:
+            raise TableQError('E_TABLE_Q_METADATA: first-order file missing or different in table metadata')
     check_meta_contract(meta)
     return meta
 

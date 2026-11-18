@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tarfile
+from unittest.mock import Mock
 
 import pytest
 
@@ -109,6 +110,14 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
     assert batch.output_complete(out, pack)
     rt.save_first_order(out, [data * 2], *axes)
     assert not batch.output_complete(out, pack)
+    with monkeypatch.context() as patch:
+        patch.setattr(V3, 'verify_pack', Mock(side_effect=PermissionError('archive read denied')))
+        repack = Mock(wraps=pack_state.pack_state)
+        patch.setattr(pack_state, 'pack_state', repack)
+        assert batch.main() == 1
+        status = capsys.readouterr().out
+        assert f'FAIL {tmp_path.name}/state: E_PACK_VERIFY: PermissionError: archive read denied' in status
+        repack.assert_not_called()
     assert batch.main() == 1
     assert f'FAIL {tmp_path.name}/state: E_PACK_VERIFY: first-order table differs' in capsys.readouterr().out
     with tarfile.open(pack) as archive, np.load(io.BytesIO(archive.extractfile(table.name).read())) as saved:

@@ -119,7 +119,7 @@ def candidates(roots, ids):
 def process(root, ident, source, state, a, log):
     from sosfuse2.outputs import radiance_table as tf
     from sosfuse2.outputs.pack_state import pack_state
-    from sosfuse2.jobs.run_state import CONTRACT_VERSION, ANDERSON_TOLERANCE, FirstOrderConflict
+    from sosfuse2.jobs.run_state import CONTRACT_VERSION, ANDERSON_TOLERANCE
     from sosfuse2.atmosphere.components import physics, optics_state, check_same_state, production_only
 
     production_only()
@@ -145,10 +145,8 @@ def process(root, ident, source, state, a, log):
         if tf.exports_first_order(old) and pack.is_file() and (out / 'first_order.npz').is_file():
             try:
                 verify_first_order_pack(out, pack, signature)
-            except FirstOrderConflict:
-                raise
-            except (OSError, ValueError, RuntimeError, EOFError, tarfile.TarError) as exc:
-                log(f'REPAIR {ident}: {exc}')
+            except (OSError, EOFError, tarfile.TarError) as exc:
+                raise RuntimeError(f'E_PACK_VERIFY: {type(exc).__name__}: {exc}') from exc
         if old.get('complete') is True and (out / 'table.npz').is_file() and tf.first_order_complete(out, old):
             pack_state(out, root / 'pack', 'zstd')
             return 'packed-existing'

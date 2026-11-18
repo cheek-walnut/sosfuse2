@@ -110,7 +110,7 @@ def test_partial_manifest_refusal_and_opt_in(tmp_path):
     assert read(out / 'compare.json')['status'] == 'PARTIAL'
 
 
-@pytest.mark.parametrize('top, reason', [(120, 'E_MYSTIC_TOP'), (80, 'E_O4_ASSET_MISSING')])
+@pytest.mark.parametrize('top, reason', [(120, 'E_MYSTIC_TOP'), (80, 'E_O4_ASSET_MISSING'), (80, 'E_STATE_MISSING')])
 def test_rejected_optics_preserves_previous_settings(tmp_path, monkeypatch, top, reason):
     import export_optics
 
@@ -122,9 +122,15 @@ def test_rejected_optics_preserves_previous_settings(tmp_path, monkeypatch, top,
     (out / 'optics.json').write_text(json.dumps({'settings': previous}))
     candidate = read(DEFAULT_CONFIG)
     candidate['settings']['top_km'] = top
+    assets = tmp_path / 'root'
+    if reason == 'E_STATE_MISSING':
+        from sosfuse2.checks.testkit import synthetic_o4
+
+        synthetic_o4(assets)
+        candidate['state_ids'].append('missing')
     config = tmp_path / 'candidate.json'
     config.write_text(json.dumps(candidate))
-    monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(tmp_path / 'missing-assets'))
+    monkeypatch.setenv('SOSFUSE2_WORK_ROOT', str(assets))
     monkeypatch.setattr(sys, 'argv', ['export_optics', '--work', str(work), '--config', str(config)])
     with pytest.raises(ValueError, match=reason):
         export_optics.main()

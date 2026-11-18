@@ -96,7 +96,7 @@ def pack_state(out, pack, compression='auto', started=None, *, reuse_previews=Fa
     if not meta.get('complete'):
         raise RuntimeError('E_PACK_INCOMPLETE')
     from sosfuse2.atmosphere.spectral import check_meta_contract
-    from .radiance_table import exports_first_order
+    from sosfuse2.outputs.radiance_table import exports_first_order
 
     exported = exports_first_order(meta)
     check_meta_contract(meta)

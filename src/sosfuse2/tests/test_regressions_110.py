@@ -1011,7 +1011,18 @@ def test_replay_first_order_outputs_and_connection_lanes(tmp_path, monkeypatch, 
         np.testing.assert_array_equal(conn['wavelength_nm'], waves)
         np.testing.assert_array_equal(conn['beta_rayleigh_80_minus_per_km'], 2 * waves)
         np.testing.assert_array_equal(conn['absolute_us76_ratio'], 3 * waves)
-        recorded.append(tmp_path / meta['first_order']['file'])
+        first = tmp_path / meta['first_order']['file']
+        recorded.append(first)
+        q = tmp_path / 'q.npz'
+        quantized_table.save(first, q)
+        header = quantized_table.load(q)['header']
+        assert header['physics'] == meta['physics']
+        assert header['optics_state'] == meta['optics_state']
+        assert quantized_table.round_trip(first, q)['max_rel'] <= quantized_table.MAX_REL
+        meta['first_order']['file'] = 'different.npz'
+        (tmp_path / meta_name).write_text(json.dumps(meta))
+        with pytest.raises(quantized_table.TableQError, match='E_TABLE_Q_METADATA'):
+            quantized_table.save(first, q)
     assert recorded[0] != recorded[1]
     for i, path in enumerate(recorded, start=1):
         with np.load(path) as saved:

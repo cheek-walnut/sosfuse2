@@ -16,19 +16,20 @@ def main():
     args = parser.parse_args()
     H = work_path(args.work)
     configure_root(H)
+    with TemporaryDirectory(dir=H) as stage:
+        export_profiles(H, args.config, Path(stage) / 'settings.json')
+
+
+def export_profiles(H, config_path, candidate):
     from sosfuse2.atmosphere import components, density, extinction, minor_absorbers, rayleigh, spectral, stratosphere
     from sosfuse2.jobs import run_state as engine
 
-    c = read(args.config)
-    settings = H / 'settings.json'
-    with TemporaryDirectory(dir=H) as stage:
-        candidate = Path(stage) / settings.name
-        dump(candidate, c['settings'])
-        cfg = engine.settings_for(SimpleNamespace(reduced=False, settings_json=candidate))
-        require_legacy_top(cfg)
-        if not minor_absorbers.o4_path().is_file():
-            raise ValueError('E_O4_ASSET_MISSING: run python -m sosfuse2.asset_tools.prepare_minor_absorbers --download')
-        candidate.replace(settings)
+    c = read(config_path)
+    dump(candidate, c['settings'])
+    cfg = engine.settings_for(SimpleNamespace(reduced=False, settings_json=candidate))
+    require_legacy_top(cfg)
+    if not minor_absorbers.o4_path().is_file():
+        raise ValueError('E_O4_ASSET_MISSING: run python -m sosfuse2.asset_tools.prepare_minor_absorbers --download')
     states_parent = make_states(H, c)
     states_file = H / 'states.json'
     states = {s['id']: s for s in read(states_file)['states'] if s['id'] in c['state_ids']}
@@ -137,9 +138,9 @@ def main():
         'states_asset': sha(states_file),
         'o4_asset': sha(minor_absorbers.o4_path()),
         'no2_asset': sha(minor_absorbers.NO2),
-        'config': sha(args.config),
+        'config': sha(config_path),
         'states_parent': sha(states_parent),
-        'settings': sha(settings),
+        'settings': sha(candidate),
         'package': package_identity(),
     }
     identity.update(
@@ -148,10 +149,11 @@ def main():
             for m in (density, rayleigh, extinction, spectral, stratosphere, engine, components, minor_absorbers)
         }
     )
+    worst = max(r['relative_error'] for r in rows)
     (H / 'out').mkdir(exist_ok=True)
     dump(H / 'out/optics.json', dict(settings=cfg, levels_km=levels.tolist(), states=out, identity=identity))
-    worst = max(r['relative_error'] for r in rows)
     dump(H / 'out/tau_ledger.json', dict(rows=rows, max_relative_error=worst, passed=worst <= 1e-4, identity=identity))
+    candidate.replace(H / 'settings.json')
     print('TAU_LEDGER', len(rows), worst, 'PASS' if worst <= 1e-4 else 'FAIL')
     if worst > 1e-4:
         raise SystemExit('E_TAU_LEDGER')
