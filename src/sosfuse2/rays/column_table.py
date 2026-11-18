@@ -20,6 +20,8 @@ R, Z = 6371.0, TOP_KM
 NA, NX = 1024, 1024
 MAPPING = 'sqrt-mu-sqrt-height-1'
 BOUNDARY = f'stable-tangent-short1m-corner005-ht02-top{Z - COLUMN_TOP_MARGIN_KM:g}-1'
+# A cell can use four legacy profiles, four corrected profiles, and stratosphere.
+_MEMO_MAX_PROFILES = 9
 _MEMO = OrderedDict()
 
 
@@ -204,7 +206,7 @@ def tables(spec):
             raise ValueError('E_COLUMN_TABLE_ARRAY')
         a.flags.writeable = False
     _MEMO[memo_key] = result
-    while len(_MEMO) > 8:
+    while len(_MEMO) > _MEMO_MAX_PROFILES:
         _MEMO.popitem(last=False)
     return result
 

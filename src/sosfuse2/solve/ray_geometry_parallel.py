@@ -106,16 +106,20 @@ def _event(result, count, completed, reason, started):
 
 class PackedCache(SerialPackedCache):
     def build(self, ncell, cell_arrays, progress=None):
+        started = time.perf_counter()
         g = getattr(cell_arrays, '__self__', None)
         if (
             not isinstance(g, ResidentGeometry)
             or getattr(cell_arrays, '__func__', None) is not ResidentGeometry.cached_cell
         ):
+            _event('fallback', 1, 0, 'E_GEOMETRY_CALLBACK: expected ResidentGeometry.cached_cell', started)
             return super().build(ncell, cell_arrays, progress)
-        count = min(workers(), ncell)
+        requested = workers()
+        count = min(requested, ncell)
         if count <= 1:
+            if requested > 1:
+                _event('fallback', 1, 0, 'E_GEOMETRY_CELL_COUNT: fewer than two cells', started)
             return super().build(ncell, cell_arrays, progress)
-        started = time.perf_counter()
         completed = 0
         try:
             frozen = freeze(g)

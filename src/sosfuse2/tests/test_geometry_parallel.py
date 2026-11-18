@@ -1,5 +1,6 @@
 """CPU-only real selftest geometry: spawn, committed-prefix recovery, failure."""
 
+from collections import OrderedDict
 import contextlib
 import io
 import json
@@ -8,10 +9,17 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from sosfuse2.solve import ray_geometry as gm, ray_geometry_parallel as gp
+import numpy as np
+
+from sosfuse2.atmosphere import components, density, stratosphere
+from sosfuse2.foundation.top import resolve
+from sosfuse2.jobs.run_state import register_geometry
+from sosfuse2.rays import column_table
+from sosfuse2.solve import engine, ray_geometry as gm, ray_geometry_parallel as gp
 from sosfuse2.checks.numerical_checks import assert_equivalent
 
 
@@ -108,6 +116,16 @@ class GeometryParallelTests(unittest.TestCase):
         self.assertIn('E_TEST_GEOMETRY_WORKER_FAILURE: cell 5', events[0]['reason'])
         self.assert_same(g)
 
+    def test_unsupported_callback_reports_serial_fallback(self):
+        g = self.resident('callback')
+        log = io.StringIO()
+        with mock.patch.dict(os.environ, {gp.ENV: '2'}), contextlib.redirect_stdout(log):
+            g.packed().build(self.s.geo.ns, lambda i: g.cached_cell(i))
+        events = [json.loads(line) for line in log.getvalue().splitlines()]
+        self.assertEqual([(e['phase'], e['result']) for e in events], [('geometry_parallel', 'fallback')])
+        self.assertTrue(events[0]['reason'].startswith('E_GEOMETRY_CALLBACK:'))
+        self.assert_same(g)
+
     def test_mixed_legacy_statistics_and_bytes(self):
         g = self.resident('legacy')
         for i in range(2):
@@ -127,3 +145,60 @@ class GeometryParallelTests(unittest.TestCase):
         self.assertEqual(set(a), set(b))
         for key in a:
             assert_equivalent(a[key], b[key])
+
+
+def init_small_column_tables(*args):
+    column_table.NA = column_table.NX = 32
+    gp._init(*args)
+
+
+def test_extended_direct_callback_reuses_column_tables(tmp_path, monkeypatch, capsys):
+    for env in ('SOSFUSE2_COLUMN_CACHE', 'SOSFUSE2_COLUMN_TABLE_CACHE'):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv('SOSFUSE2_COLUMN_METHOD', 'table-v1')
+    monkeypatch.setattr(column_table, 'NA', 32)
+    monkeypatch.setattr(column_table, 'NX', 32)
+    monkeypatch.setattr(column_table, '_MEMO', OrderedDict())
+
+    domain = resolve(dict(top_km=120, upper_air='vacuum'))
+    state = dict(gm.normal_state(), density=dict(density.DEFAULTS))
+    with components._s1_reference():
+        solver, scope, _ = engine.create(
+            state,
+            tmp_path / 'solver',
+            'full',
+            1,
+            kernel_factory=lambda threads, height, g: SimpleNamespace(xp=np, height=height, domain=domain),
+            grid=lambda *args: (np.array([0., 4., 120.]), np.deg2rad([0., 80., 90., 110.]), 2, 8, 4),
+            sun_geometry=lambda *args: None,
+            prepare_ground=False,
+            domain=domain,
+        )
+    solver.density_optics = density.build(state, domain)
+    profile = stratosphere.profile_config(state)
+    profile.update(end_km=domain.lower_end, domain=domain.identity())
+    solver.strato = dict(profile=profile)
+    serial = register_geometry(solver, scope, tmp_path / 'serial', layers=2)
+    parallel = register_geometry(solver, scope, tmp_path / 'parallel', layers=2)
+
+    monkeypatch.setenv(gp.ENV, '1')
+    with mock.patch.object(column_table, 'build_table', wraps=column_table.build_table) as build:
+        serial.build_packed()
+    # Two cumulative tables (ground and tangent) for each of the nine profiles.
+    assert build.call_count == 18
+
+    monkeypatch.setenv(gp.ENV, '2')
+    with mock.patch.object(gp, '_init', init_small_column_tables):
+        parallel.build_packed()
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if '"geometry_parallel"' in line]
+    assert [(e['result'], e['workers'], e['completed']) for e in events] == [('parallel', 2, solver.geo.ns)]
+    expected, expected_records = serial.packed().open()
+    actual, records = parallel.packed().open()
+    assert records == expected_records
+    assert actual.keys() == expected.keys()
+    for key in expected:
+        assert_equivalent(expected[key], actual[key])
+    for i in range(solver.geo.ns):
+        assert parallel._joint_cells[i].keys() == serial._joint_cells[i].keys()
+        for key, array in serial._joint_cells[i].items():
+            assert_equivalent(array, parallel._joint_cells[i][key])
