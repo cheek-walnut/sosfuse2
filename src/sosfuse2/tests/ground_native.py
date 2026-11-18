@@ -42,12 +42,15 @@ static WarpBarrier warp_barrier;
 static thread_local int host_lane;
 static float shuffle_values[32];
 static void warp_sync() { warp_barrier.wait(); }
-static float warp_down(float value, int offset) {
+static float warp_read(float value, int source_lane) {
     shuffle_values[host_lane] = value;
     warp_sync();
-    float result = host_lane + offset < 32 ? shuffle_values[host_lane + offset] : value;
+    float result = shuffle_values[source_lane & 31];
     warp_sync();
     return result;
+}
+static float warp_down(float value, int offset) {
+    return warp_read(value, host_lane + offset < 32 ? host_lane + offset : host_lane);
 }
 // Use the kernel's integer typedefs without colliding with system headers.
 #define int64_t ground_int64_t
@@ -206,9 +209,8 @@ int main() {
 '''
 
 
-def check_ground(tmp_path, waves, phase, clocks, mie, kernel=None):
-    """Compile/link and execute one disabled-SH variant; return measured error."""
-    compiler = testkit.require_tool('clang++')
+def host_warp_stub():
+    """CUDA host stubs with a 32-lane barrier and shuffle-down exchange."""
     stub = STUB.replace('inline void __syncwarp(){}', 'inline void __syncwarp(){warp_sync();}')
     stub = stub.replace(
         'template<class T>T __shfl_down_sync(unsigned,T v,int){return v;}',
@@ -219,9 +221,15 @@ def check_ground(tmp_path, waves, phase, clocks, mie, kernel=None):
         'inline int __float_as_int(float x){int y;std::memcpy(&y,&x,4);return y;} '
         'inline float __int_as_float(int x){float y;std::memcpy(&y,&x,4);return y;}',
     )
+    return WARP + stub + extra
+
+
+def check_ground(tmp_path, waves, phase, clocks, mie, kernel=None):
+    """Compile/link and execute one disabled-SH variant; return measured error."""
+    compiler = testkit.require_tool('clang++')
     source = tmp_path / 'ground.cpp'
     binary = tmp_path / 'ground'
-    source.write_text(WARP + stub + extra + POISON + f'\n#include "{kernel or paths.KERNEL_CU}"\n' + PROGRAM)
+    source.write_text(host_warp_stub() + POISON + f'\n#include "{kernel or paths.KERNEL_CU}"\n' + PROGRAM)
     flags = [f'-DFW={waves}', '-DSH_L=16', '-DSTRATO', '-DK_FIRST=1', f'-DK_PHASE={phase}', '-DK_BOUNDARY=0']
     if clocks:
         flags.append('-DEXP_SECTION_CLOCKS')
