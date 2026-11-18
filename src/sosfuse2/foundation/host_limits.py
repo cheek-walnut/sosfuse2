@@ -80,6 +80,12 @@ def default_rss_gb(processes):
     return min(cap, max(PROTECTED_RSS_GB, DEFAULT_RAM_SHARE * physical_ram_gb() / max(1, processes)))
 
 
+def over_budget_text(peak, budget):
+    """'peak 7.06 GB > budget 6.88 GB (+2.6 %)' for a byte count that exceeds its byte budget."""
+    text = f'peak {peak / 1e9:.2f} GB > budget {budget / 1e9:.2f} GB'
+    return text + (f' (+{100.0 * (peak / budget - 1):.1f} %)' if budget > 0 else '')
+
+
 def default_workers():
     """Bound process parallelism by affinity and every visible cgroup-v2 ancestor quota."""
     try:

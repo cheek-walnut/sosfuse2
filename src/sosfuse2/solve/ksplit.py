@@ -5,6 +5,7 @@ through self. Moved verbatim from fused.py; source_solver re-exports the module 
 
 import json
 import os
+import sys
 import time
 
 import numpy as np
@@ -289,6 +290,14 @@ class KsplitMixin:
         self._ksplit_preflight_state = id(s)
         s.ksplit_decision = decision = previous or decision
         if decision['effective'] == 0:
+            from ..foundation.host_limits import over_budget_text
+
+            print(
+                'WARNING KSPLIT fallback: requested %d -> 0, %s, %s; the state runs without split records'
+                % (decision['requested'], over_budget_text(decision['peak'], decision['budget']), decision['reason']),
+                file=sys.stderr,
+                flush=True,
+            )
             emit = getattr(self, 'ksplit_emit', None)
             if emit is not None:
                 emit(decision)

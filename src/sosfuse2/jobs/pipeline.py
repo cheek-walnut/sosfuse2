@@ -23,6 +23,7 @@ from sosfuse2.foundation.top import NORMALIZATION_TOP_KM
 from sosfuse2.foundation.host_limits import (
     default_rss_gb,
     default_workers,
+    over_budget_text,
     physical_ram_gb,
     rss_cap_gb,
     small_host,
@@ -631,6 +632,18 @@ def run_queue(a):
                     for row in rows:
                         if row['id'] == event.get('id'):
                             row.setdefault('ksplit_fallback', []).append(event)
+                            print(
+                                'WARNING KSPLIT fallback in state %s: requested %s -> %s, %s, %s'
+                                % (
+                                    row['id'],
+                                    event.get('requested'),
+                                    event.get('effective'),
+                                    over_budget_text(event.get('peak', 0), event.get('budget', 0)),
+                                    event.get('reason'),
+                                ),
+                                file=sys.stderr,
+                                flush=True,
+                            )
     for row in rows:
         row['column_cache'] = counts[row['id']]
     for row in rows:
