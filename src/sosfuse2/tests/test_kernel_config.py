@@ -2,7 +2,12 @@
 
 from sosfuse2.foundation import paths
 import json
+import sys
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 import numpy as np
+import pytest
 from sosfuse2.checks import testkit
 from sosfuse2.solve.source_solver import Kernel
 from sosfuse2.backends.flags import resolve_config
@@ -111,6 +116,53 @@ def test_physical_scope_and_default_ksplit(monkeypatch):
     assert not resolve_config(('STRATO', 'TROPO_MIE')).ground_sh_supported
     assert not resolve_config(('STRATO', 'EXP_SECTION_CLOCKS')).ground_sh_supported
     assert resolve_config(('STRATO',)).ground_sh_supported
+
+
+@pytest.mark.parametrize('waves, planes, parts, mode', [(1, 2, 1, 0), (15, 1, 2, 3)])
+def test_installed_transport_layout(tmp_path, monkeypatch, waves, planes, parts, mode):
+    from sosfuse2.asset_tools.strato_states import build
+    from sosfuse2.atmosphere.density import LEGACY
+    from sosfuse2.jobs import pipeline_execution as pe, run_state
+    from sosfuse2.solve.ray_geometry import Bundle, TransientGeometry
+    from sosfuse2.tests.test_solver_promotion import prepare
+
+    for key in ('KSPLIT', 'KSPLIT_VERIFY', 'GROUND_SH_L', 'DEVICE_PROFILE', 'KERNEL_FLAGS'):
+        monkeypatch.delenv('SOSFUSE2_' + key, raising=False)
+    monkeypatch.setenv('SOSFUSE2_LAUNCH_CELLS', '2')
+    state = build()['states'][1]
+    state['density'] = dict(LEGACY)
+    cfg = run_state.settings_for(SimpleNamespace(reduced=True, settings_json=None))
+    cfg.update(L=16, wavelengths=waves, wavelengths_nm=np.linspace(450, 650, waves).tolist())
+    s, scope = prepare(tmp_path, monkeypatch, state, cfg)
+    geometry = TransientGeometry(s, scope)
+    bundle = Bundle([geometry.cell(i) for i in range(3)])
+    pe.prepare_bundle(s.kernel, s, bundle)
+    payload = pe.device_payload(s, SimpleNamespace(bundle=bundle, ground_bundle=bundle))
+
+    # Select the service's CuPy defaults while allocating and inspecting its launch arguments on the CPU.
+    monkeypatch.setitem(sys.modules, 'cupy', np)
+    monkeypatch.setattr(np, 'cuda', SimpleNamespace(runtime=SimpleNamespace(getDeviceCount=lambda: 1)), raising=False)
+    restored, geometry = pe.restore_device_payload(payload, ({}, {}))
+    k = restored.kernel
+    raw = Mock()
+    k.raw_kernel = Mock(return_value=raw)
+    k.strato_lut_device = lambda coeff, W: np.zeros((33 + 16384 + 1) * W, 'f4')
+    field = np.zeros((s.geo.ns, 10 + 2 * k.K, waves), 'f4')
+    k.launch(geometry.bundle, restored, field, phase=2)
+
+    assert raw.call_count == 2
+    for call, cells in zip(raw.call_args_list, (2, 1)):
+        grid, _, args = call.args
+        # L16 has 153 coefficients padded to 160, with two floats per wavelength pair.
+        expected_bytes = planes * s.geo.ns * ((waves + 1) // 2) * 160 * 8
+        assert (k.config().W, k.ksplit_mode, args[47].nbytes, grid[0]) == (waves, mode, expected_bytes, cells * parts)
+        order = args[-1] if waves == 1 else args[-4]
+        np.testing.assert_array_equal(np.sort(order), np.arange(cells * parts))
+    assert k.raw_kernel.call_args.args[0] == k._W == waves
+    assert k.ksplit == bool(mode)
+    if waves == 1:
+        assert k.ksplit_preflight(restored, []) == dict(requested=0, effective=0)
+        k.launch(geometry.bundle, restored, field, phase=1)
 
 
 def test_retired_names_do_not_change_cache_or_toolkey(monkeypatch):

@@ -236,9 +236,37 @@ class Kernel(KsplitMixin):
                 y[:, l * (l + 1) // 2 + m] *= cm[:, m]
         return y.astype('f8')
 
+    def _configure_wavelengths(self, s, W):
+        cfg = self.config(W)
+        if self.ground_sh_l and not cfg.ground_sh_supported:
+            raise ValueError('E_GROUND_SH_FLAGS: requires fused strato ground, split first light and HG')
+        ks = (
+            ksplit_setting(self.backend, self.flags, self.L)
+            if W == 15
+            else os.environ.get('SOSFUSE2_KSPLIT', '').strip() or '0'
+        )
+        if cfg.instrumented:
+            ks = '0'
+        if ks not in ('0', '1', '2', '3') or (ks != '0' and not cfg.ksplit_supported):
+            raise ValueError('E_KSPLIT_FLAGS: needs STRATO, FW15 and an uninstrumented transport role')
+        decision = getattr(s, 'ksplit_decision', None)
+        mode = decision['effective'] if decision is not None else int(ks)
+        if self.ksplit_verify and mode not in (2, 3):
+            if self.xp is not np and W == 15:
+                raise ValueError('E_KSPLIT_VERIFY: requires KSPLIT=2 or 3')
+            warnings.warn(
+                'W_KSPLIT_VERIFY_INACTIVE: SOSFUSE2_KSPLIT_VERIFY=1 does not apply to this kernel (NumPy backend or FW1)',
+                RuntimeWarning,
+                stacklevel=3,
+            )
+        self._W = W
+        self.ksplit_mode = mode
+        self.ksplit = bool(mode)
+
     def setup(self, s, nq):
         key = (id(s), nq)
-        if key not in self.constants:
+        c = self.constants.get(key)
+        if c is None:
             with stage('kernel_setup'):
                 from ..atmosphere.stratosphere import attach
                 from ..atmosphere.density import attach as attach_density
@@ -269,33 +297,7 @@ class Kernel(KsplitMixin):
                     raise ValueError(
                         'E_AEROSOL_2L_FLAG_DEFAULT: AEROSOL_2L is automatic for an enabled troposphere_profile'
                     )
-                self._W = s.W
-                cfg = self.config()
-                if self.ground_sh_l and not cfg.ground_sh_supported:
-                    raise ValueError('E_GROUND_SH_FLAGS: requires fused strato ground, split first light and HG')
-                ks = (
-                    ksplit_setting(self.backend, self.flags, self.L)
-                    if s.W == 15
-                    else os.environ.get('SOSFUSE2_KSPLIT', '').strip() or '0'
-                )
-                if cfg.instrumented:
-                    ks = '0'
-                if ks not in ('0', '1', '2', '3') or (ks != '0' and not cfg.ksplit_supported):
-                    raise ValueError('E_KSPLIT_FLAGS: needs STRATO, FW15 and an uninstrumented transport role')
-                decision = getattr(s, 'ksplit_decision', None)
-                self.ksplit_mode = decision['effective'] if decision is not None else int(ks)
-                self.ksplit = bool(self.ksplit_mode)
-                if self.ksplit_verify and self.ksplit_mode not in (2, 3):
-                    # Only a CuPy FW15 kernel can run KSPLIT: the persistent pipeline's CPU-prepare Kernel (NumPy backend) and FW1 kernels
-                    # have nothing to verify, so VERIFY=1 is inactive there with a warning (SOSFUSE2_KSPLIT_VERIFY=1
-                    # could not reach the persistent service at all; the service's CuPy Kernel still enforces it).
-                    if self.xp is not np and s.W == 15:
-                        raise ValueError('E_KSPLIT_VERIFY: requires KSPLIT=2 or 3')
-                    warnings.warn(
-                        'W_KSPLIT_VERIFY_INACTIVE: SOSFUSE2_KSPLIT_VERIFY=1 does not apply to this kernel (NumPy backend or FW1)',
-                        RuntimeWarning,
-                        stacklevel=2,
-                    )
+                self._configure_wavelengths(s, s.W)
                 u, wu = np.polynomial.legendre.leggauss(nq)
                 u = (u + 1) / 2
                 wu = wu / 2
@@ -350,7 +352,9 @@ class Kernel(KsplitMixin):
                 if aer is not None:
                     c['aer2'] = np.ascontiguousarray(aer['kernel'], 'f4')
                 self.constants[key] = c
-        c = self.constants[key]
+        elif getattr(self, '_W', None) != c['W']:
+            # Prepared constants can be the first setup on a new service kernel.
+            self._configure_wavelengths(s, c['W'])
         # Every setup() call, cache hit or miss and installed constants alike (NumPy transport, geometry,
         # radiance_table and the persistent service all read prepared constants through here).
         if 'density_optics' in c:
