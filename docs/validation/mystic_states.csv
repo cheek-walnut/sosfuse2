@@ -39,7 +39,7 @@
 #
 # Origin
 #   Engine: sosfuse2 1.2.3, path_n 12 source nodes per path segment, Legendre order L 16 in multiple scattering
-#   (the package defaults), plus SOSFUSE2_GROUND_SH_L=24 and SOSFUSE2_DETERMINISTIC=1, device profile rig (its stage-1
+#   (the package defaults), plus SOSFUSE2_GROUND_SH_L=24 and SOSFUSE2_DETERMINISTIC=1, device profile now named cuda (its stage-1
 #   kernel options FMAD and FASTMATH), nr 44, 100 x 180
 #   directions, 25 solar elevations +6 to -18 degrees, point mode with ozone cross section at 233 K, Anderson tolerance 0.001,
 #   density_profile usstd76, ozone_profile usstd76, rayleigh_column usstd, stratospheric sulfate at 21 km, NO2 and O4 on. The
@@ -64,7 +64,7 @@
 #   clear_86   0.5545   1.170   0.953   2.884   0.749   324.0   0.272   0.0055
 #   clear_87   0.1134   1.712   0.888   1.642   0.792   417.6   0.442   0.0043
 #
-# Provenance (sha256) of the six research records the rows were taken from: the comparison table, the engine table, the
+# Provenance (sha256) of the six source files the rows were taken from: the comparison table, the engine table, the
 # full MYSTIC table, the shared optical input and two manifests, which also record the first four hashes
 #   comparison            7fae937bce54d0bc13abcfc56e33f700f5a7eba7d6a907634bb32f13f3de2e2f
 #   engine                e7ed72af6288ee043807b32854517e8cb3a52795bb7b7b5044b922cf4b8d6e94

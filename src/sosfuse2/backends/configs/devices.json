@@ -22,7 +22,7 @@
    "memory_note": "PSS budgets cover the service, workers and state process separately.",
    "requires_split_note": "First-light ray ranges split launches below one cell."
   },
-  "rig": {
+  "cuda": {
    "gpu_names": [],
    "launch_budget_seconds": 60.0,
    "launch_target_seconds": null,

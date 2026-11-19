@@ -1,4 +1,4 @@
-"""IPRT download failures and the packaged-asset digest check (no GPU, no network, no sky-sos root).
+"""IPRT download failures and the packaged-asset digest check (no GPU, no network, no upstream checkout).
 
 iprt.fetch retries a failed download 3 times and then raises E_IPRT_DOWNLOAD with the file, URL and cause;
 density.load_asset lets that reason through instead of replacing it with a bare E_DENSITY_ASSET;

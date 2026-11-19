@@ -209,9 +209,8 @@ def host(out):
     )
 
 
-# Entry points that call a create() which ignores troposphere_profile / troposphere_phase (rig/engine.py and its
-# sosfast/sosfuse relatives): each must refuse such a state (E_LEGACY_UNSUPPORTED_BLOCK) before computing anything.
-# rig/run_state_v2.py and rig/run_state_v3.py import the rig/engine.py that left that checkout, so they cannot run at all;
+# Entry points that call a create() which ignores troposphere_profile / troposphere_phase: each must refuse such a state (E_LEGACY_UNSUPPORTED_BLOCK) before computing anything.
+# Two legacy runners import an engine module missing from the upstream checkout, so they cannot run;
 # their source is still checked for the guard call below.
 LEGACY_READERS = ('rig/run_state.py',)  # read_state(path, id)
 LEGACY_CLIS = (
@@ -319,7 +318,7 @@ def main():
         p.error('E_NO_CHECK: pass --host and --out <dir>')
     if ROOT is None:
         raise SystemExit(
-            f'E_SKY_SOS_ROOT: this harness needs the sky-sos checkout ({T.ENV}) for its states and legacy entry points'
+            f'E_SKY_SOS_ROOT: this harness needs the upstream checkout ({T.ENV}) for its states and legacy entry points'
         )
     a.out.mkdir(parents=True, exist_ok=True)
     rep = {}

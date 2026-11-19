@@ -19,7 +19,7 @@ import numpy as np
 from sosfuse2.checks import testkit
 
 _SKY = testkit.sky_sos_root()
-if _SKY is None:  # the v1 oracle lives in sky-sos scripts/sosfuse (manifest: sibling-import test)
+if _SKY is None:  # the v1 oracle lives in the upstream checkout (manifest: sibling-import test)
     import pytest
 
     pytest.skip(f'v1 oracle scripts/sosfuse needs {testkit.ENV}', allow_module_level=True)

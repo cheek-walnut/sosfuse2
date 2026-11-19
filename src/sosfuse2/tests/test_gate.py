@@ -1,4 +1,4 @@
-"""gate.py without a GPU: synthetic fixture runs (--reuse) against a temporary gate home.
+"""gate.py without a GPU: synthetic fixture runs (--reuse) against a temporary baseline directory.
 Run: python -m pytest -q src/sosfuse2/tests/test_gate.py"""
 
 import json
@@ -561,7 +561,7 @@ def test_required_ratchet_pair_missing(home):
 def test_gf_fixed_tolerance_and_decision_no_bypass(home, monkeypatch, delta, decision, expected):
     testkit.sky_sos(
         'rig/bake/bake_run.py'
-    )  # G-F loads the sky-sos bake template (research consumer): skip without the checkout
+    )  # G-F loads the upstream bake template (research consumer): skip without the checkout
     F = gate.load_fixtures()
     sid = F['state']['id']
     out = home / 'gf_test'
@@ -643,13 +643,11 @@ def test_record_paths_follow_records_or_the_package(tmp_path, monkeypatch):
     assert not any(p.is_file() for p in tmp_path.rglob('*'))  # paths only: no record file was written
 
 
-def test_toolkey_reads_the_former_profile_name_as_the_current_one():
+def test_split_profile_matches_recorded_baseline_key():
     meta = dict(
         device=dict(profile='split', cc='8.6', nvrtc='12.9'),
         config=dict(flags=['STRATO'], stage1=[], async_=False, L=16, block=256),
     )
-    former = dict(meta, device=dict(meta['device'], profile='eda'))  # a reused run recorded by 1.3.x
-    assert gate.toolkey(former) == gate.toolkey(meta)
     assert gate.toolkey(meta)[0] == '7de21e0b57f543b1'  # the folder of the FX-C3, FX-A and FX-AP baselines
 
 

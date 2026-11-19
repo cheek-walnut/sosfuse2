@@ -566,18 +566,18 @@ def test_list_without_a_remote_is_a_coded_error(monkeypatch):
     assert exc.value.code == 'E_CACHE_REMOTE_MISSING'
 
 
-def test_pack_for_rig_tar_and_retry_after_failure(tmp_path, store, monkeypatch):
+def test_pack_for_remote_tar_and_retry_after_failure(tmp_path, store, monkeypatch, capsys):
     src = tmp_path / 'cache'
     e = tree(src)
     cs.push(src)
-    out = tmp_path / 'rig/cache.tar'
+    out = tmp_path / 'remote/cache.tar'
     out.parent.mkdir()
     monkeypatch.setenv('FAKE_RCLONE_FAIL', 'ERROR : drive quota')  # pull fails inside pack
     with pytest.raises(cs.CacheStoreError, match='E_CACHE_RCLONE'):
-        cs.pack_for_rig(None, out)
+        cs.pack_for_remote(None, out)
     assert sorted(p.name for p in out.parent.iterdir()) == []  # no .mirror, no .part, no tar
     monkeypatch.delenv('FAKE_RCLONE_FAIL')
-    row = cs.pack_for_rig(None, out)  # the same command again
+    row = cs.pack_for_remote(None, out)  # the same command again
     with tarfile.open(out) as t:
         names = set(t.getnames())
         t.extractall(tmp_path / 'work', filter='data')
@@ -588,10 +588,12 @@ def test_pack_for_rig_tar_and_retry_after_failure(tmp_path, store, monkeypatch):
     assert set(cs.scan(tmp_path / 'work/cache')[0]) == set(cs.scan(src)[0]) - {
         f'geometry/endpoints_{SIG2}/aerosol/H_0x1p+0.f4'
     }
-    one = cs.pack_for_rig([f'columns/{COL}'], tmp_path / 'rig/one.tar', local=src)
-    with tarfile.open(tmp_path / 'rig/one.tar') as t:
+    one = out.parent / 'one.tar'
+    assert cs.main(['pack-for-remote', '--local', str(src), f'columns/{COL}', str(one)]) == 0
+    event = json.loads(capsys.readouterr().out.splitlines()[-1].removeprefix('CACHE_STORE '))
+    with tarfile.open(one) as t:
         assert set(t.getnames()) == {f'cache/columns/{COL}.npy', f'cache/columns/{COL}.sha256'}
-    assert one['units'] == 1
+    assert event['event'] == 'pack_for_remote' and event['units'] == 1
 
 
 def test_legacy_loose_store_is_read_only_and_migrates(tmp_path, store):

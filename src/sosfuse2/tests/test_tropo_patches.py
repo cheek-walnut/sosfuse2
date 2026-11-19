@@ -1,4 +1,4 @@
-"""solve/engine.py create() keyword hooks (1.2.0, formerly text patches): no GPU, no network, no sky-sos root, no compiler.
+"""solve/engine.py create() keyword hooks (1.2.0, formerly text patches): no GPU, no network, no upstream checkout, no compiler.
 
 An enabled `troposphere_profile` block reaches the engine as `create(aerosol=tropo_profile.engine_hooks(state))`; the
 production settings reach it as observer_km / kernel_factory / grid / spec / sun_geometry / prepare_ground

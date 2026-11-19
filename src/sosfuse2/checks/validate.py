@@ -116,7 +116,7 @@ def moment_comparison(actual, expected):
     """Compare coefficient vectors (axis 0), independently per wavelength.
 
     Float32 accumulation and cancellation do not support a uniform 1e-6
-    componentwise relative gate near zero, even with Kahan summation. Floor
+    componentwise relative tolerance near zero, even with Kahan summation. Floor
     each denominator at 1e-3 of its own vector's maximum magnitude; require
     scaled error <= 1e-5 and L2 relative error <= 1e-6. Physical accuracy is
     checked separately by the reference selftest and the 35-direction test.
@@ -525,7 +525,7 @@ def spectral(output, field, block_size):
 
 
 def parity(output, block_size, field):
-    """Rig-only: actual CUDA vs same-operation NumPy, STRATO off/on, both 1 and 15 lanes."""
+    """CUDA hardware: actual CUDA vs same-operation NumPy, STRATO off/on, both 1 and 15 lanes."""
     reports = []
     for enabled, W in ((False, 1), (False, 15), (True, 1), (True, 15)):
         wavelengths = [550.0] if W == 1 else (360 + (np.arange(15) + 0.5) * 470 / 15).tolist()
@@ -592,12 +592,12 @@ def validate(output, backend='numpy', full=True, block_size=128, *, full_source=
         timings['full_35'] = TIMERS.snapshot()
         report['spectral_15'] = spectral(output, field, block_size)
         timings['spectral_15'] = TIMERS.snapshot()
-    # L3 (gate v2): CUDA/NumPy parity is a diagnostic record, not part of
-    # pass; sosfuse2.checks.gate G-P/G-T block CUDA vs NumPy instead (atan2f ULP, accumulation order).
+    # The v2 checks record CUDA/NumPy parity for diagnosis. The G-P and G-T checks in
+    # sosfuse2.checks.gate determine whether the differences pass (atan2f ULP, accumulation order).
     if backend == 'cupy':
         report['cuda_numpy_parity'] = dict(parity(output, block_size, field), blocking=False)
         timings['parity'] = TIMERS.snapshot()
-    # A1: stage timings are a separate file; the validation gate is unchanged.
+    # Stage timings go in a separate file and do not affect the validation result.
     (output / 'timings.json').write_text(json.dumps(timings, indent=2, sort_keys=True) + '\n')
     after = capture(source)
     report['reference_inputs_unchanged'] = same(before, after)

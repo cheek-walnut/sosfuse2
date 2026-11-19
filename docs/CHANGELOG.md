@@ -5,6 +5,9 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 
 ## 1.6.0
 
+- The default profile for unlisted CUDA devices is now `cuda`; use `plan_queue --cost-profile cuda` for its cost estimates. The former device profile name and the former alias for `split` are rejected.
+- Use `cache_store pack-for-remote` to create a cache archive for another machine. It replaces the former command.
+
 - For `--validate-mac`, pass the converged source NPZ with `--full-source` or set `SOSFUSE2_FULL_SOURCE`.
   The research checkout alone no longer selects the file.
 - `anderson_tol` sets the relative convergence tolerance (default 1e-3). Loading a saved source without a recorded solve
@@ -13,7 +16,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 - `jobs.tables_from_sources` checks the identity of an existing output before skipping it. An output whose recorded
   signature or source digest does not match, including one written by an earlier code version, is refused with
   `E_OUTPUT_IDENTITY` and left unchanged; write the new tables to a separate output root.
-- Published selftest and gate records omit machine details and recording times. The FX-A description now explains
+- Published selftest and reference check records omit machine details and recording times. The FX-A description now explains
   its CUDA tolerance check. Wavelength and cache tests accept optional data and scripts through environment variables.
 - The calculation boundary and profile grid share a domain definition. The default boundary remains 80 km. Full-grid
   settings can extend it with a Rayleigh air profile or a vacuum above 80 km. See [Model](MODEL.md#calculation-boundary).
@@ -54,7 +57,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   `checks.solver_diagnostics` is imported and the cache paths under the test's temporary folder), so later tests do not
   inherit those changes. When the column cache queue fails, the test shows the tail of the queue log with the exit code.
 - **Wording.** Comments, messages and test docstrings describe hosts by platform (macOS, Linux, a host without CUDA)
-  instead of naming one development machine. Error codes are unchanged.
+  and retain the same error codes.
 - **Related codes.** The README names Eradiate and twilight, with their references in `docs/REFERENCES.md`.
 - **Continuous integration.** The packaged tests run in four shards for each platform and Python version, each shard
   with pytest-xdist; `docs/CHECKS.md` describes the split and the coverage check. The tests themselves are unchanged.
@@ -71,7 +74,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   correlated. The random seed of a run is its seed label plus 10,000 times the index of its state, pixel, solar zenith
   angle and wavelength, so no two runs share a seed. It also called both aerosol phase functions Henyey-Greenstein;
   the stratospheric one is given by the 33 Legendre moments of the engine's sulfate table, as `docs/VALIDATION.md`
-  now states too. The header also names the device profile of the engine tables (`rig`, with the stage-1 kernel
+  now states too. The header also names the device profile of the engine tables (the default CUDA profile, with the stage-1 kernel
   options FMAD and FASTMATH). The data rows are unchanged.
 - The package code is that of 1.5.0.
 
@@ -98,8 +101,8 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 - **Issues from 1.4.0.** Metadata-only O₄ identity reads no longer create a work root. Host-cache stale warnings count
   only other-key files older than the temporary-file cleanup cutoff, so newly created entries do not warn.
   The optional NO₂ reproduction test compares the computation identity of the regenerated asset instead of its byte
-  hash. The research runner test accepts current provenance. A missing kernel configuration gives `E_CONFIG_UNKNOWN`,
-  and a gate bake template that fails to import gives `E_GATE_TEMPLATE` with its cause, instead of uncoded exceptions.
+  hash. The runner test now accepts the current provenance format. A missing kernel configuration gives `E_CONFIG_UNKNOWN`,
+  and a reference-run template that fails to import gives `E_GATE_TEMPLATE` with its cause, instead of uncoded exceptions.
 - **Smaller fixes.** An O₄ asset that is not a JSON object and a truncated O₄ download give their coded errors
   (`E_O4_ASSET_INVALID`, `E_O4_DOWNLOAD`), a missing home directory for the rclone default gives
   `E_CACHE_RCLONE_MISSING`, launch cell counts accept ASCII digits only, temporary attach-cache files are named per
@@ -122,15 +125,13 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
 - **Renamed functions.** Three functions were renamed so that no function shares its name with a folder or a new module:
   `checks/gate.py::outputs` is `pinned_hashes` (the recorded key `outputs` is unchanged),
   `backends/numpy_reference.py::extinction` is `extinction_profile`, and `checks/solver_diagnostics.py::run_state` is
-  `probe_state`. The constant `host_limits.EDA_MARKERS` is `foundation/host_limits.py::PROTECTION_MARKERS`, with the
-  same value.
+  `probe_state`. The host protection constant moved to `foundation/host_limits.py::PROTECTION_MARKERS` and kept its value.
 - **Device profile `split`.** The profile for a card with a short launch budget (split launches,
-  `backends/configs/devices.json`) is named `split`. `SOSFUSE2_DEVICE_PROFILE=eda` and `plan_queue --cost-profile eda`,
-  the 1.3.x name, still select it. The old name is accepted by the environment variable and the command option only, and
-  the key in `backends/configs/devices.json` and in `plan_queue.COST_PROFILES` is `split`. The keys `slots`, `source`,
+  `backends/configs/devices.json`) is named `split`. In 1.4.0, `SOSFUSE2_DEVICE_PROFILE` and
+  `plan_queue --cost-profile` also accepted its 1.3.x name. The key in `backends/configs/devices.json` and in `plan_queue.COST_PROFILES` is `split`. The keys `slots`, `source`,
   `state_rss_gb` and `strato_launch_pause_ms` were removed from every profile, and `memory_source` and
-  `requires_split_source` of this profile are now `memory_note` and `requires_split_note`. Run metadata and gate reports
-  record `split`. Its CUDA baselines moved to the folders of the recomputed toolkeys (`7de21e0b57f543b1`,
+  `requires_split_source` of this profile are now `memory_note` and `requires_split_note`. Run metadata and check reports
+  record `split`. Its CUDA baselines moved to the folders of the recomputed GPU toolchain and configuration keys (`7de21e0b57f543b1`,
   `0fbb3921b0dbe0eb`, `e8ee3bcaaf06747b`); the array files and their SHA-256 are unchanged, and
   `baselines/BASELINE_LOG.md` lists the old and new keys.
 - **Moved definitions.** `CIA_SHA` and `RULES_VERSION` are defined in `atmosphere/minor_absorbers.py`, and the O₄
@@ -149,7 +150,7 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
   `precompile`, `prepare_minor_absorbers`, `gate`, `solver_diagnostics`, `kernel_diagnostics`, `stratosphere_checks`,
   `available_cpus`, `generate_density_profile`, `generate_minor_absorbers`, `generate_strato_optics`,
   `generate_tropo_optics`, `strato_states`, `flags_env`, `pipeline_execution` (internal) and `walkthrough`. Seven of
-  them run modules that had another name in 1.3.x: `run_gpu_state_v3` is `run_state`, `table_fast` is `radiance_table`,
+  them run modules that had another name in 1.3.x: the state runner is now `run_state`, `table_fast` is `radiance_table`,
   `run_fuse` is `solver_diagnostics`, `gate_flags` is `kernel_diagnostics`, `validate_strato` is `stratosphere_checks`,
   `host.host_cores` is `available_cpus` and `configs.flags_env` is `flags_env`. The direct form
   `python -B -m sosfuse2.<layer>.<module>` works as before.
@@ -184,7 +185,7 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
   byte hash of the present asset, or a registered earlier one, to the identity, so records that carry byte hashes under
   `minor_absorber_sha256` or under the `asset_sha256` of a minor absorber entry still match.
 - **Provenance format v5.** The runner, the table tools, the column, geometry, host, sun-table, attach, query and block
-  caches and the gate code identity use the `sosfuse2-identity-2` rules, so every cache key changes once and is rebuilt
+  caches and the baseline code identity use the `sosfuse2-identity-2` rules, so every cache key changes once and is rebuilt
   on first use. Tables are written with provenance format v5, setting `contract: "v5"` in `meta.json`
   (`jobs/run_state.py` `CONTRACT_VERSION`).
 - **CUDA memory pool and admission.** Up to 1.3.4 the runner, the solver diagnostics and the persistent service capped
@@ -209,7 +210,7 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
 - **G-F reference.** `gate --gf` always requires `--reference <table.npz>` and stops with `E_GATE_BASELINE_MISSING`
   without an existing file (`checks/gate.py` `gf`). `checks/gate_data/baselines/manifest.json` records only the file
   name under `gf.reference` (`gf_L19s3_tau0p01_aod0p4_g0p65_e2620f6f90c39dcb.npz`) together with its radiance SHA-256.
-  G-F still requires the bake template of the research records through `SOSFUSE2_SKY_SOS_ROOT` and stops with
+  G-F still requires the upstream bake template through `SOSFUSE2_SKY_SOS_ROOT` and stops with
   `E_GATE_CONFIG` without it.
 - **Table tools, checks and assets.** `jobs/tables_from_sources` records `tolerance` 0.001 and `convergence_scope`
   `<=0.1%` where it previously recorded 0.005 and `<=0.5%`, which did not match the solve settings.
@@ -224,9 +225,9 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
   every table change. Output folders and saved sources written by 1.3.4 or any earlier version are therefore not resumed
   or extended: resuming an older output folder stops with `E_OUTPUT_IDENTITY` and reports the stored format version, and
   computing extra elevations from older saved sources stops with `E_EXTRA_SOURCE`, so a solve that should continue needs
-  a new output folder. `outputs/radiance_table` and `jobs/tables_from_sources` keep reading older sources. Staged gate
-  runs made with earlier code stop at `gate --bless --staged` with `E_GATE_CONFIG` and have to be staged again. Runs of
-  `rig` and `mac` profiles are affected in the same way as `split` runs.
+  a new output folder. `outputs/radiance_table` and `jobs/tables_from_sources` keep reading older sources. Staged reference
+  runs made with earlier code stop at `gate --bless --staged` with `E_GATE_CONFIG` and have to be staged again. Runs with
+  the default CUDA and `mac` profiles are affected in the same way as `split` runs.
 - **Known issues.** Reading the metadata of a table whose O₄ asset digest is not a registered earlier byte hash, as in
   tables written by 1.4.0, looks up the local O₄ asset and so resolves and creates the work root, which 1.3.4 did not
   need for this read. The work root is `SOSFUSE2_WORK_ROOT`, or else `$XDG_CACHE_HOME/sosfuse2` or `~/.cache/sosfuse2`.
@@ -285,7 +286,7 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
 | `rayleigh` | `atmosphere.rayleigh` |
 | `reference` | `backends.numpy_reference` |
 | `run_fuse` | `checks.solver_diagnostics` |
-| `run_gpu_state_v3` | `jobs.run_state` |
+| former state runner | `jobs.run_state` |
 | `sh_layout` | `backends.sh_layout` |
 | `solver_columns` | `rays.shell_segments` |
 | `solver_core` | `solve.engine_core` |
@@ -345,7 +346,7 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
 ## 1.3.2
 
 1.3.2 fixes the preview images and the metadata of the legacy batch path and leaves the kernel, the solver and
-`table.npz` as they are in 1.3.1. `run_gpu_state_v3`, `host/pack_state` and `tables_from_sources` are hashed production
+`table.npz` as they are in 1.3.1. The state runner, `host/pack_state` and `tables_from_sources` are hashed production
 sources, so provenance hashes differ from 1.3.1, and resuming an output saved by 1.3.1 stops with `E_OUTPUT_IDENTITY`
 (use a fresh work root).
 
@@ -430,7 +431,7 @@ the CLI has no `--stratosphere off` option.
 
 ## 1.2.2
 
-1.2.2 added the L4 stall measurement of the release kernel to `docs/PERFORMANCE.md` and changed nothing else.
+1.2.2 added the GPU stall measurement of the release kernel to `docs/PERFORMANCE.md` and changed nothing else.
 
 ## 1.2.1
 

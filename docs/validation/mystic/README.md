@@ -13,8 +13,8 @@ Building libRadtran 2.0.6 requires Debian or Ubuntu on x86_64, a compiler, netwo
 privileges.
 The build script installs `netcdf-bin`, which provides `ncgen` for input generation.
 Engine tables require a CUDA GPU, CuPy and the `zstd` command.
-Kernel options follow the sosfuse2 device profile of the GPU. The recorded tables used the `rig` profile, which
-`SOSFUSE2_DEVICE_PROFILE=rig` selects on any GPU; the commands below set it so that the tables match the record.
+Kernel options follow the sosfuse2 device profile of the GPU. The recorded tables used the profile now named `cuda`. The commands below select it explicitly
+to reproduce the same kernel options across GPUs.
 Set `PYTHON` to the Python executable when it is not `python`.
 
 Prepare the O₄ asset before exporting optics.
@@ -46,7 +46,7 @@ LRT="$RUN_ROOT/build/libRadtran-2.0.6"
 "$PYTHON" -B "$H/export_optics.py" --work "$WORK"
 "$PYTHON" -B "$H/inputs.py" --work "$WORK" --lrt-dir "$LRT"
 "$PYTHON" -B "$H/run_mystic.py" --work "$WORK" --lrt-dir "$LRT" --jobs "$(nproc)"
-SOSFUSE2_DEVICE_PROFILE=rig PYTHON="$PYTHON" bash "$H/bake_engine.sh" "$WORK"
+SOSFUSE2_DEVICE_PROFILE=cuda PYTHON="$PYTHON" bash "$H/bake_engine.sh" "$WORK"
 SOSFUSE2_DETERMINISTIC=1 SOSFUSE2_GROUND_SH_L=24 "$PYTHON" -B "$H/extract_engine.py" --work "$WORK"
 "$PYTHON" -B "$H/compare.py" --work "$WORK"
 "$PYTHON" -B "$H/make_csv.py" --work "$WORK" --out "$WORK/mystic_states.csv"
@@ -86,7 +86,7 @@ CFG="$H/config_small.json"
 "$PYTHON" -B "$H/export_optics.py" --work "$SMALL" --config "$CFG"
 "$PYTHON" -B "$H/inputs.py" --work "$SMALL" --config "$CFG" --lrt-dir "$LRT"
 "$PYTHON" -B "$H/run_mystic.py" --work "$SMALL" --config "$CFG" --lrt-dir "$LRT" --jobs "$(nproc)"
-SOSFUSE2_DEVICE_PROFILE=rig PYTHON="$PYTHON" bash "$H/bake_engine.sh" "$SMALL" --config "$CFG" \
+SOSFUSE2_DEVICE_PROFILE=cuda PYTHON="$PYTHON" bash "$H/bake_engine.sh" "$SMALL" --config "$CFG" \
   --states clear_43,clear_80
 SOSFUSE2_DETERMINISTIC=1 SOSFUSE2_GROUND_SH_L=24 "$PYTHON" -B "$H/extract_engine.py" --work "$SMALL" --config \
   "$CFG" --states clear_43,clear_80
@@ -109,7 +109,7 @@ Paths are relative to the working directory.
   `out/disort.json` and `out/input_sha.json` record input checks.
 - `runs/` holds per-attempt inputs, logs and results; `out/full.csv`, `out/manifest.json` and `out/plan_full.json`
   describe the MYSTIC runs.
-- `engine/` contains settings, contracts, tables and metadata; `out/engine_pixels.A0.json` contains extracted spectra
+- `engine/` contains settings, configuration records, tables and metadata; `out/engine_pixels.A0.json` contains extracted spectra
   and hashes.
 - `out/compare.json`, `out/compare_long.csv`, `out/engine.csv`, `out/engine_ratios.csv` and `out/manifest_compare.json`
   contain estimates, comparisons and identities.

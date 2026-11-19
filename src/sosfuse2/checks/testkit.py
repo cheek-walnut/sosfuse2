@@ -134,7 +134,7 @@ def sky_sos(*relative):
     root = sky_sos_root()
     rel = '/'.join(relative)
     if root is None:
-        raise unittest.SkipTest(f'needs sky-sos record {rel} (set {ENV})')
+        raise unittest.SkipTest(f'needs upstream input {rel} (set {ENV})')
     p = root.joinpath(*relative)
     if not p.exists():
         raise AssertionError(f'E_SKY_SOS_RECORD: {ENV} is set but {p} is missing')

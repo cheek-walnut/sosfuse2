@@ -86,7 +86,7 @@ vertical profile `ρ_R` depends on the density option:
 | `exp8`/`triangle`/`keep` (default through 1.4.0) | exp(−h / 8 km) | 0.2420 / 0.1063 (β₄₅₀ = 0.030255 km⁻¹) |
 | `usstd76`/`usstd76`/`usstd` (default) | hydrostatic number density of the US Standard Atmosphere 1976 (NOAA et al. 1976) | 0.2215 / 0.0972 |
 
-The gate fixtures and `states_v1_usstd.json` use the second row. Its optical depth at 450 nm is the sum over the layers
+The reference fixtures and `states_v1_usstd.json` use the second row. Its optical depth at 450 nm is the sum over the layers
 below 80 km of the tabulated Rayleigh optical depths of the IPRT phase E atmosphere at 450 nm (IPRT project: Emde et al.
 2015), so the Rayleigh spectrum is the Bodhaine law anchored at that 450 nm value. With the same anchors, the λ⁻⁴ law of
 1.0.0 gave 0.1085 and 0.0993 at 550 nm for the two rows. The states in `states_v1.json` and `states_v2.json` carry no
@@ -274,8 +274,8 @@ field.
 ### Reference implementation and solver modules
 
 A NumPy reference reproduces the arithmetic of the CUDA kernel in single precision, with double-single arithmetic for the
-ray geometry, and serves as the golden reference of the numeric gates; the README and `docs/CHECKS.md` describe the
-tolerances and gates. The solver definitions in `src/sosfuse2/rays/`, `src/sosfuse2/atmosphere/extinction.py` and
+ray geometry, and serves as the golden reference of the numeric checks; the README and `docs/CHECKS.md` describe the
+tolerances and checks. The solver definitions in `src/sosfuse2/rays/`, `src/sosfuse2/atmosphere/extinction.py` and
 `src/sosfuse2/solve/engine_core.py` define the grids, the quadrature and the physical constants, while
 `src/sosfuse2/atmosphere/rayleigh.py` and `src/sosfuse2/atmosphere/minor_absorbers.py` hold the Rayleigh and
 minor-absorber coefficients of 1.1.0.

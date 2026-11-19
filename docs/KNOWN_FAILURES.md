@@ -3,13 +3,13 @@
 Three test cases fail in the research baseline and still fail in this release. They are marked
 `xfail(strict=True)` through `sosfuse2.checks.testkit.known_failure(id, reason)`, so public CI stays green without hiding them:
 each case still runs, its failure is the expected outcome, and a pass turns the run red until the entry below and the
-decorator are removed together. The research CLI harnesses (for example
-`python -m sosfuse2.tests.test_strato_delta_adversarial --out …`, plain `unittest.main()`) ignore the marker and report the failure as before. We
+decorator are removed together. Running a test module directly with `unittest.main()` (for example
+`python -m sosfuse2.tests.test_strato_delta_adversarial --out …`) reports the original failure. We
 left the numeric and engine code unchanged when splitting out the public package, so that its tables stay numerically
 identical to the research baseline; fixing these three cases is deferred to a later release.
 
-To reproduce one entry, with clang++ on `PATH` and `SOSFUSE2_SKY_SOS_ROOT` unset, give `-k` the test name from the second
-column, the part after `::`, for example `test_D11_initialize_1_15_lanes_and_source_widths`:
+With clang++ on `PATH` and `SOSFUSE2_SKY_SOS_ROOT` unset, reproduce an entry by passing the name after `::`
+in the second column to `-k`, for example `test_D11_initialize_1_15_lanes_and_source_widths`:
 
 ```sh
 python -B -m pytest -q -p no:cacheprovider --runxfail --pyargs sosfuse2 -k "<test name from the table>"
@@ -21,9 +21,8 @@ python -B -m pytest -q -p no:cacheprovider --runxfail --pyargs sosfuse2 -k "<tes
 | `D15` | `test_strato_delta_adversarial.py::Delta::test_D15_SH_gate_accepts_absolute_rejects_material_mismatch` | clang++ error building `kernel.cu` as host C++: `K_FIRST`/`K_PHASE`/`K_BOUNDARY` and `__shfl_xor_sync` undefined | `test_strato_order.run` compiles the kernel with `-DFW=15 -DSTRATO` only, whereas the specialised kernel needs the three `K_*` defines that `backends/flags.py::resolve_config` supplies to NVRTC; the host stub also lacks `__shfl_xor_sync`. Without clang++ on `PATH` the case skips with `E_TOOL_MISSING` instead | pass the defines from `resolve_config` in `test_strato_order.run` and add `__shfl_xor_sync` to the host stub |
 | `D16` | `test_strato_delta_adversarial.py::Delta::test_D16_D18_D22_adversarial_static_out_and_coverage` | `KeyError: 'strato'` when reading `kernel_static.json` rows | the report schema changed after the harness was written, so the `test_kernel_static` report rows no longer carry a `strato` key | check coverage using `W` and `STRATO` in `flags`, and replace the old read-count and text-injection assertions with syntax and failure checks |
 
-These cases fail in the baseline too. The CLI run documented in the research records
-(`scripts/sosfuse2/test_strato_delta_adversarial.py --out …`) reports D11 as `316 != 1132`, D15 with the same `K_FIRST`
-clang error and D16 with `KeyError: 'strato'`.
+Running the test module directly on the upstream baseline also reports `316 != 1132` for D11, the `K_FIRST`
+clang error for D15 and `KeyError: 'strato'` for D16.
 
 ## Environment-dependent cases (not xfail)
 

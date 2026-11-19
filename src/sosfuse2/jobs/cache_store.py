@@ -8,7 +8,7 @@ Mirror : SKY_CACHE_MIRROR (default <work root>/sky-cache)/{geometry,attach,colum
   python -B -m sosfuse2.jobs.cache_store list [--json]
   python -B -m sosfuse2.jobs.cache_store push <local_root>                 complete units only, never overwrites
   python -B -m sosfuse2.jobs.cache_store pull (--all | --keys K ...) [--legacy] <local_root>
-  python -B -m sosfuse2.jobs.cache_store pack-for-rig [--local DIR] (--all | K ...) <out.tar>
+  python -B -m sosfuse2.jobs.cache_store pack-for-remote [--local DIR] (--all | K ...) <out.tar>
 
 A unit is what is checked complete, transferred and never overwritten. Local layout = the pipeline's (paths relative
 to the root); in the store every unit is ONE object, so an interrupted upload leaves nothing that looks complete:
@@ -955,11 +955,11 @@ def pull(root, keys=None, remote=None, legacy=False):
 
 def _anonymous(info):
     info.uid = info.gid = 0
-    info.uname = info.gname = ''  # no local account names in a rig input
+    info.uname = info.gname = ''  # no local account names in archives for remote machines
     return info
 
 
-def pack_for_rig(keys, out, local=None, remote=None):
+def pack_for_remote(keys, out, local=None, remote=None):
     """Cache input archive for a bake (extract_to: work): a plain tar of cache/<unit files> (the local layout). It is
     built from the local mirror when one is given; otherwise the selected units are first pulled into a temporary mirror
     next to out. A failure leaves neither the temporary mirror nor a partial tar, so the same command can simply be run
@@ -976,7 +976,7 @@ def pack_for_rig(keys, out, local=None, remote=None):
                 raise CacheStoreError('E_CACHE_LOCAL_ROOT', f'{out.name}: {type(exc).__name__}') from None
             row = pull(tmp_mirror, keys, remote)
             if row['codes']:
-                raise CacheStoreError(row['codes'][0], 'pull for the rig tar failed: ' + json.dumps(row['failed']))
+                raise CacheStoreError(row['codes'][0], 'pull for the remote archive failed: ' + json.dumps(row['failed']))
             local = tmp_mirror
         units, _ = scan(Path(local))
         chosen = select(units, keys)
@@ -1004,7 +1004,7 @@ def pack_for_rig(keys, out, local=None, remote=None):
         if tmp_mirror is not None:
             shutil.rmtree(tmp_mirror, ignore_errors=True)
     row = dict(
-        event='pack_for_rig',
+        event='pack_for_remote',
         out=str(out),
         units=len(chosen),
         files=sum(len(u.all()) for u in chosen.values()),
@@ -1048,7 +1048,7 @@ def main(argv=None):
     s.add_argument('--legacy', action='store_true', help='also read loose endpoints folders of the first fill')
     s.add_argument('local_root', type=Path, nargs='?')
     s.add_argument('--report', type=Path)
-    s = sub.add_parser('pack-for-rig')
+    s = sub.add_parser('pack-for-remote')
     s.add_argument('--local', type=Path)
     s.add_argument('--all', action='store_true')
     s.add_argument('items', nargs='+', help='keys..., then out.tar')
@@ -1077,8 +1077,8 @@ def main(argv=None):
         else:
             *keys, out = a.items
             if not a.all and not keys:
-                raise CacheStoreError('E_CACHE_ARGS', 'pack-for-rig needs keys or --all')
-            row = pack_for_rig(None if a.all else keys, out, a.local)
+                raise CacheStoreError('E_CACHE_ARGS', 'pack-for-remote needs keys or --all')
+            row = pack_for_remote(None if a.all else keys, out, a.local)
         if getattr(a, 'report', None):
             a.report.parent.mkdir(parents=True, exist_ok=True)
             a.report.write_text(json.dumps(row, indent=1) + '\n')

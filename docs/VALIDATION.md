@@ -1,6 +1,6 @@
 # Validation
 
-The research records document the checks below. The first radiance comparison with MYSTIC (Figure 1) predates 1.1.0. It uses
+The upstream research repository supplied the comparison runs. The first radiance comparison with MYSTIC (Figure 1) predates 1.1.0. It uses
 one atmospheric state, called state A in this document, and one sky pixel on the sun side of the sky, at 20.25° elevation
 and 0.5° relative azimuth, seen from 0.1 km above the ground. The solar zenith angles (SZA) are 93°, 96° and 99°, which are
 solar elevations −3°, −6° and −9°. State A has a tropospheric aerosol with aod550 0.0551, Ångström exponent 1.889,
@@ -180,8 +180,7 @@ detect them because both codes read the same input. We measured them instead aga
 running MYSTIC twice, with and without the item, on otherwise identical input. The results led to the three changes of 1.1.0:
 NO₂ and O₄ absorption and the Rayleigh cross section of Bodhaine et al. (1999) (`docs/MODEL.md`, *Constituents*). The numbers
 in this section are differences between two MYSTIC runs with libRadtran's own cross sections and profiles, not between MYSTIC
-and the engine; the 1.0.0 engine corresponds to the run without the item. For scale, the research records judge changes of
-the solver against a tolerance of Δu′v′ 2.9e-4 at the 95th percentile and 0.122 % in the RMS of the luminance. All three
+and the engine; the 1.0.0 engine corresponds to the run without the item. For scale, changes to the solver are checked against a tolerance of Δu′v′ 2.9e-4 at the 95th percentile and 0.122 % in the RMS of the luminance. All three
 effects were measured for one state: the pair runs for O₄ and Rayleigh at SZA 96 and the NO₂ runs at SZA 93–99, in the
 directions listed below. Band-mean spectra, other states and other directions were not measured with libRadtran's own input.
 
@@ -258,7 +257,7 @@ The engine was the 1.1.0 development build with the new physics. It made CUDA ta
 mode, because MYSTIC runs at single wavelengths cannot reproduce band means, and both codes used the solar irradiance and the
 colour weights of this point set-up. The engine runs were made before the 1.1.0 change of the interpolation rule of the
 transport (`docs/MODEL.md`, *Multiple scattering*) and were not repeated after it. They used the production interpolation
-grid, on which that change is small: in the full-grid gate state it moves the radiance by at most 3.7e-6 relative (*Size of
+grid, on which that change is small: in the full-grid reference state it moves the radiance by at most 3.7e-6 relative (*Size of
 the 1.1.0 changes on the production grid*), far below the tolerance of 1e-4 used here. The two states of this check were not
 re-solved.
 
@@ -336,7 +335,7 @@ difference comes from the 0.35° offset in elevation. The colour difference at t
 
 ## Size of the 1.1.0 changes on the production grid
 
-We solved the full-grid gate state on the production grid, in the default band mode, with each combination of the new
+We solved the full-grid reference state on the production grid, in the default band mode, with each combination of the new
 absorbers, and compared it with its 1.0.0 table. The state has aod550 0.4, Ångström exponent 1.0, single-scattering albedo
 0.92, asymmetry parameter 0.65, a 1.2 km scale height, 300 DU of ozone, a black surface and a stratospheric sulfate layer
 with τ550 0.01 at 19 km, with the `usstd76` density and ozone profiles. Y RMS is the root-mean-square relative change of the
@@ -351,7 +350,7 @@ the view elevation, over all solar-elevation rows of the table. The worst row is
 | and O₄ | 1.67 % | 2.07 % (−12°) | 2.75e-3 | 3.05e-3 |
 | and both (the 1.1.0 default) | 4.04 % | 6.18 % (−18°) | 1.08e-2 | 1.17e-2 |
 
-Table 6. Change of the full-grid gate state against its 1.0.0 table.
+Table 6. Change of the full-grid reference state against its 1.0.0 table.
 
 NO₂ dominates the change of colour, and O₄ offsets part of it. These are differences between two models of one state rather
 than errors, and tables from 1.0.0 and 1.1.0 are not interchangeable.
@@ -364,7 +363,7 @@ not re-solved.
 
 ## Sensitivity to fixed choices in 1.1.0
 
-We tested two fixed choices of the 1.1.0 model at the tier-1 pixels, against the same tolerance of Δu′v′ 2.9e-4 and 0.122 %
+We tested two fixed choices of the 1.1.0 model at the pixels of the paired absorber comparison (Table 4), against the same tolerance of Δu′v′ 2.9e-4 and 0.122 %
 in Y.
 
 **Temperature of the cross sections.** The engine uses NO₂ cross sections at 220 K at all heights and, in the point set-up
@@ -372,8 +371,8 @@ above, ozone at 233 K. The default band mode uses an ozone cross section average
 the US Standard Atmosphere (`docs/MODEL.md`, *Ozone*), and that mode was not part of this test. We ran MYSTIC with each
 layer's cross sections at the temperature of the US Standard Atmosphere at the layer midpoint and compared with the fixed
 temperatures. NO₂ was interpolated between the 220 K and 294 K data of Vandaele et al. (1998), ozone between the Serdyuchenko
-columns, and temperatures outside a table were held at its end. The runs used 16 paired seeds at 10 pixels, the tier-1 pixels
-without SZA 99. The per-layer temperatures change u′ by −2.3e-5 to −4.8e-5, v′ by −5.1e-5 to −8.0e-5 and Y by −0.004 % to
+columns, and temperatures outside a table were held at its end. The runs used 16 paired seeds at 10 pixels, the paired absorber comparison pixels
+excluding SZA 99. The per-layer temperatures change u′ by −2.3e-5 to −4.8e-5, v′ by −5.1e-5 to −8.0e-5 and Y by −0.004 % to
 −0.026 %. The 95 % upper bounds are 1.8e-4 for |Δu′v′|, 0.61 of the tolerance, and 0.040 % for |ΔY|, 0.33 of the tolerance,
 so at these pixels the fixed temperatures stay within the tolerance. O₄ kept its fixed temperatures in both runs. Above 666.6
 nm the NO₂ asset has no 294 K data, so NO₂ stayed at 220 K there; an estimate of that omitted part, which is not a bound,
@@ -384,7 +383,7 @@ factor F(λ) of Bodhaine et al. corresponds to ρ = 6(F − 1)/(7F + 3), from 0.
 runs could not resolve this effect, because a change of the phase function changes the photon paths and the pairs
 decorrelate; a pilot at two pixels was dominated by noise, and extrapolating it gives about 25,000 seeds for a result.
 Instead, we multiplied each engine pixel spectrum by the ratio of the Rayleigh phase function with ρ(λ) to that with 0.03, at
-single scattering angles of 0°, 60°, 90°, 120° and 180°, for the 12 tier-1 pixels. The largest colour change is 3.9e-5 (0.14
+single scattering angles of 0°, 60°, 90°, 120° and 180°, for the 12 paired absorber comparison pixels. The largest colour change is 3.9e-5 (0.14
 of the tolerance) and the largest change in Y is 0.083 % (0.68 of the tolerance). This treats all of the radiance as Rayleigh single
 scattering at one angle, so it estimates the size of the effect but is not a bound under multiple scattering, which we did
 not measure.
@@ -1026,7 +1025,7 @@ write and check the MYSTIC input files, run MYSTIC, bake the engine tables of th
 them at the six pixels and write the comparison and the CSV. The 46,080 MYSTIC runs of the record took 359,883
 CPU-seconds (100.0 CPU-hours) of `uvspec` time. Run on the stored records of those runs, the scripts regenerate the input
 file of every run, every value of the CSV and the twelve rows of Table 7 at their printed precision. With 1.5.0,
-`SOSFUSE2_DETERMINISTIC=1` and the `rig` device profile, the engine tables of `clear_43` and `clear_80` came out
+`SOSFUSE2_DETERMINISTIC=1` and the default CUDA profile, the engine tables of `clear_43` and `clear_80` came out
 identical, value for value, to the recorded 1.2.3 tables, and on the same Linux machine the small configuration ran from
 the libRadtran build to the comparison. A new MYSTIC run is a new Monte Carlo sample, so we compare it with the record
 through the standard errors of both rather than by whether it falls inside the recorded 95 % intervals. The scripts serve
@@ -1039,9 +1038,9 @@ libRadtran build, a CUDA machine for the engine tables in point mode, and resear
 namely the writer of the per-layer MYSTIC input from the engine's optical input, the paired-seed runner and the comparison
 script. The comparison took 35.2 CPU-hours of `uvspec` time, the temperature test 9.6 CPU-hours including its pilot, and the
 rerun at the engine's anti-solar pixel direction 0.44 CPU-hours. The absolute 00 table, the phase-function estimate and the
-production-grid table are summaries of research records and have no file here.
+production-grid table summarise upstream results without a separate data file here.
 
 Apart from the data of Figures 2 and 3, the sections from *Bundled states against MYSTIC (1.2.3)* to *Error of the band
-approximation* are summaries of research records and have no data file here. Regenerating them needs the same libRadtran
+approximation* summarise upstream results without a separate data file here. Regenerating them needs the same libRadtran
 build, a CUDA machine, the direct-quadrature code, SASKTRAN2, the stored SMART-G results of case E1, the published
 measurements, and research scripts that are not distributed here.

@@ -54,7 +54,7 @@ def _strato_colors(test):
     try:
         from sosfuse2 import strato_colors as color
     except ImportError:
-        test.skipTest('strato_colors is a sky-sos research module (scripts/sosfuse2_dev)')
+        test.skipTest('strato_colors is an optional upstream research module')
     return color
 
 

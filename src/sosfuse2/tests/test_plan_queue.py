@@ -111,7 +111,7 @@ def run_plan(out, states, **extra):
     return plan_queue.plan_queue(a)
 
 
-@unittest.skipIf(DATA is None, 'packed full-grid geometry cache and rig logs not found (set SADDLE_DATA_ROOT)')
+@unittest.skipIf(DATA is None, 'packed full-grid geometry cache and run logs not found (set SADDLE_DATA_ROOT)')
 class PlanQueueTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -475,11 +475,15 @@ def test_ground_aerosol_record_has_unknown_cost_without_packed_geometry(tmp_path
 
 
 def test_cost_profile_default_split_and_former_name(tmp_path):
+    import pytest
+
     base = ['--states', str(tmp_path / 's.json'), '--geometry-cache', str(tmp_path / 'g'), '--out', str(tmp_path / 'p.json')]
     default = plan_queue.parser().parse_args(base)
-    former = plan_queue.parser().parse_args(base + ['--cost-profile', 'eda'])  # the 1.3.x name stays accepted
-    assert default.cost_profile == former.cost_profile == 'split'  # the plan records the current name
-    assert plan_queue.cost_profile(former) == plan_queue.cost_profile(default)
+    assert default.cost_profile == 'split'
+    assert plan_queue.parser().parse_args(base + ['--cost-profile', 'cuda']).cost_profile == 'cuda'
+    with pytest.raises(SystemExit) as exc:
+        plan_queue.parser().parse_args(base + ['--cost-profile', 'eda'])
+    assert exc.value.code == 2
 
 
 if __name__ == '__main__':

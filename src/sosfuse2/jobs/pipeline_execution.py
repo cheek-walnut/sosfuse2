@@ -911,7 +911,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
         except BaseException as exc:
             if trace is not None:
                 trace.report_oom(exc)
-            # The traceback names the failing call (str(exc) alone hid the KSPLIT=3 rig-profile c0+None).
+            # The traceback names the failing call (str(exc) alone hid the KSPLIT=3 default CUDA profile c0+None).
             emit(
                 name,
                 'persistent_error',

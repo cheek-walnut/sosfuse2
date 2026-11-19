@@ -3,7 +3,7 @@
 Three kinds of paths, never mixed:
   read-only package resources  -> PKG, ASSETS, FIXTURES, ACCEPTED, NATIVE, CONFIGS, GATE
   writable caches and outputs  -> work_root()  (SOSFUSE2_WORK_ROOT, else $XDG_CACHE_HOME/sosfuse2, else ~/.cache/sosfuse2)
-  sky-sos research extras      -> sky_sos_root()  (SOSFUSE2_SKY_SOS_ROOT; None when the package runs on its own)
+  upstream research extras      -> sky_sos_root()  (SOSFUSE2_SKY_SOS_ROOT; None when the package runs on its own)
 Provenance keys are package-relative ('sosfuse2/solve/source_solver.py'), see rel().
 
 The package must be installed as regular files (no zip import): the native source is handed to a C++ compiler and the
@@ -60,7 +60,7 @@ def work_root(*, create=True):
 
 
 def sky_sos_root():
-    """The sky-sos research checkout when the package is used from inside it; None for a stand-alone install (variable unset).
+    """The upstream research checkout when the package is used from inside it; None for a stand-alone install (variable unset).
     Only optional extras live there (legacy selftest fixture, results/ records read by research tests).
     A value that is not a directory is an error (E_SKY_SOS_ROOT), never a silent "no extras"."""
     env = os.environ.get('SOSFUSE2_SKY_SOS_ROOT', '').strip()

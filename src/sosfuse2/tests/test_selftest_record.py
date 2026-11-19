@@ -18,7 +18,7 @@ from sosfuse2.checks.numerical_checks import within_tol
 # Only cases that read the old CPU-engine fixture need research data; the pinned-record check below always runs.
 needs_legacy = pytest.mark.skipif(
     not v.legacy_available(),
-    reason='legacy rig/selftest_ref.npz: sky-sos checkout (SOSFUSE2_SKY_SOS_ROOT) with the deploy-copied fixture',
+    reason='legacy reference requires an upstream checkout (SOSFUSE2_SKY_SOS_ROOT) with the deploy-copied fixture',
 )
 
 

@@ -233,7 +233,7 @@ JSON_DROPPED = {
     },
     'backends/configs/devices.json': {
         'note', 'profiles.split.note', 'profiles.split.memory_note', 'profiles.split.requires_split_note',
-        'profiles.rig.note', 'profiles.mac.note',
+        'profiles.cuda.note', 'profiles.mac.note',
     },
     'backends/configs/C3.json': {'notes'},
     'backends/configs/C3_nostrato.json': {'notes'},

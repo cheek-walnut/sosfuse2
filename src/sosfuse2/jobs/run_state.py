@@ -17,7 +17,7 @@ from sosfuse2.foundation import top
 # scale 1 gives -2.38 % first order at -10 deg AOD .6, scale 4 +0.20 %); 1 = the accepted engine table.
 SUN_SCALE = 4
 # Production kernel SH order. 16 = production with SH_COMBINE in backends/configs/C3.json (measured:
-# RTX 5060 Ti L16+SH_COMBINE+nphi16+sun4 vs L32+nphi32+sun1 3.3-5.2x faster, order 2 vs direct L8 equal or 0.03 %p
+# CUDA measurement: L16+SH_COMBINE+nphi16+sun4 vs L32+nphi32+sun1 3.3-5.2x faster, order 2 vs direct L8 equal or 0.03 %p
 # better, full radiance within 0.40 %). settings_json may still choose 24 or 32.
 SH_L = 16
 # Production Anderson fixed-point tolerance (observer and source relative residual). .001 = production (measured:
@@ -116,7 +116,7 @@ def attach_cache_event(name, index, state, record=True):
     then hit. Once published, states of the group run in parallel and never wait.
     The caller appends (solver,scope); hit = this state's own key file was already published.
     record=False keeps the overlay and publish but writes no PHASE record (the geometry-only prefetch, whose
-    attach work the worker's own attach_cache record then sees as a hit; pipeline and gate count those records)."""
+    attach work the worker's own attach_cache record then sees as a hit; the pipeline and reference checks count those records)."""
     root = os.environ.get('STRATO_ATTACH_CACHE', '').strip()
     t = time.monotonic()
     made = []
@@ -514,7 +514,7 @@ def execution_domain(cfg, state):
 def resolve_settings(cfg, state):
     """Per-state settings (A′ resolver): a profile_mean spectral block takes
     its q identity from this (effective) state; the shared cfg is never changed (a new copy is returned). Without a
-    profile_mean block the same cfg object comes back. Callers: run, run_extra, geometry_only, plan_queue.probe, gate worker."""
+    profile_mean block the same cfg object comes back. Callers: run, run_extra, geometry_only, plan_queue.probe, reference-run worker."""
     from sosfuse2.atmosphere import spectral
 
     execution_domain(cfg, state)

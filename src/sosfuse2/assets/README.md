@@ -7,9 +7,8 @@ cross-section asset is **CC BY 4.0** rather than CC0, and the locally prepared O
 
 The JSON assets are frozen inputs. Their digests are pinned or recorded by the code: `density.ASSET_SHA256`, the
 `frozen_source_sha256` of the ozone temperature set, the `code_hashes` of every table, and the generated O₄ table, which
-copies `wavelength_reference` from `spectra_fine.json`. Their embedded provenance strings, including the historical path
-labels (`scripts/sosfuse2/...`), which are not paths in this package, may be rewritten: the registered numeric assets
-leave them out of their content identity (`content_identity.ASSET_NOTES`), and `content_identity.ASSET_SUPERSEDED` maps
+copies `wavelength_reference` from `spectra_fine.json`. The embedded provenance strings include historical path labels. They can be rewritten because registered numeric
+assets exclude them from their content identity (`content_identity.ASSET_NOTES`), and `content_identity.ASSET_SUPERSEDED` maps
 the byte digest of each earlier published file to that content identity. State files leave out only note keys and state
 labels, and the other files are hashed byte for byte, so an edit to one of them changes its content identity.
 

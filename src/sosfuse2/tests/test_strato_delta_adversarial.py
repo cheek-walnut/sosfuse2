@@ -420,7 +420,7 @@ class Delta(unittest.TestCase):
         try:
             from sosfuse2 import strato_colors as colors
         except ImportError:  # optional research module, not part of the package
-            self.skipTest('strato_colors is a sky-sos research module (scripts/sosfuse2_dev)')
+            self.skipTest('strato_colors is an optional upstream research module')
 
         class StopProbe(Exception):
             pass

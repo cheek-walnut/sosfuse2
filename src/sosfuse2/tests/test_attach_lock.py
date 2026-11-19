@@ -84,7 +84,7 @@ class AttachLockName(unittest.TestCase):
             key = _geometry_key(types.SimpleNamespace(geo=geo, fuse_state=state), None, profile_config(state))
             names.setdefault(key, set()).add(attach_lock_name(state))
         self.assertTrue(all(len(v) == 1 for v in names.values()), names)
-        self.assertEqual(len(names), 2)  # 21 km s3 and 22 km s5 in the rig set
+        self.assertEqual(len(names), 2)  # 21 km s3 and 22 km s5 in the test set
 
 
 if __name__ == '__main__':

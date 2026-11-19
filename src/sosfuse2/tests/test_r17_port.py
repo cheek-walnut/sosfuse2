@@ -8,7 +8,7 @@ Run: python -B -m sosfuse2.tests.test_r17_port
 4 kernel.cu production configurations preprocess; r17 flags remain reachable and parse.
 5 pipeline.py --persistent --workers auto --gpu-active auto hands the real runner parser its work-root,
   geometry-cache, keep-geometry and column-cache arguments and the r17 environment.
-7 stage1 wiring: rig S2 NVRTC options/keys, env 0 override, separate memo, fl_project options.
+7 stage1 wiring: cuda S2 NVRTC options/keys, env 0 override, separate memo, fl_project options.
 """
 
 from sosfuse2.foundation import paths
@@ -330,7 +330,7 @@ class FakeRawKernel:
 
 
 class Stage1Wiring(unittest.TestCase):
-    """Rig profile S2 (FMAD+FASTMATH) -> NVRTC options and stage1 keys, env 0 override,
+    """Default CUDA profile S2 (FMAD+FASTMATH) -> NVRTC options and stage1 keys, env 0 override,
     separate memo entries, identical fl_project options. Fake RawKernel; no CUDA."""
 
     def kernel(self, profile_name):
@@ -349,7 +349,7 @@ class Stage1Wiring(unittest.TestCase):
             k._device = device_profile.select(None)
         return k
 
-    def test_rig_s2_options_keys_override_fl_project(self):
+    def test_cuda_s2_options_keys_override_fl_project(self):
         exact = ('--fmad=false', '--prec-div=true', '--prec-sqrt=true')
         s2 = ('--fmad=true', '--prec-div=false', '--prec-sqrt=false')
         grid = lambda k: (('PROFILE_N', k.profile_n), ('TOP_KM', 80.0), ('PROFILE_STEP', k.profile_step_km),
@@ -362,35 +362,35 @@ class Stage1Wiring(unittest.TestCase):
         self.assertEqual(raw_split.options[1:4], exact)
         self.assertEqual([o for o in raw_split.options if o.startswith('-DSOSFUSE2_')], ['-DSOSFUSE2_DETERMINISTIC=0'])
         self.assertEqual(list(split.raw), [base(split)])
-        # rig profile, env unset: S2 from backends/configs/devices.json stage1_defaults.
-        rig = self.kernel('rig')
+        # cuda profile, env unset: S2 from backends/configs/devices.json stage1_defaults.
+        cuda = self.kernel('cuda')
         with patch.dict(os.environ, {}, clear=True):
-            raw_s2 = rig.raw_kernel(15, 0, 0, 0)
+            raw_s2 = cuda.raw_kernel(15, 0, 0, 0)
         self.assertEqual(raw_s2.options[1:4], s2)
         self.assertIn('-DSOSFUSE2_FASTMATH', raw_s2.options)
         self.assertNotIn('-DSOSFUSE2_FMAD', raw_s2.options)  # FMAD is the --fmad option only
         self.assertEqual(set(raw_s2.options) - set(raw_split.options), set(s2) | {'-DSOSFUSE2_FASTMATH'})
-        attrs = rig.attributes[str(15)]
+        attrs = cuda.attributes[str(15)]
         self.assertEqual((attrs['implicit_fma'], attrs['stage1']), (True, ['FMAD', 'FASTMATH']))
         # Explicit 0 overrides the profile: exact options, the plain key, a separate memo entry.
         with patch.dict(os.environ, {'SOSFUSE2_FMAD': '0', 'SOSFUSE2_FASTMATH': '0'}, clear=True):
-            raw_off = rig.raw_kernel(15, 0, 0, 0)
+            raw_off = cuda.raw_kernel(15, 0, 0, 0)
         self.assertEqual(raw_off.options, raw_split.options)
-        self.assertEqual(set(rig.raw), {(base(rig), ('FMAD', 'FASTMATH')), base(rig)})
-        self.assertIsNot(rig.raw[base(rig)], rig.raw[(base(rig), ('FMAD', 'FASTMATH'))])
+        self.assertEqual(set(cuda.raw), {(base(cuda), ('FMAD', 'FASTMATH')), base(cuda)})
+        self.assertIsNot(cuda.raw[base(cuda)], cuda.raw[(base(cuda), ('FMAD', 'FASTMATH'))])
         with patch.dict(os.environ, {}, clear=True):  # memo hit, no recompilation
             count = len(FakeRawKernel.made)
-            self.assertIs(rig.raw_kernel(15, 0, 0, 0), raw_s2)
+            self.assertIs(cuda.raw_kernel(15, 0, 0, 0), raw_s2)
             self.assertEqual(len(FakeRawKernel.made), count)
         # fl_project: the ray-range first-light key and exactly its options, for S2 and for the override.
         for env, stage1 in (({}, ('FMAD', 'FASTMATH')), ({'SOSFUSE2_FMAD': '0', 'SOSFUSE2_FASTMATH': '0'}, ())):
             with patch.dict(os.environ, env, clear=True):
-                first = rig.raw_kernel(15, 1, 0, 0, ray_limit=True)
-                project = rig.fl_project_kernel(15, 0)
-            key = (tuple(rig.flags), 15, 15, 1, 0, 0, ('L', rig.L), *grid(rig), 'LAUNCH_RAY_LIMIT')
+                first = cuda.raw_kernel(15, 1, 0, 0, ray_limit=True)
+                project = cuda.fl_project_kernel(15, 0)
+            key = (tuple(cuda.flags), 15, 15, 1, 0, 0, ('L', cuda.L), *grid(cuda), 'LAUNCH_RAY_LIMIT')
             key = (key, stage1) if stage1 else key
-            self.assertIs(rig.raw[key], first)
-            self.assertIs(rig.raw[key + ('fl_project',)], project)
+            self.assertIs(cuda.raw[key], first)
+            self.assertIs(cuda.raw[key + ('fl_project',)], project)
             self.assertEqual((project.name, project.options, project.code), ('fl_project', first.options, first.code))
             self.assertIn('-DLAUNCH_RAY_LIMIT', first.options)
             self.assertEqual(first.options[1:4], s2 if stage1 else exact)
@@ -398,7 +398,7 @@ class Stage1Wiring(unittest.TestCase):
             patch.dict(os.environ, {'SOSFUSE2_FASTMATH': 'on'}, clear=True),
             self.assertRaisesRegex(ValueError, 'E_STAGE1_FLAG'),
         ):
-            rig.raw_kernel(15, 0, 0, 0)
+            cuda.raw_kernel(15, 0, 0, 0)
 
 
 RECORDER = '''import json, os, sys

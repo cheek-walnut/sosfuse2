@@ -5,7 +5,7 @@ scattering to convergence on a height and angle grid, accelerated with Anderson 
 scattering, a tropospheric aerosol layer, a stratospheric sulfate layer (on in the bundled v2 states), absorption by
 ozone, NO₂ and O₄, and a Lambertian ground. One solve gives the sky at every solar elevation of a table, by default +6°
 to −18°. The package ships a NumPy reference implementation, an optional CUDA kernel compiled at run time through CuPy
-and NVRTC, numeric gates that compare against fixed references within tolerances, and a provenance record that signs
+and NVRTC, numeric checks that compare against fixed references within tolerances, and a provenance record that signs
 every table with the hashes of the code and data that produced it.
 
 ## Start here
@@ -84,7 +84,7 @@ with the three options and a uniform night-sky floor of V = 21.61 mag arcsec⁻�
 the site. Down to −12° a change of ±0.20 mag in the floor moves the ratio by less than 5 %. From −13° to −15° the floor
 is 31 % to 77 % of the fit and its uncertainty of 0.20 mag moves the ratio by 7 % to 17 %, so there the floor assumption
 sets the result. In the IPRT spherical test case E1, at solar zenith angles 93° and 96°, the default quadrature does not
-meet the error limits we had set, which we attribute to the layered profile of the case. The numeric gates in
+meet the error limits we had set, which we attribute to the layered profile of the case. The numeric checks in
 `docs/CHECKS.md` show that a change leaves the tables within tolerance of fixed references, which guards against
 regressions across refactors and other hardware; they do not measure physical accuracy.
 
@@ -142,7 +142,7 @@ under the `--work-root` it is given, in `out/<id>`, `tmp/<id>` and `pack/`, and 
 
 On a CUDA machine, NVRTC compiles the kernels on first use. Without `SOSFUSE2_COMPILE_CACHE`, the runner
 (`jobs/run_state.py`) keeps compiled kernels in `nvrtc_cache_shared` in the parent directory of its `--work-root`
-(`backends/compile_cache.py` `default_root`), while a persistent pipeline service and the gate use a folder of their own
+(`backends/compile_cache.py` `default_root`), while a persistent pipeline service and the reference tests use a folder of their own
 run. With `SOSFUSE2_COMPILE_CACHE=<dir>`, they all go to the given directory, and `python -B -m sosfuse2.jobs.precompile
 --jobs 8` fills that cache before a queue starts.
 
@@ -181,23 +181,23 @@ is on when `--stratosphere` is omitted. The first-generation `states_v1.json` ma
 stays off unless `--stratosphere on` is given. A full-resolution table needs the CUDA backend (`--backend cupy`).
 The production queue that bakes many states with overlapping preparation is `python -B -m sosfuse2.jobs.pipeline`.
 
-### Production queues and gates
+### Production queues and checks
 
-The following matters for production queues and gates rather than for a first solve.
+Production queues and reference checks use the following settings.
 
 - Setting `parameters.no2_du=0` or `parameters.o4=false` turns off NO₂ or O₄ for research runs. `o4` must be a JSON
   boolean. When O₄ is on and the state uses an external air profile, that profile file must declare
   `air_surface_number_density_m3`.
 - Old tables without a physics field remain readable as legacy products. To reproduce their numbers, use the package
   revision recorded in their provenance; `spectral_mode=legacy` selects the old spectral grid, not the old physics.
-  Reference fixtures come in three generations, the legacy set, the 1.1.0 absorber-validation set and the private
-  baseline set of the first public split, and one run cannot mix them. Reusing a saved source field for the same state
+  Each run uses one of three reference fixture sets: the legacy set, the 1.1.0 absorber-validation set or the
+  baseline set of the first public release. Reusing a saved source field for the same state
   also requires equal resolved `optics_state` values; an omitted amount and its explicit default produce the same
   signature.
 - On CUDA, a state checks the minimum memory peak across its ground and source bundles before its first KSPLIT
   allocation. If the peak exceeds the memory budget for that state alone, the default is `KSPLIT=0` for the
   entire state. A service state that fits alone can wait for memory held by other states. `SOSFUSE2_KSPLIT_FALLBACK=0`,
-  the default for gates and benchmarks, turns the fallback into an `E_KSPLIT_MEMORY` error, and `1` permits it.
+  the default for reference checks and benchmarks, turns the fallback into an `E_KSPLIT_MEMORY` error, and `1` permits it.
   A fallback emits a `WARNING KSPLIT fallback` line on stderr and a `KSPLIT_FALLBACK` phase event. The table
   metadata records `ksplit_effective`. See [Device memory diagnostics](docs/ENVIRONMENT.md#device-memory-diagnostics)
   for the reason, itemized estimates and persistent admission records.
@@ -226,13 +226,13 @@ The following matters for production queues and gates rather than for a first so
 
 ## Numerical tolerances
 
-The gates judge correctness by tolerances against fixed references rather than by byte identity:
+The checks compare each result with a fixed reference at the stated tolerance.
 
-| gate | compares | tolerance |
+| check | compares | tolerance |
 |---|---|---|
 | G-P | CUDA kernel vs NumPy golden (fixed number of apply steps) | rtol 1e-3 |
 | G-T | anchor radiances (`checks/gate_data/anchors.json`) | ratchet, recorded |
-| G-A / H / PS | queue parity, history, persistent service | per case |
+| G-A / H / PS | queue parity, historical reduced selftest, persistent service | per case |
 | repeat (`gate --stage`) | same build, cold vs warm, repeated runs | rtol 1e-5, max difference recorded |
 | G-F | full-grid fixed table (needs the research checkout) | rtol 1e-3 |
 
@@ -246,7 +246,7 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
 
 1. Any machine without a GPU, which is also the public CI: `python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2`
    from the installed package. The expected outcome is `0 failed` and 3 `xfailed`, or 2 where `clang++` is
-   absent and one of the three skips. Tests that need the research records
+   absent and one of the three skips. Tests that need upstream inputs
    skip unless `SOSFUSE2_SKY_SOS_ROOT` points at that checkout, and tests that need `clang++` skip when it is absent. The
    tests use a synthetic O₄ table in an isolated temporary root and download no HITRAN data; reproduction from the
    original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied.
@@ -264,15 +264,15 @@ passing turns the run red until its entry is removed, so the failures stay visib
 1.2.3 are covered by the separate installed-sdist checks below.
 
 1.3.3 and 1.3.4 change documentation only. Their code is that of 1.3.2, and apart from the continuous-integration run no
-test or gate was run again for them.
+test or reference comparison was repeated for them.
 
 Configurations verified for 1.5.2, whose numerical code is that of 1.5.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0, the same gates as for 1.5.0 passed with the same G-H value (max relative difference 1.4e-6); G-F against the fixed reference table: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
-| Linux x86_64 | 3.12 | NumPy | sdist in a fresh virtual environment outside the source tree, as the four shards of the continuous-integration job (pytest-xdist, 4 workers each): 930 passed, 3 xfailed and 0 failed in total, with 78 skipped cases, among them four files that skip at module level and are reported by every shard; the same sdist run serially before the last `flags_env` change gave 930 passed, 78 skipped, 3 xfailed |
-| macOS arm64 | 3.14 | NumPy | sdist in a fresh virtual environment outside the source tree, run as in the continuous-integration job (empty work root, the session fetches the IPRT inputs, no prepared O₄ asset), before the last `flags_env` change, which `test_entry_points` covers: 930 passed, 78 skipped, 3 xfailed, 0 failed |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0, the same checks as for 1.5.0 passed with the same G-H value (max relative difference 1.4e-6); G-F against the fixed reference table: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| Linux x86_64 | 3.12 | NumPy | sdist in a fresh virtual environment outside the source tree, as the four shards of the continuous-integration job (pytest-xdist, 4 workers each): 930 passed, 3 xfailed and 0 failed in total, with 78 skipped cases, among them four files that skip at module level and are reported by every shard; an earlier serial run of the sdist gave 930 passed, 78 skipped, 3 xfailed |
+| macOS arm64 | 3.14 | NumPy | earlier sdist in a fresh virtual environment outside the source tree, run as in continuous integration (empty work root, the session fetches the IPRT inputs, no prepared O₄ asset). Environment flags are covered by `test_entry_points`: 930 passed, 78 skipped, 3 xfailed, 0 failed |
 
 1.5.1 changes documentation only. Its code is that of 1.5.0, so the 1.5.0 rows apply to it. Apart from the
 continuous-integration run, its one new check is that of the scripts in `docs/validation/mystic` (*Reproducing the
@@ -282,69 +282,69 @@ Configurations verified for 1.5.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split` selected with its 1.3.x name `eda`: `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from the RTX 3080: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split` selected with its 1.3.x name: `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from a different GPU: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
 | macOS arm64 | 3.14 | NumPy | release tree in place (`PYTHONPATH=src`), offline, with the IPRT inputs and the prepared O₄ asset in the work root: 939 passed, 68 skipped, 3 xfailed, 0 failed; without the IPRT inputs: 751 passed, 256 skipped (188 of them `E_IPRT_OFFLINE`), 3 xfailed, 0 failed; the README quick start as written in a fresh virtual environment with an empty work root (O₄ and density preparation, reduced solve 57 s) |
 
 Configurations verified for 1.4.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split` selected with its 1.3.x name `eda`: `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from the RTX 3080: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0; the state log of G-F shows the parallel geometry adapter in use |
-| Linux x86_64, NVIDIA RTX 5090, CUDA 12 | 3.12 | CuPy | wheel installed into a target directory placed first on `PYTHONPATH`: `checks.solver_diagnostics --backend cupy --solve --grid full --geometry-mode endpoints` exit 0, with the device memory reported; `clear_86` on the grid of *Finer grids with the 1.4.0 grid rules* in `docs/VALIDATION.md` (`h_refine` `b2a6`, `chi_refine_deg` `[88, 100]`, `L` 24) with device profile `rig`: at most 1.9e-7 of the largest value of each solar elevation and colour channel from the research-build table |
-| Linux x86_64, NVIDIA RTX 3080 (20 GB), CUDA 12 | 3.12 | CuPy | wheel installed in the same way, device profile `split`: `gate --stage` exit 0, and the two staged runs of every fixture agree in all 131 arrays compared (max difference 0.0) |
-| Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 869 passed, 99 skipped, 2 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 24 cases skip for the missing `clang` and `clang++`, among them D15, which leaves 2 of the 3 known failures; cached IPRT inputs and the prepared O₄ asset, offline |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split` selected with its 1.3.x name: `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from a different GPU: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0; the state log of G-F shows the parallel geometry adapter in use |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel installed into a target directory placed first on `PYTHONPATH`: `checks.solver_diagnostics --backend cupy --solve --grid full --geometry-mode endpoints` exit 0, with the device memory reported; `clear_86` on the grid of *Finer grids with the 1.4.0 grid rules* in `docs/VALIDATION.md` (`h_refine` `b2a6`, `chi_refine_deg` `[88, 100]`, `L` 24) with the default CUDA profile: at most 1.9e-7 of the largest value of each solar elevation and colour channel from the research-build table |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel installed in the same way, device profile `split`: `gate --stage` exit 0, and the two staged runs of every fixture agree in all 131 arrays compared (max difference 0.0) |
+| Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 869 passed, 99 skipped, 2 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 24 cases skip for the missing `clang` and `clang++`, including the spherical-harmonic mismatch test, which leaves 2 of the 3 known failures; cached IPRT inputs and the prepared O₄ asset, offline |
 | macOS arm64 | 3.14, 3.12 | NumPy | sdist (3.14 and 3.12) and wheel (3.14) in fresh virtual environments outside the source tree: the 14 test modules on identity, grid rules, the pool limit, tables from sources, the command entry point, layers, names, imports, documentation pointers and the walkthrough, 301 passed, 8 skipped, 0 failed in each; the skips are the 7 documentation pointer cases, whose files are not in the installed package, and the slow walkthrough case |
 
-Configurations verified for 1.3.2. The kernel, the solver and the gate are those of 1.3.0, so the GPU row of 1.3.0
-applies to 1.3.2 and the gates were not run again:
+Configurations verified for 1.3.2. The kernel, the solver and the reference checks are those of 1.3.0, so the GPU row of 1.3.0
+applies to 1.3.2 without repeating the checks:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
 | macOS arm64 | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 565 passed, 65 skipped, 3 xfailed, 0 failed, with the default `PERSISTENT_TEST_DEADLINE` and a short `TMPDIR` |
 
-Configurations verified for 1.3.1. The kernel, the solver and the gate are those of 1.3.0, so the GPU row of 1.3.0
-applies to 1.3.1 and the gates were not run again:
+Configurations verified for 1.3.1. The kernel, the solver and the reference checks are those of 1.3.0, so the GPU row of 1.3.0
+applies to 1.3.1 without repeating the checks:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 535 passed, 87 skipped, 2 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 19 cases skip for the missing compiler, among them D15, which leaves 2 of the 3 known failures; case by case against 1.3.0 on the same host, the only changed outcome is the joint-walk case, from xfailed to passed; cached IPRT inputs and synthetic O₄ test data, offline |
+| Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 535 passed, 87 skipped, 2 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 19 cases skip for the missing compiler, including the spherical-harmonic mismatch test, which leaves 2 of the 3 known failures; case by case against 1.3.0 on the same host, the only changed outcome is the joint-walk case, from xfailed to passed; cached IPRT inputs and synthetic O₄ test data, offline |
 | macOS arm64 | 3.14 | NumPy | tests run from the source tree with an empty work root and `SOSFUSE2_OFFLINE=1`: 504 passed, 117 skipped, 3 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=900` and a short `TMPDIR`; the tests that need the IPRT inputs skip with `E_IPRT_OFFLINE` |
 
 Configurations verified for 1.3.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `eda` (the 1.3.x name of `split`, the one the reference table was made with): `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from the RTX 3080: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
-| Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 529 passed, 87 skipped, 3 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 19 cases skip for the missing compiler, among them D15, which leaves 3 of the 4 known failures; cached IPRT inputs and synthetic O₄ test data, offline |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, the reference table’s device profile (named `split` after 1.3.x): `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from a different GPU: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| Linux x86_64, no `clang++` | 3.14 | NumPy | installed from the release tree in a fresh virtual environment outside it: 529 passed, 87 skipped, 3 xfailed, 0 failed, with `PERSISTENT_TEST_DEADLINE=1500` for the persistent pipeline cases; 19 cases skip for the missing compiler, including the spherical-harmonic mismatch test, which leaves 3 of the 4 known failures; cached IPRT inputs and synthetic O₄ test data, offline |
 
 Configurations verified for 1.2.3:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | installed sdist in a fresh virtual environment (identical source tree): `gate --all` exit 0, 78 nodes passed; `clear_34 --reduced` without `--stratosphere`: layer enabled; G-F against the fixed reference: max relative difference 0.0 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | installed sdist in a fresh virtual environment (identical source tree): `gate --all` exit 0, 78 nodes passed; `clear_34 --reduced` without `--stratosphere`: layer enabled; G-F against the fixed reference: max relative difference 0.0 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
 | macOS arm64 | 3.14 | NumPy | installed sdist in a fresh virtual environment outside the source tree: 525 passed, 65 skipped, 5 xfailed, 0 failed; cached IPRT inputs and synthetic O₄ test data, offline |
 
 Configurations verified for 1.2.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | installed sdist: `gate --all` exit 0 with all 78 gate nodes passing (G-R, G-P, G-T, G-A, H, PS); the G-F product state baked through the production queue, table byte-identical to the fixed G-F table of 1.1.0 (max relative difference 0.0), same O₄ asset |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | installed sdist: `gate --all` exit 0 with all 78 test nodes passing (G-R, G-P, G-T, G-A, H, PS); the full-grid G-F reference state baked through the production queue, table byte-identical to the fixed G-F table of 1.1.0 (max relative difference 0.0), same O₄ asset |
 | macOS arm64 | 3.14 | NumPy | installed sdist (a fresh virtual environment outside the source tree): 524 passed, 65 skipped, 5 xfailed, 0 failed; comparison with 1.1.1 in separate interpreters: the prepared arrays of five states, with and without the host cache, at rtol 1e-6 and a reduced solve (radiance and source) at rtol 1e-5, max relative difference 0.0 |
 
 Configurations verified for 1.1.1, a documentation-only release:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | installed sdist: the G-F product state baked through the production queue, table bit-identical to the 1.1.0 fixed G-F table (max relative difference 0.0), same O₄ asset |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | installed sdist: the full-grid G-F reference state baked through the production queue, table bit-identical to the 1.1.0 fixed G-F table (max relative difference 0.0), same O₄ asset |
 | macOS arm64 | 3.14 | NumPy | installed sdist (a fresh virtual environment outside the source tree): 524 passed, 65 skipped, 5 xfailed, 0 failed; the README quick start as written (O₄ download 3 s, reduced solve 36 s) |
 
 Configurations verified for 1.1.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, RTX 3080, CUDA 12 | 3.12 | CuPy | release tree in place (`PYTHONPATH=src`): `gate --all` and `gate --gf` pass at the 1.1.0 baselines (the full-resolution product state runs at KSPLIT 0 on this 10 GB card) |
-| macOS arm64 | 3.14 | NumPy | installed package tests (a fresh virtual environment outside the source tree): 462 passed, 0 failed, 5 xfailed; the in-tree `--validate-mac` check and the NumPy gate goldens |
-| Linux x86_64, AVX-512 | 3.14 | NumPy | targeted tests only: the log-blend unit tests and the FX-N +1 ULP test, NumPy AVX-512 dispatch on and off |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | release tree in place (`PYTHONPATH=src`): `gate --all` and `gate --gf` pass at the 1.1.0 baselines (the full-resolution product state runs at KSPLIT 0 on this GPU) |
+| macOS arm64 | 3.14 | NumPy | installed package tests (a fresh virtual environment outside the source tree): 462 passed, 0 failed, 5 xfailed; the in-tree `--validate-mac` check and the NumPy reference arrays |
+| Linux x86_64, AVX-512 | 3.14 | NumPy | targeted tests only: the log-blend unit tests and the +1 ULP test for the stratosphere-off fixture, NumPy AVX-512 dispatch on and off |
 
 The package runs on Unix only, because the solver uses `resource`, and Python 3.11 is untested. The NumPy reference runs
 in FP32 flush-to-zero mode, which is available on Darwin arm64, Linux arm64 and Linux x86_64; other platforms, macOS
@@ -363,7 +363,7 @@ src/sosfuse2/
   solve/          per-state solver objects and the source iteration (source_solver.py, engine.py, ksplit.py)
   outputs/        radiance tables, previews, packs
   jobs/           state runner, production queue, planner, cache store, walkthrough
-  checks/         numeric gates (gate.py, gate_data/), diagnostics, fixtures/, testkit.py
+  checks/         numeric checks (gate.py, gate_data/), diagnostics, fixtures/, testkit.py
   asset_tools/    generators of the data assets, O₄ preparation
   assets/         data (see assets/README.md)
   tests/          the packaged tests (pytest --pyargs sosfuse2)

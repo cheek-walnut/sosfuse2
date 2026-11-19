@@ -219,7 +219,7 @@ def test_01_default_path_unchanged(monkeypatch):
 
 
 def test_01b_product_default_is_aprime():
-    """P2: settings {} (the product, rig bakes, G-F) = BM45 bins + ozone profile_mean; a
+    """P2: settings {} (the product, remote bakes, G-F) = BM45 bins + ozone profile_mean; a
     settings file naming ozone_temperature or a fixed ozone_temperature_K column, or naming spectral_mode, keeps it."""
     product = settings({})
     assert product == settings({'ozone_temperature': 'profile_mean'})
@@ -270,7 +270,7 @@ def test_02_research_sigma_bar(shape, research):
         assert meta[key] == OT.sha(path)  # the bytes read (pinned SHAs: research fixture; D1 rebuilds rebound there)
     profile_sha = research.manifest['files'][
         'scripts/sosfuse2/assets/usstd76_profile.json'
-    ]  # the research manifest's own (sky-sos) key
+    ]  # the research manifest's own key
     # The research manifest may still name an earlier generation of the same logical asset (density.ASSET_SHA256_SUPERSEDED).
     assert profile_sha == density.ASSET_SHA256 or profile_sha in density.ASSET_SHA256_SUPERSEDED
     assert OT.sha(density.ASSET) == density.ASSET_SHA256
@@ -589,10 +589,10 @@ def test_04b_resolver_call_sites(tmp_path, monkeypatch):
 
 
 def test_04c_scheduler_presign(tmp_path):
-    """rig/gpu_sched_v3.py signs and checks prefetch settings with the cfg the runner consumes (resolved per state)."""
+    """The upstream scheduler signs and checks prefetch settings with the cfg the runner consumes (resolved per state)."""
     spec = importlib.util.spec_from_file_location(
         'aprime_sched', testkit.sky_sos('rig/gpu_sched_v3.py')
-    )  # sky-sos rig scheduler (consumer)
+    )  # upstream scheduler (consumer)
     sched = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sched)
     st = next(s for s in V3.read_states(paths.ASSETS / 'states_v1_usstd.json', True) if s.get('runnable'))
@@ -711,7 +711,7 @@ def test_07_asset_sha_and_temperature_range(monkeypatch, tmp_path):
 )
 @pytest.mark.parametrize('change', ['number', 'truncated', 'whitespace', 'indent', 'description'])
 def test_07_v5_asset_content_identity(monkeypatch, target, key, note, change):
-    # Triangle keeps corruption coverage runnable without optional IPRT inputs or research records.
+    # Triangle keeps corruption coverage runnable without optional IPRT inputs or upstream test inputs.
     b = block('triangle')
     expected = SP.spec_table(b, WL)
     original = Path.read_bytes

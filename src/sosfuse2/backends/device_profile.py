@@ -4,8 +4,8 @@ Each profile sets a kernel launch budget and optional launch splitting.
 The budgets live in backends/configs/devices.json.
 
 Selection order: SOSFUSE2_DEVICE_PROFILE, else the CUDA device name against each profile's gpu_names,
-else 'rig' for an unmatched CUDA device and 'mac' without CUDA. The profile 'split' (split launches for a card with a
-short launch budget) was called 'eda' up to 1.3.x; SOSFUSE2_DEVICE_PROFILE=eda still selects it (ALIASES).
+else 'cuda' for an unmatched CUDA device and 'mac' without CUDA. The 'split' profile divides work across launches
+to fit a short launch time limit.
 Single fields can be overridden by SOSFUSE2_LAUNCH_BUDGET_SECONDS, SOSFUSE2_LAUNCH_TARGET_SECONDS ('0' or '' = off),
 SOSFUSE2_LAUNCH_CELLS (fixed cells per launch, disables the adaptive split) and SOSFUSE2_LAUNCH_PAUSE_MS.
 """
@@ -16,7 +16,6 @@ import os
 from ..foundation import paths
 
 CONFIG = paths.CONFIGS / 'devices.json'
-ALIASES = {'eda': 'split'}  # former profile names, accepted by SOSFUSE2_DEVICE_PROFILE and plan_queue --cost-profile
 
 
 def _number(name, value, allow_none=True):
@@ -43,7 +42,6 @@ def select(device_name=None):
     """Return (name, profile dict with overrides applied, reason)."""
     table = profiles()
     forced = os.environ.get('SOSFUSE2_DEVICE_PROFILE', '').strip()
-    forced = ALIASES.get(forced, forced)
     if forced:
         if forced not in table:
             raise ValueError(f'E_DEVICE_PROFILE: unknown SOSFUSE2_DEVICE_PROFILE={forced!r}; choose {sorted(table)}')
@@ -51,8 +49,8 @@ def select(device_name=None):
     elif device_name is None:
         name, reason = 'mac', 'no CUDA device'
     else:
-        name = next((k for k, v in table.items() if device_name in v.get('gpu_names', ())), 'rig')
-        reason = f'CUDA device {device_name!r}' + ('' if name != 'rig' else ' (no profile lists it)')
+        name = next((k for k, v in table.items() if device_name in v.get('gpu_names', ())), 'cuda')
+        reason = f'CUDA device {device_name!r}' + ('' if name != 'cuda' else ' (unlisted device, using default cuda profile)')
     p = dict(table[name])
     budget = os.environ.get('SOSFUSE2_LAUNCH_BUDGET_SECONDS')
     if budget is not None:
@@ -95,7 +93,7 @@ def cuda_device_name(xp):
 def pool_limit_bytes(free):
     """Cap for the CuPy default memory pool, in bytes: the free device memory minus 1 GiB, or SOSFUSE2_POOL_LIMIT_GIB
     (GiB, a positive number) when that is smaller. Up to 1.3.4 the cap was min(20 GiB, free - 1 GiB) at every site, which
-    refused a state that needed more than 20 GiB on any card (E_PERSISTENT_VRAM_ADMISSION, a 24 GB state on a 48 GB card)."""
+    refused a state that needed more than 20 GiB on any card (E_PERSISTENT_VRAM_ADMISSION, for example, a 24 GB state despite sufficient free memory)."""
     room = int(free) - 1024**3
     value = os.environ.get('SOSFUSE2_POOL_LIMIT_GIB', '').strip()
     if not value:

@@ -86,7 +86,7 @@ signature and the output files; `jobs/pipeline.py` runs many such states.
 | Split transport (KSPLIT) | host side in `solve/ksplit.py`, tolerance in `solve/ksplit_tolerance.py`, record layout in `atmosphere/components.py` and `backends/kernel.cu` |
 | Device memory | named estimates in `backends/vram_budget.py`, CuPy allocation diagnostics in `backends/vram_trace.py`, and persistent admission in `jobs/pipeline_execution.py` |
 | Machine limits and parallel sizes | `foundation/host_limits.py`, `foundation/available_cpus.py`, `backends/device_profile.py`, `jobs/pipeline.py::cpu_budget` |
-| Diagnostics outside the gate | `checks/solver_diagnostics.py::probe_state`, `checks/kernel_diagnostics.py`, `checks/numerical_checks.py` |
+| Additional diagnostics | `checks/solver_diagnostics.py::probe_state`, `checks/kernel_diagnostics.py`, `checks/numerical_checks.py` |
 
 Section 8 lists the files whose paths enter the cache keys, and `backends/compile_cache.py::cache_key` and
 `jobs/cache_store.py` describe their own keys.

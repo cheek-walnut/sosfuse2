@@ -63,29 +63,29 @@ class LaunchSplit(unittest.TestCase):
 
     def test_profile_selection(self):
         self.assertEqual(device_profile.select('NVIDIA GeForce RTX 3080')[0], 'split')
-        self.assertEqual(device_profile.select('NVIDIA GeForce RTX 4090')[0], 'rig')
+        self.assertEqual(device_profile.select('NVIDIA GeForce RTX 4090')[0], 'cuda')
         self.assertEqual(device_profile.select(None)[0], 'mac')
         with mock.patch.dict(os.environ, {'SOSFUSE2_DEVICE_PROFILE': 'split'}):
             name, p, _ = device_profile.select('NVIDIA GeForce RTX 4090')
             self.assertEqual((name, p['launch_budget_seconds']), ('split', 30.0))
-        with mock.patch.dict(os.environ, {'SOSFUSE2_DEVICE_PROFILE': 'eda'}):  # the 1.3.x name stays accepted
-            self.assertEqual(
-                device_profile.select('NVIDIA GeForce RTX 4090')[:2],
-                device_profile.select('NVIDIA GeForce RTX 3080')[:2],
-            )
-            self.assertEqual(device_profile.select(None)[0], 'split')
         with mock.patch.dict(os.environ, {'SOSFUSE2_DEVICE_PROFILE': 'nope'}):
             with self.assertRaises(ValueError):
                 device_profile.select(None)
         with mock.patch.dict(os.environ, {'SOSFUSE2_LAUNCH_CELLS': '408'}):
             self.assertEqual(device_profile.select('NVIDIA GeForce RTX 3080')[1]['launch_cells_fixed'], 408)
 
+    def test_removed_profile_names_are_rejected(self):
+        for name in ('eda', 'rig'):
+            with self.subTest(name=name), mock.patch.dict(os.environ, {'SOSFUSE2_DEVICE_PROFILE': name}):
+                with self.assertRaisesRegex(ValueError, 'E_DEVICE_PROFILE: unknown'):
+                    device_profile.select()
+
     def test_modes(self):
         k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split'})
         self.assertEqual(k.launch_mode(1500), ('adaptive', None))
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'rig'})
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'cuda'})
         self.assertEqual(k.launch_mode(1500), ('single', 1500))
-        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'rig', 'SOSFUSE2_LAUNCH_CELLS': '408'})
+        k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'cuda', 'SOSFUSE2_LAUNCH_CELLS': '408'})
         self.assertEqual(k.launch_mode(1500), ('fixed', 408))
         self.assertEqual(k.launch_mode(300), ('single', 300))
 
@@ -146,19 +146,19 @@ class LaunchSplit(unittest.TestCase):
             'RAY_CONST_SHARED,SH_AUX,SH_AUX_PAIR,SPECIALIZE,TRANSPORT_WAVE_LANES'
         ).split(',')
         split = device_profile.select('NVIDIA GeForce RTX 3080')
-        rig = device_profile.select('NVIDIA GeForce RTX 4090')
+        cuda = device_profile.select('NVIDIA GeForce RTX 4090')
         err = device_profile.first_light_split_error
         self.assertIsNone(err(c2, False, *split[:2]))  # retired names select default split transport
         self.assertIn('E_LAUNCH_BUDGET_CONFIG', err(['EXP_SECTION_CLOCKS'], False, *split[:2]))
         self.assertIsNone(err(c2 + ['ACC_GLOBAL', 'FL_RAYSPLIT'], False, *split[:2]))
-        self.assertIsNone(err(c2, False, *rig[:2]))  # rig launches whole grids
+        self.assertIsNone(err(c2, False, *cuda[:2]))  # cuda launches whole grids
         for name in ('C3', 'C3_nostrato'):
             import json
 
             flags = json.loads((paths.CONFIGS / f'{name}.json').read_text())['kernel_flags']
             self.assertIsNone(err(flags, name == 'C3', *split[:2]))
 
-    def test_eda_never_launches_whole_grid(self):
+    def test_split_never_launches_whole_grid(self):
         k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split', 'SOSFUSE2_LAUNCH_TARGET_SECONDS': '0'})
         with self.assertRaises(RuntimeError) as e:
             k.launch_mode(1500)
@@ -168,7 +168,7 @@ class LaunchSplit(unittest.TestCase):
         self.assertEqual(k.launch_mode(1500), ('fixed', 408))
         self.assertEqual(k.launch_mode(300), ('fixed', 300))
 
-    def test_fixed_step_is_only_an_upper_bound_on_eda(self):
+    def test_fixed_step_is_only_an_upper_bound_on_split(self):
         k = kernel({'SOSFUSE2_DEVICE_PROFILE': 'split', 'SOSFUSE2_LAUNCH_CELLS': '408'})
         cum = np.r_[0, np.cumsum(np.full(1500, 10.0))]
         c0, sizes = 0, []

@@ -42,7 +42,6 @@ import tempfile
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from sosfuse2.backends.device_profile import ALIASES
 from sosfuse2.foundation import paths
 
 
@@ -67,7 +66,7 @@ COST_PROFILES = {
             state='Mean solve time by stratosphere setting, used to balance workers.',
         ),
     ),
-    'rig4090': dict(
+    'cuda': dict(
         strato_column_seconds_per_ray=145.0 / 9586008,
         density_column_seconds_per_ray=9.9 / 450000,
         attach_miss_seconds=77.9,
@@ -77,7 +76,7 @@ COST_PROFILES = {
         geometry_build_seconds=None,
         state_seconds=dict(strato=52.0, off=82.8),
         sources=dict(
-            strato_column='RTX 4090, center 22 km, sigma 5 km, tau 0.005, aod 0.15: column_cache miss 145.0 s, 9,586,008 rays',
+            strato_column='CUDA measurement, center 22 km, sigma 5 km, tau 0.005, aod 0.15: column_cache miss 145.0 s, 9,586,008 rays',
             density_column='same log: density column_cache miss 9.9 s for a 450,000-ray table bundle',
             attach_miss='same log: attach_cache miss 77.9 s',
             state='12 stratosphere states in 10 min 24 s (52 s each, overlapped), '
@@ -211,9 +210,7 @@ def parser():
         help='column worker processes per state (pipeline --threads); default from '
         'the cores left per concurrent state, 1 on non-Linux hosts and under 48 GB RAM',
     )
-    p.add_argument(
-        '--cost-profile', type=lambda name: ALIASES.get(name, name), choices=sorted(COST_PROFILES), default='split'
-    )
+    p.add_argument('--cost-profile', choices=sorted(COST_PROFILES), default='split')
     p.add_argument('--costs', type=Path, help='JSON object overriding cost-profile fields')
     p.add_argument('--work-root', type=Path, help='work root for the printed commands (default <out dir>/work)')
     p.add_argument('--scratch', type=Path, help='probe folder (default: a temporary folder, removed)')

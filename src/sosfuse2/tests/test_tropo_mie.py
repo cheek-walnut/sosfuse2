@@ -93,7 +93,7 @@ def preprocess(path, flags, spec):
 
 def static(out):
     if shutil.which('clang++') is None or shutil.which('git') is None or ROOT is None:
-        return dict(pass_=None, reason=f'clang++/git/sky-sos checkout ({testkit.ENV}) missing')
+        return dict(pass_=None, reason=f'clang++/git/upstream checkout ({testkit.ENV}) missing')
     BASE = base_ref()
     base = out / f'kernel_{BASE}.cu'
     base.write_text(

@@ -7,12 +7,11 @@ from .validate import LEGACY, LEGACY_META, legacy_available
 
 
 def key(path):
-    """Provenance key: 'sosfuse2/<relative>' inside the package, 'sky-sos/<relative to the checkout>' for a sky-sos extra,
-    never a host path."""
+    """Use a package-relative key or prefix an upstream checkout path with 'upstream/'."""
     root = paths.sky_sos_root()
     if root is not None:
         try:
-            return 'sky-sos/' + path.resolve().relative_to(root).as_posix()
+            return 'upstream/' + path.resolve().relative_to(root).as_posix()
         except ValueError:
             pass
     return paths.rel(path)
@@ -40,5 +39,5 @@ def same(before, after):
         pass_=not changed,
         checked_files=len(before),
         changed=changed,
-        scope='reference inputs and original solver/rig source files; not a whole-filesystem assertion',
+        scope='reference inputs and original solver and runner source files',
     )

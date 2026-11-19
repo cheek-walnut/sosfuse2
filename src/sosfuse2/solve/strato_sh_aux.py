@@ -1,4 +1,4 @@
-"""FP32 stratosphere sidecar and legacy gate metadata selector."""
+"""FP32 stratosphere sidecar and legacy reference-run metadata selector."""
 
 import os
 import numpy as np
@@ -36,9 +36,9 @@ def strato_sh_aux(src, xp=np, pair=False, L=32):
 
 
 def _async_enabled(kernel):
-    """Legacy gate metadata only; the removed round executor no longer consumes this.
+    """Used only in legacy reference-run metadata; the removed round executor no longer consumes this.
 
-    SOSFUSE2_STRATO_ASYNC '1'/'0' wins; unset = device profile strato_async (rig only)."""
+    SOSFUSE2_STRATO_ASYNC '1'/'0' wins; unset = device profile strato_async (cuda only)."""
     text = os.environ.get('SOSFUSE2_STRATO_ASYNC', '').strip()
     if text not in ('', '0', '1'):
         raise ValueError('E_STRATO_CONTROL: invalid SOSFUSE2_STRATO_ASYNC (0 or 1)')

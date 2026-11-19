@@ -1,9 +1,9 @@
-"""sosfuse2 numerical gate v2. python -m sosfuse2.checks.gate ...
+"""sosfuse2 numerical checks v2. python -m sosfuse2.checks.gate ...
 
 G-R CUDA bytes (informational), G-P CUDA vs NumPy golden (rtol 1e-3 + atol), G-T ratchet against fixed anchors, G-A S2
 vs same-run exact, G-H reduced selftest vs record (old fixture delta informational), G-PS persistent test, G-F full-grid cold/warm (--gf, against the fixed reference table).
 Exit 0 pass, 1 numerical failure, 2 configuration/environment/exception; out/gate.json is always written.
-CUDA work only through the site's GPU queue: <python> -B -m sosfuse2.checks.gate --all --out DIR.
+Run the CUDA checks with <python> -B -m sosfuse2.checks.gate --all --out DIR.
 """
 
 import argparse, copy, datetime as dt, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, traceback
@@ -114,7 +114,7 @@ def code_identity():
     from sosfuse2.jobs.run_state import package_hashes
 
     # Production source identities exclude comments and docstrings. Fixture/config JSON excludes notes;
-    # numerical assets retain byte hashes. The gate implementation itself is excluded.
+    # numerical assets retain byte hashes. The check implementation itself is excluded.
     try:
         hashes = package_hashes()
     except RuntimeError as e:
@@ -123,7 +123,7 @@ def code_identity():
     extra = [GATE / 'fixtures.json', *[paths.CONFIGS / f'{n}.json' for n in ('C3', 'C3_nostrato', 'devices')]]
     missing = [paths.rel(p) for p in extra if not p.is_file()]
     if missing:
-        raise GateError('E_PACKAGE_FILE_MISSING', f'gate identity inputs absent from the package: {missing}')
+        raise GateError('E_PACKAGE_FILE_MISSING', f'baseline identity inputs absent from the package: {missing}')
     hashes.update({paths.rel(p): content_identity.file_sha(p, kind='json') for p in extra})
     hashes[density.ASSET_KEY] = file_sha(density.asset_path())  # ozone q (ozone_profile usstd76), logical key
     return hashlib.sha256(json.dumps(sorted(hashes.items())).encode()).hexdigest()
@@ -269,16 +269,14 @@ def check_config(F, fx, meta):
 
 
 def toolkey(meta):
-    from ..backends.device_profile import ALIASES
     from ..backends.flags import resolve_config
     from ..foundation.top import Domain
 
     c = meta['config']
-    profile = meta['device'].get('profile')
     fields = dict(
         cc=meta['device'].get('cc'),
         nvrtc=meta['device'].get('nvrtc'),
-        profile=ALIASES.get(profile, profile),  # a reused run recorded with a former profile name keys like the new one
+        profile=meta['device'].get('profile'),
         flags=list(resolve_config(c['flags']).flags),
         stage1=c['stage1'],
         async_=c['async_'],
@@ -328,7 +326,7 @@ def worker(kind, fx, out, backend):
     cfg = v3.resolve_settings(cfg, state)  # A′ fixtures: FX-AP
     el, az = (np.asarray(F['directions'][n], float) for n in ('elevation_deg', 'azimuth_deg'))
     # The kernel specializes to 1 or 15 wavelengths: n-wavelength fixtures (band BM45, 45) run FW=15 chunks like
-    # run_state (last chunk padded, padding dropped); a single chunk keeps the paths and meta of the 15-wavelength gate.
+    # run_state (last chunk padded, padding dropped); a single chunk keeps the paths and meta of the 15-wavelength check.
     wl = np.asarray(cfg['wavelengths_nm'])
     chunks = [wl] if len(wl) in (1, 15) else [wl[i : i + 15] for i in range(0, len(wl), 15)]
     sources, radiance, host_inputs, launch_max, launches = (
@@ -433,7 +431,7 @@ def worker(kind, fx, out, backend):
 
 
 def child(cmd, log, env, cwd=paths.SRC, timeout=3600):
-    """Same process group as the gate (a safety stop of the gate reaches it); TERM then KILL on timeout or error."""
+    """Share the parent process group so stopping a reference run also stops its child. Send TERM then KILL on timeout or error."""
     with Path(log).open('w') as f:
         p = subprocess.Popen(cmd, cwd=str(cwd), env=paths.child_env(env), stdout=f, stderr=subprocess.STDOUT)
         try:
@@ -749,7 +747,7 @@ RECORDS = None  # main(): None = package baselines (bless modes, --record-baseli
 
 def record(rel):
     """Where an execution record goes. Baseline updates (--bless, --bless-numpy, or --record-baselines in a writable checkout)
-    write the package's own files; any other run writes copies under --out/records, so a gate run against an installed, possibly
+    write the package's own files; any other run writes copies under --out/records, so a reference run against an installed, possibly
     read-only package never modifies site-packages. rel is 'baselines/manifest.json', 'baselines/BASELINE_LOG.md' or 'anchors.json'."""
     p = GATE / rel if RECORDS is None else RECORDS / Path(rel).name
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -831,7 +829,7 @@ def inject(kind, runs, golden, F, anchors):
         raise RuntimeError('injected exception (negative control)')
 
 
-# ---------------------------------------------------------------- gate
+# ---------------------------------------------------------------- checks
 
 
 def evaluate(F, runs, golden, M, anchors, atol, report, regress_=True):
@@ -1024,7 +1022,7 @@ def bake_template_path():
     sky = paths.sky_sos_root()
     template = sky / 'rig/bake/bake_run.py' if sky is not None else None
     if template is None or not template.is_file():
-        raise GateError('E_GATE_CONFIG', 'G-F needs the sky-sos bake template: set SOSFUSE2_SKY_SOS_ROOT')
+        raise GateError('E_GATE_CONFIG', 'G-F needs the upstream bake template: set SOSFUSE2_SKY_SOS_ROOT')
     return template
 
 
@@ -1047,7 +1045,7 @@ def gf(args, F, report):
         spec.loader.exec_module(br)
     except Exception as exc:  # noqa: BLE001 - e.g. a template that still imports a renamed module
         raise GateError(
-            'E_GATE_TEMPLATE', f'G-F could not load the sky-sos bake template: {type(exc).__name__}: {exc}'
+            'E_GATE_TEMPLATE', f'G-F could not load the upstream bake template: {type(exc).__name__}: {exc}'
         ) from exc
     root = args.out / 'gf'
     P = NS(plan=root / 'plan', work=root / 'work')
@@ -1167,7 +1165,7 @@ def gf(args, F, report):
 
 
 def bless(F, names, args, report):
-    """Two repeat runs passing fixed numerical gates update execution records only."""
+    """Two repeat runs passing fixed numerical checks update execution records only."""
     base = args.staged or args.out
     runs = run_all(F, names, base / 'run1', 'cupy', True, reuse=args.staged and base / 'run1')
     again = run_all(F, names, base / 'run2', 'cupy', True, reuse=args.staged and base / 'run2')
@@ -1303,7 +1301,7 @@ def bless_numpy(F, args, report):
     return True
 
 
-# ---------------------------------------------------------------- rig bake hooks
+# ---------------------------------------------------------------- remote bake hooks
 
 
 def plan_check(order, states, settings, reference):

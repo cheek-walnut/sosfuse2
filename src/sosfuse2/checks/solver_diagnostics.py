@@ -257,7 +257,7 @@ def main():
                 raise RuntimeError('E_VALIDATION_FAILED: inspect validation.json')
             return
         if sys.platform == 'darwin' and args.grid == 'full':
-            raise ValueError('E_MAC_FULL: full benchmark/solve belongs on CUDA rig')
+            raise ValueError('E_MAC_FULL: full benchmarks and solves require a CUDA device')
         if args.backend != 'cupy' and args.grid == 'full':
             raise ValueError('E_FULL_BACKEND: full work requires cupy')
         import numpy as np

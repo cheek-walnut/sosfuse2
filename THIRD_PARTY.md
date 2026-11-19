@@ -272,7 +272,7 @@ https://hitran.org/data/CIA/main/O2-O2_2024.cia. The user prepares the table wit
 `python -m sosfuse2.asset_tools.prepare_minor_absorbers --cia FILE`, or with `--download` to retrieve the official source. The
 command verifies the pinned SHA-256 of the original, writes `assets/o4_hitran2024_fine.json` atomically under
 `SOSFUSE2_WORK_ROOT` (otherwise the XDG work root) and prints the SHA-256 of the result. A solve only reads this cache,
-and with `SOSFUSE2_OFFLINE=1` set, downloads are refused. Run the preparation once before precompiling, baking or running a gate that
+and with `SOSFUSE2_OFFLINE=1` set, downloads are refused. Run the preparation once before precompiling, baking or running a check that
 uses the 1.1.0 absorber fixtures.
 
 References: Gordon, I. E., et al. (2026). *The HITRAN2024 molecular spectroscopic database.* JQSRT 353, 109807; Terragni,

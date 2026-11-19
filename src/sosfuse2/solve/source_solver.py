@@ -49,7 +49,7 @@ from .ksplit import (  # noqa: E402,F401 (re-exported: KSPLIT host side, ksplit.
 )
 # A6 kernel variants (kernel.cu header); each independent, all off = original kernel.
 # Stage-1 compile options: SOSFUSE2_<NAME>=1/0 overrides,
-# unset = device profile stage1_defaults (backends/configs/devices.json: rig FMAD+FASTMATH, split/mac none).
+# unset = device profile stage1_defaults (backends/configs/devices.json: cuda FMAD+FASTMATH, split/mac none).
 # None active = the exact pre-r17 options, key and kernel tokens.
 KPAD = 576
 SECTION_CLOCK_NAMES = ('point', 'ground', 'sh_basis', 'transport', 'attenuation', 'projection', 'barrier', 'total')
@@ -478,7 +478,7 @@ class Kernel(KsplitMixin):
         the split never changes the numbers."""
         if (
             cum is None
-        ):  # no launch budget (rig profile): fixed step, or the whole rest when the caller has none (KSPLIT=3 projection)
+        ):  # no launch budget (cuda profile): fixed step, or the whole rest when the caller has none (KSPLIT=3 projection)
             return n if step is None else min(n, c0 + step)
         _, p, _ = self.device()
         initial = max(1, int(initial or p['launch_cells_initial'] or 1))
@@ -1153,7 +1153,7 @@ class Kernel(KsplitMixin):
             # Cell-subset launches (split profile thermal/watchdog cap, device_profile.py): blocks are
             # independent, so only the cell-indexed pointers move: cell_off/starts/targets (inputs) and
             # moments/flux (outputs); per-chunk counters (FL_RAYSPLIT ray_sync, CELL_SPLIT split_count) are
-            # re-zeroed. Numerically equivalent to one launch within gate tolerance. 'adaptive' sizes each chunk from the last
+            # re-zeroed. Numerically equivalent to one launch within the reference tolerance. 'adaptive' sizes each chunk from the last
             # measured seconds per unit of work of the same kernel kind; 'fixed' is SOSFUSE2_LAUNCH_CELLS.
             nsplit = (2 if self.config().c3_fw15 else 1) if lpt_index is not None else 1
             grid_y = W // self.tile_width(W, first, phase)
