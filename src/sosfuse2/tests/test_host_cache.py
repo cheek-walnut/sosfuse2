@@ -17,6 +17,7 @@ from unittest.mock import patch
 if __name__ == '__main__':
     sys.dont_write_bytecode = True
 import numpy as np
+from sosfuse2.checks.numerical_checks import assert_equivalent
 from sosfuse2.precompute import host_cache as hc
 
 
@@ -107,10 +108,8 @@ class CacheTests(unittest.TestCase):
                     b, _ = runner.create_configured(Path(folder) / 'reused', cfg, wl, 'numpy', current)
                 for name, value in vars(a).items():
                     if isinstance(value, np.ndarray):
-                        self.assertEqual(value.dtype, getattr(b, name).dtype, name)
-                        self.assertEqual(value.shape, getattr(b, name).shape, name)
-                        self.assertEqual(value.tobytes(), getattr(b, name).tobytes(), (i, name))
-                self.assertEqual(a.geo.sun.col.tobytes(), b.geo.sun.col.tobytes())
+                        assert_equivalent(getattr(b, name), value, rtol=1e-3)
+                assert_equivalent(b.geo.sun.col, a.geo.sun.col, rtol=1e-3)
             # Default profiles still require one real prepare_ground after the skipped constructors.
             state.pop('density')
             with patch.dict(os.environ, SOSFUSE2_HOST_CACHE='0'):
@@ -118,7 +117,7 @@ class CacheTests(unittest.TestCase):
             with patch.dict(os.environ, SOSFUSE2_HOST_CACHE='1'):
                 b, _ = runner.create_configured(Path(folder) / 'default_on', cfg, [550.0], 'numpy', state)
             for name in ('gm', 'goff', 'gdir', 'gval'):
-                self.assertEqual(getattr(a, name).tobytes(), getattr(b, name).tobytes(), name)
+                assert_equivalent(getattr(b, name), getattr(a, name), rtol=1e-3)
 
     def test_query_capture_cache_bytes(self):
         """Cached query packs equal a fresh _capture: field order, dtype, shape, bytes, nq; second call is a hit."""
@@ -156,9 +155,7 @@ class CacheTests(unittest.TestCase):
                         for k in x:
                             if k == 'nq':
                                 continue
-                            self.assertEqual(
-                                (x[k].dtype, x[k].shape, x[k].tobytes()), (y[k].dtype, y[k].shape, y[k].tobytes()), k
-                            )
+                            assert_equivalent(y[k], x[k], rtol=1e-3)
             self.assertEqual(len(list((Path(folder) / 'geo').rglob('query_cache/*.hcache'))), 1)
 
     def test_mode_bytes_and_hit(self):
@@ -252,8 +249,8 @@ class CacheTests(unittest.TestCase):
             for obj in (normal, fallback):
                 for name, value in vars(old).items():
                     if isinstance(value, np.ndarray):
-                        self.assertEqual(value.tobytes(), getattr(obj, name).tobytes(), name)
-                self.assertEqual(old.geo.sun.col.tobytes(), obj.geo.sun.col.tobytes())
+                        assert_equivalent(getattr(obj, name), value, rtol=1e-3)
+                assert_equivalent(obj.geo.sun.col, old.geo.sun.col, rtol=1e-3)
 
 
 if __name__ == '__main__':

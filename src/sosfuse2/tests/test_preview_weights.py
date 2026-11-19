@@ -46,3 +46,13 @@ def test_band_widths_from_meta():
     np.testing.assert_array_equal(V3.preview_band_widths({'settings': {'spectral': None}}, WL), np.full(45, 470 / 45))
     with pytest.raises(RuntimeError, match='E_PREVIEW_EDGES'):
         V3.preview_band_widths({'settings': {'spectral': {'bin_edges_nm': EDGES[:-1].tolist()}}}, WL)
+
+
+def test_fifteen_band_weight_selection():
+    edges = np.linspace(360, 830, 16)
+    meta = {'settings': {'spectral': {'bin_edges_nm': edges.tolist()}}}
+    assert V3.table_weights(meta, CENTRES15.astype('f4'), BASE) is BASE
+    edges[1] += 5
+    meta['settings']['spectral']['bin_edges_nm'] = edges.tolist()
+    wl = ((edges[1:] + edges[:-1]) / 2).astype('f4')
+    np.testing.assert_array_equal(V3.table_weights(meta, wl, BASE), V3.preview_weights(wl, np.diff(edges), BASE))

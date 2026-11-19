@@ -304,3 +304,16 @@ def test_extra_source_without_density_is_rejected(run_args, state, monkeypatch):
     (out / 'meta.json').write_text(json.dumps(meta))
     with pytest.raises(RuntimeError, match='E_EXTRA_SOURCE: density profile missing'):
         runner.run_extra(run_args)
+
+
+def test_reduced_legacy_view_shape(tmp_path, state):
+    cfg = settings(state)
+    cfg['L'] = 32
+    path = tmp_path / 'source.npz'
+    source(path, state, cfg, 'v5')
+    assert radiance_table.restored_settings(path, state, True, 'numpy') is None
+    cfg['view_shape'] = [1, 2]
+    source(path, state, cfg, 'v5')
+    restored = radiance_table.restored_settings(path, state, True, 'numpy')
+    _, _, el, az = radiance_table.restored_axes(restored)
+    assert [len(el), len(az)] == cfg['view_shape']

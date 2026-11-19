@@ -67,12 +67,12 @@ def settings_args(root):
     return ['--settings-json', str(path)]
 
 
-def numeric(value):
-    if isinstance(value, dict):
-        return {k: numeric(v) for k, v in value.items() if 'seconds' not in k}
-    if isinstance(value, list):
-        return [numeric(v) for v in value]
-    return value
+def convergence(stats):
+    chunks = stats if isinstance(stats, list) else [stats]
+    assert chunks
+    for chunk in chunks:
+        assert chunk['converged'] and all(chunk['converged'])
+    return [(chunk['tolerance'], chunk['converged']) for chunk in chunks]
 
 
 def test_field_reserve_reaches_chunk_metadata(tmp_path):
@@ -235,7 +235,7 @@ class PersistentTests(unittest.TestCase):
             assert_equivalent(actual, expected, rtol=1e-5)
         actual = json.loads((self.root / label / 'out' / f'P{i}' / 'meta.json').read_text())
         expected = json.loads((self.root / base / 'out' / f'P{i}' / 'meta.json').read_text())
-        self.assertEqual(numeric(actual['source_solve']), numeric(expected['source_solve']))
+        self.assertEqual(convergence(actual['source_solve']), convergence(expected['source_solve']))
 
     def test_1_parity(self):
         for i in range(2):

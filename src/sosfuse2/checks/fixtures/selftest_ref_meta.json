@@ -1,5 +1,4 @@
 {
-  "measured_utc": "2026-10-01T03:36:56Z",
   "settings": {
     "nr": 4,
     "chi_step_deg": null,
@@ -41,8 +40,5 @@
     "rig/bootstrap.sh": "bbbbb0c06eef91664599f90467cf3a1f988f69e07c6da02b735e0148e23af097",
     "rig/run_all.sh": "ebe68000b76ff17ebc02c4f815ba731532246eb5a126db77ab9d687331008daa"
   },
-  "peak_rss_bytes": 64356352,
-  "relative_tolerance": 1e-06,
-  "elapsed_seconds": 1.5053913750161882,
-  "platform": "darwin"
+  "relative_tolerance": 1e-06
 }

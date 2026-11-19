@@ -30,8 +30,8 @@ def export_profiles(H, config_path, candidate):
     require_legacy_top(cfg)
     if not minor_absorbers.o4_path().is_file():
         raise ValueError('E_O4_ASSET_MISSING: run python -m sosfuse2.asset_tools.prepare_minor_absorbers --download')
-    states_parent = make_states(H, c)
-    states_file = H / 'states.json'
+    states_parent = make_states(candidate.parent, c)
+    states_file = candidate.parent / 'states.json'
     states = {s['id']: s for s in read(states_file)['states'] if s['id'] in c['state_ids']}
     if set(states) != set(c['state_ids']):
         raise ValueError('E_STATE_MISSING')
@@ -150,13 +150,21 @@ def export_profiles(H, config_path, candidate):
         }
     )
     worst = max(r['relative_error'] for r in rows)
-    (H / 'out').mkdir(exist_ok=True)
-    dump(H / 'out/optics.json', dict(settings=cfg, levels_km=levels.tolist(), states=out, identity=identity))
-    dump(H / 'out/tau_ledger.json', dict(rows=rows, max_relative_error=worst, passed=worst <= 1e-4, identity=identity))
-    candidate.replace(H / 'settings.json')
+    staged_out = candidate.parent / 'out'
+    staged_out.mkdir()
+    dump(staged_out / 'optics.json', dict(settings=cfg, levels_km=levels.tolist(), states=out, identity=identity))
+    dump(staged_out / 'tau_ledger.json', dict(rows=rows, max_relative_error=worst, passed=worst <= 1e-4, identity=identity))
     print('TAU_LEDGER', len(rows), worst, 'PASS' if worst <= 1e-4 else 'FAIL')
     if worst > 1e-4:
         raise SystemExit('E_TAU_LEDGER')
+    (H / 'out').mkdir(exist_ok=True)
+    parent = read(states_file).get('parent')
+    if parent:
+        (candidate.parent / parent).replace(H / parent)
+    states_file.replace(H / 'states.json')
+    candidate.replace(H / 'settings.json')
+    for name in ('optics.json', 'tau_ledger.json'):
+        (staged_out / name).replace(H / 'out' / name)
 
 
 if __name__ == '__main__':

@@ -3,7 +3,7 @@
 import hashlib
 from ..foundation import paths
 from ..solve.source_solver import load_engine
-from .validate import LEGACY
+from .validate import LEGACY, LEGACY_META, legacy_available
 
 
 def key(path):
@@ -26,8 +26,8 @@ def capture(full_source=None):
         paths.FIXTURES / n
         for n in ('selftest_ref_meta.json', 'selftest_ref_simpson.npz', 'selftest_ref_simpson_meta.json')
     ] + [paths.ASSETS / 'states_v1.json']
-    if LEGACY is not None and LEGACY.is_file():
-        files.append(LEGACY)
+    if legacy_available():
+        files.extend((LEGACY, LEGACY_META))
     out.update({key(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files})
     if full_source is not None and full_source.is_file():
         out['full_source'] = hashlib.sha256(full_source.read_bytes()).hexdigest()
@@ -35,7 +35,7 @@ def capture(full_source=None):
 
 
 def same(before, after):
-    changed = [p for p in before if before[p] != after.get(p)]
+    changed = sorted(p for p in before.keys() | after.keys() if p not in before or p not in after or before[p] != after[p])
     return dict(
         pass_=not changed,
         checked_files=len(before),

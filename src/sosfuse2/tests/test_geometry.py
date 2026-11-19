@@ -77,6 +77,7 @@ def checks(output):
     tiny['lower'] = np.ones((1, 4), bool)
     packed = Bundle([tiny], np)
     gap_ok = within_tol(packed.arrays['edges'], np.array([0.0, 1.0, 1.0 + 2e-9, 2.0]))
+    gap_ok = bool(gap_ok and packed.arrays['edges'][2] > packed.arrays['edges'][1])
     okay &= gap_ok
     return dict(
         pass_=bool(okay),

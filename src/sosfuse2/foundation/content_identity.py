@@ -553,15 +553,19 @@ def package_info():
     dist = None
     ver = None
     try:
-        from importlib.metadata import distribution
+        from importlib.metadata import PackageNotFoundError, distribution
 
         dist = distribution('sosfuse2')
         if Path(dist.locate_file('sosfuse2/__init__.py')).resolve() == (paths.PKG / '__init__.py').resolve():
             ver = dist.version
         else:
             ver = __version__
-    except Exception:
+    except PackageNotFoundError:
         pass
+    except Exception as exc:
+        import warnings
+
+        warnings.warn(f'W_PACKAGE_METADATA: {type(exc).__name__}', RuntimeWarning, stacklevel=2)
     commit = os.environ.get('SOSFUSE2_PACKAGE_COMMIT') or None
     if commit is None and dist is not None:
         try:

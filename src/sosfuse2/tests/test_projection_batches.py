@@ -6,6 +6,7 @@ per-ray float contributions in NumPy FP64, without production batch boundaries.
 
 
 import numpy as np
+from sosfuse2.checks.gate import repeat_arrays
 import unittest
 from sosfuse2.backends.arithmetic import basis, cosine, norm_constants
 from sosfuse2.backends.sh_layout import kernel_source, count
@@ -124,11 +125,25 @@ __device__ float clip(float x,float a,float b){{return fminf(b,fmaxf(a,x));}}
             np.testing.assert_allclose(actual[1], want_f, rtol=1e-5, atol=2e-6, err_msg=name)
             outputs.append(actual)
         for a, b in zip(*outputs):
-            assert a.tobytes() == b.tobytes(), name
+            if deterministic:
+                assert a.tobytes() == b.tobytes(), name
+            else:
+                result = repeat_arrays(a, b)
+                assert result['pass_'], (name, result)
 
 
 @unittest.skipIf(cp is None, 'CuPy/GPU required')
 class ProjectionBatches(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            if not cp.is_available():
+                raise unittest.SkipTest('No CUDA device available')
+        except cp.cuda.runtime.CUDARuntimeError as exc:
+            if exc.status in (35, 100):
+                raise unittest.SkipTest(f'CUDA device unavailable ({exc.status})') from exc
+            raise
+
     def test_contract(self):
         for L, W in ((16, 1), (16, 15), (32, 1), (32, 15)):
             for deterministic in (0, 1):

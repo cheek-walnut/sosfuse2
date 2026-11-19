@@ -299,7 +299,9 @@ def main():
     a = ap.parse_args()
     H = work_path(a.work)
     c = json.loads(a.config.read_text())
-    data = json.loads((H / 'out/optics.json').read_text())
+    raw = (H / 'out/optics.json').read_bytes()
+    optics_sha = hashlib.sha256(raw).hexdigest()
+    data = json.loads(raw)
     group = 'smoke' if a.smoke else 'full'
     pp = H / 'out' / f'plan_{group}.json'
     if a.write_partial:
@@ -314,10 +316,14 @@ def main():
             raise ValueError('E_ARGUMENT: jobs>=1 and --lrt-dir required')
         if sha(a.config) != data['identity']['config']:
             raise ValueError('E_CONFIG_SHA')
+        inputs = json.loads((H / 'out/input_sha.json').read_text())
+        disort = json.loads((H / 'out/disort.json').read_text())
+        if inputs.get('out/optics.json') != optics_sha or disort.get('optics_sha256') != optics_sha:
+            raise ValueError('E_INPUT_SHA: rerun inputs.py for the current optics.json')
         for name in ('tau_ledger.json', 'disort.json'):
             if not json.loads((H / 'out' / name).read_text())['passed']:
                 raise ValueError('E_INPUT_GATE ' + name)
-        for path, digest in json.loads((H / 'out/input_sha.json').read_text()).items():
+        for path, digest in inputs.items():
             if sha(H / path) != digest:
                 raise ValueError('E_INPUT_SHA ' + path)
         lrt = a.lrt_dir.resolve()
@@ -327,7 +333,7 @@ def main():
                 dh.update(str(f.relative_to(lrt / 'data')).encode() + bytes.fromhex(sha(f)))
         metadata = dict(
             config_sha256=sha(a.config),
-            optics_sha256=sha(H / 'out/optics.json'),
+            optics_sha256=optics_sha,
             input_sha256=sha(H / 'out/input_sha.json'),
             uvspec_sha256=sha(lrt / 'bin/uvspec'),
             libradtran_data_sha256=dh.hexdigest(),

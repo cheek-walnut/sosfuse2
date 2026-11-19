@@ -136,6 +136,7 @@ def test_extra_source_file_is_work_root_relative():
 def _source_fixture(path):
     state = {'id': 'one', 'parameters': {'ozone_du': 280.0, 'aod550': 0.15, 'o4': False}}
     settings = dict(nr=1, nchi=1, nmu=1, nphi=2, path_n=4, L=32, interpolation='log', observer_km=0.1)
+    settings.update(view_shape=[4, 6], solar_elevation_deg=[-3., -6.])
     solver = SimpleNamespace(fuse_state=state, geo=SimpleNamespace(h=np.array([0.0]), chi=np.array([0.0])))
     arrays = dict(
         source=np.ones((1, 571, 1), 'f4'),
@@ -903,6 +904,24 @@ def test_batch_rechecks_completed_outputs_after_lock(tmp_path, monkeypatch, caps
     from sosfuse2.jobs import tables_from_sources as batch
 
     argv = _batch_roots(tmp_path, ['late', 'half'])
+    from sosfuse2.tests.test_verify_pack import fake_zstd
+    from sosfuse2.outputs.pack_state import pack_state
+    from sosfuse2.jobs import run_state
+
+    import hashlib
+
+    fake_zstd(tmp_path, monkeypatch)
+    state = dict(id='late', runnable=True, parameters={'o4': False})
+    (tmp_path / 'states.json').write_text(json.dumps(dict(states=[state, dict(id='half', runnable=True)])))
+    args = SimpleNamespace(reduced=True, settings_json=None)
+    cfg = run_state.resolve_settings(run_state.settings_for(args), state)
+    cfg['L'] = 32
+    wl, hs, el, az = radiance_table.axes(True)
+    source = tmp_path / 'tmp/late/source.npz'
+    contract = dict(state=canonical_state(state), settings=cfg, anderson_tol=.001, backend='numpy', polarization_model='depolarizing')
+    np.savez(source, wavelength_nm=wl, source_contract=json.dumps(contract))
+    signature, _ = batch.signature_of(state, 'numpy', True, wl, hs, len(el), len(az))
+    argv.extend(['--reduced', '--backend', 'numpy'])
     ran = []
     real_flock = fcntl.flock
 
@@ -912,11 +931,17 @@ def test_batch_rechecks_completed_outputs_after_lock(tmp_path, monkeypatch, caps
         if path.name == '.worker.lock':  # the other writer finishes between the first look and the lock
             (path.parent / 'table.npz').write_bytes(b'x')
             if path.parent.name == 'late':
-                provenance = dict(settings={}, anderson_tol=0.001)
-                np.savez(tmp_path / 'tmp/late/source.npz', source_contract=json.dumps(provenance))
-                (path.parent / 'meta.json').write_text(json.dumps(dict(complete=True, **provenance)))
-                (tmp_path / 'pack').mkdir(exist_ok=True)
-                (tmp_path / 'pack' / 'late.tar.zst').write_bytes(b'x')
+                out = path.parent
+                data = np.ones((len(hs), len(el), len(az), len(wl)), 'f4')
+                radiance_table.save_table(out / 'table.npz', data, wl, hs, el, az)
+                meta = dict(complete=True, settings=cfg, anderson_tol=.001, signature=signature,
+                            table_method=dict(runner='tables_from_sources'), source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(), id='late',
+                            contract=run_state.CONTRACT_VERSION, mode='reduced-validation', backend='numpy',
+                            parameters=state['parameters'], physics=physics(), optics_state=optics_state(state))
+                (out / 'meta.json').write_text(json.dumps(meta))
+                for name in ('preview_m03.png', 'preview_m06.png'):
+                    (out / name).write_bytes(b'preview')
+                pack_state(out, tmp_path / 'pack', 'zstd', reuse_previews=True)
 
     monkeypatch.setattr(fcntl, 'flock', flock)
     monkeypatch.setattr(batch, 'process', lambda root, ident, *args: ran.append(ident) or 'done')
@@ -943,7 +968,7 @@ def test_legacy_batch_records_computed_stratosphere(tmp_path, monkeypatch, compu
     )
     wl, hs, el, az = tf.axes(True)
     source = tmp_path / 'source.npz'
-    source.write_bytes(b'legacy')
+    np.savez(source, source_contract=json.dumps(dict(settings={'legacy': True})))
     monkeypatch.setattr(components, 'production_only', lambda: None)
     monkeypatch.setattr(tf, 'restored_settings', lambda *args: None)
     monkeypatch.setattr(batch, 'signature_of', lambda *args: ('sig', {}))

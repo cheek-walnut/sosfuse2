@@ -4,6 +4,7 @@ CPU only. A fake `zstd` on PATH (a small Python script) replays a plain tar so t
 failure path deterministically; the real-zstd case runs only when zstd is installed.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -74,7 +75,7 @@ def test_real_zstd_round_trip(tmp_path):
 
 def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypatch, capsys):
     import numpy as np
-    from sosfuse2.atmosphere.components import physics, optics_state
+    from sosfuse2.atmosphere.components import canonical_state, physics, optics_state
     from sosfuse2.jobs import tables_from_sources as batch
     from sosfuse2.outputs import pack_state, radiance_table as rt
 
@@ -86,21 +87,29 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
     states.write_text(json.dumps(dict(states=[state])))
     source = tmp_path / 'tmp/state/source.npz'
     source.parent.mkdir(parents=True)
-    np.savez(source, source_contract=json.dumps(dict(settings={'export_first_order': True}, anderson_tol=.001)))
-    monkeypatch.setattr(rt, 'restored_settings', lambda *args: None)
-    monkeypatch.setattr(batch, 'signature_of', lambda *args: ('exported', {}))
+    from types import SimpleNamespace
+
+    raw = dict(export_first_order=True, view_shape=[1, 1])
+    cfg = V3.resolve_settings(V3.settings_for(SimpleNamespace(reduced=True,
+        settings_json=SimpleNamespace(read_text=lambda: json.dumps(raw)))), state)
+    contract = dict(settings=cfg, anderson_tol=.001, state=canonical_state(state), backend='numpy', polarization_model='depolarizing')
+    np.savez(source, wavelength_nm=cfg['wavelengths_nm'], source_contract=json.dumps(contract), source=np.ones((1, 1, 1)))
     monkeypatch.setattr(pack_state, 'previews', lambda path: None)
     monkeypatch.setattr(sys, 'argv', ['batch', '--states', str(states), '--work-roots', str(tmp_path),
                                      '--backend', 'numpy', '--reduced'])
     for key in batch.THREAD_KEYS:
         monkeypatch.delenv(key, raising=False)
-    axes = [np.array([1.])] * 4
-    data = np.ones((1, 1, 1, 1), 'f4')
+    axes = rt.restored_axes(cfg)
+    wl, hs, el, az = axes
+    signature, _ = batch.signature_of(state, 'numpy', True, wl, hs, len(el), len(az), cfg)
+    data = np.ones((len(axes[1]), 1, 1, 1), 'f4')
     first = rt.save_first_order(out, [data], *axes)
     table = out / 'first_order.npz'
     rt.save_table(out / 'table.npz', data, *axes)
-    meta = dict(complete=True, contract=V3.CONTRACT_VERSION, signature='exported', physics=physics(),
-                optics_state=optics_state(state), settings=dict(export_first_order=True), anderson_tol=.001, **first)
+    meta = dict(complete=True, contract=V3.CONTRACT_VERSION, signature=signature, physics=physics(),
+                optics_state=optics_state(state), settings=cfg, anderson_tol=.001, id=state['id'],
+                parameters=state['parameters'], mode='reduced-validation', backend='numpy',
+                table_method=dict(runner='tables_from_sources'), source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(), **first)
     meta_file = out / 'meta.json'
     meta_file.write_text(json.dumps(meta))
     for name in ('preview_m03.png', 'preview_m06.png'):
@@ -108,6 +117,27 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
     pack = tmp_path / 'pack/state.tar.zst'
     assert batch.main() == 0  # a missing pack is recoverable
     assert batch.output_complete(out, pack)
+    archive_bytes = pack.read_bytes()
+    original_source = source.read_bytes()
+    np.savez(source, wavelength_nm=cfg['wavelengths_nm'], source_contract=json.dumps(contract), source=np.zeros((1, 1, 1)))
+    assert batch.main() == 1 and 'E_OUTPUT_IDENTITY' in capsys.readouterr().out
+    assert pack.read_bytes() == archive_bytes
+    source.write_bytes(original_source)
+    total = out / 'table.npz'
+    with np.load(total) as archive:
+        arrays = dict(archive)
+    np.savez(total, **arrays)
+    assert batch.main() == 0
+    table.unlink()
+    assert batch.main() == 0 and table.is_file()
+    rt.save_table(out / 'table.npz', data * 2, *axes)
+    assert batch.main() == 1 and 'E_PACK_VERIFY' in capsys.readouterr().out
+    assert pack.read_bytes() == archive_bytes
+    rt.save_table(out / 'table.npz', data, *axes)
+    pack.write_bytes(b'bad archive')
+    assert batch.main() == 1 and 'E_PACK_VERIFY' in capsys.readouterr().out
+    assert pack.read_bytes() == b'bad archive'
+    pack.write_bytes(archive_bytes)
     rt.save_first_order(out, [data * 2], *axes)
     assert not batch.output_complete(out, pack)
     with monkeypatch.context() as patch:

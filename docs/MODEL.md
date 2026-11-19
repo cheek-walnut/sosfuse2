@@ -41,8 +41,8 @@ default table stops at −18°.
 
 ### Calculation boundary
 
-In the runner's `--settings-json`, `top_km` can extend the full grid above 80 km up to 200 km. The top must be a
-multiple of the profile spacing. An extended top requires an explicit density block with `density_profile` set to `usstd76`. For example, use
+The top-level `top_km` key in `--settings-json` can extend the full grid above 80 km up to 200 km. The top must be a
+multiple of the profile spacing. For an extended top, each state in `--states` needs an explicit `density` block with `density_profile` set to `usstd76`. For example, use
 `{"density":{"density_profile":"usstd76","ozone_profile":"usstd76","rayleigh_column":"usstd"}}`. External profiles
 are unsupported with an extended top. When `top_km` is a multiple of 10 km, the default upper height nodes
 are spaced every 10 km from 90 km to the top. Otherwise supply `upper_heights_km`. A supplied list must increase

@@ -229,7 +229,7 @@ instruction count suggests, so the table above quotes GPU totals.
 
 ## Reproducing
 
-A full-resolution state on a CUDA machine:
+Prepare O₄ in the same asset cache following the [quick start](../README.md#quick-start), then run
 
 ```sh
 python -B -m sosfuse2.jobs.run_state --id clear_34 --backend cupy --work-root ./work

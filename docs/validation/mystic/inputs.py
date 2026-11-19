@@ -227,7 +227,7 @@ mc_polarisation
     )
 
 
-def verify_disort(data, c, lrt):
+def verify_disort(data, c, lrt, optics_sha):
     rows = []
     for sid, s in data['states'].items():
         wi = 14
@@ -263,7 +263,7 @@ def verify_disort(data, c, lrt):
             )
             if error > (1e-4 if expected else 1e-7):
                 raise ValueError('E_DISORT_TAU ' + str(rows[-1]))
-    dump(H / 'out/disort.json', dict(passed=True, rows=rows))
+    dump(H / 'out/disort.json', dict(passed=True, rows=rows, optics_sha256=optics_sha))
     print('DISORT_PASS', rows)
 
 
@@ -278,16 +278,21 @@ def main():
     if not shutil.which('ncgen'):
         raise SystemExit('E_NCGEN_MISSING: install netcdf-bin and make ncgen available on PATH')
     H = work_path(a.work)
-    data = json.loads((H / 'out/optics.json').read_text())
+    import hashlib
+
+    raw = (H / 'out/optics.json').read_bytes()
+    optics_sha = hashlib.sha256(raw).hexdigest()
+    data = json.loads(raw)
     c = json.loads(a.config.read_text())
     if data['identity']['config'] != sha(a.config):
         raise ValueError('E_CONFIG_SHA')
     print('PHASE', files(data, c))
     if a.no_disort:
-        dump(H / 'out/disort.json', dict(passed=False, skipped=True, reason='DISORT was not run'))
+        dump(H / 'out/disort.json', dict(passed=False, optics_sha256=optics_sha, skipped=True, reason='DISORT was not run'))
     else:
-        verify_disort(data, c, a.lrt_dir.resolve())
+        verify_disort(data, c, a.lrt_dir.resolve(), optics_sha)
     checks = {str(p.relative_to(H)): sha(p) for p in (H / 'inputs').rglob('*') if p.is_file()}
+    checks['out/optics.json'] = optics_sha
     dump(H / 'out/input_sha.json', checks)
 
 

@@ -250,6 +250,11 @@ def main(argv=None):
     p.add_argument('--cia', type=Path, help='HITRAN O2-O2_2024.cia')
     p.add_argument('--o4-out', type=Path, help='O4 output JSON (never inside the package)')
     a = p.parse_args(argv)
+    for left, right, flags in ((a.bira, a.out, '--bira and --out'), (a.cia, a.o4_out, '--cia and --o4-out')):
+        if (left is None) != (right is None):
+            p.error(f'give {flags} together')
+    if a.o4_out is not None and a.o4_out.resolve().is_relative_to(paths.PKG.resolve()):
+        p.error('--o4-out must be outside the package')
     if not ((a.bira and a.out) or (a.cia and a.o4_out)):
         p.error('give --bira and --out, or --cia and --o4-out')
     for src, dst, fn in ((a.bira, a.out, build_no2), (a.cia, a.o4_out, build_o4)):

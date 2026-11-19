@@ -134,7 +134,7 @@ from ..backends.device_profile import first_light_split_error  # noqa: E402 (std
 
 def ksplit_setting(backend, flags, L, W=15):
     """Resolve KSPLIT for the given wavelength count.
-    The default needs CuPy, STRATO, L<=16 and uninstrumented transport.
+    The default needs CuPy, W=15, STRATO, L<=16 and uninstrumented transport.
     """
     return _ksplit_request(backend, resolve_config(flags, W=W), L)[0]
 
@@ -452,7 +452,7 @@ class Kernel(KsplitMixin):
 
     def predict_seconds(self, kind, work):
         """Conservative launch time for [work] from this kind's recent (work, seconds): an affine fit
-        t = L + r*w (L = per-launch latency floor, one cell ~0.8 s on the 3080; r = seconds per unit of work),
+        t = L + r*w (L = per-launch latency floor, r = seconds per unit of work),
         times PREDICT_MARGIN. With chunks of one size only, L is taken as 0.8 of the fastest launch."""
         obs = self.__dict__.get('_launch_obs', {}).get(kind)
         if not obs:
@@ -1105,10 +1105,7 @@ class Kernel(KsplitMixin):
             # WARM_RAYSPLIT is not ported to cell-subset launches.
             if mode != 'single' and (not first):
                 raise ValueError('E_FL_RAYSPLIT_LAUNCH_CELLS: WARM_RAYSPLIT needs one launch per cell grid')
-            # Split FL_RAYSPLIT first light goes by ray ranges over the whole cell grid (split profile: 68 cells of first light
-            # took 6.3 s, and fewer cells leave SMs idle because a block is a cell).
-            # SOSFUSE2_FL_PROJECT=1 also runs one-launch first light as ray launch + fl_project (rig experiment: the
-            # single-warp projections may dominate its 11.9 s first light on a 4090; not measured yet).
+            # Split launches and SOSFUSE2_FL_PROJECT=1 project first light after processing the ray ranges.
             ray_mode = mode != 'single' or os.environ.get('SOSFUSE2_FL_PROJECT', '').strip() == '1'
             ray_sync = xp.zeros(ncell + 2, 'i4')  # [queue head, cell counters, ray-range end (LAUNCH_RAY_LIMIT)]
             with vram_trace.item('transport.ray_radiance'):
@@ -1170,8 +1167,7 @@ class Kernel(KsplitMixin):
                 cum = self.ray_work(bundle)
                 nrays = len(cum) - 1
                 kind += '_rays'
-                # Ray ranges start (and are floored) at half the rays of the initial cells: first-light rays cost about
-                # 27 us each on the 3080 next to another GPU job, so 24 cells' rays would be about 4 s.
+                # Adaptive launches start with half the estimated rays in the initial cells.
                 initial = max(
                     1,
                     (step if mode == 'fixed' else self.device()[1]['launch_cells_initial'] or 1)

@@ -54,26 +54,31 @@ COLUMN_KEY_UPDATES = {
 SIGNATURE = 'endpoints_bab3478c3f15b4d62418'
 LUT2 = paths.FIXTURES / 'states_lutv2_strato_usstd.json'
 _SKY = testkit.sky_sos_root()
-PURPLE = _SKY / 'results/purple_aod_axis_20261007/states/states_night.json' if _SKY is not None else None
-
-
 def data_root():
-    """Research data (packed geometry cache and logs): SADDLE_DATA_ROOT or SOSFUSE2_SKY_SOS_ROOT.
-
-    Also checks the parent checkout if the configured root is a worktree.
-    """
     candidates = [Path(os.environ['SADDLE_DATA_ROOT'])] if os.environ.get('SADDLE_DATA_ROOT') else []
     if _SKY is not None:
         candidates += [_SKY] + ([_SKY.parents[1]] if _SKY.parent.name == '.worktrees' else [])
-    for c in candidates:
-        if (c / 'results/sos_fuse/geometry_cache' / SIGNATURE / 'packed/dirs.bin').is_file() and (
-            c / 'results/strato_rig_20261003_lut2/runs'
-        ).is_dir():
-            return c
+    for root in candidates:
+        manifest = root / '.sosfuse2-test-inputs.json'
+        if not manifest.is_file():
+            continue
+        config = json.loads(manifest.read_text()).get('plan_queue')
+        if config:
+            inputs = {k: root / config[k] for k in ('geometry_cache', 'run_logs', 'cache_root')}
+            if not (inputs['geometry_cache'] / SIGNATURE / 'packed/dirs.bin').is_file() or not inputs['run_logs'].is_dir():
+                continue
+            inputs['cost_profile'] = config['cost_profile']
+            if _SKY is not None and config.get('secondary_states') and config.get('secondary_logs'):
+                states = _SKY / config['secondary_states']
+                logs = root / config['secondary_logs']
+                if states.is_file() and logs.is_dir():
+                    inputs.update(secondary_states=states, secondary_logs=logs)
+            return inputs
     return None
 
 
 DATA = data_root()
+PURPLE = DATA.get('secondary_states') if DATA else None
 
 
 def logged(paths):
@@ -100,7 +105,7 @@ def logged(paths):
 
 def run_plan(out, states, **extra):
     a = plan_queue.parser().parse_args(
-        ['--states', str(states), '--geometry-cache', str(DATA / 'results/sos_fuse/geometry_cache'), '--out', str(out)]
+        ['--states', str(states), '--geometry-cache', str(DATA['geometry_cache']), '--out', str(out)]
         + sum((['--' + k.replace('_', '-'), str(v)] for k, v in extra.items()), [])
     )
     return plan_queue.plan_queue(a)
@@ -116,8 +121,8 @@ class PlanQueueTests(unittest.TestCase):
         cls.lut2 = run_plan(
             cls.root / 'lut2.json',
             LUT2,
-            cache_root=DATA / 'results/strato_rig_20261003_lut2/caches',
-            cost_profile='rig4090',
+            cache_root=DATA['cache_root'],
+            cost_profile=DATA['cost_profile'],
             settings_json=phi64,
         )
         cls.cold = run_plan(
@@ -128,7 +133,7 @@ class PlanQueueTests(unittest.TestCase):
             gpus=2,
             workers_per_gpu=2,
             column_workers=2,
-            cost_profile='rig4090',
+            cost_profile=DATA['cost_profile'],
             settings_json=phi64,
         )
         if PURPLE is not None:
@@ -158,6 +163,9 @@ class PlanQueueTests(unittest.TestCase):
         return row, items
 
     def check_keys_match_calculator(self, plan, logs):
+        for geom in plan['geometry']:
+            if not geom['complete']:
+                self.fail(f'E_TEST_PLAN_GEOMETRY: build the complete cache for {geom["signature"]} in {geom["folder"]}')
         checks = 0
         truth = logged(logs)
         ids = {r['id'] for r in plan['states']}
@@ -175,7 +183,7 @@ class PlanQueueTests(unittest.TestCase):
         return checks
 
     def test_keys_and_groups_match_calculator(self):
-        logs = sorted((DATA / 'results/strato_rig_20261003_lut2/runs').glob('*/logs/*.log'))
+        logs = sorted((DATA['run_logs']).glob('*/logs/*.log'))
         self.assertGreater(self.check_keys_match_calculator(self.lut2, logs), 0)
         # Existing historical files remain intact; the new source generation is initially cold.
         columns = [it for it in self.lut2['items'].values() if it['kind'] == 'column']
@@ -209,8 +217,8 @@ class PlanQueueTests(unittest.TestCase):
     def test_purple_keys_and_groups_match_calculator(self):
         if PURPLE is None:
             self.skipTest('research state file is not configured')
-        lut2_logs = sorted((DATA / 'results/strato_rig_20261003_lut2/runs').glob('*/logs/*.log'))
-        purple_logs = sorted((DATA / 'results/purple_aod_axis_20261007/logs/runs').glob('*/run.raw.log'))
+        lut2_logs = sorted((DATA['run_logs']).glob('*/logs/*.log'))
+        purple_logs = sorted((DATA['secondary_logs']).glob('*/run.raw.log'))
         checks = self.check_keys_match_calculator(self.lut2, lut2_logs)
         checks += self.check_keys_match_calculator(self.purple, purple_logs)
         self.assertGreaterEqual(checks, 40)
@@ -315,7 +323,7 @@ def test_plan_setup_without_research_states(tmp_path, monkeypatch):
 
     module = sys.modules[__name__]
     calls = []
-    monkeypatch.setattr(module, 'DATA', tmp_path)
+    monkeypatch.setattr(module, 'DATA', dict(cache_root=tmp_path, cost_profile='split'))
     monkeypatch.setattr(module, 'PURPLE', None)
     monkeypatch.setattr(testkit, 'scratch', lambda prefix: tmp_path)
     monkeypatch.setattr(module, 'run_plan', lambda output, states, **kwargs: calls.append(states) or {})

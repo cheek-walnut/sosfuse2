@@ -362,7 +362,7 @@ def test_03c_v4_fixed_provenance_lists(monkeypatch, tmp_path):
         f'sosfuse2/assets/{n}' for n in V3.DATA_ASSETS
     } | {'sosfuse2/backends/kernel.cu', 'sosfuse2/backends/native/sh_cpu.cpp'}
     assert 'sosfuse2/checks/testkit.py' not in h and not any('/test_' in k for k in h)
-    # version/commit are recorded but not signed: the signature is a function of the content hashes and the job only.
+    # The metadata fields are outside the signed dictionary. The version literal contributes through code_hashes.
     st = json.loads((paths.ASSETS / 'states_v2.json').read_text())['states'][0]
     cfg = V3.resolve_settings(settings(FIXED), st)
     sig_a, _ = V3.signed_contract(st, cfg, 'numpy', False, 'depolarizing')

@@ -25,7 +25,7 @@ def test_repeat_modes(monkeypatch):
     r = gate.repeat_run(a, b)
     assert r['pass_'] and 0 < r['repeat_max_rel'] < 1e-5
     monkeypatch.setenv('SOSFUSE2_DETERMINISTIC', '1')
-    assert not gate.repeat_run(a, b)['pass_']
+    assert gate.repeat_run(a, b)['pass_'] and not gate.repeat_run(a, b)['outputs_equal']
     assert gate.repeat_run(a, a)['pass_']
 
 
@@ -53,4 +53,4 @@ def test_solve_history_is_diagnostic_by_default(monkeypatch):
     assert r['pass_'] and r['evaluations_warning'] == 'W_REPEAT_EVALUATIONS_DIFFER'
     assert r['source_solve'] == ['cold', 'warm']
     monkeypatch.setenv('SOSFUSE2_DETERMINISTIC', '1')
-    assert not gate.repeat_run(a, b)['pass_']
+    assert gate.repeat_run(a, b)['pass_'] and not gate.repeat_run(a, b)['outputs_equal']

@@ -48,17 +48,18 @@ def one(job):
         k.raw_kernel(W, 1, 0, 0, ray_limit=True)
         k.fl_project_kernel(W, 0)
     elif name[0] == 'ksplit':
-        # KSPLIT=3 (production default): the column record pass and VPROD (PROD module: sos_vprod_y, sos_vprod) per pass, the warm ray consumer and
-        # projection on phase 0, per-cell SLIM on the ground phase, and the plan module (source_solver.Kernel.ksplit_* paths).
-        _, phase, boundary = name
+        _, split_mode, phase, boundary = name
         k.raw_kernel(15, 0, phase, boundary, variant='record')
-        k.vprod_kernels(15, phase, boundary)
-        if phase == 0:
+        if split_mode == '1':
+            k.raw_kernel(15, 0, phase, boundary, variant='prod')
+        else:
+            k.vprod_kernels(15, phase, boundary)
+            k.vprod_plan_module().get_function('vp_blocks')
+        if split_mode == '3' and phase == 0:
             k.raw_kernel(15, 0, 0, boundary, ray_limit=True, variant='slimray')
             k.slim_proj_kernel(15, boundary)
         else:
             k.raw_kernel(15, 0, phase, boundary, variant='slim')
-        k.vprod_plan_module().get_function('vp_blocks')
     else:
         k.raw_kernel(W, *name)
     return str(name), time.perf_counter() - started
@@ -129,8 +130,9 @@ def main():
     if ray and resolve_config(flags, W=W).split_first:
         jobs.append(('fl_project', flags) + tail)
     # KSPLIT kernels are FW15 only (source_solver.Kernel.setup: ksplit_supported); W=1 states run the unsplit kernel.
-    if W == 15 and ksplit_setting('cupy', flags, L) == '3':
-        jobs += [(('ksplit', phase, boundary), flags) + tail for phase, boundary in ((0, 0), (0, 1), (1, 0))]
+    split_mode = ksplit_setting('cupy', flags, L, W)
+    if W == 15 and split_mode in ('1', '2', '3'):
+        jobs += [(('ksplit', split_mode, phase, boundary), flags) + tail for phase, boundary in ((0, 0), (0, 1), (1, 0))]
     started = time.perf_counter()
     with ProcessPoolExecutor(max_workers=max(1, a.jobs), mp_context=mp.get_context('spawn')) as pool:
         results = list(pool.map(one, jobs))

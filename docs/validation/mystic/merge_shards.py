@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -40,6 +41,15 @@ def merge(sources, dest, H, config, arms):
             'config_sha256',
             'optics_sha256',
         )
+        metadata = p['metadata']
+        result_fields = {'schema_version', 'shard', 'group', 'counts', 'cpu_s', 'retry_reasons', 'results_sha256', 'complete'}
+        if (p.get('group') != 'full' or m.get('group') != 'full' or p['shard'] != m.get('shard')
+                or not set(fields) <= metadata.keys()
+                or metadata != {k: v for k, v in m.items() if k not in result_fields}):
+            raise ValueError('E_SHARD_IDENTITY')
+        identity = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode()).hexdigest()
+        if any(j.get('identity') != identity or j.get('group') != 'full' for j in p['jobs']):
+            raise ValueError('E_SHARD_RUN_SHA')
         identities = tuple(m[field] for field in fields)
         photons = {j['photons'] for j in p['jobs']}
         if len(photons) != 1 or photons != {c['photons']}:
@@ -81,7 +91,7 @@ def merge(sources, dest, H, config, arms):
     if missing or shards != {(k, total_n) for k in range(1, total_n + 1)}:
         raise ValueError('E_MISSING_TASK_OR_SHARD ' + str(len(missing)))
     # Validate before any output mutation; copying is additive and never overwrites existing runs.
-    if (dest / 'out/full.csv').exists() or (dest / 'runs').exists():
+    if any(p.exists() or p.is_symlink() for p in (dest / 'out/full.csv', dest / 'out/manifest.json', dest / 'runs')):
         raise ValueError('E_MERGE_DEST_EXISTS')
     copies = []
     for source, p in plans:
@@ -96,8 +106,26 @@ def merge(sources, dest, H, config, arms):
     # The engine reads the parent bundle named by states.json from the same folder.
     states = H / 'states.json'
     parent = json.loads(states.read_text()).get('parent') if states.exists() else None
+    if parent and (Path(parent).is_absolute() or '..' in Path(parent).parts):
+        raise ValueError('E_STATES_PARENT: expected a relative bundle path')
     if parent and not (H / parent).is_file():
         raise ValueError('E_STATES_PARENT: ' + parent + ' is missing next to states.json')
+    inputs = [(config, dest / 'config.json'), (arms, dest / 'arms.json'),
+              (states, dest / 'states.json'), (H / 'out/optics.json', dest / 'out/optics.json')]
+    if parent:
+        inputs.append((H / parent, dest / parent))
+    pending = []
+    destinations = {}
+    for source, target in inputs:
+        if target in destinations and sha(source) != sha(destinations[target]):
+            raise ValueError(f'E_MERGE_DEST_EXISTS {target.name}')
+        destinations[target] = source
+        if not source.is_file() or any(p.is_symlink() or (p.exists() and not p.is_dir()) for p in target.parents if p == dest or dest in p.parents):
+            raise ValueError(f'E_MERGE_DEST_EXISTS {target.name}')
+        if target.is_symlink() or (target.exists() and (not target.is_file() or sha(target) != sha(source))):
+            raise ValueError(f'E_MERGE_DEST_EXISTS {target.name}')
+        if not target.exists():
+            pending.append((source, target))
     (dest / 'out').mkdir(parents=True, exist_ok=True)
     for src, rel in copies:
         shutil.copytree(src, dest / rel)
@@ -105,13 +133,9 @@ def merge(sources, dest, H, config, arms):
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(sorted(rows, key=lambda r: r['run_id']))
-    for source, name in ((config, 'config.json'), (arms, 'arms.json'), (H / 'states.json', 'states.json')):
-        if source.exists() and (dest / name).resolve() != source.resolve():
-            shutil.copy2(source, dest / name)
-    if parent and (dest / parent).resolve() != (H / parent).resolve():
-        shutil.copy2(H / parent, dest / parent)
-    if (dest / 'out/optics.json').resolve() != (H / 'out/optics.json').resolve():
-        shutil.copy2(H / 'out/optics.json', dest / 'out/optics.json')
+    for source, target in pending:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
     dump(
         dest / 'out/manifest.json',
         dict(

@@ -56,6 +56,16 @@ def preview_weights(wl, widths, base_weights):
     return interp * (np.asarray(widths) / (470 / 15))[:, None]
 
 
+def table_weights(meta, wl, weights):
+    widths = preview_band_widths(meta, wl)
+    centres = 360 + (np.arange(15) + 0.5) * 470 / 15
+    standard_widths = np.diff(np.linspace(360, 830, 16))
+    if (np.array_equal(wl, centres.astype(wl.dtype))
+            and (np.array_equal(widths, standard_widths) or np.all(widths == 470 / 15))):
+        return weights
+    return preview_weights(wl, widths, weights)
+
+
 def previews(out):
     from sosfuse2.atmosphere.spectral import check_meta_contract
 
@@ -67,12 +77,10 @@ def previews(out):
         table = f['radiance']
         wl = f['wavelength_nm']
         hs = f['solar_elevation_deg']
-    if len(wl) == 15:
-        rgb = table @ weights
-    elif len(wl) == 1:
+    if len(wl) == 1:
         rgb = np.repeat(table, 3, axis=-1)  # validation preview is explicitly monochrome
     elif len(wl) > 0:
-        rgb = table @ preview_weights(wl, preview_band_widths(meta, wl), weights)
+        rgb = table @ table_weights(meta, wl, weights)
     else:
         raise RuntimeError('E_PREVIEW_SPECTRUM: unsupported bin count')
     for h in (-3, -6):

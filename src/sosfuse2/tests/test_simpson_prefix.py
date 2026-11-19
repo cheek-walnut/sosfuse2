@@ -17,6 +17,7 @@ profile model (test-local, every panel split at the profile knots it crosses, Ga
 
 import json
 import math
+import os
 
 import numpy as np
 import pytest
@@ -30,9 +31,10 @@ from sosfuse2.checks.numerical_checks import within_tol
 RE = 6371.0
 from sosfuse2.checks import testkit  # noqa: E402
 
-FROZEN = testkit.sky_sos_optional(
-    'results/taskB_simpson_20261022/e1_frozen_small.npz'
-)  # Optional research record.
+fixture = os.environ.get('SOSFUSE2_TEST_SIMPSON_FIXTURE')
+FROZEN = testkit.sky_sos_optional(fixture) if fixture else None
+if FROZEN is not None and not FROZEN.is_file():
+    FROZEN = None
 Z05 = np.arange(161) * 0.5
 
 

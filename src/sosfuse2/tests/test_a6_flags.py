@@ -188,7 +188,8 @@ def main(out, source_npz):
     Path(out).write_text(json.dumps(r, indent=1) + '\n')
     print(json.dumps(r, indent=1))
     print('A6 PASS' if r['pass_'] else 'A6 FAIL')
+    return r['pass_']
 
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    raise SystemExit(0 if main(sys.argv[1], sys.argv[2]) else 1)

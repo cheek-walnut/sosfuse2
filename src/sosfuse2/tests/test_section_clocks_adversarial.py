@@ -30,12 +30,11 @@ from sosfuse2.checks import testkit
 
 
 def evidence():
-    """The kernel_ab rig evidence pack (sky-sos record; skipped without SOSFUSE2_SKY_SOS_ROOT, failed when it is set and missing)."""
-    return testkit.sky_sos('rig/docker/received_pack/kernel_ab')
+    return testkit.sky_sos(testkit.research_inputs('section_clocks')['evidence_dir'])
 
 
 def campaign_checks():
-    return testkit.sky_sos('rig/campaign_usstd/campaign_checks.py')
+    return testkit.sky_sos(testkit.research_inputs('section_clocks')['checker'])
 
 
 FLAG = 'EXP_SECTION_CLOCKS'

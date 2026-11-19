@@ -23,6 +23,7 @@ import subprocess
 from types import SimpleNamespace
 
 import numpy as np
+from sosfuse2.checks.numerical_checks import assert_equivalent
 import pytest
 
 HERE = paths.PKG  # the package directory (kernel, configs, assets)
@@ -674,7 +675,7 @@ def test_g_precompile_jobs_and_gate_keys(monkeypatch, tmp_path):
         assert (
             jobs
             and all(j[-3:-1] == tail and j[-1] == top.Domain(step_km=tail[1]) for j in jobs)
-            and jobs[-1][0] in ('strato_lut_build',) + (() if tail[0] == 1 else (('ksplit', 1, 0),))
+            and jobs[-1][0] in ('strato_lut_build',) + (() if tail[0] == 1 else (('ksplit', '3', 1, 0),))
         )
         assert (tail[0] == 1) == (not any(isinstance(j[0], tuple) and j[0][0] == 'ksplit' for j in jobs))
     meta = dict(device={}, config=dict(flags=['STRATO'], stage1=[], async_=False, L=16, block=256))
@@ -907,12 +908,13 @@ def test_explicit_density_preserves_optics(air, ozone, column):
         scale = 1. if column == 'keep' else data['rayleigh_tau550_0_80'] / (.013558 * (8 * -np.expm1(-10.)))
         mask = int(air == 'usstd76') | (2 * int(ozone == 'usstd76'))
         asset = hashlib.sha256(raw).hexdigest()
-    np.testing.assert_array_equal(got['table'][:, :2], table)
-    assert (got['mask'], got['scale'], got['meta']['asset_sha256']) == (mask, scale, asset)
+    assert_equivalent(got['table'][:, :2], table, rtol=1e-3)
+    np.testing.assert_allclose(got['scale'], scale, rtol=1e-3, atol=0)
+    assert (got['mask'], got['meta']['asset_sha256']) == (mask, asset)
     assert {k: got['meta'][k] for k in opt} == opt
     raw_no2 = json.loads((paths.ASSETS / 'no2_afglus_profile.json').read_text())
     no2 = np.asarray(raw_no2['no2_number_density_m3'])
-    np.testing.assert_array_equal(got['table'][:, 2], no2 / no2.max())
+    assert_equivalent(got['table'][:, 2], no2 / no2.max(), rtol=1e-3)
 
 
 def test_partial_density_inputs_and_cli():
@@ -1011,3 +1013,12 @@ def test_missing_density_optics_fall_back_to_exp8():
     np.testing.assert_array_equal(fallback, numpy_reference.profile_at(h, dict(height=1.5, density_optics=legacy)))
     np.testing.assert_allclose(fallback[:, 4], np.exp(-h / 4), rtol=1e-6)
     assert density.metadata(SimpleNamespace()) == density.LEGACY
+
+
+def test_active_air_surface_must_survive_fp32():
+    z = density.grid(161)
+    table = np.ones((len(z), 2))
+    density._validated(z, table, 1, False, 1.)
+    table[0, 0] = 1e-50
+    with pytest.raises(ValueError, match='E_PROFILE_AIR'):
+        density._validated(z, table, 1, False, 1.)

@@ -78,8 +78,8 @@ The signed dictionary has the keys `contract`, `physics`, `optics_state`, `state
 `polarization_model`, `tolerance`, `code_hashes` and `grid`, plus `derived` when a derived source is used. Its signature is
 `hashlib.sha256(json.dumps(signed, sort_keys=True, allow_nan=False).encode()).hexdigest()`.
 
-`package_version` and `package_commit` are not signature inputs. They are recorded beside the signed fields in `meta.json`,
-so that the same bytes sign the same whether the run is in-tree or installed. `package_version` is the installed metadata
+`package_version` and `package_commit` are outside the signed dictionary. The version literal in production source
+contributes through `code_hashes`. `package_version` is the installed metadata
 version when that metadata describes the loaded package, `sosfuse2.__version__` when it belongs to another installed copy,
 and `null` in-tree without an install.
 
@@ -129,6 +129,12 @@ of 1.3.4 and earlier refuse v5 tables (`E_PROVENANCE_CONTRACT`). Every cache key
 use. Output folders and saved sources of earlier versions are not resumed or extended (`E_OUTPUT_IDENTITY`,
 `E_EXTRA_SOURCE`), while `outputs/radiance_table` and `jobs/tables_from_sources` keep reading older sources whose
 contract state records the density configuration; from 1.5.0 the others stop with `E_SOURCE_DENSITY`.
+
+From 1.6.0, `source_contract.anderson_tol` must match both the saved and requested solve tolerances.
+Regenerate sources that lack this field (`E_SOURCE_TOL`).
+
+Before sharing run records, verify them locally and redact installation paths in `timings[].solve_worker.file`,
+`source_done`’s `worker.file` and `solve_failed`’s `engine_file` in the shared copy.
 
 ## Folder layout of 1.4.0
 

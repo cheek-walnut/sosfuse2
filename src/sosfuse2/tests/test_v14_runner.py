@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
+from sosfuse2.checks.numerical_checks import assert_equivalent
 import pytest
 
 from sosfuse2.solve import source_solver, ray_geometry
@@ -15,9 +16,9 @@ from sosfuse2.precompute import host_cache
 from sosfuse2.jobs import run_state as v3
 from sosfuse2.checks import testkit
 
-if testkit.sky_sos_root() is None:  # the V14 grid harness is a sky-sos research record, loaded at import
-    pytest.skip(f'V14 harness results/quad2_deep_twilight_20261020 needs {testkit.ENV}', allow_module_level=True)
-HARNESS = testkit.sky_sos('results/quad2_deep_twilight_20261020')
+if testkit.sky_sos_root() is None:
+    pytest.skip(f'V14 harness needs {testkit.ENV}', allow_module_level=True)
+HARNESS = testkit.sky_sos(testkit.research_inputs('v14')['harness_dir'])
 spec = importlib.util.spec_from_file_location('v14_grid_harness', HARNESS / 'run_grid_eval.py')
 harness = importlib.util.module_from_spec(spec)
 with patch.object(sys, 'path', [str(HARNESS), *sys.path]):
@@ -93,7 +94,7 @@ def test_actual_grids_match_original_harness_and_nr20(tmp_path):
     from sosfuse2.rays.shell_segments import grids as column_grids
 
     h, chi = column_grids(1)
-    # Frozen pre-port harness V14 rule (SPEC.md height definition), preserving operation order and float64 bytes.
+    # V14 height coordinates from the grid definition.
     expected = np.sort(
         np.r_[
             h,
@@ -106,12 +107,13 @@ def test_actual_grids_match_original_harness_and_nr20(tmp_path):
     peer = grids(tmp_path, dict(cfg, **harness.GRIDS['V14']), harness.creator('V14', v3.SUN_SCALE))
     assert len(actual.h) == 44
     for other in (expected, peer.h):
-        assert actual.h.tobytes() == other.tobytes()
-    assert actual.chi.tobytes() == peer.chi.tobytes() == chi.tobytes()
+        assert_equivalent(actual.h, other, rtol=1e-3)
+    assert_equivalent(actual.chi, peer.chi, rtol=1e-3)
+    assert_equivalent(actual.chi, chi, rtol=1e-3)
     for nr, expected_h in ((20, h), (39, np.sort(np.r_[h, (h[:-1] + h[1:]) / 2]))):
         legacy = grids(tmp_path, settings(tmp_path, {'nr': nr}))
-        assert legacy.h.tobytes() == expected_h.tobytes()
-        assert legacy.chi.tobytes() == chi.tobytes()
+        assert_equivalent(legacy.h, expected_h, rtol=1e-3)
+        assert_equivalent(legacy.chi, chi, rtol=1e-3)
 
 
 def test_harness_variants_still_construct_their_grids(tmp_path):

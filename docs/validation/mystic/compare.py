@@ -142,8 +142,9 @@ def main():
         e = json.loads(path.read_text())
         if e['optics_sha256'] != digest:
             raise ValueError('E_OPTICS_SHA ' + arm)
-        if e['engine_config_id'] != arm:
-            raise ValueError('E_ENGINE_ARM')
+        contract = e.get('contract')
+        if e['engine_config_id'] != arm or not isinstance(contract, dict) or contract.get('overrides') != expected_arms[arm]:
+            raise ValueError('E_ENGINE_ARM ' + arm)
         expected_cases = {
             f'{sid}_i{p["i"]}_j{p["j"]}_sza{sza:g}'
             for sid in c['state_ids']

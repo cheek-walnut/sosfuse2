@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Batch: stored fused sources -> table.npz + meta.json + previews + zstd pack.
 
-Scans <work-root>/tmp/<id>/source.npz; processes states whose
-<work-root>/out/<id>/table.npz or <work-root>/pack/<id>.tar.zst is missing and that no live run_state
-worker (script or `-m sosfuse2.jobs.run_state`) currently owns. Uses
-radiance_table.make_table (same rays, same kernel, same post-processing as
+Scans stored sources and skips outputs that pass output_complete. Live workers and locked states are skipped.
+Uses radiance_table.make_table (same rays, same kernel, same post-processing as
 run_state) and sosfuse2.outputs.pack_state.pack_state.
 The meta signature is this batch's own hash (state, backend, grid, code_hashes), not
 run_state.signed_contract: run_state refuses such an out_name
@@ -13,6 +11,8 @@ run_state.signed_contract: run_state refuses such an out_name
 
 import argparse, fcntl, hashlib, json, os, re, sys, tarfile, time, zipfile
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+import zlib
 
 if __name__ == '__main__':
     sys.dont_write_bytecode = True
@@ -28,45 +28,87 @@ THREAD_KEYS = (
 )
 
 
-def verify_first_order_pack(out, pack, signature):
+ARCHIVE_ERRORS = (OSError, ValueError, TypeError, KeyError, EOFError, zipfile.BadZipFile, zlib.error, tarfile.TarError)
+
+
+def check_pack(out, pack, meta, restore=None):
     from .run_state import verify_pack
+    from ..outputs.radiance_table import exports_first_order
 
-    with (out / 'first_order.npz').open('rb') as stream:
-        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-    verify_pack(pack, signature, export_first_order=True, first_order_sha=digest)
+    first_sha = None
+    if exports_first_order(meta) and restore is None:
+        with (out / 'first_order.npz').open('rb') as stream:
+            first_sha = hashlib.file_digest(stream, 'sha256').hexdigest()
+    try:
+        verify_pack(pack, meta['signature'], export_first_order=exports_first_order(meta), first_order_sha=first_sha,
+                    loose_table=out / 'table.npz', restore_first=restore)
+    except ARCHIVE_ERRORS as exc:
+        raise RuntimeError(f'E_PACK_VERIFY: {type(exc).__name__}: {exc}') from exc
 
 
-def output_complete(out, pack, source=None):
-    from ..outputs.radiance_table import first_order_complete
+def check_identity(meta, stream, state, args, restored, source_sha):
+    import numpy as np
+    from ..atmosphere.components import canonical_state, check_same_state, optics_state, physics
+    from ..atmosphere.spectral import same_settings
+    from ..foundation.content_identity import state_identity
+    from ..outputs import radiance_table as tf
+    from .run_state import signed_contract
+
+    stream.seek(0)
+    with np.load(stream) as archive:
+        contract = json.loads(str(archive['source_contract']))
+    if not isinstance(contract, dict) or not isinstance(contract.get('state'), dict):
+        raise ValueError('E_OUTPUT_IDENTITY: source state missing')
+    cfg = contract['settings']
+    tol = tf.check_source_tol(contract, cfg)
+    mode = 'reduced-validation' if args.reduced else 'full'
+    if (state_identity(contract['state']) != canonical_state(state) or contract['backend'] != args.backend
+            or contract['polarization_model'] != 'depolarizing' or meta.get('backend') != args.backend
+            or meta.get('mode') != mode or meta.get('anderson_tol') != tol or meta.get('id') != state['id']
+            or meta.get('parameters') != state.get('parameters')):
+        raise ValueError('E_OUTPUT_IDENTITY: state or settings differ')
+    try:
+        check_same_state(meta, dict(physics=physics(), optics_state=optics_state(state)))
+    except ValueError as exc:
+        raise ValueError(f'E_OUTPUT_IDENTITY: {exc}') from exc
+    method = meta.get('table_method')
+    producer = method.get('runner') if isinstance(method, dict) else None
+    if producer == 'run_gpu_state_v3':
+        signature, _ = signed_contract(state, cfg, args.backend, args.reduced, 'depolarizing', meta.get('derived'))
+        if meta.get('polarization_model') != 'depolarizing':
+            raise ValueError('E_OUTPUT_IDENTITY: polarization differs')
+    elif producer == 'tables_from_sources':
+        if meta.get('source_sha256') != source_sha:
+            raise ValueError('E_OUTPUT_IDENTITY: source digest differs or is missing. Use a separate output root.')
+        wl, hs, el, az = tf.axes(args.reduced) if restored is None else tf.restored_axes(restored)
+        signature, _ = signature_of(state, args.backend, args.reduced, wl, hs, len(el), len(az), restored)
+    else:
+        raise ValueError('E_OUTPUT_IDENTITY: unknown table producer')
+    if meta.get('signature') != signature or not isinstance(meta.get('settings'), dict) or not same_settings(meta['settings'], cfg):
+        raise ValueError('E_OUTPUT_IDENTITY: signature or settings differ')
+
+
+def output_complete(out, pack, source=None, state=None, args=None):
+    from ..outputs import radiance_table as tf
 
     if not (out / 'table.npz').is_file() or not pack.is_file():
         return False
     try:
         meta = json.loads((out / 'meta.json').read_text())
-    except (OSError, ValueError):
-        return False  # process() reports unreadable metadata under the state lock.
-    if not isinstance(meta, dict) or meta.get('complete') is not True or not first_order_complete(out, meta):
-        return False
-    settings = meta.get('settings')
-    if source is not None:
-        import numpy as np
-        from ..outputs.radiance_table import check_source_tol
-
-        try:
-            with np.load(source) as archive:
-                tol = check_source_tol(json.loads(str(archive['source_contract'])), settings)
-            if meta.get('anderson_tol') != tol:
+        if not isinstance(meta, dict) or meta.get('complete') is not True or not tf.first_order_complete(out, meta):
+            return False
+        if source is not None:
+            if state is None or args is None:
                 return False
-        except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
-            return False
-    if isinstance(settings, dict) and settings.get('export_first_order'):
-        signature = meta.get('signature')
-        if not isinstance(signature, str) or not signature:
-            return False
-        try:
-            verify_first_order_pack(out, pack, signature)
-        except (OSError, ValueError, RuntimeError, EOFError, tarfile.TarError):
-            return False
+            with source.open('rb') as stream:
+                source_sha = hashlib.file_digest(stream, 'sha256').hexdigest()
+                stream.seek(0)
+                restored = tf.restored_settings(stream, state, args.reduced, args.backend)
+                check_identity(meta, stream, state, args, restored, source_sha)
+        tf.read_table(out / 'table.npz')
+        check_pack(out, pack, meta)
+    except (RuntimeError, *ARCHIVE_ERRORS):
+        return False
     return True
 
 
@@ -128,20 +170,38 @@ def candidates(roots, ids):
 
 
 def process(root, ident, source, state, a, log):
+    try:
+        with source.open('rb') as stream:
+            return process_source(root, ident, source, stream, state, a, log)
+    except (EOFError, zipfile.BadZipFile, zlib.error) as exc:
+        raise ValueError(f'E_OUTPUT_IDENTITY: unreadable archive: {type(exc).__name__}: {exc}') from exc
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f'E_OUTPUT_PROCESS: {type(exc).__name__}: {exc}') from exc
+
+
+def process_source(root, ident, source, stream, state, a, log):
+    import numpy as np
     from sosfuse2.outputs import radiance_table as tf
     from sosfuse2.outputs.pack_state import pack_state
     from sosfuse2.jobs.run_state import CONTRACT_VERSION, effective_tol
-    from sosfuse2.atmosphere.components import physics, optics_state, check_same_state, production_only
+    from sosfuse2.atmosphere.components import physics, optics_state, production_only
 
     production_only()
     out = root / 'out' / ident
     out.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    settings = tf.restored_settings(source, state, a.reduced, a.backend)
+    source_sha = hashlib.file_digest(stream, 'sha256').hexdigest()
+    stream.seek(0)
+    meta_path = out / 'meta.json'
+    try:
+        settings = tf.restored_settings(stream, state, a.reduced, a.backend)
+    except ValueError as exc:
+        if meta_path.exists() and not str(exc).startswith('E_SOURCE_CONTRACT: unreadable source archive'):
+            raise ValueError(f'E_OUTPUT_IDENTITY: {exc}') from exc
+        raise
     optical_meta = None
     wl, hs, el, az = tf.axes(a.reduced) if settings is None else tf.restored_axes(settings)
     signature, hashes = signature_of(state, a.backend, a.reduced, wl, hs, len(el), len(az), settings)
-    meta_path = out / 'meta.json'
     if meta_path.exists():
         try:
             old = json.loads(meta_path.read_text())
@@ -149,23 +209,53 @@ def process(root, ident, source, state, a, log):
             raise ValueError(f'E_OUTPUT_META: cannot read {meta_path.name}: {type(exc).__name__}') from exc
         if not isinstance(old, dict):
             raise ValueError('E_OUTPUT_META: expected a metadata object')
-        check_same_state(old, dict(physics=physics(), optics_state=optics_state(state)))
-        if old.get('signature') != signature or old.get('anderson_tol') != effective_tol(settings or {}):
-            raise ValueError('E_OUTPUT_IDENTITY: batch table signature differs')
+        try:
+            check_identity(old, stream, state, a, settings, source_sha)
+        except (ValueError, KeyError, TypeError) as exc:
+            if str(exc).startswith('E_OUTPUT_IDENTITY'):
+                raise
+            raise ValueError(f'E_OUTPUT_IDENTITY: {exc}') from exc
         pack = root / 'pack' / f'{ident}.tar.zst'
-        if tf.exports_first_order(old) and pack.is_file() and (out / 'first_order.npz').is_file():
-            try:
-                verify_first_order_pack(out, pack, signature)
-            except (OSError, EOFError, tarfile.TarError) as exc:
-                raise RuntimeError(f'E_PACK_VERIFY: {type(exc).__name__}: {exc}') from exc
-        if old.get('complete') is True and (out / 'table.npz').is_file() and tf.first_order_complete(out, old):
+        total = out / 'table.npz'
+        if total.exists():
+            tf.read_table(total)
+        if pack.exists():
+            if not total.is_file():
+                raise ValueError('E_OUTPUT_IDENTITY: loose table missing')
+            first = out / 'first_order.npz'
+            if tf.exports_first_order(old) and not first.exists():
+                with NamedTemporaryFile(dir=out, delete=False) as tmp:
+                    candidate = Path(tmp.name)
+                    try:
+                        check_pack(out, pack, old, tmp)
+                        tmp.close()
+                        if not tf.first_order_complete(out, old, first_path=candidate):
+                            raise ValueError('E_PACK_VERIFY: invalid archived first-order table')
+                        candidate.chmod(0o644)
+                        os.replace(candidate, first)
+                    finally:
+                        candidate.unlink(missing_ok=True)
+            else:
+                check_pack(out, pack, old)
+            if old.get('complete') is not True or not tf.first_order_complete(out, old):
+                raise ValueError('E_PACK_VERIFY: incomplete loose output')
+            return 'verified-existing'
+        if (out / 'first_order.npz').is_file() and old.get('complete') is True and not tf.first_order_complete(out, old):
+            raise ValueError('E_PACK_VERIFY: invalid loose first-order table')
+        if old.get('complete') is True and total.is_file() and tf.first_order_complete(out, old):
             pack_state(out, root / 'pack', 'zstd')
             return 'packed-existing'
+    elif any(p.exists() for p in (out / 'table.npz', out / 'first_order.npz', root / 'pack' / f'{ident}.tar.zst')):
+        raise ValueError('E_OUTPUT_IDENTITY: existing output has no metadata')
+    stream.seek(0)
     if settings is None:
         t = time.monotonic()
         s, scope, settings = tf.build_solver(state, root / 'tmp' / ident / 'prepare', a.reduced, a.backend)
         create_seconds = time.monotonic() - t
-        field = tf.load_source(source, s, wl, settings=settings, backend=a.backend)
+        field = tf.load_source(stream, s, wl, settings=settings, backend=a.backend)
+        stream.seek(0)
+        with np.load(stream) as archive:
+            settings = json.loads(str(archive['source_contract']))['settings']
         t = time.monotonic()
         table, seconds = tf.make_table(s, field, hs, el, az, a.group, a.batch, log)
         table_seconds = time.monotonic() - t
@@ -176,8 +266,11 @@ def process(root, ident, source, state, a, log):
         optical_meta = dict(computed_metadata(state, getattr(s, 'strato', None)), density=density_metadata(s))
     else:
         table, seconds, create_seconds, table_seconds, optical_meta = tf.restored_table(
-            source, state, settings, root / 'tmp' / ident / 'prepare', a.backend, a.group, a.batch, log, first_order_out=out
+            stream, state, settings, root / 'tmp' / ident / 'prepare', a.backend, a.group, a.batch, log,
+            first_order_out=out, table_path=out / 'table.npz',
         )
+    if not settings.get('export_first_order'):
+        tf.mark_incomplete(out / 'table.npz')
     tf.save_table(out / 'table.npz', table, wl, hs, el, az)
     meta = dict(
         complete=True,
@@ -185,7 +278,7 @@ def process(root, ident, source, state, a, log):
         physics=physics(),
         optics_state=optics_state(state),
         signature=signature,
-        id=ident,
+        id=state['id'],
         parameters=state['parameters'],
         stratosphere=state.get('stratosphere'),
         mode='reduced-validation' if a.reduced else 'full',
@@ -195,6 +288,7 @@ def process(root, ident, source, state, a, log):
         anderson_tol=effective_tol(settings),
         source_solve=None,
         source_file=str(source.relative_to(root)),
+        source_sha256=source_sha,
         source_seconds=None,
         query_seconds=seconds,
         table_seconds=table_seconds,
@@ -232,6 +326,8 @@ def main():
     p.add_argument('--batch', type=int, default=25)
     p.add_argument('--dry-run', action='store_true')
     a = p.parse_args()
+    if a.group < 1:
+        p.error('E_TABLE_GROUP: group must be positive')
     if a.backend == 'numpy' and not a.reduced:
         p.error('numpy requires --reduced')
     if not 1 <= a.threads <= 4:
@@ -250,7 +346,7 @@ def main():
     for root, ident, source in candidates(roots, set(a.ids or [])):
         out = root / 'out' / ident
         pack = root / 'pack' / f'{ident}.tar.zst'
-        if output_complete(out, pack, source):
+        if ident in states and output_complete(out, pack, source, states[ident], a):
             continue
         if (str(root), ident) in live:
             log(f'SKIP {root.name}/{ident}: live worker owns it')
@@ -276,7 +372,7 @@ def main():
                 except BlockingIOError:
                     log(f'SKIP {root.name}/{ident}: a worker owns the output (.worker.lock)')
                     continue
-                if output_complete(out, pack, source):
+                if output_complete(out, pack, source, states[ident], a):
                     log(f'SKIP {root.name}/{ident}: finished while waiting for the locks')
                     continue
                 try:

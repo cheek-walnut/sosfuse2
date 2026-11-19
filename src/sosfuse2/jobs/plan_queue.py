@@ -64,8 +64,7 @@ COST_PROFILES = {
             density_column='same profile: density column correction about 21 s; taken as the '
             'main-bundle correction (guess: the profile does not name the code path)',
             attach_miss='center 19 km, sigma 3 km, tau 0.01, aod 0.15, g 0.65: attach_cache miss 51.3 s',
-            state='mean source_done (two-slot shared GPU): '
-            'stratosphere on 2006 s (5 states), off 1030 s (2 states); used only to balance GPUs',
+            state='Mean solve time by stratosphere setting, used to balance workers.',
         ),
     ),
     'rig4090': dict(
@@ -483,19 +482,20 @@ def collect(a, cfg, states, columns, attach_root):
                     row['items'].append(iid)
                 s.fuse_state = state  # the attach key reads parameters except stratosphere.ATTACH_OPTICS_PARAMS
                 key = _geometry_key(s, p.scope, profile)
-                path = Path(attach_root) / f'attach_geometry_{key}.npz'
+                path = attach_root / f'attach_geometry_{key}.npz' if attach_root is not None else None
+                iid = 'attach:' + key if path is not None else 'attach:off:' + state['id']
                 it = item(
-                    'attach:' + key,
+                    iid,
                     kind='attach',
                     key=key,
                     lock=row['attach_lock'],
-                    file=str(path),
-                    hit=path.is_file(),
-                    lock_done=(Path(attach_root) / (str(row['attach_lock']) + '.done')).is_file(),
+                    file=str(path) if path is not None else None,
+                    hit=path is not None and path.is_file(),
+                    lock_done=attach_root is not None and (attach_root / (str(row['attach_lock']) + '.done')).is_file(),
                     cost_seconds=costs['attach_miss_seconds'],
                     platform_dependent=True,
                 )
-                row['items'].append('attach:' + key)
+                row['items'].append(iid)
             if row['density'] is not None and host_enabled:
                 for rec in p.records:
                     path = Path(rec['folder']) / (rec['token'] + '.hcache')
@@ -634,8 +634,7 @@ def commands(a, lists, columns, attach_root, out, res):
     # Both fixed: with --threads T the pipeline's own auto_workers would divide the whole host by T for every GPU.
     base += ['--workers', str(res['workers']), '--threads', str(res['column_workers'])]
     env = {'SOSFUSE2_COLUMN_WORKERS': str(res['column_workers'])}
-    if Path(attach_root).resolve() != (a.geometry_cache / 'attach_cache').resolve():
-        env['STRATO_ATTACH_CACHE'] = str(Path(attach_root).resolve())
+    env['STRATO_ATTACH_CACHE'] = str(attach_root.resolve()) if attach_root is not None else 'off'
     for g in lists:
         cmd = base + [
             '--plan-gpu',
@@ -753,11 +752,12 @@ def plan_queue(a):
     states = [rv.effective_state(next(s for s in every if s['id'] == i and s.get('runnable')), options) for i in ids]
     columns = a.column_cache or (a.cache_root / 'column_cache' if a.cache_root else a.geometry_cache / 'column_cache')
     attach_env = os.environ.get('STRATO_ATTACH_CACHE', '').strip()
-    if attach_env.lower() == 'off':
-        attach_env = ''  # 'off' switches the runner's attach cache off; it is not a folder name
-    attach_root = a.attach_cache or (
-        a.cache_root / 'attach_cache' if a.cache_root else Path(attach_env or a.geometry_cache / 'attach_cache')
-    )
+    attach_root = a.attach_cache
+    if attach_root is None:
+        if a.cache_root:
+            attach_root = a.cache_root / 'attach_cache'
+        elif attach_env.lower() != 'off':
+            attach_root = Path(attach_env) if attach_env else a.geometry_cache / 'attach_cache'
     if a.column_workers is not None and a.column_workers < 1:
         raise ValueError('E_PLAN_ARGUMENTS: positive --column-workers required')
     res = resources(a, len(ids))
@@ -822,7 +822,7 @@ def plan_queue(a):
             geometry_cache=str(a.geometry_cache.resolve()),
             geometry_layers=a.geometry_layers,
             column_cache=str(Path(columns).resolve()),
-            attach_cache=str(Path(attach_root).resolve()),
+            attach_cache=str(attach_root.resolve()) if attach_root is not None else 'off',
             host_cache_enabled=host_cache.enabled(),
             options={k: getattr(a, k) for k in ('stratosphere', 'density_profile', 'ozone_profile', 'rayleigh_column')},
         ),

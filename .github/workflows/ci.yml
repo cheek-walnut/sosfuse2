@@ -55,7 +55,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     env:
-      # the persistent-queue cases start a 4-state NumPy queue; CI hosts need more than the 60 s default (docs/CHECKS.md)
+      # Pin the persistent queue test deadline to 2400 seconds in CI.
       PERSISTENT_TEST_DEADLINE: "2400"
       PYTHONDONTWRITEBYTECODE: "1"
     steps:

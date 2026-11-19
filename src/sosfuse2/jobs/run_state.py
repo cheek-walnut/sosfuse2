@@ -659,7 +659,8 @@ class FirstOrderConflict(RuntimeError):
     """The loose and archived first-order files have different digests."""
 
 
-def verify_pack(path, signature, *, export_first_order=None, first_order_sha=None, table_sha=None):
+def verify_pack(path, signature, *, export_first_order=None, first_order_sha=None, table_sha=None,
+                loose_table=None, restore_first=None):
     # Read every archived member through zstd; verify both CRC/content and the identity.
     # tarfile's stream mode stops at the end-of-archive marker and leaves the record padding (10240 bytes measured) unread;
     # closing the pipe then can kill a zstd still writing it (SIGPIPE, nonzero exit) when the pipe buffer is small, which
@@ -667,7 +668,7 @@ def verify_pack(path, signature, *, export_first_order=None, first_order_sha=Non
     # is drained before close, and a real decode failure reports zstd's exit code and stderr.
     import tempfile
 
-    from ..outputs.radiance_table import exports_first_order
+    from ..outputs.radiance_table import exports_first_order, read_table
 
     with tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(['zstd', '-q', '-dc', str(path)], stdout=subprocess.PIPE, stderr=err)
@@ -686,6 +687,22 @@ def verify_pack(path, signature, *, export_first_order=None, first_order_sha=Non
                     elif member.name == 'table.npz' and table_sha is not None:
                         if hashlib.file_digest(f, 'sha256').hexdigest() != table_sha:
                             raise RuntimeError('E_PACK_VERIFY: archived radiance table differs')
+                    elif member.name == 'table.npz' and loose_table is not None:
+                        import numpy as np
+
+                        with tempfile.TemporaryFile() as archived, loose_table.open('rb') as loose:
+                            shutil.copyfileobj(f, archived)
+                            archived.seek(0)
+                            if hashlib.file_digest(archived, 'sha256').digest() != hashlib.file_digest(loose, 'sha256').digest():
+                                archived.seek(0)
+                                loose.seek(0)
+                                aa, ar = read_table(archived)
+                                ba, br = read_table(loose)
+                                if (any(a.dtype != b.dtype or not np.array_equal(a, b) for a, b in zip(aa, ba))
+                                        or not np.allclose(ar, br, rtol=1e-5, atol=0)):
+                                    raise RuntimeError('E_PACK_VERIFY: archived radiance table differs')
+                    elif member.name == 'first_order.npz' and restore_first is not None:
+                        shutil.copyfileobj(f, restore_first)
                     elif member.name == 'first_order.npz' and first_order_sha is not None:
                         if hashlib.file_digest(f, 'sha256').hexdigest() != first_order_sha:
                             raise FirstOrderConflict('E_PACK_VERIFY: first-order table differs')
@@ -1259,7 +1276,7 @@ def run(a):
             fields.append(host[..., :count])
             if os.environ.get('SOSFUSE2_EXPORT_MOMENT') == '1':
                 # One extra apply() on the converged source: its radiance moments (4 coherency + K scalar SH) are consistent with
-                # the source that table.npz is made from (the loop's last apply saw the pre-mixing iterate). Opt-in, saddle CV.
+                # the source that table.npz is made from (the loop's last apply saw the pre-mixing iterate). Enabled by SOSFUSE2_EXPORT_MOMENT.
                 solver.apply(field)
                 moments.append(s.kernel.host(solver.last_moment)[..., :count].astype('f4'))
             s.ms = np.zeros((*host.shape[:2], 2 * s.W), 'f4')

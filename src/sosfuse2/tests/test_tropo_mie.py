@@ -411,6 +411,11 @@ def gpu(out, only=None):
     ]
     if only:
         cases = [c for c in cases if c[0] in only]
+    names = {case[0] for case in cases}
+    for name in names:
+        twin = 'hg_' + name[4:]
+        if name.startswith('mie_') and twin not in names and 'hg_strato_on_C3' not in names:
+            raise ValueError(f'E_GPU_CASE_CONTROL: {name} needs {twin} or hg_strato_on_C3')
     for name, strato, mie, flags in cases:
         os.environ['SOSFUSE2_KERNEL_FLAGS'] = ','.join(flags)
         state = copy.deepcopy(normal_state())
@@ -463,7 +468,9 @@ def judge(rows):
         if r['case'].startswith('hg_'):
             continue
         twin = 'hg_' + r['case'][4:]  # same flag set if present, else the C3 control
-        h = hg.get((twin, r['first'])) or hg[('hg_strato_on_C3', r['first'])]
+        h = hg.get((twin, r['first'])) or hg.get(('hg_strato_on_C3', r['first']))
+        if h is None:
+            raise ValueError(f'E_GPU_CASE_CONTROL: {r["case"]} needs {twin} or hg_strato_on_C3')
         checks.append(
             dict(
                 case=r['case'],

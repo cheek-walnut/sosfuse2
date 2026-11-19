@@ -8,10 +8,12 @@ CUDA work only through the site's GPU queue: <python> -B -m sosfuse2.checks.gate
 
 import argparse, copy, datetime as dt, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, traceback
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from types import SimpleNamespace as NS
 import numpy as np
 from ..backends.flags import deterministic
 from ..foundation import paths, content_identity
+from ..outputs.radiance_table import TABLE_AXES
 
 GATE = paths.GATE  # fixtures.json, anchors.json, baselines/{manifest.json,numpy/,<toolkey>/}
 STAGE1 = ('FMAD', 'FASTMATH')
@@ -36,7 +38,36 @@ def utc():
 
 
 def jdump(path, data):
-    Path(path).write_text(json.dumps(data, indent=1, default=str, allow_nan=True) + '\n')
+    path = Path(path)
+    payload = json.dumps(data, indent=1, default=str, allow_nan=False) + '\n'
+    with NamedTemporaryFile(dir=path.parent, mode='w', delete=False) as stream:
+        tmp = Path(stream.name)
+        try:
+            stream.write(payload)
+            stream.close()
+            tmp.chmod(path.stat().st_mode & 0o777 if path.exists() else 0o644)
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+
+def report_json(report):
+    nonfinite = {}
+
+    def clean(value, path):
+        if isinstance(value, dict):
+            return {key: clean(v, f'{path}.{key}') for key, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [clean(v, f'{path}[{i}]') for i, v in enumerate(value)]
+        if isinstance(value, (float, np.floating)) and not np.isfinite(value):
+            nonfinite[path] = 'nan' if np.isnan(value) else '+inf' if value > 0 else '-inf'
+            return None
+        return value
+
+    result = clean(report, '$')
+    if nonfinite:
+        result['nonfinite'] = nonfinite
+    return result
 
 
 def file_sha(p):
@@ -283,7 +314,7 @@ def worker(kind, fx, out, backend):
         from sosfuse2.checks.validate import reduced
 
         report, _ = reduced(out, backend, block)
-        jdump(out / 'historical.json', report)
+        jdump(out / 'historical.json', report_json(report))
         return 0
     from sosfuse2.solve.source_solver import Solver
     from sosfuse2.solve.ray_geometry import TransientGeometry
@@ -575,7 +606,7 @@ def repeat_run(a, b):
     evaluations = [(r.get('solve') or {}).get('evaluations') for r in (a, b)]
     histories = [(r.get('solve') or {}).get('source_solve_sha256') for r in (a, b)]
     return dict(
-        pass_=same if mode else all(v['pass_'] for v in comparisons.values()),
+        pass_=all(v['pass_'] for v in comparisons.values()),
         deterministic=mode,
         repeat_max_rel=max(maxima, default=0.0),
         comparisons=comparisons,
@@ -597,6 +628,22 @@ def regress(base_out, run_out, base_rad=None, run_rad=None):
         t = tolerance(run_rad, base_rad, 0.0)
         row.update(first=diff[0], radiance_max_abs=t['max_abs'], radiance_max_rel=t['max_rel'], worst=t['worst'])
     return row
+
+
+def table_axes(table):
+    return {name: table[name] for name in TABLE_AXES if name in table}
+
+
+def differing_axes(actual, reference, shape, ref_shape):
+    bad = []
+    for i, name in enumerate(TABLE_AXES):
+        a, b = actual.get(name), reference.get(name)
+        if (len(shape) != 4 or len(ref_shape) != 4 or a is None or b is None
+                or a.dtype.kind not in 'fiu' or b.dtype.kind not in 'fiu'
+                or a.shape != (shape[i],) or b.shape != (ref_shape[i],)
+                or not np.isfinite(a).all() or not np.isfinite(b).all() or not np.array_equal(a, b)):
+            bad.append(name)
+    return bad
 
 
 def tolerance(actual, ref, atol):
@@ -1015,6 +1062,7 @@ def gf(args, F, report):
     env.update(STRATO_ATTACH_CACHE=str(P.work / 'cache/attach'), SOSFUSE2_COMPILE_CACHE=str(root / 'cache_compile'))
     with np.load(reference) as z:
         ref_array = z['radiance']
+        ref_axes = table_axes(z)
     ref = sha(ref_array)
     if fixed.get('radiance_sha256') and fixed['radiance_sha256'] != ref:
         raise GateError('E_GATE_MANIFEST_SHA', 'reference radiance is not the manifest gf table')
@@ -1075,11 +1123,11 @@ def gf(args, F, report):
     for filename, key in (('table.npz', 'radiance'), ('source.npz', 'source')):
         with np.load(root / 'cold' / filename) as a, np.load(root / 'warm' / filename) as b:
             comparisons[key] = repeat_arrays(a[key], b[key])
-    same = (
-        all(c[k] == w[k] for k in ('radiance', 'source', 'source_solve'))
-        if mode
-        else all(v['pass_'] for v in comparisons.values())
-    )
+            if key == 'radiance':
+                for label, table in (('cold', a), ('warm', b)):
+                    axes = differing_axes(table_axes(table), ref_axes, table[key].shape, ref_array.shape)
+                    comparisons[label + '_axes'] = dict(pass_=not axes, differing=axes, max_rel=None)
+    same = all(v['pass_'] for v in comparisons.values())
     repeat_max = max((v['max_rel'] for v in comparisons.values() if v['max_rel'] is not None), default=0.0)
     report.update(deterministic=mode, repeat_max_rel=repeat_max)
     with np.load(root / 'cold/table.npz') as t:
@@ -1096,7 +1144,7 @@ def gf(args, F, report):
         repeat_max_rel=repeat_max,
         repeat_comparisons=comparisons,
         evaluations_warning=None if c['evaluations'] == w['evaluations'] else 'W_GF_EVALUATIONS_DIFFER',
-        code=None if good else ('E_GATE_GF_BYTES' if mode else 'E_GATE_GF_REPEAT_TOL') if not same else 'E_GATE_GF_TOL',
+        code=None if good else 'E_GATE_GF_REPEAT_TOL' if not same else 'E_GATE_GF_TOL',
     )
     report['max_launch_seconds'] = max(
         report.get('max_launch_seconds', 0.0), c['launch_max_seconds'], w['launch_max_seconds']
@@ -1152,9 +1200,6 @@ def bless(F, names, args, report):
         anchors = values
         doc = dict(
             schema=1,
-            measured_utc=utc(),
-            commit=commit(),
-            decision=args.decision,
             anchors=values,
             rule='block if S > max(3*anchor, 1e-6); raise only with a decision ID',
         )
@@ -1191,15 +1236,23 @@ def bless(F, names, args, report):
     jdump(record('baselines/manifest.json'), M)
     if doc:
         jdump(record('anchors.json'), doc)
-        log_line(f'anchors measured commit {doc["commit"]}; decision: {doc["decision"]}')
+        log_line(f'anchors measured commit {commit()}; decision: {args.decision}')
     return True
 
 
 def bless_numpy(F, args, report):
     """Mac golden: E6 validate-mac PASS first; unchanged arrays keep their files."""
-    e6 = json.loads(Path(args.e6).read_text()) if args.e6 else {}
+    try:
+        e6 = json.loads(Path(args.e6).read_text()) if args.e6 else {}
+    except (OSError, ValueError) as exc:
+        raise GateError('E_GATE_CONFIG', f'cannot read --e6 ({type(exc).__name__})') from exc
+    if not isinstance(e6, dict) or e6.get('backend') != 'numpy':
+        raise GateError('E_GATE_CONFIG', 'E6 backend must be numpy')
     if e6.get('pass') is not True:
-        raise GateError('E_GATE_CONFIG', 'E6 validate-mac PASS (--e6 validation.json) is required before a golden')
+        raise GateError('E_GATE_CONFIG', 'E6 pass must be true')
+    for key in ('full_35', 'spectral_15'):
+        if not isinstance(e6.get(key), dict) or e6[key].get('pass_') is not True:
+            raise GateError('E_GATE_CONFIG', f'E6 {key}.pass_ must be true')
     names = goldens(F, F['fixtures'])
     runs = run_all(F, names, args.out / 'numpy', 'numpy', False)
     M = manifest()
@@ -1216,16 +1269,33 @@ def bless_numpy(F, args, report):
             continue
         if not args.decision:
             raise GateError('E_GATE_CONFIG', f'{fx}: changing fixed golden requires --decision')
-        np.savez_compressed(GATE / f'baselines/numpy/{fx}.npz', radiance=r['radiance'], source=r['source'][-1])
+        folder = GATE / 'baselines/numpy'
+        with NamedTemporaryFile(dir=folder, suffix='.npz', delete=False) as stream:
+            tmp = Path(stream.name)
+            try:
+                np.savez_compressed(stream, radiance=r['radiance'], source=r['source'][-1])
+                stream.close()
+                digest = file_sha(tmp)
+                target = folder / f'{fx}-{digest}.npz'
+                if target.exists():
+                    if file_sha(target) != digest:
+                        raise GateError('E_GATE_MANIFEST_SHA', target.name)
+                else:
+                    tmp.chmod(0o644)
+                    os.replace(tmp, target)
+            finally:
+                tmp.unlink(missing_ok=True)
         M['golden'][fx] = dict(
-            file=f'numpy/{fx}.npz',
-            sha256=file_sha(GATE / f'baselines/numpy/{fx}.npz'),
+            file=f'numpy/{target.name}',
+            sha256=digest,
             outputs=out,
             commit=commit(),
             numpy=np.__version__,
             e6=dict(sha256=file_sha(args.e6), pass_=True),
             host_inputs=r['meta']['host_inputs_sha256'],
         )
+        if old:
+            M.setdefault('golden_history', {}).setdefault(fx, []).append(dict(previous=old['file'], sha256=old['sha256']))
         log_line(
             f'numpy golden {fx} commit {M["golden"][fx]["commit"]}: {"new" if not old else "CHANGED"}; reason: {args.reason}'
         )
@@ -1266,9 +1336,13 @@ def plan_check(order, states, settings, reference):
 def first_state(table, reference, atol=0.0):
     """After the first state: radiance vs the fixed G-F reference table, rtol 1e-3 + atol; S_max/S_rms per elevation recorded."""
     with np.load(table) as a, np.load(reference) as b:
-        x, r, hs = a['radiance'], b['radiance'], b['solar_elevation_deg']
+        x, r = a['radiance'], b['radiance']
+        coords = table_axes(b)
+        bad = differing_axes(table_axes(a), coords, x.shape, r.shape)
     t = tolerance(x, r, atol)
-    st = elevation_stats(x, r, hs) if x.shape == r.shape else {}
+    if bad:
+        t.update(pass_=False, differing_axes=bad)
+    st = elevation_stats(x, r, coords['solar_elevation_deg']) if not bad else {}
     return dict(
         pass_=t['pass_'],
         tolerance=t,
@@ -1322,6 +1396,8 @@ def dispatch(args, report):
             raise GateError('E_GATE_CONFIG', 'an injected or reused run cannot be blessed')
         return bless(F, names, args, report)
     if args.stage:  # fresh runs for a later --bless --staged (no golden needed)
+        if args.runs < 2:
+            raise GateError('E_GATE_CONFIG', '--stage requires --runs >= 2')
         rs = [run_all(F, names, args.out / f'run{i + 1}', 'cupy', True) for i in range(args.runs)]
         a = rs[0]
         report['determinism'] = {fx: [repeat_run(a[fx], r[fx]) for r in rs[1:]] for fx in names}
@@ -1392,7 +1468,7 @@ def main(argv=None):
     )
     p.add_argument('--staged', type=Path, help='--bless from a --stage output (run1, run2) made by identical code')
     p.add_argument(
-        '--runs', type=int, default=2, help='--stage: fresh runs (tol by default, bytes in deterministic mode)'
+        '--runs', type=int, default=2, help='--stage: fresh runs compared at rtol 1e-5'
     )
     p.add_argument('--inject', choices=('bytes', 'golden', 'raise'))
     p.add_argument('--atol', type=float, default=0.0)
@@ -1424,10 +1500,9 @@ def main(argv=None):
 
 
 def run_main(p, args, argv):
-    if args.worker:
+    valid_atol = np.isfinite(args.atol) and args.atol >= 0
+    if args.worker and valid_atol:
         return worker(args.worker, args.fixture, args.out, args.backend)
-    if not (np.isfinite(args.atol) and args.atol >= 0):
-        p.error('--atol must be finite and nonnegative')
     report = dict(
         schema=2,
         utc=utc(),
@@ -1449,6 +1524,8 @@ def run_main(p, args, argv):
         env={k: v for k, v in os.environ.items() if k.startswith(('SOSFUSE2_', 'CUDA_VISIBLE'))},
     )
     try:
+        if not valid_atol:
+            raise GateError('E_GATE_CONFIG', '--atol must be finite and nonnegative')
         try:
             report['deterministic'] = deterministic()
         except ValueError as e:
@@ -1472,7 +1549,7 @@ def run_main(p, args, argv):
         )
         rc = 2
     report['exit'] = rc
-    jdump(args.out / 'gate.json', report)
+    jdump(args.out / 'gate.json', report_json(report))
     print(
         'GATE '
         + json.dumps(

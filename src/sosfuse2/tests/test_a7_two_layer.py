@@ -174,7 +174,8 @@ def main(work, v1_source):
     G.ResidentGeometry._host_test = False
     (work / 'a7_two_layer.json').write_text(json.dumps(report, indent=1) + '\n')
     print('A7 PASS' if report['pass_'] else 'A7 FAIL', flush=True)
+    return report['pass_']
 
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    raise SystemExit(0 if main(sys.argv[1], sys.argv[2]) else 1)

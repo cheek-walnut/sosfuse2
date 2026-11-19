@@ -1,7 +1,8 @@
 # Checks: what runs where
 
-Every check compares results against a tolerance: the G-P NumPy golden at rtol 1e-3, the G-T anchors, and final tables at
-rtol 1e-5. Byte identity is not a criterion. The checks fall into three tiers according to what the machine has.
+G-P compares against the NumPy golden at `rtol=1e-3`. G-T checks the recorded anchors. G-F compares the cold table
+against the fixed radiance reference at `rtol=1e-3, atol=0` and compares cold and warm radiance and source arrays
+at `rtol=1e-5, atol=0` in both accumulation modes. The checks fall into three tiers according to what the machine has.
 
 ## 1. Any machine, no GPU, no sky-sos checkout (public CI)
 
@@ -72,7 +73,7 @@ samples and the atan2 last bit, are ordinary tests on every platform.
 ```sh
 pip install ".[gpu,test]"        # from a checkout of the tagged commit; not on PyPI
 python -B -m sosfuse2.checks.gate --all --out <dir>          # G-R per toolkey, G-P vs NumPy golden, G-T ratchet, G-A, H, PS
-python -B -m sosfuse2.checks.gate --stage --out <dir>        # repeat runs, rtol 1e-5 (bytes only in SOSFUSE2_DETERMINISTIC=1)
+python -B -m sosfuse2.checks.gate --stage --out <dir>        # repeat runs, rtol 1e-5
 ```
 
 The installed `sosfuse2.tests.test_upper_air` module compares extended-domain radiances for one wavelength and
@@ -103,7 +104,7 @@ fails to load (for example an import of a renamed module). The fixed table itsel
 `BASELINE_LOG.md` are reduced to file or directory names, and a new record writes only the bare file name. `gate --gf`
 always requires `--reference <table.npz>` and stops with `E_GATE_BASELINE_MISSING` without an existing file
 (`checks/gate.py` `gf`); the SHA check `E_GATE_MANIFEST_SHA` still applies. The research tests (`test_cache_store`,
-`test_v14_runner`, the kernel_ab evidence packs and others) run in this tier as well. `gate --gf` and the cases that
+`test_v14_runner`, the section clock checks and others) run in this tier as well. `gate --gf` and the cases that
 load the bake template, `test_cache_store` and the G-F cases of `test_gate`, need a research checkout whose scripts
 import the 1.4.0 module names. For `test_cache_store`, set `SOSFUSE2_TEST_BAKE_DRIVER` to the bake driver script and
 `SOSFUSE2_TEST_BAKE_PLANNER` to the planner script. Cases that use either script skip when its path is unset or missing.
@@ -117,6 +118,24 @@ optional, names a research input root holding the packed full-grid geometry cach
 `test_plan_queue` and `test_column_parallel` read. Without it, and without the same data under `SOSFUSE2_SKY_SOS_ROOT`,
 those tests skip. The cases for the plan's CPU budget and host-cache records in `test_plan_queue` and for the batch
 writer's locks in `test_regressions_110` need no such data.
+
+### Local test inputs
+
+In each data root, put the `plan_queue` object in `.sosfuse2-test-inputs.json`. Its `geometry_cache`,
+`run_logs` and `cache_root` are directory paths relative to that root, and `cost_profile` is a profile name.
+For the optional second case, set `secondary_states` relative to the research checkout and `secondary_logs` relative to the data root.
+In the checkout's copy, set `section_clocks.evidence_dir`, `section_clocks.checker` and `v14.harness_dir` to relative paths.
+
+A checkout used by the spectral tests also needs a `spectral` object.
+
+```json
+{"spectral": {"ozone_raw": "data/ozone.dat", "solar_raw": "data/solar.nc",
+              "builder": "scripts/build.py", "bake_checker": "scripts/check.py"}}
+```
+
+If either raw file is absent, the test uses the stored self-check. Both raw files together require the builder.
+A configured checkout also requires the bake checker. For `--runs`, add `legacy_commit` (40 or 64 lowercase hex digits),
+`legacy_archive` (a list of paths to archive) and `legacy_runner` (a path relative to the unpacked tree).
 
 ## Contributing hooks
 

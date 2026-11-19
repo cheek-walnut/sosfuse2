@@ -18,6 +18,8 @@ import pytest
 
 from sosfuse2.jobs import cache_store as cs  # noqa: E402
 from sosfuse2.checks import gate, testkit
+from sosfuse2.precompute.endpoint_contract import DTYPES, FIELDS, TRAIL
+from sosfuse2.solve.ray_geometry import PackedCache
 from sosfuse2.foundation import paths  # noqa: E402
 
 
@@ -115,8 +117,7 @@ BASE = (
     'identity.json',
     'source_height.json',
     'packed/journal.jsonl',
-    'packed/cell_off.bin',
-    'packed/dirs.bin',
+    *(f'packed/{k}.bin' for k in DTYPES),
     'packed/layout.json',
     'packed/complete.json',
 )
@@ -128,16 +129,18 @@ def endpoints(root, sig, complete=True, height=1.2):
     e = f'geometry/endpoints_{sig}'
     put(root, f'{e}/identity.json', '{"version": 3}\n')
     put(root, f'{e}/source_height.json', json.dumps(dict(height=height)) + '\n')
-    put(root, f'{e}/packed/journal.jsonl', '{"cell": 0}\n')
-    put(root, f'{e}/packed/cell_off.bin', b'\0' * 24)
-    put(root, f'{e}/packed/dirs.bin', bytes([int(height * 10)]) * 96)
-    if complete:
-        put(
-            root,
-            f'{e}/packed/layout.json',
-            json.dumps(dict(shapes=dict(cell_off=[3], dirs=[4, 3]), dtypes=dict(cell_off='i8', dirs='f8'))),
-        )
-        put(root, f'{e}/packed/complete.json', '{"cells": 2}\n')
+    folder = root / e / 'packed'
+    packed = PackedCache(folder)
+    def cell(index):
+        host = {k: np.zeros((2, *TRAIL.get(k, ())), DTYPES[k]) for k in FIELDS}
+        host['dirs'].fill(height)
+        host['edges'] = np.array([0., 1., 0., 1.])
+        host['edge_off'] = np.array([0, 2, 4], dtype='u4')
+        return host, dict(rays=2, edges=4, samples=2, nq=1)
+
+    packed.build(2, cell)
+    if not complete:
+        (folder / 'complete.json').unlink()
     return e
 
 

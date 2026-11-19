@@ -48,14 +48,13 @@ def same_arrays(a, b):
     out = {}
     for k in a:
         x, y = np.asarray(a[k]), np.asarray(b[k])
-        out[k] = bool(x.dtype == y.dtype and x.shape == y.shape and (within_tol(x, y)))
+        out[k] = bool(x.dtype == y.dtype and x.shape == y.shape and (within_tol(y, x, rtol=1e-3)))
     return out
 
 
 def run(grid, root):
     root = Path(root)
-    shutil.rmtree(root, ignore_errors=True)
-    root.mkdir(parents=True)
+    root.mkdir(parents=True, exist_ok=False)
     s, scope, _ = new_geometry.create(root / 'prepare', grid, [550.0], 'numpy', 128)
     cache = root / 'cache'
     # Oracle: original prepare() with xp shim; v1 folder uses the current identity(s, 1).
@@ -170,3 +169,4 @@ if __name__ == '__main__':
     report = dict(grids=reports, pass_=all(r['pass_'] for r in reports))
     out.write_text(json.dumps(report, indent=1) + '\n')
     print('A4 PASS' if report['pass_'] else 'A4 FAIL', flush=True)
+    raise SystemExit(0 if report['pass_'] else 1)

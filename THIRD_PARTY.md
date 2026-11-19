@@ -180,6 +180,7 @@ University of Bremen (https://www.iup.uni-bremen.de/gruppen/molspec/); `sources.
 and SHA-256. The IUP Bremen pages publish the data base for download with a request to cite the two papers below; no
 licence text accompanies the file. We converted the units from cm² to m², relabelled the wavelengths to air and
 interpolated once onto the 0.1 nm grid.
+Zenodo publishes the same measurements under CC BY 4.0 (DOI [10.5281/zenodo.5793206](https://doi.org/10.5281/zenodo.5793206), version 1.0, 2014-02-24). Its `SerdyuchenkoGorshelev5digits_latest.dat` differs byte-for-byte from the IUP file identified by `sources.ozone.sha256`.
 
 References: Serdyuchenko, A., Gorshelev, V., Weber, M., Chehade, W., Burrows, J. P. (2014). *High spectral resolution
 ozone absorption cross-sections – Part 2: Temperature dependence.* Atmos. Meas. Tech., 7, 625–636. Gorshelev, V.,

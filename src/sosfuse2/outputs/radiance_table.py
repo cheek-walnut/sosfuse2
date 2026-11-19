@@ -153,6 +153,8 @@ def make_table(s, source, hs, el, az, group=32, batch=25, log=print):
     """
     from sosfuse2.foundation.timers import stage
 
+    if group < 1:
+        raise ValueError('E_TABLE_GROUP: group must be positive')
     if batch < 1:
         raise ValueError('E_TABLE_BATCH: batch must be positive')
     kernel = s.kernel
@@ -226,7 +228,7 @@ def exports_first_order(meta):
     return bool(settings.get('export_first_order'))
 
 
-def first_order_complete(out, meta=None):
+def first_order_complete(out, meta=None, *, first_path=None):
     """Check the stored first-order array, axes and units before reusing an export.
 
     Without readable metadata the export setting is unknown and the table/pack rule of the caller decides.
@@ -236,7 +238,7 @@ def first_order_complete(out, meta=None):
             meta = json.loads((Path(out) / 'meta.json').read_text())
         except (OSError, ValueError):
             return True
-    if not isinstance(meta, dict):
+    if not isinstance(meta, dict) or meta.get('complete') is False:
         return False
     try:
         exported = exports_first_order(meta)
@@ -248,7 +250,7 @@ def first_order_complete(out, meta=None):
     if not isinstance(first, dict) or first.get('file') != 'first_order.npz':
         return False
     try:
-        with (np.load(Path(out) / first['file'], allow_pickle=False) as saved,
+        with (np.load(first_path or Path(out) / first['file'], allow_pickle=False) as saved,
               np.load(Path(out) / 'table.npz', allow_pickle=False) as total):
             radiance = saved['radiance']
             shape = []
@@ -264,9 +266,35 @@ def first_order_complete(out, meta=None):
         return False
 
 
+TABLE_AXES = ('solar_elevation_deg', 'view_elevation_deg', 'relative_azimuth_deg', 'wavelength_nm')
+
+
+def read_table(path):
+    with np.load(path, allow_pickle=False) as archive:
+        axes = tuple(archive[k] for k in TABLE_AXES)
+        radiance = archive['radiance']
+        if (any(axis.ndim != 1 or not axis.size or axis.dtype.kind not in 'fiu' or not np.isfinite(axis).all() for axis in axes)
+                or radiance.shape != tuple(len(axis) for axis in axes)
+                or radiance.dtype != np.dtype('f4') or not np.isfinite(radiance).all()
+                or archive['units'].item() != UNITS):
+            raise ValueError('E_TABLE_ARRAY: invalid axes, radiance or units')
+        return axes, radiance
+
+
 def table_meta_path(path):
     path = Path(path)
     return path.with_name('meta.json' if path.name == 'table.npz' else path.name + '.meta.json')
+
+
+def mark_incomplete(table):
+    meta_path = table_meta_path(table)
+    if not (meta_path.exists() or table.exists()):
+        return
+    meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}
+    meta['complete'] = False
+    tmp = meta_path.with_name(meta_path.name + '.tmp')
+    tmp.write_text(json.dumps(meta, indent=2, allow_nan=False) + '\n')
+    os.replace(tmp, meta_path)
 
 
 def save_table(path, table, wl, hs, el, az):
@@ -394,25 +422,30 @@ def restored_settings(path, state, reduced, backend):
     from ..atmosphere.components import canonical_state
     from ..jobs.run_state import effective_tol, resolve_settings, settings_for
 
-    with np.load(path) as data:
-        wl = np.asarray(data['wavelength_nm'])
-        if 'source_contract' not in data.files:
-            raise ValueError('E_SOURCE_CONTRACT: source contract missing')
-        try:
-            contract = json.loads(str(data['source_contract']))
-            cfg = contract['settings']
-            if not isinstance(cfg, dict):
-                raise ValueError('settings missing')
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError('E_SOURCE_CONTRACT: ' + str(exc)) from exc
+    try:
+        with np.load(path) as data:
+            wl = np.asarray(data['wavelength_nm'])
+            if 'source_contract' not in data.files:
+                raise ValueError('E_SOURCE_CONTRACT: source contract missing')
+            try:
+                contract = json.loads(str(data['source_contract']))
+                cfg = contract['settings']
+                if not isinstance(cfg, dict):
+                    raise ValueError('settings missing')
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError('E_SOURCE_CONTRACT: ' + str(exc)) from exc
+    except (EOFError, zipfile.BadZipFile) as exc:
+        raise ValueError(f'E_SOURCE_CONTRACT: unreadable source archive ({type(exc).__name__})') from exc
     check_source_density(contract, state)
     check_source_tol(contract, cfg)
-    legacy_wl = axes(reduced)[0]
+    legacy_wl, legacy_hs, el, az = axes(reduced)
     recorded = np.asarray(cfg.get('wavelengths_nm', legacy_wl))
     if (
         cfg.get('spectral') is None
         and not any(k in cfg for k in ('top_km', 'export_first_order'))
         and effective_tol(cfg) == effective_tol({})
+        and cfg.get('view_shape') == [len(el), len(az)]
+        and np.array_equal(cfg.get('solar_elevation_deg'), legacy_hs)
         and cfg.get('L') == 32
         and cfg.get('wavelengths', len(legacy_wl)) == len(legacy_wl)
         and wl.shape == recorded.shape == legacy_wl.shape
@@ -464,21 +497,13 @@ def restored_axes(cfg):
     return wl, hs, 90 - (np.arange(nr) + 0.5) * 90 / nr, (np.arange(nc) + 0.5) * 180 / nc
 
 
-def restored_table(path, state, cfg, prepare, backend, group, batch, log, *, first_order_out=None, first_order_name='first_order.npz'):
+def restored_table(path, state, cfg, prepare, backend, group, batch, log, *, first_order_out=None, first_order_name='first_order.npz', table_path=None):
     """Replay the production source in the same FW=15 chunks as run_extra()."""
-    from ..solve import ray_geometry as gm
     from ..jobs.run_state import create_configured
 
     if cfg.get('export_first_order') and first_order_out is None:
         raise ValueError('E_FIRST_ORDER_MISSING: restored output requires first_order_out')
 
-    if backend == 'numpy':
-
-        class NumpyScalarKernel(gm.Kernel):
-            def host(self, array):
-                return np.asarray(array)
-
-        gm.Kernel = NumpyScalarKernel
     wl, hs, el, az = restored_axes(cfg)
     chunks = [wl] if len(wl) in (1, 15) else [wl[i : i + 15] for i in range(0, len(wl), 15)]
     pad = lambda c: c if len(c) == 15 or (len(c) == 1 and len(chunks) == 1) else np.r_[c, np.repeat(c[-1], 15 - len(c))]
@@ -523,6 +548,8 @@ def restored_table(path, state, cfg, prepare, backend, group, batch, log, *, fir
             s.kernel.device_constants.clear()
     from ..atmosphere.stratosphere import computed_metadata
 
+    if table_path is not None and cfg.get('export_first_order'):
+        mark_incomplete(table_path)
     first_meta = save_first_order(first_order_out, first_tables, wl, hs, el, az, filename=first_order_name) if cfg.get('export_first_order') else {}
 
     return (
@@ -538,13 +565,6 @@ def build_solver(state, prepare, reduced, backend):
     """Same constructor call as run_state (optics, ground pool, sun columns)."""
     from sosfuse2.solve import ray_geometry as geometry_module
 
-    if backend == 'numpy':
-
-        class NumpyScalarKernel(geometry_module.Kernel):
-            def host(self, array):
-                return np.asarray(array)
-
-        geometry_module.Kernel = NumpyScalarKernel
     wl, _, _, _ = axes(reduced)
     return geometry_module.create(prepare, 'selftest' if reduced else 'full', wl, backend, 128, state)
 
@@ -566,6 +586,8 @@ def main():
     )
     p.add_argument('--batch', type=int, default=25)
     a = p.parse_args()
+    if a.group < 1:
+        p.error('E_TABLE_GROUP: group must be positive')
     if a.batch < 1:
         p.error('E_TABLE_BATCH: batch must be positive')
     from ..jobs.run_state import read_states
@@ -601,8 +623,10 @@ def main():
         wl, hs, el, az = restored_axes(settings)
         table, seconds, create_seconds, total, optical_meta = restored_table(
             a.source, state, settings, a.prepare, a.backend, a.group, a.batch, lambda m: print(m, flush=True),
-            first_order_out=a.out.parent, first_order_name=first_order_name,
+            first_order_out=a.out.parent, first_order_name=first_order_name, table_path=a.out,
         )
+    if not settings.get('export_first_order'):
+        mark_incomplete(a.out)
     save_table(a.out, table, wl, hs, el, az)
     from ..atmosphere.components import physics, optics_state
     from ..jobs.run_state import CONTRACT_VERSION, effective_tol

@@ -43,7 +43,7 @@ def validate(meta, st, expected, contract):
     if expected.get('kernel', {}).get('ground_sh', {}).get('order') != 24:
         raise ValueError('E_ENGINE_GROUND_SH')
     # Check the tolerance included in the signed contract.
-    if engine.ANDERSON_TOLERANCE != contract['tolerance'] or contract['tolerance'] != 0.001:
+    if expected.get('anderson_tol', engine.ANDERSON_TOLERANCE) != 0.001 or contract.get('tolerance') != 0.001:
         raise ValueError('E_ENGINE_TOLERANCE')
     sig, _ = engine.signed_contract(
         st, expected, meta['backend'], False, meta['polarization_model'], meta.get('derived')
@@ -54,6 +54,8 @@ def validate(meta, st, expected, contract):
     chunks = stats if isinstance(stats, list) else [stats]
     if not chunks or any(not isinstance(x, dict) or not x.get('converged') or not all(x['converged']) for x in chunks):
         raise ValueError('E_ENGINE_CONVERGENCE')
+    if any(chunk.get('tolerance') != 0.001 for chunk in chunks):
+        raise ValueError('E_ENGINE_TOLERANCE')
     return dict(tolerance=contract['tolerance'], convergence=stats, signature=sig)
 
 

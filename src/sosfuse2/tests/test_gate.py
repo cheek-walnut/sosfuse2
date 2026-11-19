@@ -566,9 +566,11 @@ def test_gf_fixed_tolerance_and_decision_no_bypass(home, monkeypatch, delta, dec
     sid = F['state']['id']
     out = home / 'gf_test'
     ref = home / 'reference.npz'
-    np.savez(ref, radiance=np.ones((2, 3)))
+    radiance = np.ones((2, 3, 1, 1))
+    coords = {k: np.arange(n) for k, n in zip(gate.TABLE_AXES, radiance.shape)}
+    np.savez(ref, radiance=radiance, **coords)
     M = gate.manifest()
-    M['gf'] = dict(radiance_sha256=gate.sha(np.ones((2, 3))), reference=str(ref))
+    M['gf'] = dict(radiance_sha256=gate.sha(radiance), reference=str(ref))
     gate.jdump(gate.GATE / 'baselines/manifest.json', M)
 
     def fake_child(*a, **kw):
@@ -577,7 +579,7 @@ def test_gf_fixed_tolerance_and_decision_no_bypass(home, monkeypatch, delta, dec
         d.mkdir(parents=True, exist_ok=True)
         t = work / 'tmp' / sid
         t.mkdir(parents=True, exist_ok=True)
-        np.savez(d / 'table.npz', radiance=np.ones((2, 3)) * (1 + delta))
+        np.savez(d / 'table.npz', radiance=radiance * (1 + delta), **coords)
         np.savez(t / 'source.npz', source=np.ones((2, 3)))
         gate.jdump(d / 'meta.json', dict(source_solve=dict(evaluations=3, converged=[True]), kernel={}))
         logs = work / 'logs' / 'fake'

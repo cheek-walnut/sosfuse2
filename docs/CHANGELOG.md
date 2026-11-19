@@ -5,9 +5,14 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 
 ## 1.6.0
 
+- For `--validate-mac`, pass the converged source NPZ with `--full-source` or set `SOSFUSE2_FULL_SOURCE`.
+  The research checkout alone no longer selects it.
 - `anderson_tol` sets the relative convergence tolerance (default 1e-3). Loading a source without a recorded solve
   tolerance raises `E_SOURCE_TOL`. Rerun the solve to regenerate it.
 - Geometry cache keys now use the current source hashes. Existing geometry caches are rebuilt on first use.
+- `jobs.tables_from_sources` checks the identity of an existing output before skipping it. An output whose recorded
+  signature or source digest does not match, including one written by an earlier code version, is refused with
+  `E_OUTPUT_IDENTITY` and kept; write the new tables to a separate output root.
 - Published selftest and gate records omit machine details and recording times. The FX-A description now explains
   its CUDA tolerance check. Wavelength and cache tests accept optional data and scripts through environment variables.
 - The calculation boundary and profile grid share a domain definition. The default boundary remains 80 km. Full-grid

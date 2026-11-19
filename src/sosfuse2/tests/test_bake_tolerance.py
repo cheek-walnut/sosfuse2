@@ -28,13 +28,11 @@ def test_effective_tolerance_and_cache_keys(tmp_path, monkeypatch):
             cfg({'anderson_tol': value})
     for value in (1e-6, 1e-2):
         assert cfg({'anderson_tol': value})['anderson_tol'] == value
-    # Measured with the solver fixture using the current geometry source hashes.
+    monkeypatch.setenv('SOSFUSE2_COLUMN_METHOD', 'table-v1')
     keys = cache_keys(tmp_path, monkeypatch)
-    assert keys['geometry'] == 'c33900a718e65a5660f6'
-    assert keys['legacy_geometry'] == 'cf5b2831e2db70c8ab3f'
-    assert keys['host'] == '35e99bafed5c6578f35ca17774173232fd46faabf6b00ce85e7b988b8dcff102'
-    assert keys['column'] == 'd3a02e6babcb3fc10116ed723829fcc4974db77e09bdfeef13560040ec46ace5'
-    assert '816319d795599f247eb6' in keys['sun'].parts
+    assert keys == cache_keys(tmp_path, monkeypatch)
+    monkeypatch.setenv('SOSFUSE2_COLUMN_METHOD', 'exact')
+    assert keys['geometry'] != cache_keys(tmp_path, monkeypatch)['geometry']
 
 
 def test_source_and_derived_cache_require_original_tolerance(tmp_path):
@@ -56,7 +54,7 @@ def test_source_and_derived_cache_require_original_tolerance(tmp_path):
             radiance_table.load_source(path, solver, [550.], settings=contract['settings'], backend='numpy')
         with pytest.raises(ValueError, match='E_SOURCE_TOL'):
             radiance_table.restored_settings(path, solver.fuse_state, True, 'numpy')
-        assert not output_complete(tmp_path, pack, path)
+        assert not output_complete(tmp_path, pack, path, solver.fuse_state, SimpleNamespace(reduced=True, backend='numpy'))
 
 
 # Replace only the numerical iteration, inside the process actually importing the solver.

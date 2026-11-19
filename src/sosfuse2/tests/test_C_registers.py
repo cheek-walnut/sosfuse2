@@ -1,6 +1,6 @@
 """Query CUDA driver occupancy for one supported configuration; no transport run.
 The historical A/C labels use retired flags and therefore measure the same configuration.
-CLI harness: python -m sosfuse2.tests.test_C_registers --out <dir>  (CUDA driver + CuPy; not a pytest module)."""
+CLI harness: python -m sosfuse2.tests.test_C_registers --out <report.json>  (CUDA driver + CuPy; not a pytest module)."""
 
 import argparse, ctypes, json
 from pathlib import Path
@@ -9,7 +9,7 @@ if __name__ != '__main__':
     import pytest
 
     pytest.skip(
-        'GPU occupancy CLI harness (python -m sosfuse2.tests.test_C_registers --out <dir>)', allow_module_level=True
+        'GPU occupancy CLI harness (python -m sosfuse2.tests.test_C_registers --out <report.json>)', allow_module_level=True
     )
 from sosfuse2.solve.source_solver import Kernel
 import cupy as cp

@@ -27,6 +27,8 @@ def main():
 
     c = read(args.config)
     settings = dict(c['settings'], **arms[args.arm])
+    if settings.get('anderson_tol', engine.ANDERSON_TOLERANCE) != 0.001:
+        raise ValueError('E_TOLERANCE')
     require_legacy_top(settings)
     dump(dest / 'settings.json', settings)
     cfg = engine.settings_for(SimpleNamespace(reduced=False, settings_json=dest / 'settings.json'))

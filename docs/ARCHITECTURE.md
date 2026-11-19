@@ -110,7 +110,7 @@ Four connections are hard to find by name:
 
 ## 6. Known upward imports
 
-Twelve module pairs import from a higher layer inside a function across twenty places, with all module-level imports
+Twelve module pairs import from a higher layer inside a function across twenty-one places, with all module-level imports
 following the layer order. `tests/test_layers.py` lists each pair with its function and reason and fails when the code
 and the list differ in either direction, without comparing the number of occurrences.
 
@@ -126,7 +126,7 @@ and the list differ in either direction, without comparing the number of occurre
 | `rays/column_table.py` | `precompute/host_cache.py` | `tables` | store the profile tables |
 | `solve/source_solver.py` | `outputs/radiance_table.py` | `Solver.boxes_fixed` | fixed-ray observation |
 | `solve/source_solver.py` | `jobs/pipeline_execution.py` | `Solver.initialize` | prepare GPU bundles |
-| `outputs/radiance_table.py` | `jobs/run_state.py` | `load_source`, `restored_settings`, `restored_table`, `main` | restore the settings of a saved source |
+| `outputs/radiance_table.py` | `jobs/run_state.py` | `load_source`, `check_source_tol`, `restored_settings`, `restored_table`, `main` | restore the settings of a saved source |
 | `checks/testkit.py` | `asset_tools/generate_minor_absorbers.py` | `synthetic_o4` | grid constants of the O₄ generator |
 
 To add one, write the function-level import and add the row with its reason to `tests/test_layers.py` and to the table

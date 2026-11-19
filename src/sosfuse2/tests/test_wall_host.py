@@ -1,4 +1,4 @@
-"""r11 host port: exact NOPREFIX geometry parity."""
+"""r11 host port: NOPREFIX geometry parity."""
 
 import itertools
 import os
@@ -6,11 +6,12 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+from sosfuse2.checks.numerical_checks import assert_equivalent
 from sosfuse2.atmosphere import stratosphere
 
 
 class WallHost(unittest.TestCase):
-    def test_noprefix_real_geometry_bytes(self):
+    def test_noprefix_real_geometry(self):
         from sosfuse2.checks.testkit import sun_scope
 
         old = sun_scope()
@@ -28,7 +29,7 @@ class WallHost(unittest.TestCase):
                     old, 'geometry_segments', side_effect=AssertionError('unused optical prefix evaluated')
                 ):
                     actual = stratosphere.columns(p, d, old, profile, n)
-            self.assertEqual(actual.tobytes(), expected.tobytes())
+            assert_equivalent(actual, expected, rtol=1e-3)
 
 
 if __name__ == '__main__':

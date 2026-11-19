@@ -48,6 +48,8 @@ token-like values removed."""
 import argparse, contextlib, errno, fcntl, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, uuid, zipfile
 from pathlib import Path
 from threading import Event, Timer
+from math import prod
+from sosfuse2.precompute.endpoint_contract import DTYPES, TRAIL, PACKED_LAYOUT_VERSION
 from sosfuse2.foundation import paths
 
 # No built-in store: the remote, the rclone config and the mirror are the operator's.
@@ -220,7 +222,7 @@ def _endpoints(root, key):
     d = root / key
     packed = d / 'packed'
     for name in ('identity.json', 'source_height.json', 'packed/complete.json', 'packed/layout.json'):
-        if not (d / name).is_file():
+        if (d / name).is_symlink() or not (d / name).is_file():
             return None, 'incomplete: no ' + name
     try:
         marker = json.loads((packed / 'complete.json').read_text())
@@ -228,12 +230,39 @@ def _endpoints(root, key):
         if not isinstance(height, dict) or 'height' not in height or not isinstance(marker, dict) or 'cells' not in marker:
             return None, 'incomplete: endpoint metadata'
         layout = json.loads((packed / 'layout.json').read_text())
-        for field, shape in layout['shapes'].items():
-            n = 1
-            for x in shape:
-                n *= int(x)
-            if (packed / (field + '.bin')).stat().st_size != n * ITEMSIZE[layout['dtypes'][field]]:
-                return None, 'incomplete: size ' + field
+        if not isinstance(layout, dict) or layout.get('version') != PACKED_LAYOUT_VERSION:
+            return None, 'incomplete: layout version'
+        counts = [layout[k] for k in ('cells', 'rays', 'edges')]
+        if any(type(n) is not int or n < 0 for n in counts) or counts[0] == 0:
+            return None, 'incomplete: endpoint counts'
+        cells, rays, edges = counts
+        if any(type(marker.get(k)) is not int or marker[k] != layout[k] for k in ('cells', 'rays', 'edges')):
+            return None, 'incomplete: completion counts'
+        sizes = dict(cell_off=cells + 1, starts=cells, targets=cells, edge_off=rays + 1, edges=edges)
+        shapes = {k: [sizes.get(k, rays), *TRAIL.get(k, ())] for k in DTYPES}
+        if (layout['dtypes'] != DTYPES or layout['shapes'] != shapes
+                or any(type(n) is not int for shape in layout['shapes'].values() for n in shape)):
+            return None, 'incomplete: packed arrays'
+        for key_name, shape in shapes.items():
+            file = packed / (key_name + '.bin')
+            if file.is_symlink() or not file.is_file() or file.stat().st_size != prod(shape) * ITEMSIZE[DTYPES[key_name]]:
+                return None, 'incomplete: size ' + key_name
+        journal = packed / 'journal.jsonl'
+        if journal.is_symlink() or not journal.is_file():
+            return None, 'incomplete: journal'
+        with journal.open() as stream:
+            rows = 0
+            total_rays = total_edges = 0
+            for line in stream:
+                row = json.loads(line)
+                if (not isinstance(row, dict) or type(row.get('cell')) is not int or row['cell'] != rows
+                        or any(type(row.get(k)) is not int or row[k] < 0 for k in ('rays', 'edges'))):
+                    return None, 'incomplete: journal cell'
+                total_rays += row['rays']
+                total_edges += row['edges']
+                rows += 1
+            if (rows, total_rays, total_edges) != (cells, rays, edges):
+                return None, 'incomplete: journal counts'
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return None, f'incomplete: layout {type(exc).__name__}'
     files = ['identity.json', 'source_height.json'] + sorted(
@@ -931,7 +960,7 @@ def _anonymous(info):
 
 
 def pack_for_rig(keys, out, local=None, remote=None):
-    """R2 cache input for a rig bake (extract_to: work): a plain tar of cache/<unit files> (the local layout). From a
+    """Cache input archive for a bake (extract_to: work): a plain tar of cache/<unit files> (the local layout). From a
     local mirror, else the selected units are pulled into a temporary mirror next to out first. A failure leaves
     neither the temporary mirror nor a partial tar, so the same command can simply be run again."""
     out = Path(out).resolve()

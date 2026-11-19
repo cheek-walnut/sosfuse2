@@ -179,11 +179,14 @@ def _validated(z_km, table, mask, normalize_ozone, scale):
     if not np.isfinite(t).all() or np.any(t < 0):
         raise ValueError('E_PROFILE_TABLE: finite non-negative values required')
     with np.errstate(over='ignore'):
-        if not np.isfinite(t.astype('f4')).all():
+        t32 = t.astype('f4')
+        if not np.isfinite(t32).all():
             raise ValueError('E_PROFILE_TABLE: values overflow the FP32 upload')
     if isinstance(mask, (bool, np.bool_)) or not isinstance(mask, (int, np.integer)) or not 0 <= int(mask) <= 3:
         raise ValueError('E_PROFILE_MASK: integer 0..3 required (bit 1 air, bit 2 ozone)')
     mask = int(mask)
+    if mask & 1 and t32[0, 0] < np.finfo(np.float32).tiny:
+        raise ValueError('E_PROFILE_AIR: surface air density is too small for FP32')
     if mask & 1 and np.any(t[:, 0] <= 0):
         raise ValueError('E_PROFILE_AIR: an active air column must be positive')
     if not isinstance(normalize_ozone, (bool, np.bool_)):

@@ -58,9 +58,9 @@ class ColumnParallelTests(unittest.TestCase):
             options.settings_json = Path(tmp) / 'settings.json'
             options.settings_json.write_text(json.dumps(dict(nr=20, h_refine='none', nphi=64)))
             cls.p = plan_queue.probe(
-                state, rv.settings_for(options), tp.DATA / 'results/sos_fuse/geometry_cache', Path(tmp)
+                state, rv.settings_for(options), tp.DATA['geometry_cache'], Path(tmp)
             )
-        host, _ = gm.PackedCache(tp.DATA / 'results/sos_fuse/geometry_cache' / tp.SIGNATURE / 'packed').open()
+        host, _ = gm.PackedCache(tp.DATA['geometry_cache'] / tp.SIGNATURE / 'packed').open()
         cls.rays = rays = 404496
         co = np.asarray(host['cell_off'])
         cls.cells = cells = int(np.searchsorted(co, rays))
