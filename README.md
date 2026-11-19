@@ -17,14 +17,14 @@ every table with the hashes of the code and data that produced it.
 5. `python -m sosfuse2 walkthrough` runs a small example through these three calls. `docs/ARCHITECTURE.md` explains the
    layers, and `AGENTS.md` lists the files to open first for each kind of task.
 
-This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together, the versions
-from 1.3.0 on were published one by one. Release 1.6.0 lets full-grid runs extend above the default 80 km boundary. For users of 1.3.x, 1.4.0 moves the module paths into layer folders, with the old-to-new
-table in `docs/CHANGELOG.md`.
-`docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records the configurations the releases
-were verified on. The change that matters most for default output is in 1.5.0: a state without a `density` block now
-uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (*Limitations*). In 1.2.3 the bundled
-`states_v2.json` states began to include the stratospheric sulfate layer, and the CLI has no `--stratosphere off`
-option. The changelog explains how to reproduce the earlier output.
+This is research code, published in the form we use it. Versions 1.0.0 to 1.2.3 were published together; the versions
+from 1.3.0 on were published one by one. Release 1.6.0 lets full-grid runs extend above the default 80 km boundary.
+If you upgrade from 1.3.x, note that 1.4.0 moves the module paths into layer folders; the old-to-new table is in
+`docs/CHANGELOG.md`. `docs/CHANGELOG.md` lists the releases since 1.2.0, and *Tested configurations* records where and
+how each release was verified. The change that matters most for default output is in 1.5.0: a state without a
+`density` block now uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (*Limitations*). In 1.2.3 the
+bundled `states_v2.json` states began to include the stratospheric sulfate layer, and the CLI has no
+`--stratosphere off` option. The changelog explains how to reproduce the earlier output.
 
 ![Engine and MYSTIC radiance and ratios for eight bundled states at solar zenith angles 93 and 96
 degrees](docs/validation/mystic_states.png)
@@ -33,8 +33,8 @@ Radiance of the engine (1.2.3, with `usstd76`/`usstd76`/`usstd`, the default den
 the Monte Carlo code MYSTIC on the same optical input, for eight bundled states at solar zenith angles 93° and 96°: (a) L/E₀ of `clear_87` at the sun-side pixel 20.25° / 0.5°, (b) the ratio MYSTIC /
 engine for the eight states and their mean, (c) the luminance ratio at six pixels with 95 % intervals over 16 seeds.
 Over the 96 cases the ratio minus 1 has a mean of +0.10 % and a root mean square of 0.63 %. At 93° the mean is +0.13 %
-with a root mean square of 0.26 %, and 15 of the 48 intervals exclude 1; at 96° the root mean square of 0.85 % is of the
-size of the Monte Carlo error. `docs/VALIDATION.md` gives the details, and the scripts in `docs/validation/mystic`
+with a root mean square of 0.26 %, and 15 of the 48 intervals exclude 1; at 96° the root mean square of 0.85 % is
+comparable to the Monte Carlo error. `docs/VALIDATION.md` gives the details, and the scripts in `docs/validation/mystic`
 repeat the comparison.
 
 ## Why a spherical-shell solver
@@ -58,7 +58,7 @@ options listed under *Limitations* (`density_profile: usstd76`, `ozone_profile: 
 and the default stratospheric layer of the bundled states, centred at 21 km with τ550 0.002–0.006. Because both codes
 read the same input, the comparison tests the transport rather than the input physics. At 93° the luminance agrees with
 MYSTIC to within 0.8 % (−0.30 % to +0.77 %) in all 48 combinations of state and pixel, with MYSTIC 0.18 % to 0.35 %
-brighter in the mean at elevations up to 20.25°, and a grid of 0.25° in solar zenith angle instead of 0.5° removes part
+brighter in the mean at elevations up to 20.25°. A grid of 0.25° in solar zenith angle instead of 0.5° removes part
 of this difference. At 96° the 95 % interval of the luminance difference excludes 0 in 2 of 48 combinations, as many as
 chance would give; with the standard errors at 96° given above, a difference of the size seen at 93° would not be
 resolved there. The MYSTIC build reproduces the 120 cells of the spherical Rayleigh benchmark of Korkin et al. (2020) to
@@ -119,7 +119,7 @@ regressions across refactors and other hardware; they do not measure physical ac
 - The tables hold total radiance only. The solver follows Rayleigh polarisation internally and treats aerosol scattering
   as depolarising, but writes no Stokes parameters.
 - The numeric tolerances bound the discretisation and iteration error against fixed references of the same model. They
-  say nothing about the physical error.
+  do not measure the physical error.
 - We have not compared the colours with measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026).
 
 ## Install
@@ -159,7 +159,7 @@ python -B -m sosfuse2.jobs.run_state --id clear_34 --reduced --backend numpy --t
 ```
 
 The table and its `meta.json` land under `./work/out/clear_34/`. `meta.json` carries `contract: "v5"`, the state, the
-backend, the tolerance settings and the `code_hashes` of a fixed list of production modules, promoted solver definitions
+backend, the tolerance settings and the `code_hashes` of a fixed list of production modules, solver sources
 and data assets, plus a `signature` over them. `docs/PROVENANCE_V3.md` defines the record and explains how readers that
 also hold older `v3` tables compare them by logical key.
 
@@ -175,10 +175,10 @@ To avoid that download, explicitly set all three density options to `exp8`/`tria
 
 The state ids come from `sosfuse2/assets/states_v2.json`, the default `--states` file. It holds 64 parameter sets over
 `aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo` and `stratosphere_tau550`; `states_v1.json`
-holds the 40 first-generation states. Solar depression is the runner's own axis, set by `solar_elevation_deg` in its
+holds the 40 first-generation states. Solar elevation is the runner's own axis, set by `solar_elevation_deg` in its
 settings, and is not part of a state. All 64 states in `states_v2.json` mark the stratospheric layer `enabled`, so it
-is on when `--stratosphere` is omitted. The first-generation `states_v1.json` retains `unsupported`; its layer stays
-off unless `--stratosphere on` is given. A full-resolution table needs the CUDA backend (`--backend cupy`).
+is on when `--stratosphere` is omitted. The first-generation `states_v1.json` marks the layer `unsupported`, so it
+stays off unless `--stratosphere on` is given. A full-resolution table needs the CUDA backend (`--backend cupy`).
 The production queue that bakes many states with overlapping preparation is `python -B -m sosfuse2.jobs.pipeline`.
 
 ### Production queues and gates
@@ -206,7 +206,7 @@ The following matters for production queues and gates rather than for a first so
   processes are described in [Environment variables](docs/ENVIRONMENT.md#host-rss-limits).
 - `plan_queue` stops with `E_PLAN_CPU_BUDGET` when GPUs x workers per GPU x column workers exceed `pipeline.cpu_budget()`.
   That bounds what the plan asks for; `jobs/pipeline.py` can still widen a state's column pool, so it is not a CPU quota.
-  The plan also lists the `ground_aerosol01` host cache that follows `ground`, with an unmeasured cost.
+  The plan also lists the `ground_aerosol01` host cache that follows `ground`, with an unmeasured run-time cost.
 - `tables_from_sources` holds `<out>/.worker.lock`, the lock that `run_state` takes for the same output, while it
   builds a state. It skips a state that a worker owns, and a worker that starts meanwhile stops with `E_OUTPUT_BUSY`.
 - Pipeline logs go to a separate `logs/<run>/` directory per invocation, referenced from `pipeline_summary.json`, so cold
@@ -216,8 +216,8 @@ The following matters for production queues and gates rather than for a first so
   the free device memory minus 1 GiB, or `SOSFUSE2_POOL_LIMIT_GIB` in GiB when that is smaller; a value that truncates
   to less than one byte is rejected, and a card with less than 4 GiB free stops with `E_VRAM_FREE: need at least 4 GiB
   free`. This replaces the 1.3.4 cap of min(20 GiB, free − 1 GiB), under which a state needing more than 20 GiB failed
-  admission on any card with `E_PERSISTENT_VRAM_ADMISSION`. Several pipeline processes on one GPU each size their pool
-  from the free memory they see at start, so set `SOSFUSE2_POOL_LIMIT_GIB` to split a card between them. When the
+  admission on any card with `E_PERSISTENT_VRAM_ADMISSION`. When several pipeline processes share one GPU, each sizes its
+  pool from the free memory it sees at startup, so set `SOSFUSE2_POOL_LIMIT_GIB` to divide a card among them. When the
   persistent service admits a state, it uses `SOSFUSE2_FIELD_RESERVE` as the requested field reserve factor (default 30).
   If a lone state exceeds capacity at that factor but fits at `SOSFUSE2_FIELD_RESERVE_MIN`, the service lowers the
   applied factor to fit available memory. A smaller reserve admits larger states or more states at
@@ -230,7 +230,7 @@ The gates judge correctness by tolerances against fixed references rather than b
 
 | gate | compares | tolerance |
 |---|---|---|
-| G-P | CUDA kernel vs NumPy golden (fixed applies) | rtol 1e-3 |
+| G-P | CUDA kernel vs NumPy golden (fixed number of apply steps) | rtol 1e-3 |
 | G-T | anchor radiances (`checks/gate_data/anchors.json`) | ratchet, recorded |
 | G-A / H / PS | queue parity, history, persistent service | per case |
 | repeat (`gate --stage`) | same build, cold vs warm, repeated runs | rtol 1e-5, max difference recorded |
@@ -271,7 +271,7 @@ Configurations verified for 1.5.2, whose numerical code is that of 1.5.0:
 | platform | Python | backend | what was run |
 |---|---|---|---|
 | Linux x86_64, NVIDIA L4, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0, the same gates as for 1.5.0 passed with the same G-H value (max relative difference 1.4e-6); G-F against the fixed reference table: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
-| Linux x86_64 | 3.12 | NumPy | sdist in a fresh virtual environment outside the source tree, as the four shards of the continuous-integration job (pytest-xdist, 4 workers each): 930 passed, 3 xfailed, 0 failed in total, and the 78 skipped cases, of which four files skip at module level and are reported by every shard; the same sdist run serially before the last `flags_env` change gave 930 passed, 78 skipped, 3 xfailed |
+| Linux x86_64 | 3.12 | NumPy | sdist in a fresh virtual environment outside the source tree, as the four shards of the continuous-integration job (pytest-xdist, 4 workers each): 930 passed, 3 xfailed and 0 failed in total, with 78 skipped cases, among them four files that skip at module level and are reported by every shard; the same sdist run serially before the last `flags_env` change gave 930 passed, 78 skipped, 3 xfailed |
 | macOS arm64 | 3.14 | NumPy | sdist in a fresh virtual environment outside the source tree, run as in the continuous-integration job (empty work root, the session fetches the IPRT inputs, no prepared O₄ asset), before the last `flags_env` change, which `test_entry_points` covers: 930 passed, 78 skipped, 3 xfailed, 0 failed |
 
 1.5.1 changes documentation only. Its code is that of 1.5.0, so the 1.5.0 rows apply to it. Apart from the
@@ -378,7 +378,8 @@ The CPU solver functions live in the importable modules `rays/shell_segments.py`
 `rays/incoming_rings.py`, `rays/zenith_interpolation.py`, `atmosphere/extinction.py`, `solve/engine_core.py` and
 `outputs/preview_functions.py`. `solve/engine.py` creates an `EngineContext` for each state and binds only the inputs
 each function reads. `create()` returns `(solver, context, settings)`; use context attributes such as `context.b` and
-`context.Solver`. Read-only scope indexing is deprecated and retained for one release.
+`context.Solver`. Read-only indexing of the context by its former scope-dict keys is deprecated and retained for one
+release.
 `outputs/preview_functions.py` is still read through its own loader in `outputs/pack_state.py`.
 Optical coefficients are kept apart from the column and geometry producers, so coefficient edits do not invalidate
 geometry caches.
@@ -395,8 +396,9 @@ successive-orders mode (Zawada et al. 2015), and vector successive-orders solver
 and Lenoble et al. (2007). Eradiate (Leroy et al. 2026) is a Monte Carlo ray-tracing model built on Mitsuba 3, with
 plane-parallel and spherical-shell atmospheres and polarisation. twilight (Mahdi 2026) computes spectral sky radiance
 through deep twilight by backward Monte Carlo in a spherical refracting atmosphere and adds a model of human visual
-detection at dawn and dusk. sosfuse2 does less than these: one spherical configuration, a source field iterated in place
-of photon sampling, and radiance tables as the only product. Full references are in `docs/REFERENCES.md`.
+detection at dawn and dusk. sosfuse2 is narrower in scope than these codes: it handles one spherical configuration,
+iterates a source field instead of sampling photons, and produces only radiance tables. Full references are in
+`docs/REFERENCES.md`.
 
 ## Maintenance
 

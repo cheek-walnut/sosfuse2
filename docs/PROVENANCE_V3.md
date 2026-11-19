@@ -86,7 +86,7 @@ and `null` in-tree without an install.
 `package_commit` is resolved in this order: `SOSFUSE2_PACKAGE_COMMIT`; the
 installer's `direct_url.json` (`vcs_info.commit_id` of a pip or uv VCS install), used only when the installed
 distribution's `sosfuse2/__init__.py` is this very package; the git HEAD of the checkout whose `src/sosfuse2` is this
-package, where a consumer checkout that merely holds an installed copy is not recorded; else `null`. `gate.commit()`
+package (a consumer checkout that merely holds an installed copy is not recorded); else `null`. `gate.commit()`
 records the same value, or `GATE_SOURCE_COMMIT`.
 
 The gate bless identity (`gate.code_identity`) is the same `package_hashes()` manifest minus `sosfuse2/checks/gate.py`, plus
@@ -111,8 +111,8 @@ In 1.4.0, `foundation/content_identity.py` defines content identity under the ru
 Python sources are hashed without comments and docstrings, C and CUDA sources without comments, JSON files without their
 note keys, and numeric assets without their per-asset description fields. Changes of spacing inside a line or of
 indentation still change the identity, while trailing whitespace and blank lines do not. A comment inside an f-string
-replacement field stays in the identity, a comment line directly after a line continuation (`\`) leaves the blank line
-it needs, and a block comment in the middle of a C line leaves one space.
+replacement field stays in the identity, a comment line directly after a line continuation (`\`) is replaced by the blank line
+that the continuation requires, and a block comment in the middle of a C line is replaced by one space.
 
 State identity leaves out `description`, `note`, `notes`, `note_*`, `*_note`, `group`, `role`, `holdout`,
 `out_of_axis_range` and `q2d_override` and keeps `settings`, `parameters`, `stratosphere` and `density` whole. Every
@@ -128,7 +128,7 @@ v5 with `contract: "v5"` (`jobs/run_state.py` `CONTRACT_VERSION`). Readers still
 of 1.3.4 and earlier refuse v5 tables (`E_PROVENANCE_CONTRACT`). Every cache key changes once and is rebuilt on first
 use. Output folders and saved sources of earlier versions are not resumed or extended (`E_OUTPUT_IDENTITY`,
 `E_EXTRA_SOURCE`), while `outputs/radiance_table` and `jobs/tables_from_sources` keep reading older sources whose
-contract state records the density configuration; from 1.5.0 the others stop with `E_SOURCE_DENSITY`.
+contract state records the density configuration; from 1.5.0 older sources without that record stop with `E_SOURCE_DENSITY`.
 
 From 1.6.0, `source_contract.anderson_tol` must match both the saved and requested solve tolerances.
 Regenerate sources that lack this field (`E_SOURCE_TOL`).

@@ -1105,7 +1105,8 @@ class Kernel(KsplitMixin):
             # WARM_RAYSPLIT is not ported to cell-subset launches.
             if mode != 'single' and (not first):
                 raise ValueError('E_FL_RAYSPLIT_LAUNCH_CELLS: WARM_RAYSPLIT needs one launch per cell grid')
-            # Split launches and SOSFUSE2_FL_PROJECT=1 project first light after processing the ray ranges.
+            # Split launches and, with SOSFUSE2_FL_PROJECT=1, single launches project first light after processing the
+            # ray ranges.
             ray_mode = mode != 'single' or os.environ.get('SOSFUSE2_FL_PROJECT', '').strip() == '1'
             ray_sync = xp.zeros(ncell + 2, 'i4')  # [queue head, cell counters, ray-range end (LAUNCH_RAY_LIMIT)]
             with vram_trace.item('transport.ray_radiance'):

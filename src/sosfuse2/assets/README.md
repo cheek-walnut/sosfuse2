@@ -9,29 +9,29 @@ The JSON assets are frozen inputs. Their digests are pinned or recorded by the c
 `frozen_source_sha256` of the ozone temperature set, the `code_hashes` of every table, and the generated O₄ table, which
 copies `wavelength_reference` from `spectra_fine.json`. Their embedded provenance strings, including the historical path
 labels (`scripts/sosfuse2/...`), which are not paths in this package, may be rewritten: the registered numeric assets
-leave them out of their identity (`content_identity.ASSET_NOTES`), and `content_identity.ASSET_SUPERSEDED` maps the byte
-digest of each earlier published file to that identity. State files leave out only note keys and state labels, and the
-other files are hashed byte for byte, so an edit there changes the identity.
+leave them out of their content identity (`content_identity.ASSET_NOTES`), and `content_identity.ASSET_SUPERSEDED` maps
+the byte digest of each earlier published file to that content identity. State files leave out only note keys and state
+labels, and the other files are hashed byte for byte, so an edit to one of them changes its content identity.
 
 | file | what | origin | terms |
 |---|---|---|---|
 | `tropo_rural_sf79_rh70.json` | tropospheric rural aerosol Mie table (phase matrix, cross sections) | this project (`asset_tools/generate_tropo_optics.py`, Bohren–Huffman spheres); input parameters from Shettle & Fenn 1979, validation rows from LOWTRAN7 | CC0 1.0 (project values); the `lowtran7.rows[*].*_lowtran` fields are LOWTRAN7 table values (U.S. Government work, THIRD_PARTY.md §6) |
 | `strato_sulfate_rg0.08_sg1.6_n1.43.json` | stratospheric sulfate Mie table | this project (`asset_tools/generate_strato_optics.py`) | CC0 1.0 |
 | `temperature_usstd76.json` | US Standard Atmosphere 1976 temperature profile | US Standard Atmosphere 1976 geopotential-altitude lapse-rate formulas | CC0 1.0 |
-| `upper_air_us76_neff.json` | 80–200 km effective Rayleigh number-density ratio | US76 species densities from `ussa1976` 0.3.4 | See THIRD_PARTY.md §8 in the repository root or the installed distribution’s `.dist-info/licenses` directory. |
+| `upper_air_us76_neff.json` | 80–200 km effective Rayleigh number-density ratio | US76 species densities from `ussa1976` 0.3.4 | See THIRD_PARTY.md §8 in the repository root or in the installed distribution's `.dist-info/licenses` directory. |
 | `states_v1.json`, `states_v2.json`, `states_v1_usstd.json` | state (parameter) sets of the baked tables | this project | CC0 1.0 |
 | `rgb_weights.npy` | 15-bin RGB weights derived from the CIE tables below | this project | CC0 1.0 (project contribution); derived from the CIE tables, see THIRD_PARTY.md §1–2 |
 | `kernel_C2_strato_base.cu`, `kernel_strato_off_baseline.cu` | frozen kernel snapshots used by the static kernel tests | this project | MIT (code) |
 | `spectra.json` | 48-band solar irradiance and ozone cross sections | Eric Bruneton, *precomputed_atmospheric_scattering* `demo.cc` | BSD-3-Clause, see THIRD_PARTY.md |
 | `no2_afglus_profile.json` | AFGL US Standard NO₂ vertical profile | AFGL atmospheric constituent profiles | U.S. Government work; THIRD_PARTY.md §13 |
 | `no2_vandaele1998_fine.json` | 220 K NO₂, 0.1 nm cell means | Vandaele et al. 1998, BIRA-IASB dataset DOI 10.18758/6b80spv8 | CC BY 4.0; THIRD_PARTY.md §11 |
-| `spectra_fine.json`, `spectra_fine_temperature.json` | 0.1 nm solar irradiance and ozone cross sections (several temperatures) | TSIS-1 HSRS v2 (LASP) and Serdyuchenko & Gorshelev 2014 ozone cross sections (IUP Bremen), resampled by this project; `sources` key inside the files | publishers' citation terms, redistribution not confirmed with them (THIRD_PARTY.md §4–5). Zenodo publishes the same measurements under CC BY 4.0 (DOI [10.5281/zenodo.5793206](https://doi.org/10.5281/zenodo.5793206), version 1.0, 2014-02-24). Its `SerdyuchenkoGorshelev5digits_latest.dat` differs byte-for-byte from the IUP file identified by `sources.ozone.sha256`. |
+| `spectra_fine.json`, `spectra_fine_temperature.json` | 0.1 nm solar irradiance and ozone cross sections (several temperatures) | TSIS-1 HSRS v2 (LASP) and Serdyuchenko & Gorshelev 2014 ozone cross sections (IUP Bremen), resampled by this project; `sources` key inside the files | publishers' citation terms, redistribution not confirmed with them (THIRD_PARTY.md §4–5). Zenodo publishes the same measurements under CC BY 4.0 (DOI [10.5281/zenodo.5793206](https://doi.org/10.5281/zenodo.5793206), version 1.0, 2014-02-24). Its `SerdyuchenkoGorshelev5digits_latest.dat` is not byte-identical to the IUP file identified by `sources.ozone.sha256`. |
 | `cie1931_5nm_local.json`, `cmf_1nm.json` | CIE 1931 2° colour matching functions, 5 nm and 1 nm | CIE standard data, copy shipped by Mitsuba 3.9.1 | CIE: CC BY-SA 4.0; Mitsuba copy: BSD-3-Clause (THIRD_PARTY.md §1) |
 | `lef_cie.json` | CIE 1924 photopic and 1951 scotopic luminous efficiency | CIE standard data, copy shipped by colour-science 0.4.7 | CIE: CC BY-SA 4.0; colour-science copy: BSD-3-Clause (THIRD_PARTY.md §2) |
 
-Two inputs are not bundled. The IPRT files of the `usstd76` density asset, `tau_rayleigh_450nm_usstd.dat` and
-`tau_absorption_320nm_usstd.dat` from the phase E page of the IPRT intercomparisons, are downloaded from their original
-server on first use and verified by SHA-256 (`asset_tools/iprt.py`, `asset_tools/generate_density_profile.py`); their terms were not confirmed, so
-they are not redistributed here. The O₄ table is prepared with `python -m sosfuse2.asset_tools.prepare_minor_absorbers --cia FILE`, or
+Two inputs are not bundled. The IPRT files of the `usstd76` density asset (`tau_rayleigh_450nm_usstd.dat` and
+`tau_absorption_320nm_usstd.dat`, from the phase E page of the IPRT intercomparisons) are downloaded from their original
+server on first use and verified by SHA-256 (`asset_tools/iprt.py`, `asset_tools/generate_density_profile.py`). Their
+terms were not confirmed, so they are not redistributed here. The O₄ table is prepared with `python -m sosfuse2.asset_tools.prepare_minor_absorbers --cia FILE`, or
 with an explicit `--download`, and is written into the work root rather than into the package; the HITRAN2024 original and
 the derived data are not redistributed (THIRD_PARTY.md §12).

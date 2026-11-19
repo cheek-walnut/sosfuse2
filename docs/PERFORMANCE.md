@@ -2,9 +2,9 @@
 
 The measurements show where solve time goes, how close the kernels get to hardware limits and what each change achieved. One
 question remains open. The solver is fast enough for its purpose, as discussed under
-*Headroom*, but its main kernel has never been bound by memory bandwidth or by arithmetic throughput, and profiling found
-`long_scoreboard` as its largest measured stall reason in earlier probes without accounting for all stalled cycles.
-The 1.2.1 release probe found `wait` first and `long_scoreboard` second.
+*Headroom*, but its main kernel has never been bound by memory bandwidth or by arithmetic throughput. Earlier probes found
+`long_scoreboard` to be its largest measured stall reason, although the measured reasons did not account for all stalled
+cycles. The 1.2.1 release probe found `wait` first and `long_scoreboard` second.
 The last section asks how to reduce the work per sample.
 
 The research records contain measurements on three cards: a GeForce
@@ -46,7 +46,7 @@ with enough shared memory for 5 blocks per SM.
 CUDA transport stages and feature policies are in `src/sosfuse2/backends/kernel.cu`. Host launch planning lives in
 `src/sosfuse2/solve/source_solver.py` and, for the split path, `src/sosfuse2/solve/ksplit.py`.
 
-`KSPLIT=3` needs the column records of a whole bundle in device memory. Each record now holds six floats (24 B),
+`KSPLIT=3` needs the column records of a whole chunk in device memory. Each record now holds six floats (24 B),
 one for each of the five component columns and one for the stratospheric column. The consumer computes the
 quadrature path weight with the sample and carries it in the 112 B `PointM2` layout.
 
@@ -177,15 +177,15 @@ fourth block through `__launch_bounds__` a candidate for the next experiment, no
 The five kernels `sos_fused` slimray, `sos_vprod`, `sos_slim_proj`, `vp_scatter` and `sos_vprod_y` account for 88.7 % of
 evaluation kernel time in the pre-1.1.0 profile. Taking each to its own limiting unit at that workload shortens the
 kernel time of an evaluation by 1.72× (1.50× if `sos_slim_proj` is already at its limit). Wall time of an evaluation
-moves by 1.36–1.49× with the same host gaps and by 1.9–2.2× if they were removed entirely (*estimate*). Across cards the kernel
+shortens by 1.36–1.49× with the same host gaps and by 1.9–2.2× if they were removed entirely (*estimate*). Across cards the kernel
 time of a state follows t ∝ (SM count × clock)^−0.67 in the research records, which implies about 1.6× when
 doubling the SM count at the same clock.
 The kernel figures above point to issue and latency as possible reasons for incomplete scaling, but the fit has three
 anchor points and two parameters, mixes power regimes and `KSPLIT` paths, and includes tails from kernels with small
 grids. The exponent is a clue, not evidence that establishes the bottleneck.
 
-The pre-1.1.0 research kernel took 76 s of wall time per state of 25 solar elevations, 100 × 180 directions and
-45 bands with two states overlapped. The Monte Carlo alternative needed 17× to over 1,800× that
+With two states overlapped, the pre-1.1.0 research kernel took 76 s of wall time per state of 25 solar elevations,
+100 × 180 directions and 45 bands. The Monte Carlo alternative needed 17× to over 1,800× that time
 for one solar elevation at the same colour noise (see `docs/VALIDATION.md` and the research records, §3).
 The estimates then put the remaining room to shorten the solve at 1.5–1.7×.
 
@@ -196,7 +196,7 @@ product state, from 151.0 to 106.9 s (−29 %), or 53.5 s per solve. In a separa
 
 | change | result | kept? |
 |---|---|---|
-| **Wavefront streaming consumer (`SLIM_STREAM`).** Split slimray into a geometry pass that materialises every sample (thread = sample) and a consumer with no lane communication (thread = ray × wavelength lane), the textbook un-fusing. | The micro-benchmark showed 3.3–5.4× per sample against a baseline of 6.49 ns/sample. Integrated into production and measured on three cards, the kernel time per sample went 4090 0.55 → 1.00 ns, L4 2.44 → 2.84 ns, 3080 2.21 → 1.94 ns, and solve wall time rose 23 % (4090), 8.6 % (L4) and 0–10 % (3080). **The baseline had been overstated 1.9–2.9×**: the micro-benchmark divided a state's slimray time by the samples of one bundle instead of three, and discarded the production timer as "asynchronous" when it was event-synchronised. The streaming formulation moves about 508 B per sample through DRAM against 276 B for the fused consumer (*estimate*) and cannot win even with zero launch gaps. | reverted |
+| **Wavefront streaming consumer (`SLIM_STREAM`).** Split slimray into a geometry pass that materialises every sample (thread = sample) and a consumer with no lane communication (thread = ray × wavelength lane), the textbook un-fusing. | The micro-benchmark showed 3.3–5.4× per sample against a baseline of 6.49 ns/sample. Integrated into production and measured on three cards, the kernel time per sample went 4090 0.55 → 1.00 ns, L4 2.44 → 2.84 ns, 3080 2.21 → 1.94 ns, and solve wall time rose 23 % (4090), 8.6 % (L4) and 0–10 % (3080). **The baseline had been overstated 1.9–2.9×**: the micro-benchmark divided a state's slimray time by the samples of one chunk instead of three, and discarded the production timer as "asynchronous" when it was event-synchronised. The streaming formulation moves about 508 B per sample through DRAM against 276 B for the fused consumer (*estimate*) and cannot win even with zero launch gaps. | reverted |
 | Two ray steps per warp in slimray (`P3′`, half-warps) | slimray −29 % (predicted −37 % from the static instruction count); issue active 77.7 → 65.8 %, with much of the remaining stall budget unmeasured | kept |
 | Load hoisting before the corner loop (`SLIM_PRELOAD`) | slimray 41.5 → 36.0 s (−13 %), registers 107 → 117, spill 0 | kept |
 | Knockout of every step global load onto L1-resident addresses (L4) | `long_scoreboard` 0.476 → 0.239 warps per issue, launch time −2.6 %. Hiding the remaining load latency is worth about 3 %; the kernel is not latency-bound. | measurement |
@@ -210,7 +210,7 @@ product state, from 151.0 to 106.9 s (−29 %), or 53.5 s per solve. In a separa
 | Plan sorting by coefficient, `vp_scatter` without scattering cells, `sos_vprod_y` in double-single | adopted on bit-identical output; the `sos_vprod` shared-memory limit (30 KB, 3 blocks/SM) remains | kept |
 | Host: pinned allocation repeated per launch (about 11 s per state) | removed | fixed |
 | Host launch issue cost of the plan kernels. A pre-1.1.0 run rebuilt the plan per chunk, with 12,612 small launches per evaluation. The gaps after them were 73 % of a 21 % host gap. | A run that stored the plan used 828 launches per evaluation and had a 1.3 % gap of the same class. CUDA graph capture and persistent kernels were considered for the case that rebuilt the plan. | not pursued |
-| Host: bundle switch in production bakes recomputed the stratospheric attach geometry every bundle (23.6–29.1 s), so the client CPU time of a state (103 s) exceeded its GPU time (55 s) and campaign GPU utilisation on the L4 was 66 % | attach cache on and a process memo: 15.7 → 1.1 s per bundle on the 3080; the L4 campaign figure has not been re-measured since | fixed |
+| Host: chunk switch in production bakes recomputed the stratospheric attach geometry every chunk (23.6–29.1 s), so the client CPU time of a state (103 s) exceeded its GPU time (55 s) and campaign GPU utilisation on the L4 was 66 % | attach cache on and a process memo: 15.7 → 1.1 s per chunk on the 3080; the L4 campaign figure has not been re-measured since | fixed |
 | Port to Apple Metal (MLX) | examined, folded | not pursued |
 
 Two measurement traps shaped these numbers. First, a kernel that does more work per cycle lowers the boost clock on a
@@ -254,8 +254,8 @@ The largest measured stall is `wait`, the fixed-latency dependency between conse
 `long_scoreboard` second. It is bound by neither DRAM nor FP32 throughput, nor by load latency: the load knockout gained
 only 2.6 %. Moving the current step's own loads before the
 corner loop bought 13 %, but the separate knockout bounds the benefit of hiding the remaining load latency at about
-3 %. Recovering the fourth block per SM lost in 1.1.0 is the one cheap experiment not yet run.
-We therefore exclude interleaving two independent rays and lane-cooperative loads from the candidates.
+3 %. We therefore exclude interleaving two independent rays and lane-cooperative loads from the candidates.
+Recovering the fourth block per SM lost in 1.1.0 is the one cheap experiment not yet run.
 
 The static census (the research records) counts about 660 warp instructions per ray step
 for the corner and attenuation work, 570 for `corner_tensor` across four corners and 91 for attenuation. A hand-counted

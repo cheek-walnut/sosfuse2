@@ -12,8 +12,8 @@ python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2
 ```
 
 Tests that read sky-sos research records skip at function or fixture level while `SOSFUSE2_SKY_SOS_ROOT` is unset.
-CUDA-only modules (`test_C_registers`, the `gate` CUDA paths) skip as well, and `strato_colors`, a research module that is
-not packaged, skips 9 cases. Setting `SOSFUSE2_SKY_SOS_ROOT` to a checkout that lacks a record is a failure rather than a
+CUDA-only modules (`test_C_registers`, the `gate` CUDA paths) skip as well, and 9 cases that depend on `strato_colors`, a
+research module that is not packaged, skip too. Setting `SOSFUSE2_SKY_SOS_ROOT` to a checkout that lacks a record is a failure rather than a
 skip.
 The structure tests (`tests/test_layers.py`, `tests/test_names.py`, `tests/test_entry_points.py`,
 `tests/test_structure_imports.py`) run in this tier. `tests/test_docs_pointers.py` reads `AGENTS.md` and `docs/`, which
@@ -21,10 +21,10 @@ the installed package does not contain, so it skips outside a source checkout an
 
 The test session fetches the two IPRT inputs into the work root, `SOSFUSE2_WORK_ROOT` or else
 `$XDG_CACHE_HOME/sosfuse2`, when they are not there yet, and the density asset is regenerated with platform-independent
-arithmetic (`density.ASSET_SHA256`). An unreachable server is retried 3 times (`E_IPRT_DOWNLOAD`). With
-`SOSFUSE2_OFFLINE=1`, or when the download fails, the session runs without them: the tests that depend on the `usstd76`
-density asset, which include every test that solves a state with the default density configuration, about 190 cases,
-skip with `E_IPRT_OFFLINE` and the command that fetches the files,
+arithmetic (`density.ASSET_SHA256`). The download is retried 3 times if the server is unreachable (`E_IPRT_DOWNLOAD`). With
+`SOSFUSE2_OFFLINE=1`, or when the download fails, the session runs without the IPRT inputs. The tests that depend on the
+`usstd76` density asset, about 190 cases including every test that solves a state with the default density configuration,
+then skip, reporting `E_IPRT_OFFLINE` and the command that fetches the files,
 `python -B -c "from sosfuse2.asset_tools import iprt; iprt.inputs()"`. A test that fails for another reason is still a failure.
 
 The check in a fresh virtual environment outside the source tree also runs one reduced NumPy solve, which takes a few
@@ -65,8 +65,8 @@ and the three cases of `test_regressions_110` and the one of `test_r17_port` thr
 Three cases are known failures from the research baseline and are marked `xfail(strict=True)`; their ids, causes and the
 retirement rule are in `docs/KNOWN_FAILURES.md`. The expected tier-1 outcome is `0 failed` and 3 `xfailed` (2 without
 `clang++`, where one of the three skips), and an
-`XPASS` of a strict entry means that the entry must be retired. The +1 ULP tests of the trace interpolation, on-grid
-samples and the atan2 last bit, are ordinary tests on every platform.
+`XPASS` of a strict entry means that the entry must be retired. The +1 ULP tests of the trace interpolation, of on-grid
+samples and of the last bit of atan2 are ordinary tests on every platform.
 
 ## 2. CUDA machine (CuPy, CUDA 12), no sky-sos checkout
 
@@ -96,16 +96,16 @@ unless they are already in the work root.
 SOSFUSE2_SKY_SOS_ROOT=/path/to/sky-sos python -B -m sosfuse2.checks.gate --gf --reference <table.npz> --out <dir>
 ```
 
-G-F, the full-grid fixed table, reuses the bake template of the research records through `SOSFUSE2_SKY_SOS_ROOT`, a
-research-side dependency, and stops with `E_GATE_CONFIG` without it and with `E_GATE_TEMPLATE` when the template
-fails to load (for example an import of a renamed module). The fixed table itself is not part of the package.
+The G-F check against the full-grid fixed table reuses the bake template of the research records through
+`SOSFUSE2_SKY_SOS_ROOT`, a research-side dependency. It stops with `E_GATE_CONFIG` without that dependency and with
+`E_GATE_TEMPLATE` when the template fails to load (for example, because of an import of a renamed module). The fixed table itself is not part of the package.
 `checks/gate_data/baselines/manifest.json` records only the file name under `gf.reference`
 (`gf_L19s3_tau0p01_aod0p4_g0p65_e2620f6f90c39dcb.npz`) together with its radiance SHA-256. Historical paths in
 `BASELINE_LOG.md` are reduced to file or directory names, and a new record writes only the bare file name. `gate --gf`
 always requires `--reference <table.npz>` and stops with `E_GATE_BASELINE_MISSING` without an existing file
 (`checks/gate.py` `gf`); the SHA check `E_GATE_MANIFEST_SHA` still applies. The research tests (`test_cache_store`,
 `test_v14_runner`, the section clock checks and others) run in this tier as well. `gate --gf` and the cases that
-load the bake template, `test_cache_store` and the G-F cases of `test_gate`, need a research checkout whose scripts
+load the bake template (`test_cache_store` and the G-F cases of `test_gate`) need a research checkout whose scripts
 import the 1.4.0 module names. For `test_cache_store`, set `SOSFUSE2_TEST_BAKE_DRIVER` to the bake driver script and
 `SOSFUSE2_TEST_BAKE_PLANNER` to the planner script. Cases that use either script skip when its path is unset or missing.
 See the [test environment variables](ENVIRONMENT.md#variables-of-the-tests-only).
@@ -123,7 +123,7 @@ writer's locks in `test_regressions_110` need no such data.
 
 In each data root, put the `plan_queue` object in `.sosfuse2-test-inputs.json`. Its `geometry_cache`,
 `run_logs` and `cache_root` are directory paths relative to that root, and `cost_profile` is a profile name.
-For the optional second case, set `secondary_states` relative to the research checkout and `secondary_logs` relative to the data root.
+For the optional second case, set `secondary_states` to a path relative to the research checkout and `secondary_logs` to one relative to the data root.
 In the checkout's copy, set `section_clocks.evidence_dir`, `section_clocks.checker` and `v14.harness_dir` to relative paths.
 
 A checkout used by the spectral tests also needs a `spectral` object.
@@ -133,7 +133,7 @@ A checkout used by the spectral tests also needs a `spectral` object.
               "builder": "scripts/build.py", "bake_checker": "scripts/check.py"}}
 ```
 
-If either raw file is absent, the test uses the stored self-check. Both raw files together require the builder.
+If either raw file is absent, the test uses the stored self-check. If both are present, the builder is required.
 A configured checkout also requires the bake checker. For `--runs`, add `legacy_commit` (40 or 64 lowercase hex digits),
 `legacy_archive` (a list of paths to archive) and `legacy_runner` (a path relative to the unpacked tree).
 

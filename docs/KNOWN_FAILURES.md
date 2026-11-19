@@ -1,6 +1,6 @@
 # Known failures (baseline set, first public release)
 
-Three test cases fail in the research baseline and still fail here. They are marked
+Three test cases fail in the research baseline and still fail in this release. They are marked
 `xfail(strict=True)` through `sosfuse2.checks.testkit.known_failure(id, reason)`, so public CI stays green without hiding them:
 each case still runs, its failure is the expected outcome, and a pass turns the run red until the entry below and the
 decorator are removed together. The research CLI harnesses (for example
@@ -19,7 +19,7 @@ python -B -m pytest -q -p no:cacheprovider --runxfail --pyargs sosfuse2 -k "<tes
 |---|---|---|---|---|
 | `D11` | `test_strato_delta_adversarial.py::Delta::test_D11_initialize_1_15_lanes_and_source_widths` | `st.source_size(s)` is 316, the harness asserts 1132 | the kernel source layout shrank, and the harness literal was never updated | derive the expected width from `sh_layout` instead of a literal |
 | `D15` | `test_strato_delta_adversarial.py::Delta::test_D15_SH_gate_accepts_absolute_rejects_material_mismatch` | clang++ error building `kernel.cu` as host C++: `K_FIRST`/`K_PHASE`/`K_BOUNDARY` and `__shfl_xor_sync` undefined | `test_strato_order.run` compiles the kernel with `-DFW=15 -DSTRATO` only, whereas the specialised kernel needs the three `K_*` defines that `backends/flags.py::resolve_config` supplies to NVRTC; the host stub also lacks `__shfl_xor_sync`. Without clang++ on `PATH` the case skips with `E_TOOL_MISSING` instead | pass the defines from `resolve_config` in `test_strato_order.run` and add `__shfl_xor_sync` to the host stub |
-| `D16` | `test_strato_delta_adversarial.py::Delta::test_D16_D18_D22_adversarial_static_out_and_coverage` | `KeyError: 'strato'` reading `kernel_static.json` rows | the `test_kernel_static` report rows no longer carry a `strato` key, because the report schema changed, and the harness predates that | check coverage using `W` and `STRATO` in `flags`, and replace the old read-count and text-injection assertions with syntax and failure checks |
+| `D16` | `test_strato_delta_adversarial.py::Delta::test_D16_D18_D22_adversarial_static_out_and_coverage` | `KeyError: 'strato'` when reading `kernel_static.json` rows | the report schema changed after the harness was written, so the `test_kernel_static` report rows no longer carry a `strato` key | check coverage using `W` and `STRATO` in `flags`, and replace the old read-count and text-injection assertions with syntax and failure checks |
 
 These cases fail in the baseline too. The CLI run documented in the research records
 (`scripts/sosfuse2/test_strato_delta_adversarial.py --out …`) reports D11 as `316 != 1132`, D15 with the same `K_FIRST`
@@ -29,11 +29,11 @@ clang error and D16 with `KeyError: 'strato'`.
 
 Some cases depend on the host. The kernel syntax tests skip without `clang++` or `clang` on `PATH`. The persistent-queue
 tests fail with `TimeoutExpired` when `PERSISTENT_TEST_DEADLINE` is too short for the host, and on macOS with
-`E_PERSISTENT_SERVICE_START` when `TMPDIR` makes the socket path longer than 104 bytes. These are not failures of the
-package; tier 1 of `docs/CHECKS.md` lists the conditions and the counts.
+`E_PERSISTENT_SERVICE_START` when `TMPDIR` makes the socket path longer than 104 bytes. These outcomes depend on the host
+rather than on the package; tier 1 of `docs/CHECKS.md` lists the conditions and the counts.
 
 ## Retiring an entry
 
-1. Fix the cause, or document the deliberate change of behaviour, in a change that touches only that case.
+1. Fix the cause, or document the deliberate change of behaviour, in a commit that touches only that case.
 2. Remove the `@testkit.known_failure(...)` decorator and the table row in the same commit. With the decorator still in
    place, a passing case fails the run because of `strict=True`, which is the intended reminder.

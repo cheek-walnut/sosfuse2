@@ -13,8 +13,8 @@ height and angle grids, the wavelengths and the solar elevations. The state, the
 signed together into the `meta.json` next to the table (`docs/PROVENANCE_V3.md`).
 
 The output is one table per state, `table.npz`. Its array `radiance` has the axes (solar elevation, view elevation,
-relative azimuth, wavelength), as `docs/MODEL.md` describes. Everything between the state and the table is the solution
-of a source field on a grid of heights and angles: iterate it to convergence once, then read every table row from it.
+relative azimuth, wavelength), as `docs/MODEL.md` describes. Between the state and the table, the solver iterates
+a source field on a grid of heights and angles to convergence once and then reads every table row from it.
 
 For a first pass, start with the three functions in section 4, then read from `foundation` through the layer you need;
 each layer depends only on earlier layers in the dependency order, apart from the function-level upward imports
@@ -54,7 +54,7 @@ python -m sosfuse2 walkthrough --write    # also write docs/WALKTHROUGH.md (in t
 network access, through the three real calls of section 4. At each call it prints the input, the array shapes, the number
 of evaluations and the shape and finite values of the table. The steps between the calls (density, sun path, optical
 coefficients, cells, segments, columns, first scattering, transport) are a fixed table in the generated
-`docs/WALKTHROUGH.md`, with the file and function of each step; the document separates what the run observed from what
+`docs/WALKTHROUGH.md`, with the file and function of each step; the document separates the values observed during the run from what
 that table explains. It also lists the production paths the example does not run. A failed run leaves an existing
 document as it was.
 
@@ -151,7 +151,7 @@ the runner of one state read the same values.
 1. Add a production module to `foundation/paths.py::PRODUCTION_MODULES`. Because this tuple lists files explicitly
    rather than by glob, a missing listed file stops the run with `E_PACKAGE_FILE_MISSING`.
    `tests/test_ozone_temperature.py::test_03c_v4_fixed_provenance_lists` keeps the list equal to the tree.
-2. Fix every list that names files by relative path. Most are edited by hand, each for its own cache or signature input;
+2. Update every list that names files by relative path. Most are edited by hand, each for its own cache or signature input;
    `foundation/content_identity.py::package_hashes` reads `PRODUCTION_MODULES`, and `checks/gate.py::code_identity`
    reads `package_hashes()`. The lists are `package_hashes` (with `ACCEPTED_SOURCES`, `HOST_MODULES` and `DATA_ASSETS`),
    `solve/engine.py::SOURCE_FILES`, `solve/engine.py::fingerprint`, `solve/engine.py::cell_folder`,
@@ -165,8 +165,8 @@ the runner of one state read the same values.
 3. Locate data through the constants in `foundation/paths.py` (`ASSETS`, `NATIVE`, `CONFIGS`, `GATE`, `FIXTURES`,
    `KERNEL_CU`) rather than relative to the calling module. `backends/kernel.cu` stays in the folder of `backends/compile_cache.py`
    and `backends/sh_layout.py`, which hash and render it.
-4. Child processes start as `python -B -m sosfuse2.<layer>.<module>` through `foundation/paths.py::module_command`; the
-   module names in `jobs/pipeline.py`, `jobs/plan_queue.py` and `checks/gate.py` change with a rename.
+4. Child processes start as `python -B -m sosfuse2.<layer>.<module>` through `foundation/paths.py::module_command`; update
+   the module names in `jobs/pipeline.py`, `jobs/plan_queue.py` and `checks/gate.py` when renaming a module.
 5. Recorded names stay fixed across file moves, including environment variable names, phase event names, provenance
    format identifiers, result field names, and the `module` string that `asset_tools/generate_minor_absorbers.py`
    writes into the O₄ asset as part of that asset's physical identity.

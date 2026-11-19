@@ -54,13 +54,13 @@ For example, a state with `density.profile_step_km` set to `0.125` can run with
 The precompiler reads the profile spacing from the command line and defaults to 0.5 km.
 
 Above 80 km, the default `upper_air: us76_neff` extends Rayleigh scattering with a tabulated effective air density
-matched to the coefficient at 80 km. `upper_air: vacuum` leaves the extension empty. The other components end at
+matched to the coefficient at 80 km. `upper_air: vacuum` leaves the extension empty. The other constituents end at
 or below 80 km. The extended grid adds the top shell to the incident-direction quadrature, adds −15° to the stopping
 and acceleration samples, and records −18° in the convergence history.
 
 ## Constituents
 
-Six components extinguish or scatter light: air molecules, a tropospheric aerosol, ozone, NO₂, O₄ and, if enabled, a
+Six constituents extinguish or scatter light: air molecules, a tropospheric aerosol, ozone, NO₂, O₄ and, if enabled, a
 stratospheric sulfate layer. Each extinction coefficient is the product of a vertical profile and a wavelength law, with
 the square of a profile in the case of O₄. NO₂ and O₄ arrived in 1.1.0 together with a new Rayleigh law. A state file
 sets the parameters; `src/sosfuse2/assets/states_v2.json` holds 64 states sampled over the axes given in the tables below.
@@ -76,7 +76,7 @@ $$
 where `σ_B` is the Rayleigh cross section of Bodhaine et al. (1999), their equations 18, 19, 5, 6, 23 and 22 with 360 ppm
 CO₂, evaluated at the vacuum wavelength of the engine's standard-air wavelength λ (Ciddor 1996). Because it includes the
 dispersion of the refractive index and the King factor of air, it is not a pure power law (`src/sosfuse2/atmosphere/rayleigh.py`).
-`β₄₅₀` is the coefficient of 1.0.0 at 450 nm, which 1.1.0 keeps. 1.0.0 used `β₅₅₀ (550 nm / λ)⁴`, and against that λ⁻⁴
+`β₄₅₀` is the 1.0.0 coefficient at 450 nm, which 1.1.0 keeps. Version 1.0.0 used `β₅₅₀ (550 nm / λ)⁴`, and against that λ⁻⁴
 law the new coefficient is 1.037 times larger at 360 nm, equal at 450 nm, 0.973 times at 600 nm and 0.958 times at
 830 nm. The depolarisation factor of the phase function stays at 0.03 (see *Rayleigh scattering and polarisation*). The
 vertical profile `ρ_R` depends on the density option:
@@ -86,14 +86,14 @@ vertical profile `ρ_R` depends on the density option:
 | `exp8`/`triangle`/`keep` (default through 1.4.0) | exp(−h / 8 km) | 0.2420 / 0.1063 (β₄₅₀ = 0.030255 km⁻¹) |
 | `usstd76`/`usstd76`/`usstd` (default) | hydrostatic number density of the US Standard Atmosphere 1976 (NOAA et al. 1976) | 0.2215 / 0.0972 |
 
-The gate fixtures and `states_v1_usstd.json` use the second row. Its optical depth at 450 nm is the sum of the layers
-below 80 km in the tabulated Rayleigh optical depth at 450 nm of the IPRT phase E atmosphere (IPRT project: Emde et al.
+The gate fixtures and `states_v1_usstd.json` use the second row. Its optical depth at 450 nm is the sum over the layers
+below 80 km of the tabulated Rayleigh optical depths of the IPRT phase E atmosphere at 450 nm (IPRT project: Emde et al.
 2015), so the Rayleigh spectrum is the Bodhaine law anchored at that 450 nm value. With the same anchors, the λ⁻⁴ law of
 1.0.0 gave 0.1085 and 0.0993 at 550 nm for the two rows. The states in `states_v1.json` and `states_v2.json` carry no
 density block and take the second row. Below −6° solar elevation the exp8 configuration is 1.4 to 2.1 times too bright
 against the Maryland and Paranal measurements. The default still has site-dependent errors; README *Limitations*
 and `docs/VALIDATION.md` Table 13 give the comparison. A state's density block and the density command-line options
-together must give all three options.
+together must supply all three choices.
 
 ### Ozone
 
@@ -110,9 +110,9 @@ atmosphere; the density asset records that this is a vertical shape normalised t
 ozone profile.
 
 The cross section `σ̄` comes from the Serdyuchenko and Gorshelev laboratory data (Serdyuchenko et al. 2014, Gorshelev et
-al. 2014). In the default band mode of the full grid it is first averaged over each band and then over height with the
+al. 2014). In the default band mode of the full grid, it is first averaged over each band and then over height with the
 weight `q(h)`, using the temperature of the US Standard Atmosphere at each height and linear interpolation in temperature
-between the 193 to 293 K columns, which gives one number per band that is used at all heights. A fixed 233 K column can be
+between the columns from 193 K to 293 K. This gives one number per band, used at all heights. A fixed 233 K column can be
 selected instead. The reduced smoke grid at 550 nm uses the older 48-wavelength table of `assets/spectra.json`, Bruneton's
 demo data (`THIRD_PARTY.md` §3).
 
@@ -130,7 +130,7 @@ profile (`afglus.dat`, Anderson et al. 1986, AFGL-TR-86-0110, as distributed wit
 log-linearly onto 0.5 km steps and normalised to a maximum of 1 (`assets/no2_afglus_profile.json`). It applies with every
 density option, including an external air and ozone profile. The cross section is that of Vandaele et al. (1998) at
 220 K, from BIRA-IASB data resampled to 0.1 nm cells (`assets/no2_vandaele1998_fine.json`; attribution and changes in
-`THIRD_PARTY.md` §11). In band mode `σ̄` is the mean over each band, in point mode the value at the wavelength, and it
+`THIRD_PARTY.md` §11). In band mode `σ̄` is the mean over each band and in point mode the value at the wavelength; it
 applies at all heights because the cross section has no temperature dependence.
 
 ### O₄
@@ -141,9 +141,9 @@ $$
 \beta_{\mathrm{O_4}}(h,\lambda) = \bar\sigma_{\mathrm{O_4}}(\lambda)\,\bigl(0.20946\,n_{\mathrm{air}}(h)\bigr)^2,\qquad n_{\mathrm{air}}(h) = n_0\,\frac{\rho_R(h)}{\rho_R(0)}
 $$
 
-`n₀` is the air number density at the surface. It comes from the density asset for `usstd76`, equals 2.5469×10²⁵ m⁻³ for
-the exp(−h / 8 km) profile (default through 1.4.0), whose O₄ shape is then exp(−h / 4 km), and is the value that an external profile
-declares as `air_surface_number_density_m3`. The state parameter `parameters.o4`, a JSON boolean that defaults to true,
+`n₀` is the air number density at the surface. It comes from the density asset for `usstd76`. For
+the exp(−h / 8 km) profile (default through 1.4.0) it equals 2.5469×10²⁵ m⁻³ and the O₄ shape is then exp(−h / 4 km).
+An external profile declares it as `air_surface_number_density_m3`. The state parameter `parameters.o4`, a JSON boolean that defaults to true,
 switches O₄ on and off. The cross section is the HITRAN 2024 collision-induced absorption (Gordon et al. 2026; Terragni
 et al. 2025): data set 54 at 293 K up to 499.861 nm, then data set 32 at 293 K up to 600 nm and at 287 K up to 653.842 nm,
 resampled to 0.1 nm cells and zero outside that range. The O₂ A- and B-band sets are excluded. Like NO₂, `σ̄` is a band or
@@ -176,8 +176,8 @@ default. No shipped state file carries either block.
 
 ### Stratospheric sulfate layer
 
-The layer is enabled by default in all 64 bundled `states_v2.json` states. `states_v1.json` retains `unsupported` and
-`states_v1_usstd.json` retains `disabled`; the runner can enable either with `--stratosphere on`. Test fixtures enable
+The layer is enabled by default in all 64 bundled `states_v2.json` states. `states_v1.json` keeps the stratosphere status `unsupported` and
+`states_v1_usstd.json` keeps `disabled`; the runner can enable either with `--stratosphere on`. Test fixtures enable
 the layer in some states. When on, its profile is a Gaussian, by default centred at 21 km with σ = 3 km and normalised over 0 to 80 km,
 and its optical depth at 550 nm is `stratosphere_tau550`, with an axis of 0.002 to 0.006 in `states_v2.json`. The
 particles are a single lognormal sulfate population with median radius 0.08 µm, geometric width 1.6 and refractive index
@@ -300,7 +300,7 @@ above 13 km their own counts, with m and k from 1 to 12. The names `none`, `mid`
 aliases of `b1a1`, `b2a2` and `b2a3`; the default 44 nodes are `b2a3`. For the `χ` grid, `chi_step_deg` takes 0.5 by
 default, 0.25 or 0.125. The optional `chi_refine_deg` takes one `[lo, hi]` pair or a nonempty list of pairs. In
 list order, each pair inserts the midpoint of every adjacent node pair in its range. Its endpoints must be distinct,
-ordered nodes of the grid as refined so far, with 85 ≤ lo < hi ≤ 110. The counts `nr` and `nchi` are filled from the rules when omitted and must match them when given, while the
+ordered nodes of the grid as refined so far, with 85 ≤ lo < hi ≤ 110. The counts `nr` and `nchi` are filled from the rules when omitted and must match them when given. The
 reduced grid stays fixed. For example, `b2a6` gives 59 nodes, and `chi_refine_deg` `[88, 100]` on the 0.5° grid gives 99
 `χ` nodes.
 

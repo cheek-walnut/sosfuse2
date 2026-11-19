@@ -6,30 +6,31 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 ## 1.6.0
 
 - For `--validate-mac`, pass the converged source NPZ with `--full-source` or set `SOSFUSE2_FULL_SOURCE`.
-  The research checkout alone no longer selects it.
-- `anderson_tol` sets the relative convergence tolerance (default 1e-3). Loading a source without a recorded solve
-  tolerance raises `E_SOURCE_TOL`. Rerun the solve to regenerate it.
+  The research checkout alone no longer selects the file.
+- `anderson_tol` sets the relative convergence tolerance (default 1e-3). Loading a saved source without a recorded solve
+  tolerance raises `E_SOURCE_TOL`. Rerun the solve to regenerate the source.
 - Geometry cache keys now use the current source hashes. Existing geometry caches are rebuilt on first use.
 - `jobs.tables_from_sources` checks the identity of an existing output before skipping it. An output whose recorded
   signature or source digest does not match, including one written by an earlier code version, is refused with
-  `E_OUTPUT_IDENTITY` and kept; write the new tables to a separate output root.
+  `E_OUTPUT_IDENTITY` and left unchanged; write the new tables to a separate output root.
 - Published selftest and gate records omit machine details and recording times. The FX-A description now explains
   its CUDA tolerance check. Wavelength and cache tests accept optional data and scripts through environment variables.
 - The calculation boundary and profile grid share a domain definition. The default boundary remains 80 km. Full-grid
   settings can extend it with a Rayleigh air profile or a vacuum above 80 km. See [Model](MODEL.md#calculation-boundary).
 - The optional `export_first_order` setting saves single-scattering radiance, including direct-light ground reflection.
-- CUDA transport uses named stages and compile-time policies for feature selection and component support. The NumPy
-  path uses the same component support boundaries. A host-compiled test checks the direct convolution with ground SH off.
+- CUDA transport uses named stages and compile-time policies for feature selection and component support. The NumPy path
+  uses the same component support boundaries. A host-compiled test checks the direct convolution with ground spherical
+  harmonics (SH) off.
 - KSPLIT column records hold six floats (24 B per sample point). The consumer computes the path weight and carries it
   in the 112 B `PointM2` layout. The layout is defined once in CUDA and once in Python. A host-compiled test checks
   the column producer and consumer round trip.
-- Host RSS ceilings and automatic pipeline and planner worker sizing now account for visible Linux cgroup memory
-  limits. The ceiling uses 80 % of usable RAM below 24 GB on Linux. `SOSFUSE2_RSS_GB` overrides both the ceiling
+- Host RSS ceilings and automatic worker sizing in the pipeline and planner now account for visible Linux cgroup
+  memory limits. The ceiling uses 80 % of usable RAM below 24 GB on Linux. `SOSFUSE2_RSS_GB` overrides both the ceiling
   and the per-process default. See [Host RSS limits](ENVIRONMENT.md#host-rss-limits).
-- KSPLIT decisions record why the mode was selected, including when it resolves directly to 0. Memory estimates
-  carry named byte counts in decisions and persistent admission events. A memory fallback warns on stderr with the
-  requested and effective modes, peak, solo budget, reason and up to two largest items. The pipeline collects the
-  decision and fallback event in its summary and prints the warning.
+- KSPLIT decisions record why the mode was selected, including when it resolves directly to 0. Memory estimates include
+  named byte counts in KSPLIT decisions and in persistent-service admission events. A memory fallback warns on stderr
+  with the requested and effective modes, peak, solo budget, reason and up to two largest items. The pipeline collects
+  the decision and fallback event in its summary and prints the warning.
 - The compile and endpoint cache keys include the calculation domain. Extended domains rebuild cached aerosol
   columns with the same upper support boundary as a fresh calculation.
 - The RSS policy no longer checks for marker directories in the user's home directory.
@@ -37,8 +38,8 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 - `SOSFUSE2_ANDERSON_HISTORY=host` stores Anderson history in host memory and stages it one wavelength at a time.
 - `SOSFUSE2_VRAM_TRACE=1` adds CuPy pool allocation events, out-of-memory diagnostics and `vram_trace` metadata.
 - `SOSFUSE2_FIELD_RESERVE_MIN` lets the persistent service admit a lone state with a reduced field reserve when
-  the requested reserve does not fit. Admission records include the estimate in `timings[i].vram_admission` and the
-  reserve decision in `timings[i].field_reserve` when the minimum is configured. Here `i` is the chunk index.
+  the requested reserve does not fit. When the minimum is configured, admission records include the estimate in
+  `timings[i].vram_admission` and the reserve decision in `timings[i].field_reserve`, where `i` is the chunk index.
 - The profile-table memo keeps nine entries per process, enough for the four legacy profiles,
   four corrected profiles and one stratospheric profile that a cell can use together.
 - The `geometry_parallel` phase records `result=fallback` with a reason when the serial writer
@@ -49,9 +50,9 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 - **`flags_env` and other JSON files.** `python -m sosfuse2 flags_env devices` read the device profile file, which sits
   in the same folder as the kernel configurations, and stopped with a `KeyError` traceback. A JSON there that is not a
   kernel configuration now stops with `E_CONFIG_UNKNOWN` and lists the kernel configurations.
-- **Tests.** The diagnostics density test puts back the environment it changes (the thread defaults set when
+- **Tests.** The diagnostics density test restores the environment it changes (the thread defaults set when
   `checks.solver_diagnostics` is imported and the cache paths under the test's temporary folder), so later tests do not
-  inherit them. When the column cache queue fails, the test shows the tail of the queue log with the exit code.
+  inherit those changes. When the column cache queue fails, the test shows the tail of the queue log with the exit code.
 - **Wording.** Comments, messages and test docstrings describe hosts by platform (macOS, Linux, a host without CUDA)
   instead of naming one development machine. Error codes are unchanged.
 - **Related codes.** The README names Eradiate and twilight, with their references in `docs/REFERENCES.md`.
@@ -83,13 +84,12 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   `external_profile`, and partial CLI selections stop with `E_DENSITY_PARTIAL`; the state and CLI values are counted
   together. The first default run downloads two IPRT inputs
   if they have not been prepared with `python -m sosfuse2 generate_density_profile`.
-- **Saved results.** Sources and caches made from states without a density block in 1.4.0 are not reused.
-  Sources must record the density configuration; a missing or different configuration gives `E_SOURCE_DENSITY`
-  before optical amounts are compared, and a source without a readable `source_contract` gives `E_SOURCE_CONTRACT`.
-  Sources whose state set all three options are still read. Both table commands now write `density` in `meta.json`;
-  in 1.4.0 and earlier they did not write it for any configuration, so a table of theirs without the record may come
-  from any configuration.
-  A spectral configuration pinned to triangle ozone conflicts with the new default and gives
+- **Saved results.** Sources and caches made from states without a density block in 1.4.0 are not reused. Sources must
+  record the density configuration; a missing or different configuration gives `E_SOURCE_DENSITY` before optical amounts
+  are compared, and a source without a readable `source_contract` gives `E_SOURCE_CONTRACT`. Sources made from states
+  that specify all three options are still read. Both table commands now write `density` in `meta.json`; in 1.4.0 and
+  earlier they did not write it for any configuration, so a table of theirs without the record may come from any
+  configuration. A spectral configuration pinned to triangle ozone conflicts with the new default and gives
   `E_SPECTRAL_OZONE_PROFILE_MISMATCH`.
 - **Preparation and diagnostics.** Selftests and the offline walkthrough explicitly use exp8/triangle/keep.
   IPRT offline errors explain the default's input requirement and the explicit analytic alternative.
@@ -102,8 +102,8 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   and a gate bake template that fails to import gives `E_GATE_TEMPLATE` with its cause, instead of uncoded exceptions.
 - **Smaller fixes.** An O₄ asset that is not a JSON object and a truncated O₄ download give their coded errors
   (`E_O4_ASSET_INVALID`, `E_O4_DOWNLOAD`), a missing home directory for the rclone default gives
-  `E_CACHE_RCLONE_MISSING`, launch cell counts accept ASCII digits only, temporary attach files are named per process,
-  and the `test` extra requires pytest 9.
+  `E_CACHE_RCLONE_MISSING`, launch cell counts accept ASCII digits only, temporary attach-cache files are named per
+  process, and the `test` extra requires pytest 9.
 
 ## 1.4.0
 
@@ -131,7 +131,7 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
   `state_rss_gb` and `strato_launch_pause_ms` were removed from every profile, and `memory_source` and
   `requires_split_source` of this profile are now `memory_note` and `requires_split_note`. Run metadata and gate reports
   record `split`. Its CUDA baselines moved to the folders of the recomputed toolkeys (`7de21e0b57f543b1`,
-  `0fbb3921b0dbe0eb`, `e8ee3bcaaf06747b`); the array files and their sha256 are unchanged, and
+  `0fbb3921b0dbe0eb`, `e8ee3bcaaf06747b`); the array files and their SHA-256 are unchanged, and
   `baselines/BASELINE_LOG.md` lists the old and new keys.
 - **Moved definitions.** `CIA_SHA` and `RULES_VERSION` are defined in `atmosphere/minor_absorbers.py`, and the O₄
   generator imports them from there. The memory monitor `monitor` is in `foundation/host_limits.py`. Four upward imports
@@ -171,10 +171,10 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
 - **Content identity.** `foundation/content_identity.py` (rule identifier `sosfuse2-identity-2`) hashes Python sources
   without comments and docstrings, C and CUDA sources without comments, JSON files without their note keys, and numeric
   assets without their per-asset description fields. Changes of spacing inside a line or of indentation still change the
-  identity, while trailing whitespace and blank lines do not, and prose in settings and fixture JSON moved to `notes`
+  identity, while trailing whitespace and blank lines do not. Prose in settings and fixture JSON moved to `notes`
   keys. State identity omits the description and label keys `description`, `note`, `notes`, `note_*`, `*_note`, `group`,
   `role`, `holdout`, `out_of_axis_range` and `q2d_override` while keeping the `settings`, `parameters`, `stratosphere`
-  and `density` blocks whole. Numeric assets record a computation identity apart from the sha256 of the file bytes; a
+  and `density` blocks whole. Numeric assets record a computation identity apart from the SHA-256 of the file bytes; a
   spectral block is checked against that computation identity, so whitespace, indentation and description changes pass
   while changed numbers are rejected. The density profile and the external source files keep their byte pins, and the
   earlier hashes are registered so that older records still match.
@@ -195,9 +195,9 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
   the pool shortage error reads `E_VRAM_FREE: need at least 4 GiB free`. The admission reserve is
   `device_profile.reserved_field_bytes`, set by `SOSFUSE2_FIELD_RESERVE` fields per state with default 30. A smaller
   reserve admits larger states or more states at once, though because admission is a reservation, too small a value
-  turns a wait into an out-of-memory error during the solve. Several pipeline processes on one GPU each size their pool
-  from the free memory they see at start, so set `SOSFUSE2_POOL_LIMIT_GIB` to split a card between them. Neither
-  variable is part of any identity, and numerics are unchanged.
+  turns a wait into an out-of-memory error during the solve. When several pipeline processes share one GPU, each sizes
+  its pool from the free memory it sees at startup, so set `SOSFUSE2_POOL_LIMIT_GIB` to divide a card among them.
+  Neither variable is part of any identity, and numerics are unchanged.
 - **Grid rules in the settings.** `h_refine` accepts `b<m>a<k>`, which splits each height interval at or below 13 km
   into m parts and each interval above into k parts, and `b<m>a<k1>.<k2>.<k3>.<k4>.<k5>`, which gives the five intervals
   above 13 km their own counts, with m and k from 1 to 12. The names `none`, `mid` and `below13mid_above13thirds` are
@@ -216,8 +216,8 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
   `outputs/radiance_table` and `jobs/tables_from_sources` default to `states_v2.json`. `checks/stratosphere_checks`
   reports `peak_rss_bytes` in bytes on Linux, where it previously wrote the kibibyte count at 1024 times too small, and
   no longer writes `risk_class`. `assets/states_v1_usstd.json` no longer has its top-level `derived_from` and `decision`
-  keys, unused keys left `backends/configs/devices.json`, four unreferenced baseline `.npz` files were removed, CPU
-  replay regression tests were added, and comments and strings were cleaned up across the modules.
+  keys, unused keys were removed from `backends/configs/devices.json`, four unreferenced baseline `.npz` files were
+  removed, CPU replay regression tests were added, and comments and strings were cleaned up across the modules.
 - **Compatibility.** v3 and v4 tables are still read, whereas readers of 1.3.4 and earlier stop on v5 tables with
   `E_PROVENANCE_CONTRACT`, so a consumer that reads new tables needs 1.4.0 first. Because 1.4.0 moved the modules,
   renamed the device profile and changed the identity rules of `foundation/content_identity.py`, the code hashes of
@@ -228,10 +228,10 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
   runs made with earlier code stop at `gate --bless --staged` with `E_GATE_CONFIG` and have to be staged again. Runs of
   `rig` and `mac` profiles are affected in the same way as `split` runs.
 - **Known issues.** Reading the metadata of a table whose O₄ asset digest is not a registered earlier byte hash, as in
-  tables written by 1.4.0, looks up the local O₄ asset and so resolves and creates the work root, `SOSFUSE2_WORK_ROOT`
-  or else `$XDG_CACHE_HOME/sosfuse2` or `~/.cache/sosfuse2`, which 1.3.4 did not need for this read. Where that
-  directory cannot be created the read stops with `E_WORK_ROOT`, so set `SOSFUSE2_WORK_ROOT` to a writable directory.
-  Building a host cache entry in a folder that already holds entries of other keys prints
+  tables written by 1.4.0, looks up the local O₄ asset and so resolves and creates the work root, which 1.3.4 did not
+  need for this read. The work root is `SOSFUSE2_WORK_ROOT`, or else `$XDG_CACHE_HOME/sosfuse2` or `~/.cache/sosfuse2`.
+  Where that directory cannot be created the read stops with `E_WORK_ROOT`, so set `SOSFUSE2_WORK_ROOT` to a writable
+  directory. Building a host cache entry in a folder that already holds entries of other keys prints
   `RuntimeWarning: HOST_CACHE_STALE n=… bytes=…`. `python -m sosfuse2 walkthrough` shows the warning in an empty work
   root, where those entries were written by the same run, and the results are unaffected. `docs/KNOWN_FAILURES.md`
   describes an optional reproduction test that fails, and tier 3 of `docs/CHECKS.md` names a research test that fails.
@@ -349,12 +349,12 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
 sources, so provenance hashes differ from 1.3.1, and resuming an output saved by 1.3.1 stops with `E_OUTPUT_IDENTITY`
 (use a fresh work root).
 
-- The preview images of tables off the 15-band grid weight each band by its width from `bin_edges_nm`. They scaled
-  every band by 15/len(wl), so on the 45-band product grid, which splits ten of its 11.75 nm bands into 5.875 nm halves,
-  the narrow bands counted 1.78 times and the wide ones 0.89 times their share and G came out about 30 % high. Against
-  a direct CIE 1931 integral of a product table, the preview chromaticity moves from 0.044–0.047 to 0.004–0.005 in xy;
-  the change between the old and new previews is ΔE76 13–16 (median). Tables without a spectral block keep the old
-  weights.
+- The preview images of tables off the 15-band grid now weight each band by its width from `bin_edges_nm`. Previously
+  every band was scaled by 15/len(wl), so on the 45-band product grid, which splits ten of its 11.75 nm bands into 5.875
+  nm halves, the narrow bands counted 1.78 times and the wide ones 0.89 times their share and G came out about 30 %
+  high. Against a direct CIE 1931 integral of a product table, the preview chromaticity moves from 0.044–0.047 to
+  0.004–0.005 in xy; the change between the old and new previews is ΔE76 13–16 (median). Tables without a spectral block
+  keep the old weights.
 - `tables_from_sources` and `table_fast` record the computed stratosphere for sources on the legacy wavelength grid
   (no spectral block, the legacy wavelengths), which they rebuild with the legacy solver. They wrote
   `unsupported_parameters: ["stratosphere_tau550"]` with the requested `stratosphere.status` and no
@@ -365,7 +365,8 @@ sources, so provenance hashes differ from 1.3.1, and resuming an output saved by
 - `test_pipeline_persistent` waits 2400 s by default (`PERSISTENT_TEST_DEADLINE`, was 60 s), the value the public CI
   already set.
 - README *Limitations* states that the default exp(−h / 8 km) density row is 1.4 to 2.1 times too bright against
-  measured twilight between −6° and −12° and how to select the US Standard Atmosphere rows. The default is unchanged.
+  measured twilight between −6° and −12°, and explains how to select the US Standard Atmosphere rows. The default is
+  unchanged.
 
 ## 1.3.1
 
@@ -374,9 +375,9 @@ and `tables_from_sources` are among the hashed production sources, so provenance
 an output saved by 1.3.0 stops with `E_OUTPUT_IDENTITY` (use a fresh work root).
 
 - `plan_queue` counts every GPU against the CPU budget: GPUs x workers per GPU x column workers above
-  `pipeline.cpu_budget()` now stops with `E_PLAN_CPU_BUDGET`, where only workers x column workers was compared. A plan
-  that asked for more than the host has, for example two GPUs with four workers and two column workers on eight cores,
-  is now refused.
+  `pipeline.cpu_budget()` now stops with `E_PLAN_CPU_BUDGET`, whereas previously only workers x column workers was
+  compared. A plan that asked for more than the host has, for example two GPUs with four workers and two column workers
+  on eight cores, is now refused.
 - The plan lists the `ground_aerosol01` host cache with the key the producer builds and an unmeasured cost. Its extra
   unmeasured item can change which state represents a group and the order and GPU assignment of the states.
 - `tables_from_sources` takes `<out>/.worker.lock` for each state and looks again for a finished table and pack once it
@@ -391,7 +392,7 @@ an output saved by 1.3.0 stops with `E_OUTPUT_IDENTITY` (use a fresh work root).
   `E_SOCKET_PATH_TOO_LONG` when `TMPDIR` is too long for its socket.
 - Tests without the IPRT inputs: a test session used to refuse the download in every case, so a fresh installation saw
   the tests that need the `usstd76` density asset fail with `E_IPRT_OFFLINE`. The session now fetches the two files
-  first unless `SOSFUSE2_OFFLINE` is set, and when they cannot be had those tests skip with that reason.
+  first unless `SOSFUSE2_OFFLINE` is set, and when they cannot be fetched, those tests skip with that reason.
 
 ## 1.3.0
 

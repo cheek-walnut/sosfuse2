@@ -11,8 +11,9 @@ authors:
   - name: sosfuse2 developers
 abstract: >-
   Polarized successive-orders-of-scattering solver for the twilight sky in a spherical-shell atmosphere with a
-  tropospheric aerosol layer, a stratospheric sulfate layer and absorption by ozone, NO₂ and O₄. NumPy reference implementation,
-  optional CUDA kernel through CuPy/NVRTC, tolerance-based numeric gates and signed provenance records for the baked tables.
+  tropospheric aerosol layer, a stratospheric sulfate layer and absorption by ozone, NO₂ and O₄. It includes a NumPy
+  reference implementation, an optional CUDA kernel compiled through CuPy/NVRTC, tolerance-based numeric gates and
+  signed provenance records for the baked tables.
 keywords:
   - twilight
   - sky radiance

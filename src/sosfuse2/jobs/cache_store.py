@@ -960,9 +960,10 @@ def _anonymous(info):
 
 
 def pack_for_rig(keys, out, local=None, remote=None):
-    """Cache input archive for a bake (extract_to: work): a plain tar of cache/<unit files> (the local layout). From a
-    local mirror, else the selected units are pulled into a temporary mirror next to out first. A failure leaves
-    neither the temporary mirror nor a partial tar, so the same command can simply be run again."""
+    """Cache input archive for a bake (extract_to: work): a plain tar of cache/<unit files> (the local layout). It is
+    built from the local mirror when one is given; otherwise the selected units are first pulled into a temporary mirror
+    next to out. A failure leaves neither the temporary mirror nor a partial tar, so the same command can simply be run
+    again."""
     out = Path(out).resolve()
     tmp_mirror = None
     part = None
