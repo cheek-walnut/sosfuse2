@@ -120,8 +120,8 @@ def check(gm):
 
 def identity(s):
     """Common-layer identity: grid + quadrature counts + geometry rules file + upstream hashes; no scale height."""
-    files = {'sosfuse2/' + name: source_identity.file_sha(ROOT / name) for name in UPSTREAM}
-    files[paths.rel(__file__)] = source_identity.file_sha(Path(__file__))
+    files = {'sosfuse2/' + name: source_identity.geometry_file_sha(ROOT / name) for name in UPSTREAM}
+    files[paths.rel(__file__)] = source_identity.geometry_file_sha(Path(__file__))
     from ..foundation.top import Domain
 
     content = dict(

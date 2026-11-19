@@ -271,7 +271,7 @@ def run_example(root):
             geometry.cell(i)
         seconds['cells'] = time.monotonic() - t
         t = time.monotonic()
-        field, stats = Solver(s, geometry, fixed_boxes=False).solve(64, rs.ANDERSON_TOLERANCE)  # --max-eval 64
+        field, stats = Solver(s, geometry, fixed_boxes=False).solve(64, cfg['anderson_tol'])  # --max-eval 64
         s.kernel.sync()
         host = s.kernel.host(field)
         seconds['Solver.solve'] = time.monotonic() - t

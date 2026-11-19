@@ -55,7 +55,8 @@ def grids(tmp_path, cfg, creator=v3.create_configured):
         patch.dict('os.environ', SOSFUSE2_HOST_CACHE='0'),
     ):
         with pytest.raises(Captured) as caught:
-            creator(tmp_path / 'prepare', cfg, [550.0], 'numpy', state)
+            resolved = v3.resolve_settings(cfg, state) if cfg else cfg
+            creator(tmp_path / 'prepare', resolved, resolved.get('wavelengths_nm', [550.0])[:1], 'numpy', state)
     return caught.value.geo
 
 
@@ -140,10 +141,10 @@ def test_height_hash_in_metadata_and_signature(tmp_path):
             return dumps(value, **kwargs)
 
         with patch.object(v3.json, 'dumps', side_effect=record):
-            first, _ = v3.signed_contract(state, cfg, 'numpy', nr == 4, 'depolarizing')
+            first, _ = v3.signed_contract(state, v3.resolve_settings(cfg, state), 'numpy', nr == 4, 'depolarizing')
         assert contracts[0]['grid'] == meta
         with patch.object(v3, 'grid_metadata', return_value=dict(meta, h_sha256='changed')):
-            second, _ = v3.signed_contract(state, cfg, 'numpy', nr == 4, 'depolarizing')
+            second, _ = v3.signed_contract(state, v3.resolve_settings(cfg, state), 'numpy', nr == 4, 'depolarizing')
         assert first != second
 
 

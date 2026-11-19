@@ -201,7 +201,7 @@ def test_saved_source_settings_round_trip(tmp_path):
         cfg = v3.resolve_settings(
             settings(tmp_path, dict(raw, view_shape=[1, 2], solar_elevation_deg=[-3.0, -6.0])), state
         )
-        contract = dict(state=canonical_state(state), settings=cfg, backend='cupy', polarization_model='depolarizing')
+        contract = dict(state=canonical_state(state), settings=cfg, anderson_tol=cfg['anderson_tol'], backend='cupy', polarization_model='depolarizing')
         path = tmp_path / 'source.npz'
         np.savez(path, wavelength_nm=cfg['wavelengths_nm'], source_contract=np.array(json.dumps(contract)))
         assert radiance_table.restored_settings(path, state, False, 'cupy') == cfg, raw

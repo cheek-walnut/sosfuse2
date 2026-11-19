@@ -223,6 +223,10 @@ def _endpoints(root, key):
         if not (d / name).is_file():
             return None, 'incomplete: no ' + name
     try:
+        marker = json.loads((packed / 'complete.json').read_text())
+        height = json.loads((d / 'source_height.json').read_text())
+        if not isinstance(height, dict) or 'height' not in height or not isinstance(marker, dict) or 'cells' not in marker:
+            return None, 'incomplete: endpoint metadata'
         layout = json.loads((packed / 'layout.json').read_text())
         for field, shape in layout['shapes'].items():
             n = 1

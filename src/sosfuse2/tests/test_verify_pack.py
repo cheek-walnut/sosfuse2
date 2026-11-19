@@ -86,7 +86,7 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
     states.write_text(json.dumps(dict(states=[state])))
     source = tmp_path / 'tmp/state/source.npz'
     source.parent.mkdir(parents=True)
-    source.touch()
+    np.savez(source, source_contract=json.dumps(dict(settings={'export_first_order': True}, anderson_tol=.001)))
     monkeypatch.setattr(rt, 'restored_settings', lambda *args: None)
     monkeypatch.setattr(batch, 'signature_of', lambda *args: ('exported', {}))
     monkeypatch.setattr(pack_state, 'previews', lambda path: None)
@@ -100,7 +100,7 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
     table = out / 'first_order.npz'
     rt.save_table(out / 'table.npz', data, *axes)
     meta = dict(complete=True, contract=V3.CONTRACT_VERSION, signature='exported', physics=physics(),
-                optics_state=optics_state(state), settings=dict(export_first_order=True), **first)
+                optics_state=optics_state(state), settings=dict(export_first_order=True), anderson_tol=.001, **first)
     meta_file = out / 'meta.json'
     meta_file.write_text(json.dumps(meta))
     for name in ('preview_m03.png', 'preview_m06.png'):

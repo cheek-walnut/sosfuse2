@@ -22,8 +22,40 @@ SUN_SCALE = 4
 SH_L = 16
 # Production Anderson fixed-point tolerance (observer and source relative residual). .001 = production (measured:
 # .005 left up to 0.75 % iteration error at -9 deg, .001 -> .0002
-# changes <= 0.16 %); was .005. The persistent service (pipeline_execution.py) solves with the same constant.
+# changes <= 0.16 %); was .005. The persistent service (pipeline_execution.py) uses the same validated setting.
 ANDERSON_TOLERANCE = 0.001
+
+
+def effective_tol(settings):
+    value = settings.get('anderson_tol', ANDERSON_TOLERANCE)
+    if type(value) not in (int, float) or not 1e-6 <= value <= 1e-2:
+        raise ValueError('E_SETTINGS_TOL: anderson_tol must be a number in [1e-6, 1e-2]')
+    return float(value)
+
+
+def solve_chunk(solver, max_eval, tol):
+    import sosfuse2
+
+    try:
+        field, stats = solver.solve(max_eval, tol)
+    except Exception as exc:
+        phase(os.environ.get('SOSFUSE2_STATE_ID', 'GPU_SERVICE'), 'solve_failed',
+              tolerance=tol, max_eval=max_eval, termination=str(exc), engine_file=sosfuse2.__file__,
+              engine_version=sosfuse2.__version__)
+        raise
+    if stats['tolerance'] != tol:
+        raise RuntimeError('E_SOLVE_TOL: solver returned a different tolerance')
+    stats.update(max_eval=max_eval, termination='converged')
+    solver.timings['solve_worker'] = dict(pid=os.getpid(), file=sosfuse2.__file__, version=sosfuse2.__version__,
+                                        L=solver.kernel.L, top_km=solver.kernel.domain.top_km)
+    return field, stats
+
+
+def chunk_summary(stats, worker):
+    final = stats['history'][-1]
+    return dict(worker=worker, tolerance=stats['tolerance'], evaluations=stats['evaluations'],
+                max_eval=stats['max_eval'], final_relative=max(max(final['observer_relative']), max(final['source_relative'])),
+                converged=all(stats['converged']), termination=stats['termination'], cache='fresh_solve')
 
 
 def atomic_json(path, data):
@@ -360,6 +392,7 @@ def settings_for(a):
         nphi=2 if a.reduced else 16,
         path_n=4 if a.reduced else 12,
         L=SH_L,
+        anderson_tol=effective_tol({}),
         interpolation='log',
         observer_km=0.1,
         wavelengths=1 if a.reduced else 15,
@@ -375,6 +408,7 @@ def settings_for(a):
     # chi_refine_deg has no default entry: absent (or null) means no refinement, so settings without it stay as they were.
     if not isinstance(raw, dict) or set(raw) - set(cfg) - {'chi_refine_deg', 'top_km', 'upper_heights_km', 'upper_air', 'export_first_order'}:
         raise ValueError('E_SETTINGS_KEYS: unknown settings')
+    raw['anderson_tol'] = effective_tol(raw)
     domain = top.resolve(raw, 0.125, reduced=a.reduced)
     if 'export_first_order' in raw:
         if type(raw['export_first_order']) is not bool:
@@ -624,7 +658,7 @@ class FirstOrderConflict(RuntimeError):
     """The loose and archived first-order files have different digests."""
 
 
-def verify_pack(path, signature, *, export_first_order=None, first_order_sha=None):
+def verify_pack(path, signature, *, export_first_order=None, first_order_sha=None, table_sha=None):
     # Read every archived member through zstd; verify both CRC/content and the identity.
     # tarfile's stream mode stops at the end-of-archive marker and leaves the record padding (10240 bytes measured) unread;
     # closing the pipe then can kill a zstd still writing it (SIGPIPE, nonzero exit) when the pipe buffer is small, which
@@ -648,6 +682,9 @@ def verify_pack(path, signature, *, export_first_order=None, first_order_sha=Non
                     f = archive.extractfile(member)
                     if member.name == 'meta.json':
                         meta = json.load(f)
+                    elif member.name == 'table.npz' and table_sha is not None:
+                        if hashlib.file_digest(f, 'sha256').hexdigest() != table_sha:
+                            raise RuntimeError('E_PACK_VERIFY: archived radiance table differs')
                     elif member.name == 'first_order.npz' and first_order_sha is not None:
                         if hashlib.file_digest(f, 'sha256').hexdigest() != first_order_sha:
                             raise FirstOrderConflict('E_PACK_VERIFY: first-order table differs')
@@ -772,7 +809,7 @@ def signed_contract(state, cfg, backend, reduced, polarization_model, derived=No
         reduced=reduced,
         settings=cfg,
         polarization_model=polarization_model,
-        tolerance=ANDERSON_TOLERANCE,
+        tolerance=effective_tol(cfg),
         code_hashes=hashes,
         grid=grid_metadata(cfg),
     )
@@ -1178,7 +1215,7 @@ def run(a):
                     from sosfuse2.jobs.pipeline_execution import persistent_chunk
 
                     host, stats, stiming, collected, sec, qsec = persistent_chunk(
-                        s, geometry, prepared_table, a, name, phase
+                        s, geometry, prepared_table, a, name, phase, tol=cfg['anderson_tol']
                     )
                     if trace is not None:
                         service_traces.append(stiming.pop('vram_trace'))
@@ -1189,7 +1226,8 @@ def run(a):
                     source_seconds += sec
                     query_seconds += qsec
                     pending_tables.append((s, prepared_table, collected, count, index))
-                    phase(name, 'source_done', chunk=index, evals=stats['evaluations'], seconds=sec)
+                    phase(name, 'source_done', chunk=index, evals=stats['evaluations'], seconds=sec,
+                          **chunk_summary(stats, stiming['solve_worker']))
                     phase(name, 'table_transport_done', chunk=index, seconds=qsec)
                     continue
                 phase(name, 'cpu_prepare_done', chunk=index, cuda_imported='cupy' in sys.modules)
@@ -1207,14 +1245,15 @@ def run(a):
                 trace.stage = 'source'
             t = time.monotonic()
             solver = Solver(s, geometry, fixed_boxes=a.fixed_boxes)
-            field, stats = solver.solve(a.max_eval, ANDERSON_TOLERANCE)
+            field, stats = solve_chunk(solver, a.max_eval, cfg['anderson_tol'])
             s.kernel.sync()
             sec = time.monotonic() - t
             ksplit_decision = solver.timings.get('ksplit', ksplit_decision)
             source_seconds += sec
             stats_all.append(stats)
             timings.append(solver.timings)
-            phase(name, 'source_done', chunk=index, evals=stats['evaluations'], seconds=sec)
+            phase(name, 'source_done', chunk=index, evals=stats['evaluations'], seconds=sec,
+                  **chunk_summary(stats, solver.timings['solve_worker']))
             host = s.kernel.host(field)
             fields.append(host[..., :count])
             if os.environ.get('SOSFUSE2_EXPORT_MOMENT') == '1':
@@ -1286,6 +1325,7 @@ def run(a):
                 json.dumps(
                     dict(
                         state=canonical_state(state),
+                        anderson_tol=stats_all[0]['tolerance'],
                         settings=cfg,
                         backend=a.backend,
                         polarization_model=a.polarization_model,
@@ -1360,6 +1400,8 @@ def run(a):
             code_hashes=hashes,
             backend=a.backend,
             polarization_model=a.polarization_model,
+            anderson_tol=stats_all[0]['tolerance'],
+            solve_grid=dict(h_km=s.geo.h.tolist(), chi_rad=s.geo.chi.tolist(), L=s.kernel.L),
             source_solve=stats_all[0] if len(stats_all) == 1 else stats_all,
             source_seconds=source_seconds,
             query_seconds=query_seconds,
@@ -1650,6 +1692,7 @@ def run_extra(a):
             polarization_model=a.polarization_model,
             source_file=str(src.relative_to(a.work_root)),
             source_sha256=source_sha,
+            anderson_tol=cfg['anderson_tol'],
             source_signature=source_meta.get('signature'),
             anchor_check=anchors,
             solver_create_seconds=create_seconds,

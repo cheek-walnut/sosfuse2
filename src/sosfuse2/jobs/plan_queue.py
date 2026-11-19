@@ -325,7 +325,7 @@ def geometry_layer(s, root, layers, kernel):
     folder = Path(root) / ('endpoints_' + signature)
     out = dict(signature=signature, folder=folder, complete=False, bundles={}, host=None)
     packed = gm.PackedCache(folder / 'packed')
-    if not packed.complete():
+    if not packed.complete() or (layers == 2 and not (folder / 'source_height.json').is_file()):
         return out
     host, records = packed.open()
     if len(records) != s.geo.ns:

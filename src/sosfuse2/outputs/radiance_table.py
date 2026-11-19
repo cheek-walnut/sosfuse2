@@ -309,6 +309,20 @@ def check_source_density(contract, state):
         raise ValueError(f'E_SOURCE_DENSITY: source {brief(density)} vs requested {brief(want)}')
 
 
+def check_source_tol(contract, requested):
+    from ..jobs.run_state import effective_tol
+
+    if not isinstance(contract, dict):
+        raise ValueError('E_SOURCE_TOL: source contract must be an object')
+    saved = contract.get('anderson_tol')
+    cfg = contract.get('settings')
+    if not isinstance(cfg, dict) or not isinstance(requested, dict):
+        raise ValueError('E_SOURCE_TOL: source or requested settings missing')
+    if saved != effective_tol(cfg) or saved != effective_tol(requested):
+        raise ValueError('E_SOURCE_TOL: source tolerance missing or different')
+    return saved
+
+
 def load_source(path, s, wl, *, settings=None, backend=None, full_settings=False):
     with np.load(path) as f:
         data = {k: f[k] for k in f.files}
@@ -370,6 +384,7 @@ def load_source(path, s, wl, *, settings=None, backend=None, full_settings=False
             raise ValueError('backend or polarization differs')
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError('E_SOURCE_CONTRACT: ' + str(exc)) from exc
+    check_source_tol(contract, settings)
     return data['source']
 
 
@@ -377,7 +392,7 @@ def restored_settings(path, state, reduced, backend):
     """Validate and restore non-legacy source settings; keep the old 1/15-bin path unchanged."""
     from types import SimpleNamespace
     from ..atmosphere.components import canonical_state
-    from ..jobs.run_state import resolve_settings, settings_for
+    from ..jobs.run_state import effective_tol, resolve_settings, settings_for
 
     with np.load(path) as data:
         wl = np.asarray(data['wavelength_nm'])
@@ -391,11 +406,13 @@ def restored_settings(path, state, reduced, backend):
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError('E_SOURCE_CONTRACT: ' + str(exc)) from exc
     check_source_density(contract, state)
+    check_source_tol(contract, cfg)
     legacy_wl = axes(reduced)[0]
     recorded = np.asarray(cfg.get('wavelengths_nm', legacy_wl))
     if (
         cfg.get('spectral') is None
         and not any(k in cfg for k in ('top_km', 'export_first_order'))
+        and effective_tol(cfg) == effective_tol({})
         and cfg.get('L') == 32
         and cfg.get('wavelengths', len(legacy_wl)) == len(legacy_wl)
         and wl.shape == recorded.shape == legacy_wl.shape
@@ -588,7 +605,7 @@ def main():
         )
     save_table(a.out, table, wl, hs, el, az)
     from ..atmosphere.components import physics, optics_state
-    from ..jobs.run_state import CONTRACT_VERSION
+    from ..jobs.run_state import CONTRACT_VERSION, effective_tol
 
     meta = dict(
         complete=True,
@@ -597,6 +614,7 @@ def main():
         optics_state=optics_state(state),
         id=a.id,
         settings=settings,
+        anderson_tol=effective_tol(settings),
         backend=a.backend,
         shape=list(table.shape),
         dtype=str(table.dtype),

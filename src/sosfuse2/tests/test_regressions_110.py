@@ -146,7 +146,7 @@ def _source_fixture(path):
         optics_state=np.array(json.dumps(optics_state(state))),
     )
     contract = dict(
-        state=canonical_state(state), settings=dict(settings), backend='numpy', polarization_model='depolarizing'
+        state=canonical_state(state), settings=dict(settings), anderson_tol=0.001, backend='numpy', polarization_model='depolarizing'
     )
     np.savez(path, **arrays, source_contract=np.array(json.dumps(contract)))
     return solver, settings, arrays, contract
@@ -457,7 +457,7 @@ def _multispectral_source(tmp_path, monkeypatch, count, block_size=128, strato=F
         physics=np.array(json.dumps(physics())),
         optics_state=np.array(json.dumps(optics_state(state))),
     )
-    contract = dict(state=canonical_state(state), settings=cfg, backend='cupy', polarization_model='depolarizing')
+    contract = dict(state=canonical_state(state), settings=cfg, anderson_tol=cfg['anderson_tol'], backend='cupy', polarization_model='depolarizing')
     path = tmp_path / 'source.npz'
     np.savez(path, **arrays, source_contract=np.array(json.dumps(contract)))
     return state, cfg, arrays, contract, path
@@ -912,7 +912,9 @@ def test_batch_rechecks_completed_outputs_after_lock(tmp_path, monkeypatch, caps
         if path.name == '.worker.lock':  # the other writer finishes between the first look and the lock
             (path.parent / 'table.npz').write_bytes(b'x')
             if path.parent.name == 'late':
-                (path.parent / 'meta.json').write_text('{"complete":true,"settings":null}')
+                provenance = dict(settings={}, anderson_tol=0.001)
+                np.savez(tmp_path / 'tmp/late/source.npz', source_contract=json.dumps(provenance))
+                (path.parent / 'meta.json').write_text(json.dumps(dict(complete=True, **provenance)))
                 (tmp_path / 'pack').mkdir(exist_ok=True)
                 (tmp_path / 'pack' / 'late.tar.zst').write_bytes(b'x')
 

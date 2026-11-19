@@ -383,7 +383,7 @@ def test_physics_legacy_read_alone_mixed_rejected(tmp_path):
         physics=np.array(json.dumps(physics(), sort_keys=True)),
         optics_state=np.array(json.dumps(optics_state({}), sort_keys=True)),
         source_contract=np.array(
-            json.dumps(dict(state=canonical_state({}), settings={}, backend='numpy', polarization_model='depolarizing'))
+            json.dumps(dict(state=canonical_state({}), settings={}, anderson_tol=0.001, backend='numpy', polarization_model='depolarizing'))
         ),
     )
     with pytest.raises(ValueError, match='E_PHYSICS_MIXED'):

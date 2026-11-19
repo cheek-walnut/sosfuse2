@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sosfuse2"
-version = "1.6.0"
+dynamic = ["version"]
 description = "Successive-orders-of-scattering twilight sky radiance tables (NumPy reference, optional CUDA via CuPy)"
 readme = "README.md"
 # PEP 639 expression for the whole distribution: code MIT; project data CC0; CIE colour tables via Mitsuba/colour-science
@@ -36,6 +36,9 @@ gpu = [
   "nvidia-nvjitlink-cu12>=12.8,<13",
 ]
 test = ["pytest>=9"]
+
+[tool.hatch.version]
+path = "src/sosfuse2/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sosfuse2"]

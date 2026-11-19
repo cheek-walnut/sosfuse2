@@ -11,7 +11,7 @@ run_state.signed_contract: run_state refuses such an out_name
 (E_OUTPUT_IDENTITY), so give these tables their own work root.
 """
 
-import argparse, fcntl, hashlib, json, os, re, sys, tarfile, time
+import argparse, fcntl, hashlib, json, os, re, sys, tarfile, time, zipfile
 from pathlib import Path
 
 if __name__ == '__main__':
@@ -36,7 +36,7 @@ def verify_first_order_pack(out, pack, signature):
     verify_pack(pack, signature, export_first_order=True, first_order_sha=digest)
 
 
-def output_complete(out, pack):
+def output_complete(out, pack, source=None):
     from ..outputs.radiance_table import first_order_complete
 
     if not (out / 'table.npz').is_file() or not pack.is_file():
@@ -48,6 +48,17 @@ def output_complete(out, pack):
     if not isinstance(meta, dict) or meta.get('complete') is not True or not first_order_complete(out, meta):
         return False
     settings = meta.get('settings')
+    if source is not None:
+        import numpy as np
+        from ..outputs.radiance_table import check_source_tol
+
+        try:
+            with np.load(source) as archive:
+                tol = check_source_tol(json.loads(str(archive['source_contract'])), settings)
+            if meta.get('anderson_tol') != tol:
+                return False
+        except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
+            return False
     if isinstance(settings, dict) and settings.get('export_first_order'):
         signature = meta.get('signature')
         if not isinstance(signature, str) or not signature:
@@ -82,7 +93,7 @@ def live_workers():
 def signature_of(state, backend, reduced, wl, hs, nr, nc, settings=None):
     """Signature of a batch table: this module's own `contract` dict hashed with the package code hashes."""
     from sosfuse2.jobs.run_state import package_hashes
-    from sosfuse2.jobs.run_state import ANDERSON_TOLERANCE
+    from sosfuse2.jobs.run_state import effective_tol
     from sosfuse2.atmosphere.components import physics, optics_state, canonical_state
 
     hashes = package_hashes()
@@ -95,7 +106,7 @@ def signature_of(state, backend, reduced, wl, hs, nr, nc, settings=None):
         wavelengths_nm=wl.tolist(),
         solar_elevation_deg=hs.tolist(),
         view_shape=[nr, nc],
-        tolerance=ANDERSON_TOLERANCE,
+        tolerance=effective_tol(settings or {}),
         code_hashes=hashes,
     )
     if settings is not None:
@@ -119,7 +130,7 @@ def candidates(roots, ids):
 def process(root, ident, source, state, a, log):
     from sosfuse2.outputs import radiance_table as tf
     from sosfuse2.outputs.pack_state import pack_state
-    from sosfuse2.jobs.run_state import CONTRACT_VERSION, ANDERSON_TOLERANCE
+    from sosfuse2.jobs.run_state import CONTRACT_VERSION, effective_tol
     from sosfuse2.atmosphere.components import physics, optics_state, check_same_state, production_only
 
     production_only()
@@ -139,7 +150,7 @@ def process(root, ident, source, state, a, log):
         if not isinstance(old, dict):
             raise ValueError('E_OUTPUT_META: expected a metadata object')
         check_same_state(old, dict(physics=physics(), optics_state=optics_state(state)))
-        if old.get('signature') != signature:
+        if old.get('signature') != signature or old.get('anderson_tol') != effective_tol(settings or {}):
             raise ValueError('E_OUTPUT_IDENTITY: batch table signature differs')
         pack = root / 'pack' / f'{ident}.tar.zst'
         if tf.exports_first_order(old) and pack.is_file() and (out / 'first_order.npz').is_file():
@@ -181,6 +192,7 @@ def process(root, ident, source, state, a, log):
         shape=list(table.shape),
         dtype='float32',
         settings=settings,
+        anderson_tol=effective_tol(settings),
         source_solve=None,
         source_file=str(source.relative_to(root)),
         source_seconds=None,
@@ -194,7 +206,7 @@ def process(root, ident, source, state, a, log):
         unsupported_parameters=['stratosphere_tau550'],
         folding='mirror azimuth around solar plane; cell centers 0.5..179.5 in full mode',
         units=tf.UNITS,
-        convergence_scope=f'source and 35-box residual <={100 * ANDERSON_TOLERANCE:g}% (stored source; solve stats in the worker log)',
+        convergence_scope=f'source and 35-box residual <={100 * effective_tol(settings):g}% (stored source; solve stats in the worker log)',
         table_method=dict(runner='tables_from_sources', table='table_fast.make_table', group=a.group, batch=a.batch),
         code_hashes=hashes,
     )
@@ -238,7 +250,7 @@ def main():
     for root, ident, source in candidates(roots, set(a.ids or [])):
         out = root / 'out' / ident
         pack = root / 'pack' / f'{ident}.tar.zst'
-        if output_complete(out, pack):
+        if output_complete(out, pack, source):
             continue
         if (str(root), ident) in live:
             log(f'SKIP {root.name}/{ident}: live worker owns it')
@@ -264,7 +276,7 @@ def main():
                 except BlockingIOError:
                     log(f'SKIP {root.name}/{ident}: a worker owns the output (.worker.lock)')
                     continue
-                if output_complete(out, pack):
+                if output_complete(out, pack, source):
                     log(f'SKIP {root.name}/{ident}: finished while waiting for the locks')
                     continue
                 try:

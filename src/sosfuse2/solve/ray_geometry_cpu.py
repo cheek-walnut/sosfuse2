@@ -76,7 +76,9 @@ def host_geometry(s, scope, cache, layers=1):
 
 
 def cache_complete(geometry):
-    return geometry.packed().complete()
+    return geometry.packed().complete() and (
+        not hasattr(geometry, 'column_path') or (geometry.cache / 'source_height.json').is_file()
+    )
 
 
 def column_ready(geometry):

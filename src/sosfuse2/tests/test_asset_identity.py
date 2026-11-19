@@ -233,7 +233,7 @@ def test_saved_source_restores_registered_assets(tmp_path, version):
         reduced=True, settings_json=SimpleNamespace(read_text=lambda: json.dumps(raw)))), state)
     old = copy.deepcopy(cfg)
     old['spectral'] = published_block(cfg['spectral'])
-    contract = dict(contract=version, state=components.canonical_state(state), settings=old,
+    contract = dict(contract=version, state=components.canonical_state(state), settings=old, anderson_tol=old['anderson_tol'],
                     backend='numpy', polarization_model='depolarizing')
     path = tmp_path / 'source.npz'
     solver = SimpleNamespace(fuse_state=state, geo=SimpleNamespace(h=np.array([0.]), chi=np.array([0.])))

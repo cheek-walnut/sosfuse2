@@ -63,7 +63,7 @@ def test_state_labels_and_parameters(state):
 def source(path, state, cfg, version):
     solver = SimpleNamespace(fuse_state=state, geo=SimpleNamespace(h=np.array([0.0]), chi=np.array([0.0])))
     contract = dict(contract=version, state=dict(canonical_state(state), description='Stored description', group='stored'),
-                    settings=cfg, backend='numpy', polarization_model='depolarizing')
+                    settings=cfg, anderson_tol=cfg['anderson_tol'], backend='numpy', polarization_model='depolarizing')
     np.savez(path, source=np.ones((1, 571, 1), 'f4'), h=solver.geo.h, chi=solver.geo.chi,
              wavelength_nm=cfg['wavelengths_nm'], physics=json.dumps(physics()),
              optics_state=json.dumps(optics_state(state)), source_contract=json.dumps(contract))
@@ -279,7 +279,7 @@ def test_query_cache_uses_source_identity(tmp_path, monkeypatch):
     with pytest.raises(KeyCaptured):
         pipeline_execution.captured_queries(solver, [-3.0], [0], np.array([1.0]), np.array([2.0]), None)
     assert observed[0]['sources'] == {
-        'sosfuse2/' + name: content_identity.file_sha(paths.PKG / name)
+        'sosfuse2/' + name: content_identity.geometry_file_sha(paths.PKG / name)
         for name in ('outputs/radiance_table.py', 'solve/ray_geometry.py', 'jobs/pipeline_execution.py')
     }
 

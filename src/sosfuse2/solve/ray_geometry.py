@@ -358,6 +358,12 @@ DTYPES = dict(
 TRAIL = dict(starts=(3,), targets=(3, 3), dirs=(3,), end_col=(5,))
 
 
+def publish_json(path, record):
+    tmp = path.with_name(f'{path.name}.{os.getpid()}.tmp')
+    tmp.write_text(json.dumps(record) + '\n')
+    os.replace(tmp, path)
+
+
 class PackedCache:
     """Whole-grid endpoint cache with one contiguous raw file per field.
 
@@ -459,7 +465,7 @@ class PackedCache:
             if (f / (k + '.bin')).stat().st_size != int(np.prod(shape)) * np.dtype(DTYPES[k]).itemsize:
                 raise RuntimeError(f'E_PACKED_SIZE: {k}')
         (f / 'layout.json').write_text(json.dumps(layout, indent=1) + '\n')
-        (f / 'complete.json').write_text(json.dumps(dict(cells=len(records), rays=rays, edges=base)) + '\n')
+        publish_json(f / 'complete.json', dict(cells=len(records), rays=rays, edges=base))
 
     def open(self):
         """Host memmaps in the original Bundle key order, plus per-cell records."""
@@ -488,19 +494,19 @@ def identity(s, version):
     from ..precompute.endpoint_contract import UPSTREAM
 
     upstream = [paths.PKG / n for n in UPSTREAM]
-    files = {paths.rel(p): source_identity.file_sha(p) for p in upstream}
+    files = {paths.rel(p): source_identity.geometry_file_sha(p) for p in upstream}
     if version == 1:
         # The legacy geometry source is optional. If unavailable, use a sentinel
         # so no legacy folder matches and the cells are generated instead.
         root = paths.sky_sos_root()
         code_file = (root / 'scripts/sosfuse/geometry.py') if root is not None else None
         files['sosfuse/geometry.py'] = (
-            source_identity.file_sha(code_file)
+            source_identity.geometry_file_sha(code_file)
             if code_file is not None and code_file.is_file()
             else 'unavailable'
         )
     else:
-        files[paths.rel(Path(__file__))] = source_identity.file_sha(Path(__file__))
+        files[paths.rel(Path(__file__))] = source_identity.geometry_file_sha(Path(__file__))
 
     content = dict(
         domain=getattr(s.kernel, 'domain', Domain()).identity(),
@@ -851,7 +857,7 @@ class TwoLayerGeometry(ResidentGeometry):
         built = super().build_packed()
         source = self.cache / 'source_height.json'
         if built and resumed:
-            source.write_text(json.dumps(dict(height=None)) + '\n')
+            publish_json(source, dict(height=None))
         elif built or not source.exists():
             # Height that produced the common end_col[:,1], only if one source built
             # every cell in this process (all legacy or all generated); else unknown.
@@ -863,7 +869,7 @@ class TwoLayerGeometry(ResidentGeometry):
                 h = (
                     self.s.kernel.height if tropo_profile.of(self.s) is None else None
                 )  # a two-layer build is no scale height's column
-            source.write_text(json.dumps(dict(height=h)) + '\n')
+            publish_json(source, dict(height=h))
         return built
 
     def prepare(self):

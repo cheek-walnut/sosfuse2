@@ -153,7 +153,7 @@ def captured_queries(s, hs, part, ee, aa, dummy):
         sun_elevation_deg=[float(hs[j]) for j in part],
         view=host_cache.array_hash(np.stack([ee, aa])),
         sources={
-            'sosfuse2/' + name: content_identity.file_sha(paths.PKG / name)
+            'sosfuse2/' + name: content_identity.geometry_file_sha(paths.PKG / name)
             for name in ('outputs/radiance_table.py', 'solve/ray_geometry.py', 'jobs/pipeline_execution.py')
         },
     )
@@ -473,7 +473,7 @@ class PreparedSegments:
         return iter(self.rows[self.key(p, d, n)])
 
 
-def persistent_chunk(s, geometry, tables, a, name, emit):
+def persistent_chunk(s, geometry, tables, a, name, emit, *, tol=None):
     """CPU closure owner. Service calls back once for every observer evaluation."""
     import numpy as np
     from multiprocessing.connection import Client
@@ -525,7 +525,10 @@ def persistent_chunk(s, geometry, tables, a, name, emit):
         payload.update(groups=geometry.groups if a.backend == 'numpy' else {}, tables=tables, observer=prepared)
         emit(name, 'cpu_prepare_done', cuda_imported='cupy' in __import__('sys').modules)
         emit(name, 'gpu_wait')
-        conn.send((name, a.max_eval, a.block_size, a.threads))
+        if tol is None:
+            from .run_state import effective_tol
+            tol = effective_tol({})
+        conn.send((name, a.max_eval, a.block_size, a.threads, tol))
         with wire_send(conn, payload, root, emit, name):
             while True:
                 message = conn.recv()
@@ -622,7 +625,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
     from ..outputs.radiance_table import _evaluate
     from ..foundation.host_limits import monitor, rss_cap_gb
     from ..backends.compile_cache import configure
-    from .run_state import ANDERSON_TOLERANCE  # same solve tolerance as the gpu-lock path (byte parity)
+    from .run_state import solve_chunk
 
     if not 0 < rss_gb <= rss_cap_gb():
         raise RuntimeError('E_PIPELINE_RSS_BUDGET')
@@ -675,7 +678,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
         cpu_start = time.thread_time()
         wait_seconds = 0.0
         try:
-            name, max_eval, block_size, threads = conn.recv()
+            name, max_eval, block_size, threads, tol = conn.recv()
             payload = wire_recv(conn, emit, name)
             if trace is not None:
                 trace.name, trace.chunk = name, payload['vram_chunk']
@@ -888,7 +891,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 solver.timings.update(admission)
                 solver.timings['vram_admission'] = dict(reserved_bytes=reserved, items=dict(items))
                 solve_start = time.monotonic()
-                field, stats = solver.solve(max_eval, ANDERSON_TOLERANCE)
+                field, stats = solve_chunk(solver, max_eval, tol)
                 end()
                 # ②b: what this service kernel compiled and consumed (pipeline.py collects it into pipeline_summary).
                 emit(name, 'profile', **profile_service_event(kernel))
