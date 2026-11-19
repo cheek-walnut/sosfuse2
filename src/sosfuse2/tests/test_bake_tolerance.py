@@ -28,11 +28,11 @@ def test_effective_tolerance_and_cache_keys(tmp_path, monkeypatch):
             cfg({'anderson_tol': value})
     for value in (1e-6, 1e-2):
         assert cfg({'anderson_tol': value})['anderson_tol'] == value
-    # Measured with the same solver fixture on the parent revision.
+    # Measured with the solver fixture using the current geometry source hashes.
     keys = cache_keys(tmp_path, monkeypatch)
-    assert keys['geometry'] == 'aae3f4124978e59d3d5d'
-    assert keys['legacy_geometry'] == '4665108c4c57c872dc87'
-    assert keys['host'] == '89194a7a3ecf1e62df954bf0126ffbb2e70c168d74a132beca7dfd6e780eb8c3'
+    assert keys['geometry'] == 'c33900a718e65a5660f6'
+    assert keys['legacy_geometry'] == 'cf5b2831e2db70c8ab3f'
+    assert keys['host'] == '35e99bafed5c6578f35ca17774173232fd46faabf6b00ce85e7b988b8dcff102'
     assert keys['column'] == 'd3a02e6babcb3fc10116ed723829fcc4974db77e09bdfeef13560040ec46ace5'
     assert '816319d795599f247eb6' in keys['sun'].parts
 

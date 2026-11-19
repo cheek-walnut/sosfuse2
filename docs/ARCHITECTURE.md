@@ -28,7 +28,7 @@ A module may import only from its own layer and from the layers listed in the `M
 
 | Layer | Role | Modules | May import from |
 |---|---|---|---|
-| `foundation` | where resources are, what identifies a file's content, machine limits, time | `paths`, `content_identity`, `host_limits`, `available_cpus`, `timers`, `top` | nothing |
+| `foundation` | where resources are, what identifies a file's content, machine limits, time | `paths`, `content_identity`, `host_limits`, `available_cpus`, `timers`, `top`, `version` | nothing |
 | `atmosphere` | turn a state and a wavelength into densities and optical coefficients | `components`, `density`, `upper_air`, `spectral`, `ozone_temperature`, `minor_absorbers`, `rayleigh`, `air_wavelength`, `tropo_profile`, `tropo_mie`, `stratosphere`, `extinction` | foundation |
 | `rays` | spherical ray segments, quadrature points for incoming directions and column amounts | `shell_segments`, `incoming_quadrature`, `incoming_rings`, `zenith_interpolation`, `ray_columns`, `column_table` | foundation, atmosphere |
 | `precompute` | reusable CPU-prepared arrays and their caches | `host_cache`, `column_cache`, `column_parallel`, `sun_parallel`, `ground_parallel`, `endpoint_contract` | foundation through rays |

@@ -178,6 +178,7 @@ PRODUCTION_MODULES = (
     'outputs/quantized_table',
     'jobs/tables_from_sources',
     'foundation/timers',
+    'foundation/version',
     'atmosphere/tropo_mie',
     'atmosphere/tropo_profile',
     'checks/validate',

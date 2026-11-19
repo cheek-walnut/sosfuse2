@@ -517,22 +517,6 @@ DATA_ASSETS = (
 STATE_ASSETS = ('states_v1.json', 'states_v2.json', 'states_v1_usstd.json')  # hashed as 'json'
 
 
-# Geometry compatibility for revisions that changed only solve/replay provenance.
-# Only geometry callers use these pairs. Every unrecognized code edit has its own identity.
-_GEOMETRY_COMPAT = {
-    '11d6ff3e201c68b402f0662f76d6c202100208c11fc3e9ac61764502bba27d55': 'b4cf4d78d4ff5793b9822e86de9bb84564090776304b9dceac9bb868fb7f5628',
-    '69361a3706b1041dc3fe73a20f9919fae0ff146552b835f37ed1af3258cf7aa1': '83c9f9f13422a0178bc731eb59c774d7b245e31932beb7e76548db0a9a7c1305',
-    'fbb983a0eb921a94f5b189493ef8a64d39b15b027746a6f9e2d73296116805dc': 'e5157fa899eedc7a15c679f06ea200bf656b1e8f0c78fc5401e607876a65f54e',
-    'a93e9aff1767ec690a55214d36310022de735a922a7209668d572d4f4a2c473a': 'dc6e44c520ea84e0cdf93c1723dcf6173b082813192a90448096d7cbc20cbdf2',
-    'dca0f9d4a67ed6a08dbb16f34a6a4ddc9bbdb37b90d5b3d7f1ea7496c70bfeb2': 'f86576c85f74b91f81a0a79bb6c08696c849b2ed2147a6999e2d075ab327f7c2',
-}
-
-
-def geometry_file_sha(path):
-    digest = file_sha(path)
-    return _GEOMETRY_COMPAT.get(digest, digest)
-
-
 def package_hashes():
     """Code and data hashes of the provenance format (docs/PROVENANCE_V3.md): package-relative keys ('sosfuse2/...')
     over the production modules (paths.PRODUCTION_MODULES, a fixed list), the CUDA kernel, the engine module, the
@@ -558,10 +542,14 @@ def package_hashes():
 
 
 def package_info():
-    """Release identity beside the content hashes: version from the installed metadata (None in-tree without install); commit from
-    SOSFUSE2_PACKAGE_COMMIT, else the installer's direct_url.json (pip/uv VCS install: vcs_info.commit_id; used only when the
-    distribution's sosfuse2/__init__.py is this package's own), else the git checkout whose
-    src/sosfuse2 IS this package (never a consumer checkout that merely holds an installed copy). None otherwise, never an error."""
+    """Version from the installed metadata when it describes this copy, the source version when the installed metadata belongs
+    to another copy, and None in-tree without an install.
+
+    Resolve the commit from SOSFUSE2_PACKAGE_COMMIT, then this copy's direct_url.json, then its git checkout.
+    Return None for the commit if none of these sources identifies it.
+    """
+    from .version import __version__
+
     dist = None
     ver = None
     try:
@@ -571,7 +559,6 @@ def package_info():
         if Path(dist.locate_file('sosfuse2/__init__.py')).resolve() == (paths.PKG / '__init__.py').resolve():
             ver = dist.version
         else:
-            from sosfuse2 import __version__
             ver = __version__
     except Exception:
         pass

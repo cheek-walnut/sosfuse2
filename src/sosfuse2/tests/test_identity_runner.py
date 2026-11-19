@@ -279,7 +279,7 @@ def test_query_cache_uses_source_identity(tmp_path, monkeypatch):
     with pytest.raises(KeyCaptured):
         pipeline_execution.captured_queries(solver, [-3.0], [0], np.array([1.0]), np.array([2.0]), None)
     assert observed[0]['sources'] == {
-        'sosfuse2/' + name: content_identity.geometry_file_sha(paths.PKG / name)
+        'sosfuse2/' + name: content_identity.file_sha(paths.PKG / name)
         for name in ('outputs/radiance_table.py', 'solve/ray_geometry.py', 'jobs/pipeline_execution.py')
     }
 

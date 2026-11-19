@@ -80,7 +80,10 @@ The signed dictionary has the keys `contract`, `physics`, `optics_state`, `state
 
 `package_version` and `package_commit` are not signature inputs. They are recorded beside the signed fields in `meta.json`,
 so that the same bytes sign the same whether the run is in-tree or installed. `package_version` is the installed metadata
-version, `null` in-tree without an install. `package_commit` is resolved in this order: `SOSFUSE2_PACKAGE_COMMIT`; the
+version when that metadata describes the loaded package, `sosfuse2.__version__` when it belongs to another installed copy,
+and `null` in-tree without an install.
+
+`package_commit` is resolved in this order: `SOSFUSE2_PACKAGE_COMMIT`; the
 installer's `direct_url.json` (`vcs_info.commit_id` of a pip or uv VCS install), used only when the installed
 distribution's `sosfuse2/__init__.py` is this very package; the git HEAD of the checkout whose `src/sosfuse2` is this
 package, where a consumer checkout that merely holds an installed copy is not recorded; else `null`. `gate.commit()`

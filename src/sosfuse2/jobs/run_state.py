@@ -34,19 +34,20 @@ def effective_tol(settings):
 
 
 def solve_chunk(solver, max_eval, tol):
-    import sosfuse2
+    from ..foundation.version import __version__
 
+    engine_file = str(paths.PKG / '__init__.py')
     try:
         field, stats = solver.solve(max_eval, tol)
     except Exception as exc:
         phase(os.environ.get('SOSFUSE2_STATE_ID', 'GPU_SERVICE'), 'solve_failed',
-              tolerance=tol, max_eval=max_eval, termination=str(exc), engine_file=sosfuse2.__file__,
-              engine_version=sosfuse2.__version__)
+              tolerance=tol, max_eval=max_eval, termination=str(exc), engine_file=engine_file,
+              engine_version=__version__)
         raise
     if stats['tolerance'] != tol:
         raise RuntimeError('E_SOLVE_TOL: solver returned a different tolerance')
     stats.update(max_eval=max_eval, termination='converged')
-    solver.timings['solve_worker'] = dict(pid=os.getpid(), file=sosfuse2.__file__, version=sosfuse2.__version__,
+    solver.timings['solve_worker'] = dict(pid=os.getpid(), file=engine_file, version=__version__,
                                         L=solver.kernel.L, top_km=solver.kernel.domain.top_km)
     return field, stats
 

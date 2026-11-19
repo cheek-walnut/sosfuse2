@@ -153,7 +153,7 @@ def captured_queries(s, hs, part, ee, aa, dummy):
         sun_elevation_deg=[float(hs[j]) for j in part],
         view=host_cache.array_hash(np.stack([ee, aa])),
         sources={
-            'sosfuse2/' + name: content_identity.geometry_file_sha(paths.PKG / name)
+            'sosfuse2/' + name: content_identity.file_sha(paths.PKG / name)
             for name in ('outputs/radiance_table.py', 'solve/ray_geometry.py', 'jobs/pipeline_execution.py')
         },
     )

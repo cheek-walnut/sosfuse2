@@ -776,6 +776,7 @@ def test_package_hashes(monkeypatch):
         'sosfuse2/jobs/tables_from_sources.py',
         'sosfuse2/foundation/timers.py',
         'sosfuse2/foundation/top.py',
+        'sosfuse2/foundation/version.py',
         'sosfuse2/atmosphere/upper_air.py',
         'sosfuse2/asset_tools/generate_upper_air.py',
         'sosfuse2/atmosphere/tropo_mie.py',

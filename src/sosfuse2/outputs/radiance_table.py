@@ -389,7 +389,7 @@ def load_source(path, s, wl, *, settings=None, backend=None, full_settings=False
 
 
 def restored_settings(path, state, reduced, backend):
-    """Validate and restore non-legacy source settings; keep the old 1/15-bin path unchanged."""
+    """Require a matching recorded solve tolerance before restoring settings or selecting the legacy grid."""
     from types import SimpleNamespace
     from ..atmosphere.components import canonical_state
     from ..jobs.run_state import effective_tol, resolve_settings, settings_for

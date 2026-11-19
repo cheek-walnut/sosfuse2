@@ -47,6 +47,7 @@ Settings from `jobs/run_state.py: settings_for` with `--reduced`, then `resolve_
  "nphi": 2,
  "path_n": 4,
  "L": 16,
+ "anderson_tol": 0.001,
  "interpolation": "log",
  "observer_km": 0.1,
  "wavelengths": 1,

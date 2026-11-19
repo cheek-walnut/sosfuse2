@@ -60,8 +60,8 @@ UPWARD_IMPORTS = {
         'fixed observer boxes reuse the bundle and evaluation code of the radiance table',
     ),
     ('sosfuse2.outputs.radiance_table', 'sosfuse2.jobs.run_state'): (
-        ('load_source', 'restored_settings', 'restored_table', 'main'),
-        "restoring a stored source needs the runner's settings, contract version and state reader",
+        ('load_source', 'check_source_tol', 'restored_settings', 'restored_table', 'main'),
+        "source validation and restoration use the runner's tolerance, settings, contract version and state reader",
     ),
     ('sosfuse2.checks.testkit', 'sosfuse2.asset_tools.generate_minor_absorbers'): (
         ('synthetic_o4',),

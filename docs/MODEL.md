@@ -260,7 +260,8 @@ The source field is the fixed point of this operator. One application adds one o
 from zero is the successive-orders method. The production runner instead accelerates the iteration with Anderson mixing
 (Anderson 1965) of depth 4, applied to each wavelength separately. A wavelength has converged when, from the second
 evaluation onward, both the change of the source field and the change of the observer radiance between successive
-iterates are at most 10⁻³ in relative terms. The observer test uses 35 radiances: seven viewing directions for each of
+iterates are at most `anderson_tol` in relative terms. This setting defaults to 1e-3 and accepts numbers from 1e-6 to
+1e-2 inclusive. The observer test uses 35 radiances: seven viewing directions for each of
 the five solar elevations +2°, −3°, −6°, −9° and −12°, each averaged over a 2° × 2° box. The runner stops with
 `E_NOT_CONVERGED` if a wavelength has not converged within the evaluation limit, 64 by default. Because Anderson mixing
 combines earlier iterates, the iterates are not scattering orders, and the number recorded in `meta.json` counts
@@ -289,7 +290,7 @@ minor-absorber coefficients of 1.1.0.
 | line-of-sight nodes | 12 per piece for the source, 24 per piece for the output |
 | Legendre degree `L` | 16 |
 | solar-column table | resolution scale 4 |
-| Anderson tolerance, depth | 10⁻³, 4 |
+| Anderson relative tolerance (`anderson_tol`), depth | 1e-3 by default, 4 |
 
 The table lists the default grid, and the settings `h_refine`, `nr`, `chi_step_deg`, `chi_refine_deg` and `nchi` change
 its height and `χ` axes. Extended grids append the upper height nodes to the refined grid. In the settings,

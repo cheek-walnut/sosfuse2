@@ -38,7 +38,7 @@ gpu = [
 test = ["pytest>=9"]
 
 [tool.hatch.version]
-path = "src/sosfuse2/__init__.py"
+path = "src/sosfuse2/foundation/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sosfuse2"]

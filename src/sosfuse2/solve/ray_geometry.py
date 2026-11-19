@@ -494,19 +494,19 @@ def identity(s, version):
     from ..precompute.endpoint_contract import UPSTREAM
 
     upstream = [paths.PKG / n for n in UPSTREAM]
-    files = {paths.rel(p): source_identity.geometry_file_sha(p) for p in upstream}
+    files = {paths.rel(p): source_identity.file_sha(p) for p in upstream}
     if version == 1:
         # The legacy geometry source is optional. If unavailable, use a sentinel
         # so no legacy folder matches and the cells are generated instead.
         root = paths.sky_sos_root()
         code_file = (root / 'scripts/sosfuse/geometry.py') if root is not None else None
         files['sosfuse/geometry.py'] = (
-            source_identity.geometry_file_sha(code_file)
+            source_identity.file_sha(code_file)
             if code_file is not None and code_file.is_file()
             else 'unavailable'
         )
     else:
-        files[paths.rel(Path(__file__))] = source_identity.geometry_file_sha(Path(__file__))
+        files[paths.rel(Path(__file__))] = source_identity.file_sha(Path(__file__))
 
     content = dict(
         domain=getattr(s.kernel, 'domain', Domain()).identity(),
