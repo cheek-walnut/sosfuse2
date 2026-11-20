@@ -72,7 +72,7 @@ samples and of the last bit of atan2 are ordinary tests on every platform.
 
 ```sh
 pip install ".[gpu,test]"        # from a checkout of the tagged commit; not on PyPI
-python -B -m sosfuse2.checks.gate --all --out <dir>          # G-R per kernel configuration, G-P vs NumPy, G-T anchors, G-A queue parity, H historical selftest, PS persistent service
+python -B -m sosfuse2.checks.gate --all --out <dir>          # G-R per GPU toolchain and kernel configuration, G-P vs NumPy, G-T anchors, G-A queue parity, H historical selftest, PS persistent service
 python -B -m sosfuse2.checks.gate --stage --out <dir>        # repeat runs, rtol 1e-5
 ```
 

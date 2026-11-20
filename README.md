@@ -266,6 +266,14 @@ passing turns the run red until its entry is removed, so the failures stay visib
 1.3.3 and 1.3.4 change documentation only. Their code is that of 1.3.2, and apart from the continuous-integration run no
 test or reference comparison was repeated for them.
 
+Configurations verified for 1.6.0:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0. In G-R the radiance and the table of all five fixtures equal the recorded values (max relative difference 0.0); only the bytes of the recorded source solve differ, which G-R reports without blocking. The CUDA, G-P and G-A checks, the five G-T pairs and PS passed, and G-H gave the same value as for 1.5.0 (max relative difference 1.4e-6). G-F against the fixed reference table: max relative difference 2.6e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
+| macOS arm64 | 3.14 | NumPy | wheel in a fresh virtual environment, all test modules except the persistent-service and r17 port modules, in file order and in two random orders (pytest-xdist, 8 workers): 1067 passed, 82 skipped, 3 xfailed, 0 failed in each of the three runs |
+| macOS arm64 | 3.14 | NumPy | release tree in place (`PYTHONPATH=src`, `SOSFUSE2_SKY_SOS_ROOT` unset), every test module with pytest-xdist (8 workers) and `PERSISTENT_TEST_DEADLINE=300`: 1083 passed, 74 skipped, 3 xfailed and 5 errors; the five errors are the tests of the persistent-service module that share one baseline run, which reached the 300 s deadline under that load. Run alone with the default deadline, that module gave 6 passed |
+
 Configurations verified for 1.5.2, whose numerical code is that of 1.5.0:
 
 | platform | Python | backend | what was run |

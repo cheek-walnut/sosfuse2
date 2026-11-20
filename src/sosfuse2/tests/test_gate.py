@@ -193,7 +193,7 @@ def test_pass_cross_mode_and_negative_controls(home):
     assert rc == 0 and g['gates']['R']['FX-C3']['mode'] == 'same-toolkey', g.get('error')
     rc, g = run_gate(
         home, runs(home / 'other_gpu', cc='8.9', rel_s2=3e-6)
-    )  # new toolkey, different bytes: L4 records only
+    )  # new toolkey, different bytes: recorded only
     assert rc == 0 and g['gates']['R']['FX-S2']['result'] == 'differs' and g['gates']['R']['FX-S2']['blocking'] is False
     rc, g = run_gate(home, home / 'same', '--inject', 'bytes')
     assert rc == 0 and g['gates']['R']['FX-C3']['blocking'] is False

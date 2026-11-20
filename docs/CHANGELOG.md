@@ -7,7 +7,9 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 
 - The default profile for unlisted CUDA devices is now `cuda`; use `plan_queue --cost-profile cuda` for its cost estimates. The former device profile name and the former alias for `split` are rejected.
 - Use `cache_store pack-for-remote` to create a cache archive for another machine. It replaces the former command.
-
+- The device profile key is part of the code identity of the reference checks, so runs staged by an
+  earlier release are refused with `E_GATE_CONFIG` and need to be staged again. Upstream file keys in validation evidence
+  records start with `upstream/`, and the cache archive event of `cache_store` is `pack_for_remote`.
 - For `--validate-mac`, pass the converged source NPZ with `--full-source` or set `SOSFUSE2_FULL_SOURCE`.
   The research checkout alone no longer selects the file.
 - `anderson_tol` sets the relative convergence tolerance (default 1e-3). Loading a saved source without a recorded solve
@@ -286,7 +288,7 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
 | `rayleigh` | `atmosphere.rayleigh` |
 | `reference` | `backends.numpy_reference` |
 | `run_fuse` | `checks.solver_diagnostics` |
-| former state runner | `jobs.run_state` |
+| `run_gpu_state_v3` | `jobs.run_state` |
 | `sh_layout` | `backends.sh_layout` |
 | `solver_columns` | `rays.shell_segments` |
 | `solver_core` | `solve.engine_core` |

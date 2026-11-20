@@ -1025,7 +1025,7 @@ write and check the MYSTIC input files, run MYSTIC, bake the engine tables of th
 them at the six pixels and write the comparison and the CSV. The 46,080 MYSTIC runs of the record took 359,883
 CPU-seconds (100.0 CPU-hours) of `uvspec` time. Run on the stored records of those runs, the scripts regenerate the input
 file of every run, every value of the CSV and the twelve rows of Table 7 at their printed precision. With 1.5.0,
-`SOSFUSE2_DETERMINISTIC=1` and the default CUDA profile, the engine tables of `clear_43` and `clear_80` came out
+`SOSFUSE2_DETERMINISTIC=1` and the `cuda` device profile, the engine tables of `clear_43` and `clear_80` came out
 identical, value for value, to the recorded 1.2.3 tables, and on the same Linux machine the small configuration ran from
 the libRadtran build to the comparison. A new MYSTIC run is a new Monte Carlo sample, so we compare it with the record
 through the standard errors of both rather than by whether it falls inside the recorded 95 % intervals. The scripts serve
