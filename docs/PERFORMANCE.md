@@ -26,7 +26,28 @@ command on the same root. Times are the wall time of the command.
 1.6.1 is 1.31 times faster cold and 1.41 times faster warm on this state. The difference combines the transport kernel
 changes of 1.6.0 with the split path that the smaller records enable on a 10 GB card. On this card 1.6.0 stopped at the
 second chunk with `E_VRAM_FREE`; 1.6.1 releases the chunk's device temporaries before the next chunk.
-The stall figures below were measured on earlier releases.
+
+The stall figures in *Stall reasons* were measured on earlier releases. Nsight Compute 2025.3.1 profiled the same
+command with 1.6.1 on GPU A, filtered by kernel name to `vp_scatter`, `sos_vprod_y`, `sos_vprod` and `sos_slim_proj`,
+and stopped after the first 40 matching launches, all in the first iteration of the solve. While the profiler replayed
+each matching launch, a chunk took about 8 s, so the adaptive launch planner reduced the later `sos_vprod` chunks to one
+block. The table leaves out those 30 one-block launches (SM 0.5 %) and gives the range over the launches kept. Stalls
+are warps per issue-active cycle (`smsp__average_warps_issue_stalled_<reason>_per_issue_active.ratio`).
+
+| kernel | launches kept (grid blocks) | SM % | memory % | occupancy achieved / theoretical | registers | largest stall | next stalls |
+|---|---|---:|---:|---|---:|---|---|
+| `sos_vprod` | 4 (760–12,897) | 57.7–63.1 | 64.2–70.0 | 23.2–24.7 / 25.0 | 128 | `mio_throttle` 1.09–1.19 | `not_selected` 0.73–0.79, `wait` 0.60–0.61, `long_scoreboard` 0.53–0.59 |
+| `sos_vprod_y` | 3 (1,314–25,251) | 73.2–84.7 | 31.8–37.1 | 79.5–97.2 / 100 | 28 | `tex_throttle` 8.75–12.34 | `short_scoreboard` 6.08–6.64, `wait` 1.55–1.58 |
+| `vp_scatter` | 3 (127–1,015) | 8.5–14.7 | 30.3–49.2 | 3.8–14.3 / 14.6 | 39 | `short_scoreboard` 4.79–20.25 | `long_scoreboard` 4.01–8.92, `wait` 2.06–2.13 |
+
+Of the 20 stall metrics measured, the 17 that are neither `selected` nor a per-pipe sub-breakdown sum to 4.2–4.3 warps
+per issue-active cycle in `sos_vprod`. Adding the issuing warp gives the measured 5.2–5.3 warp cycles per issued
+instruction, so these reasons account for its stalled cycles. The pre-1.1.0 probe under *Where the time goes* placed
+`sos_vprod` on the memory pipe (`mio_throttle` 0.83, L1 61 %). In 1.6.1 `mio_throttle` is its largest stall, with the
+L1 cache at 69–71 % of its peak. `sos_slim_proj` and the slimray variant of
+`sos_fused` are not in this capture. The launch limit was reached before the first `sos_slim_proj` launch, and the
+slimray variant shares the name `sos_fused` with the first-light and record variants, so a kernel-name filter cannot
+select it.
 
 ## How the work is laid out
 
