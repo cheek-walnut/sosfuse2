@@ -57,15 +57,13 @@ single core busy. `.github/ci/ci_shard.py` assigns whole files to shards by the 
 The kernel syntax and preprocess tests need a C++ compiler, `clang++` or `clang` on `PATH`: `test_ground_fused`,
 `test_sh_l`, `test_kernel_config`, `test_section_clocks_adversarial`, `test_profile_step`, the frozen kernel variant check in
 `test_strato_adversarial`, `test_ground_sh`, `test_density_order`, `test_kernel_static`, `test_identity`, `test_regressions_110`,
-`test_r17_port`, and the spherical-harmonic mismatch check in `test_strato_delta_adversarial`, which compiles through `test_strato_order.run`. Without one
-they skip, 24 cases on a compiler-less host: 20 with `E_TOOL_MISSING` through `sosfuse2.checks.testkit.require_tool`,
-and the three cases of `test_regressions_110` and the one of `test_r17_port` through their own skip conditions on
-`clang++`. The kernel itself is compiled by NVRTC at run time and does not need clang.
+`test_r17_port`, and the spherical-harmonic mismatch and static report checks in `test_strato_delta_adversarial`.
+These tests skip when the required compiler is absent. Most report `E_TOOL_MISSING` through
+`sosfuse2.checks.testkit.require_tool`. The three cases of `test_regressions_110` and the one of `test_r17_port` have
+their own skip conditions on `clang++`. The kernel itself is compiled by NVRTC at run time and does not need clang.
 
-Three cases are known failures from the research baseline and are marked `xfail(strict=True)`; their ids, causes and the
-retirement rule are in `docs/KNOWN_FAILURES.md`. The expected tier-1 outcome is `0 failed` and 3 `xfailed` (2 without
-`clang++`, where one of the three skips), and an
-`XPASS` of a strict entry means that the entry must be retired. The +1 ULP tests of the trace interpolation, of on-grid
+The expected tier-1 outcome is `0 failed`. See `docs/KNOWN_FAILURES.md` for environment-dependent outcomes.
+The +1 ULP tests of the trace interpolation, of on-grid
 samples and of the last bit of atan2 are ordinary tests on every platform.
 
 ## 2. CUDA machine (CuPy, CUDA 12), no upstream research checkout

@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tarfile
@@ -321,19 +322,18 @@ class Delta(unittest.TestCase):
         MEASUREMENTS['SH_max_absolute'] = max(r['moment_max_absolute'] for r in report['cases'])
         MEASUREMENTS['SH_gate_injected_mismatch_rejected'] = True
 
-    @testkit.known_failure(
-        'D16',
-        "kernel_static.json rows carry no 'strato' key any more (KeyError); harness predates the kclean kernel_static report",
-    )
     def test_D16_D18_D22_adversarial_static_out_and_coverage(self):
         from sosfuse2.tests import test_kernel_static as static
 
+        testkit.require_tool('clang++')
         command = [
             sys.executable,
             '-B',
             str(Path(__file__).with_name('test_kernel_static.py')),
             '--out',
             str(OUT / 'misleading_baseline_directory'),
+            '--jobs',
+            '2',
         ]
         process = subprocess.run(
             command, text=True, capture_output=True, env=paths.child_env()
@@ -342,29 +342,34 @@ class Delta(unittest.TestCase):
         report = json.loads((OUT / 'misleading_baseline_directory/kernel_static.json').read_text())
         self.assertTrue(report['pass_'])
         self.assertEqual(
-            {(r['strato'], r['wavelengths']) for r in report['cases']}, {(False, 1), (False, 15), (True, 1), (True, 15)}
+            {('STRATO' in row['flags'], row['W']) for row in report['cases']},
+            {(False, 1), (False, 15), (True, 1), (True, 15)},
         )
-        baseline = MODULE / 'assets/kernel_strato_off_baseline.cu'
-        actual_reads = []
-        original = static.subprocess.check_output
+        self.assertEqual(static.run(OUT / 'second_baseline_like_out', jobs=2), report)
 
-        def record(command, *args, **kwargs):
-            actual_reads.append(command[-1])
+        kernel = MODULE / 'backends/kernel.cu'
+        bad_header = OUT / 'deliberate_syntax_failure.h'
+        bad_header.write_text('#error E_TEST_CANDIDATE_SYNTAX\n')
+        original = subprocess.run
+
+        def reject_one_variant(command, *args, **kwargs):
+            if '-fsyntax-only' in command:
+                self.assertEqual(command[-1], str(kernel))
+                if [opt for opt in command if opt.startswith('-D')] == static.defines(1, ()):
+                    command = [*command[:-1], '-include', str(bad_header), command[-1]]
             return original(command, *args, **kwargs)
 
-        with patch.object(static.subprocess, 'check_output', side_effect=record):
-            self.assertTrue(static.run(OUT / 'second_baseline_like_out')['pass_'])
-        self.assertEqual(actual_reads.count(str(baseline)), 2)
+        with patch.object(static.subprocess, 'run', side_effect=reject_one_variant):
+            rejected = static.run(OUT / 'deliberate_candidate_mismatch', jobs=2)
+        self.assertFalse(rejected['pass_'])
+        failures = [row for row in rejected['cases'] if not row['pass_']]
+        self.assertEqual([(row['W'], row['flags']) for row in failures], [(1, [])])
+        self.assertIn('E_TEST_CANDIDATE_SYNTAX', failures[0]['stderr'])
+        self.assertEqual(rejected['conflicts'], report['conflicts'])
 
-        def mismatched_candidate(command, *args, **kwargs):
-            value = original(command, *args, **kwargs)
-            return value + ' verifier_deliberate_mismatch ' if command[-1] == str(MODULE / 'backends/kernel.cu') else value
-
-        with patch.object(static.subprocess, 'check_output', side_effect=mismatched_candidate):
-            self.assertFalse(static.run(OUT / 'deliberate_candidate_mismatch')['pass_'])
-        source = (MODULE / 'backends/kernel.cu').read_text()
-        macro = next(x for x in source.splitlines() if x.startswith('#define COPY_STRATO') and 'scache' in x)
-        self.assertEqual(macro.count('_Pragma("unroll")'), 2)
+        reuse = kernel.read_text().split('void reuse_corner(', 1)[1].split('tags[Dst]', 1)[0]
+        for copy in ('scache[Dst][w] = scache[Src][w];', 's.st_c32[Dst][w] = s.st_c32[Src][w];'):
+            self.assertRegex(reuse, rf'#pragma unroll\s+for [^\n]+\n\s+{re.escape(copy)}')
         MEASUREMENTS['static_cases'] = len(report['cases'])
         MEASUREMENTS['CUDA_runtime'] = 'OUT-OF-MODEL: not executed without CUDA'
 

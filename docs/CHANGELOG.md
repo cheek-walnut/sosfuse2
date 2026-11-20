@@ -5,6 +5,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 
 ## 1.6.1
 
+- Restore the stratospheric source-width, spherical-harmonic mismatch, and kernel syntax report tests as regular passing checks.
 - When the loose first-order table is missing, compare the maximum absolute radiance difference at each solar elevation with 0.1% of the maximum absolute packed radiance at that elevation.
 - Restore the archived table on agreement. On disagreement, keep the pack intact and report `E_PACK_TABLE_MISMATCH` with the table and the differing axes or the maximum normalized difference and its solar elevation.
 - When zstd decompression and tar reading both fail, report the tar exception alongside the zstd exit status and diagnostic.
@@ -244,8 +245,9 @@ by 1.3.x are not resumed and caches are rebuilt (**Compatibility** below).
   Where that directory cannot be created the read stops with `E_WORK_ROOT`, so set `SOSFUSE2_WORK_ROOT` to a writable
   directory. Building a host cache entry in a folder that already holds entries of other keys prints
   `RuntimeWarning: HOST_CACHE_STALE n=… bytes=…`. `python -m sosfuse2 walkthrough` shows the warning in an empty work
-  root, where those entries were written by the same run, and the results are unaffected. `docs/KNOWN_FAILURES.md`
-  describes an optional reproduction test that fails, and tier 3 of `docs/CHECKS.md` names a research test that fails.
+  root, where those entries were written by the same run, and the results are unaffected. The 1.4.0 version of
+  `docs/KNOWN_FAILURES.md` documented a failing optional reproduction test, and tier 3 of `docs/CHECKS.md` names a
+  research test that fails.
 
 | Old module | New module |
 |---|---|
