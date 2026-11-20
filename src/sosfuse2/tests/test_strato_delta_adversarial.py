@@ -298,10 +298,6 @@ class Delta(unittest.TestCase):
         bd = abs(bad.astype('f8') - expected.astype('f8'))
         self.assertFalse(((bd / spacing <= 1) | (bd / np.maximum(abs(expected.astype('f8')), 1e-30) <= 1e-6)).all())
 
-    @testkit.known_failure(
-        'D15',
-        'test_strato_order host build of kernel.cu lacks -DK_FIRST/-DK_PHASE/-DK_BOUNDARY (clang error since the specialised kernel); skips without clang++',
-    )
     def test_D15_SH_gate_accepts_absolute_rejects_material_mismatch(self):
         from sosfuse2.tests import test_strato_order as order
 

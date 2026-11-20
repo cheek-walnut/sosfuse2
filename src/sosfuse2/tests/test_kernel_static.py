@@ -22,10 +22,13 @@ from sosfuse2.tests.test_support_strato import C, C2, BYTE
 STUB = r'''// Deliberately header-free syntax stubs; no host math implementation is used.
 template<class T> inline T min(T a,T b){return a<b?a:b;}
 template<class T> inline T max(T a,T b){return a>b?a:b;}
+extern "C" {
 float fmaf(float,float,float); float sqrtf(float);float expf(float);float logf(float);float nextafterf(float,float);
 float fabsf(float);float cosf(float);float sinf(float);float atan2f(float,float);
 float fminf(float,float);float fmaxf(float,float);
 double sqrt(double);double fmin(double,double);double fmax(double,double);
+float hypotf(float,float);
+}
 #define __device__
 #define __global__
 #define __constant__
@@ -38,7 +41,6 @@ struct float2 { float x,y; };
 struct alignas(16) float4 { float x,y,z,w; };
 struct alignas(16) int4 { int x,y,z,w; };
 inline float4 make_float4(float x,float y,float z,float w){return {x,y,z,w};}
-float hypotf(float,float);
 inline void __syncwarp(){} inline void __syncthreads(){}
 inline void __trap(){}   // kernel.cu: sos_fused traps at entry without LANE_ATTEN (task B Simpson prefix)
 inline unsigned __ballot_sync(unsigned,bool){return 0;}
