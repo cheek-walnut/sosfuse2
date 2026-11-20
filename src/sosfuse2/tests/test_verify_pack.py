@@ -154,11 +154,25 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
         repack = Mock(wraps=pack_state.pack_state)
         patch.setattr(pack_state, 'pack_state', repack)
         assert batch.main() == 1
-        assert 'E_PACK_TABLE_MISMATCH: first_order.npz: max relative difference 0.125 exceeds 1e-3' in capsys.readouterr().out
+        status = capsys.readouterr().out
+        assert 'E_PACK_TABLE_MISMATCH: first_order.npz: max normalized difference 0.125 at solar elevation -3 deg' in status
         assert not table.exists()
         assert pack.read_bytes() == archive_bytes
         assert total.read_bytes() == original_table and meta_file.read_bytes() == original_meta
         replay.assert_called_once()
+
+        def interrupted_rebuild(*args, first_order_out):
+            rt.save_first_order(first_order_out, [data], *axes)
+            raise RuntimeError('E_FIRST_ORDER_ARRAY: simulated replay failure')
+
+        original_output = {path.name: path.read_bytes() for path in out.iterdir()}
+        replay.side_effect = interrupted_rebuild
+        assert batch.main() == 1
+        assert 'E_FIRST_ORDER_ARRAY: simulated replay failure' in capsys.readouterr().out
+        scratch = replay.call_args.kwargs['first_order_out']
+        assert scratch.parent == out and not scratch.exists()
+        assert {path.name: path.read_bytes() for path in out.iterdir()} == original_output
+        assert pack.read_bytes() == archive_bytes
 
         def rebuild_within_tolerance(*args, first_order_out):
             rt.save_first_order(first_order_out, [data * 1.0005], *axes)
@@ -166,7 +180,7 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
 
         replay.side_effect = rebuild_within_tolerance
         assert batch.main() == 0 and table.read_bytes() == original_first
-        assert replay.call_count == 2
+        assert replay.call_count == 3
         repack.assert_not_called()
         assert pack.read_bytes() == archive_bytes
     rt.save_table(out / 'table.npz', data * 2, *axes)
@@ -197,6 +211,59 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
     assert not batch.output_complete(out, pack)
 
 
+@pytest.mark.parametrize('inside_tolerance', [True, False])
+def test_first_order_normalizes_by_elevation_at_tolerance_boundary(tmp_path, inside_tolerance):
+    import numpy as np
+    from sosfuse2.jobs.tables_from_sources import compare_first_order
+    from sosfuse2.outputs import radiance_table as rt
+
+    axes = [np.array(values) for values in ([450.], [-3., -6.], [10., 20.], [45.])]
+    reference = np.array([[100., 0.], [1., 0.]], dtype='f4').reshape(2, 2, 1, 1)
+    rebuilt = reference.copy()
+    rebuilt[0, 1, 0, 0] = 0.01
+    boundary = np.float32(1e-3)
+    rebuilt[1, 1, 0, 0] = np.nextafter(boundary, np.float32(0)) if inside_tolerance else boundary
+    archived_path = tmp_path / 'archived.npz'
+    rebuilt_path = tmp_path / 'first_order.npz'
+    rt.save_table(archived_path, reference, *axes)
+    rt.save_table(rebuilt_path, rebuilt, *axes)
+    if inside_tolerance:
+        compare_first_order(archived_path, rebuilt_path)
+    else:
+        reason = r'E_PACK_TABLE_MISMATCH: first_order\.npz: max normalized difference .* at solar elevation -6 deg'
+        with pytest.raises(ValueError, match=reason):
+            compare_first_order(archived_path, rebuilt_path)
+
+
+@pytest.mark.parametrize('include_solar_axis', [True, False])
+def test_first_order_selects_solar_axis_by_name(tmp_path, monkeypatch, include_solar_axis):
+    import numpy as np
+    from sosfuse2.jobs.tables_from_sources import compare_first_order
+    from sosfuse2.outputs import radiance_table as rt
+
+    coords = dict(view_elevation_deg=[10., 20.])
+    reference = np.array([[100., 0.], [0., 0.]], dtype='f4')
+    if include_solar_axis:
+        coords['solar_elevation_deg'] = [-3., -6.]
+    else:
+        coords['relative_azimuth_deg'] = [30., 60.]
+    monkeypatch.setattr(rt, 'TABLE_AXES', tuple(coords))
+    archived_path = tmp_path / 'archived.npz'
+    rebuilt_path = tmp_path / 'first_order.npz'
+    np.savez(archived_path, radiance=reference, units=rt.UNITS, **coords)
+    np.savez(rebuilt_path, radiance=reference, units=rt.UNITS, **coords)
+    compare_first_order(archived_path, rebuilt_path)
+
+    rebuilt = reference.copy()
+    rebuilt[1, 1] = 0.01
+    np.savez(rebuilt_path, radiance=rebuilt, units=rt.UNITS, **coords)
+    if include_solar_axis:
+        with pytest.raises(ValueError, match=r'E_PACK_TABLE_MISMATCH: .* difference inf at solar elevation -6 deg'):
+            compare_first_order(archived_path, rebuilt_path)
+    else:
+        compare_first_order(archived_path, rebuilt_path)
+
+
 @pytest.mark.parametrize('settings', ['bad', [], False])
 def test_pack_and_verify_reject_malformed_settings(tmp_path, monkeypatch, settings):
     from sosfuse2.outputs.pack_state import pack_state
@@ -209,9 +276,15 @@ def test_pack_and_verify_reject_malformed_settings(tmp_path, monkeypatch, settin
         V3.verify_pack(plain_tar(tmp_path / 'bad.tar', 'sig', settings=settings), 'sig')
 
 
-@pytest.mark.parametrize('axis', range(4))
-def test_first_order_requires_matching_coordinates(tmp_path, axis):
+@pytest.mark.parametrize('axis,axis_name', [
+    (0, 'wavelength_nm'),
+    (1, 'solar_elevation_deg'),
+    (2, 'view_elevation_deg'),
+    (3, 'relative_azimuth_deg'),
+])
+def test_first_order_requires_matching_coordinates(tmp_path, axis, axis_name):
     import numpy as np
+    from sosfuse2.jobs.tables_from_sources import compare_first_order
     from sosfuse2.outputs import radiance_table as rt
 
     axes = [np.array([x]) for x in (450., -3., 10., 45.)]
@@ -220,3 +293,5 @@ def test_first_order_requires_matching_coordinates(tmp_path, axis):
     axes[axis] += 1
     meta = rt.save_first_order(tmp_path, [data], *axes)
     assert not rt.first_order_complete(tmp_path, dict(settings=dict(export_first_order=True), **meta))
+    with pytest.raises(ValueError, match=rf'E_PACK_TABLE_MISMATCH: first_order\.npz: axes differ \({axis_name}\)'):
+        compare_first_order(tmp_path / 'table.npz', tmp_path / 'first_order.npz')

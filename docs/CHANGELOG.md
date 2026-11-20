@@ -5,10 +5,11 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 
 ## 1.6.1
 
-- When the loose first-order table is missing, compare the regenerated radiance with the packed table at a relative tolerance of 0.1%.
-- Restore the archived table on agreement and keep the pack intact on disagreement with `E_PACK_TABLE_MISMATCH`, which reports the table and the maximum relative difference.
-- Report the zstd exit status and diagnostic when decompression fails.
+- When the loose first-order table is missing, compare the maximum absolute radiance difference at each solar elevation with 0.1% of the maximum absolute packed radiance at that elevation.
+- Restore the archived table on agreement. On disagreement, keep the pack intact and report `E_PACK_TABLE_MISMATCH` with the table and the differing axes or the maximum normalized difference and its solar elevation.
+- When zstd decompression and tar reading both fail, report the tar exception alongside the zstd exit status and diagnostic.
 - `E_OUTPUT_IDENTITY` names the affected path. For an output from earlier code, use a separate output root or inspect and move the old output.
+- The signature mismatch message now labels the stored output format as `stored format=` in place of `stored contract=`.
 
 ## 1.6.0
 

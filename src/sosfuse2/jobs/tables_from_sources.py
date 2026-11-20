@@ -87,19 +87,28 @@ def check_identity(meta, stream, state, args, restored, source_sha):
 
 def compare_first_order(archived, rebuilt):
     import numpy as np
-    from ..outputs.radiance_table import read_table
+    from ..outputs.radiance_table import TABLE_AXES, read_table
 
     archived_axes, reference = read_table(archived)
     rebuilt_axes, actual = read_table(rebuilt)
-    if any(not np.array_equal(a, b) for a, b in zip(archived_axes, rebuilt_axes)):
-        raise ValueError(f'E_PACK_TABLE_MISMATCH: {rebuilt.name}: axes differ; max relative difference undefined')
+    different = [name for name, a, b in zip(TABLE_AXES, archived_axes, rebuilt_axes) if not np.array_equal(a, b)]
+    if different:
+        raise ValueError(f'E_PACK_TABLE_MISMATCH: {rebuilt.name}: axes differ ({", ".join(different)})')
+
+    solar_axis = TABLE_AXES.index('solar_elevation_deg') if 'solar_elevation_deg' in TABLE_AXES else None
+    reduce_axes = None if solar_axis is None else tuple(i for i in range(reference.ndim) if i != solar_axis)
     reference = reference.astype('f8')
-    delta = np.abs(actual - reference)
-    magnitude = np.abs(reference)
-    if np.any(delta > 1e-3 * magnitude):
-        relative = np.divide(delta, magnitude, out=np.zeros_like(delta), where=magnitude != 0)
-        relative[(magnitude == 0) & (delta != 0)] = np.inf
-        raise ValueError(f'E_PACK_TABLE_MISMATCH: {rebuilt.name}: max relative difference {relative.max():.6g} exceeds 1e-3')
+    delta = np.max(np.abs(actual - reference), axis=reduce_axes)
+    magnitude = np.max(np.abs(reference), axis=reduce_axes)
+    normalized = np.divide(delta, magnitude, out=np.where(delta == 0, 0.0, np.inf), where=magnitude != 0)
+    maximum = normalized.max()
+    if maximum > 1e-3:
+        location = 'across the table'
+        if solar_axis is not None:
+            location = f'at solar elevation {archived_axes[solar_axis][normalized.argmax()]:g} deg'
+        raise ValueError(
+            f'E_PACK_TABLE_MISMATCH: {rebuilt.name}: max normalized difference {maximum:.9g} {location} exceeds 1e-3'
+        )
 
 
 def output_complete(out, pack, source=None, state=None, args=None):
