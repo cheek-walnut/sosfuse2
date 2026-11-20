@@ -12,6 +12,22 @@ GPU A, GPU B and GPU C denote three NVIDIA GPUs spanning multiple generations in
 The 1.2.0 stall probe in *Stall reasons* measured its `KSPLIT=0` path.
 Values marked *estimate* were derived from those measurements.
 
+## Release 1.6.1 on GPU A
+
+The reproduction command below (*Reproducing*) for `clear_34`, device profile `split`, on GPU A with the same power and clock
+settings for both releases. Each cold run starts from an empty work root and empty caches, and the warm run repeats the
+command on the same root. Times are the wall time of the command.
+
+| release | cold runs (s) | warm runs (s) | split path (`ksplit_effective`) |
+|---|---:|---:|---|
+| 1.5.2 | 315.8, 315.3 | 219.5, 219.6 | 0, reason `state_minimum_exceeds_solo_budget` |
+| 1.6.1 | 241.1, 240.7 | 156.2, 155.5 | 3, reason `fits` (the 24-byte column records of 1.6.0) |
+
+1.6.1 is 1.31 times faster cold and 1.41 times faster warm on this state. The difference combines the transport kernel
+changes of 1.6.0 with the split path that the smaller records enable on a 10 GB card. On this card 1.6.0 stopped at the
+second chunk with `E_VRAM_FREE`; 1.6.1 releases the chunk's device temporaries before the next chunk.
+The stall figures below were measured on earlier releases.
+
 ## How the work is laid out
 
 One state solve is a fixed-point iteration over a source field on a (height, χ) grid of 3,300 cells, with 45

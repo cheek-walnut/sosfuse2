@@ -263,6 +263,14 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
 1.3.3 and 1.3.4 change documentation only. Their code is that of 1.3.2, and apart from the continuous-integration run no
 test or reference comparison was repeated for them.
 
+Configurations verified for 1.6.1:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0 with the same results as for 1.6.0 (G-R radiance and table of the five fixtures equal to the recorded values, the CUDA, G-P and G-A checks, the five G-T pairs and PS passed, G-H max relative difference 1.4e-6); G-F against the fixed reference table: max relative difference 2.6e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0. On the same 10 GB GPU, the reproduction command of `docs/PERFORMANCE.md` for `clear_34` completed twice from an empty work root and twice warm (*Release 1.6.1 on GPU A* in that file) |
+| macOS arm64 | 3.14 | NumPy | wheel in a fresh virtual environment, all test modules except the persistent-service and r17 port modules, in file order and in two random orders (pytest-xdist, 8 workers): 1077 passed, 82 skipped, 0 failed in each of the three runs |
+| macOS arm64 | 3.14 | NumPy | release tree in place (`PYTHONPATH=src`, `SOSFUSE2_SKY_SOS_ROOT` unset), every test module with pytest-xdist (8 workers) and `PERSISTENT_TEST_DEADLINE=900`: 1098 passed, 74 skipped, 0 failed and no expected failures |
+
 Configurations verified for 1.6.0:
 
 | platform | Python | backend | what was run |
