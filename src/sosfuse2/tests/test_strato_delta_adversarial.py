@@ -230,10 +230,6 @@ class Delta(unittest.TestCase):
             self.assertNotIn('optics_table', meta['stratosphere'])
             self.assertNotIn('optics_sha256', meta['stratosphere'])
 
-    @testkit.known_failure(
-        'D11',
-        'st.source_size(s) is 316, the harness expects the pre-kclean 1132; kernel/harness mismatch since the baseline',
-    )
     def test_D11_initialize_1_15_lanes_and_source_widths(self):
         from sosfuse2.jobs.run_state import settings_for, create_configured
 
@@ -246,7 +242,8 @@ class Delta(unittest.TestCase):
             solver = Solver(s, TransientGeometry(s, scope))
             c = s.kernel.setup(s, 4)
             self.assertEqual(c['strato_ext'].shape, (W,))
-            self.assertEqual(st.source_size(s), 1132)
+            expected_width = 10 + 2 * sh_count(s.kernel.L)  # kernel.cu SRC_ROWS_ST
+            self.assertEqual(st.source_size(s), expected_width)
             first_meta = st.computed_metadata(s.fuse_state, s.strato)
             self.assertEqual(st.attach(s, scope)['meta'], s.strato['meta'])
             self.assertEqual(first_meta, st.computed_metadata(s.fuse_state, s.strato))
