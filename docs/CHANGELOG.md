@@ -3,6 +3,13 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.6.1
+
+- When the loose first-order table is missing, compare the regenerated radiance with the packed table at a relative tolerance of 0.1%.
+- Restore the archived table on agreement and keep the pack intact on disagreement with `E_PACK_TABLE_MISMATCH`, which reports the table and the maximum relative difference.
+- Report the zstd exit status and diagnostic when decompression fails.
+- `E_OUTPUT_IDENTITY` names the affected path. For an output from earlier code, use a separate output root or inspect and move the old output.
+
 ## 1.6.0
 
 - The default profile for unlisted CUDA devices is now `cuda`; use `plan_queue --cost-profile cuda` for its cost estimates. The former device profile name and the former alias for `split` are rejected.

@@ -673,6 +673,7 @@ def verify_pack(path, signature, *, export_first_order=None, first_order_sha=Non
     with tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(['zstd', '-q', '-dc', str(path)], stdout=subprocess.PIPE, stderr=err)
         failed = False
+        tar_error = None
         try:
             with tarfile.open(fileobj=proc.stdout, mode='r|') as archive:
                 names = []
@@ -725,6 +726,9 @@ def verify_pack(path, signature, *, export_first_order=None, first_order_sha=Non
                     or meta.get('signature') != signature
                 ):
                     raise RuntimeError('E_PACK_VERIFY: members or identity')
+        except (tarfile.TarError, EOFError) as exc:
+            tar_error = exc
+            raise
         except BaseException:
             failed = True
             raise
@@ -736,10 +740,20 @@ def verify_pack(path, signature, *, export_first_order=None, first_order_sha=Non
                 pass
             proc.stdout.close()
             rc = proc.wait()
-            if rc != 0 and not failed:  # an earlier E_PACK_VERIFY keeps its own reason
+            if rc != 0 and not failed:
                 err.seek(0)
                 detail = err.read().decode(errors='replace').strip()[-300:]
-                raise RuntimeError(f'E_PACK_VERIFY: zstd decode failed (exit {rc}{": " + detail if detail else ""})')
+                message = f'E_PACK_VERIFY: zstd decode failed (exit {rc}{": " + detail if detail else ""})'
+                if tar_error is not None:
+                    message += f'; {type(tar_error).__name__}: {tar_error}'
+                raise RuntimeError(message) from tar_error
+
+
+def output_identity_message(path, reason):
+    return (
+        f'E_OUTPUT_IDENTITY: {path}: {reason}. '
+        'If this output is from an earlier code version, use a separate output root or inspect and move the old output.'
+    )
 
 
 def enable_spectral_previews(module):
@@ -1093,7 +1107,7 @@ def run(a):
         previous = json.loads(meta_path.read_text())
         check_optics(previous.get('optics_state'), optics_state(state))
         if previous.get('signature') != signature:
-            raise RuntimeError(f"E_OUTPUT_IDENTITY: use a fresh work-root/out_name; stored contract={previous.get('contract')!r}")
+            raise RuntimeError(output_identity_message(out, f"signature differs (stored format={previous.get('contract')!r})"))
     # Recompute an interrupted attempt rather than treating a loose table as validated success.
     started = time.monotonic()
     stop = threading.Event()
@@ -1546,7 +1560,7 @@ def run_extra(a):
         previous = json.loads(meta_path.read_text())
         check_optics(previous.get('optics_state'), optics_state(state))
         if previous.get('signature') != signature:
-            raise RuntimeError(f"E_OUTPUT_IDENTITY: use a fresh work-root/out_name; stored contract={previous.get('contract')!r}")
+            raise RuntimeError(output_identity_message(out, f"signature differs (stored format={previous.get('contract')!r})"))
     started = time.monotonic()
     stop = threading.Event()
     threading.Thread(target=monitor, args=(stop, a.rss_gb * 1e9), daemon=True).start()

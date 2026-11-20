@@ -129,6 +129,7 @@ of 1.3.4 and earlier refuse v5 tables (`E_PROVENANCE_CONTRACT`). Every cache key
 use. Output folders and saved sources of earlier versions are not resumed or extended (`E_OUTPUT_IDENTITY`,
 `E_EXTRA_SOURCE`), while `outputs/radiance_table` and `jobs/tables_from_sources` keep reading older sources whose
 saved state records the density configuration; from 1.5.0 older sources without that record stop with `E_SOURCE_DENSITY`.
+For `E_OUTPUT_IDENTITY` on an output from earlier code, use a separate output root or inspect and move the old output at the reported path.
 
 From 1.6.0, `source_contract.anderson_tol` must match both the saved and requested solve tolerances.
 Regenerate sources that lack this field (`E_SOURCE_TOL`).

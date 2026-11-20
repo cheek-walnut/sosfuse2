@@ -57,6 +57,16 @@ def test_zstd_failure_reports_exit_code_and_stderr(tmp_path, monkeypatch):
         V3.verify_pack(plain_tar(tmp_path / 'p.tar', 'sig'), 'sig')
 
 
+def test_zstd_failure_before_tar_header_keeps_decoder_and_reader_errors(tmp_path, monkeypatch):
+    fake_zstd(tmp_path, monkeypatch, exit_code=3, stderr='unsupported format')
+    packed = tmp_path / 'p.tar.zst'
+    packed.touch()
+    with pytest.raises(RuntimeError, match=r'E_PACK_VERIFY: zstd decode failed \(exit 3: unsupported format\)') as caught:
+        V3.verify_pack(packed, 'sig')
+    assert 'ReadError: empty file' in str(caught.value)
+    assert isinstance(caught.value.__cause__, tarfile.ReadError)
+
+
 def test_identity_error_is_not_masked_by_the_exit_code(tmp_path, monkeypatch):
     fake_zstd(tmp_path, monkeypatch, exit_code=3)
     with pytest.raises(RuntimeError, match='E_PACK_VERIFY: members or identity'):
@@ -120,7 +130,10 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
     archive_bytes = pack.read_bytes()
     original_source = source.read_bytes()
     np.savez(source, wavelength_nm=cfg['wavelengths_nm'], source_contract=json.dumps(contract), source=np.zeros((1, 1, 1)))
-    assert batch.main() == 1 and 'E_OUTPUT_IDENTITY' in capsys.readouterr().out
+    assert batch.main() == 1
+    status = capsys.readouterr().out
+    assert f'E_OUTPUT_IDENTITY: {out}: source digest differs or is missing.' in status
+    assert 'use a separate output root or inspect and move the old output.' in status
     assert pack.read_bytes() == archive_bytes
     source.write_bytes(original_source)
     total = out / 'table.npz'
@@ -128,8 +141,34 @@ def test_exported_batch_checks_loose_and_archived_first_order(tmp_path, monkeypa
         arrays = dict(archive)
     np.savez(total, **arrays)
     assert batch.main() == 0
+    original_table = total.read_bytes()
+    original_meta = meta_file.read_bytes()
+    original_first = table.read_bytes()
     table.unlink()
-    assert batch.main() == 0 and table.is_file()
+    with monkeypatch.context() as patch:
+        def rebuild(*args, first_order_out):
+            rt.save_first_order(first_order_out, [data * 1.125], *axes)
+
+        replay = Mock(side_effect=rebuild)
+        patch.setattr(rt, 'restored_table', replay)
+        repack = Mock(wraps=pack_state.pack_state)
+        patch.setattr(pack_state, 'pack_state', repack)
+        assert batch.main() == 1
+        assert 'E_PACK_TABLE_MISMATCH: first_order.npz: max relative difference 0.125 exceeds 1e-3' in capsys.readouterr().out
+        assert not table.exists()
+        assert pack.read_bytes() == archive_bytes
+        assert total.read_bytes() == original_table and meta_file.read_bytes() == original_meta
+        replay.assert_called_once()
+
+        def rebuild_within_tolerance(*args, first_order_out):
+            rt.save_first_order(first_order_out, [data * 1.0005], *axes)
+            assert (first_order_out / table.name).read_bytes() != original_first
+
+        replay.side_effect = rebuild_within_tolerance
+        assert batch.main() == 0 and table.read_bytes() == original_first
+        assert replay.call_count == 2
+        repack.assert_not_called()
+        assert pack.read_bytes() == archive_bytes
     rt.save_table(out / 'table.npz', data * 2, *axes)
     assert batch.main() == 1 and 'E_PACK_VERIFY' in capsys.readouterr().out
     assert pack.read_bytes() == archive_bytes

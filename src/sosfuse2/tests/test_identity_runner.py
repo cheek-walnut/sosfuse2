@@ -192,8 +192,10 @@ def test_old_output_rejected_before_work(run_args, state, version, entry, monkey
         old = runner.signed_contract(effective, cfg, 'numpy', True, 'depolarizing', derived)[0]
     assert old != current  # Only the contract version differs in these signed inputs.
     (out / 'meta.json').write_text(json.dumps(dict(contract=version, signature=old, optics_state=optics_state(state))))
-    with pytest.raises(RuntimeError, match=f"E_OUTPUT_IDENTITY: .*stored contract='{version}'"):
+    with pytest.raises(RuntimeError, match='E_OUTPUT_IDENTITY') as caught:
         entry(run_args)
+    assert f"E_OUTPUT_IDENTITY: {out}: signature differs (stored format='{version}')." in str(caught.value)
+    assert 'use a separate output root or inspect and move the old output.' in str(caught.value)
     assert not (out / 'table.npz').exists()
 
 
