@@ -1325,6 +1325,15 @@ def run(a):
                 s.kernel.device_constants.clear()
                 del solver, field, host
                 solver = field = None
+                if xp is not np and index + 1 < len(chunks):
+                    # The endpoints are shared, but split records and plans belong to this solve.
+                    s.kernel.sync()
+                    for bundle in (geometry.bundle, geometry.ground_bundle):
+                        if bundle is not None:
+                            bundle.ksplit = None
+                    s.kernel.ksplit_aero = None
+                    s.kernel.ground_sh_tables.clear()
+                    xp.get_default_memory_pool().free_all_blocks()
         if ksplit_decision is not None:
             phase(name, 'ksplit', decision=ksplit_decision)
         if pipeline_lock:

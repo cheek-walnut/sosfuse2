@@ -173,13 +173,21 @@ def first_light_split_error(flags, strato, profile_name, profile):
 
 
 def apply_pool_limit(xp):
-    """Apply the memory pool ceiling and return (limit, free), in bytes."""
-    free, _ = xp.cuda.runtime.memGetInfo()
-    if free < 4 * 1024**3:
-        raise RuntimeError('E_VRAM_FREE: need at least 4 GiB free')
-    limit = pool_limit_bytes(free)
-    xp.get_default_memory_pool().set_limit(size=limit)
-    return limit, free
+    """Apply the memory pool ceiling and return (limit, driver_free), in bytes."""
+    pool = xp.get_default_memory_pool()
+    driver_free, _ = xp.cuda.runtime.memGetInfo()
+    pool_free = pool.free_bytes()
+    free = driver_free + pool_free
+    required = 4 * 1024**3
+    if free < required:
+        raise RuntimeError(
+            f'E_VRAM_FREE: need at least 4 GiB free (free_bytes={free}, required_bytes={required}, '
+            f'driver_free_bytes={driver_free}, pool_free_bytes={pool_free})'
+        )
+    # set_limit caps the whole pool, including live allocations such as resident geometry.
+    limit = pool_limit_bytes(free + pool.used_bytes())
+    pool.set_limit(size=limit)
+    return limit, driver_free
 
 
 def vram_pool_api(xp):

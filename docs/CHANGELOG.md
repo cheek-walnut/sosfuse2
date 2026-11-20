@@ -5,6 +5,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 
 ## 1.6.1
 
+- Fix a 1.6.0 regression where `run_state` could stop with `E_VRAM_FREE` at the second wavelength chunk on a 10 GB GPU.
 - Restore the stratospheric source-width, spherical-harmonic mismatch, and kernel syntax report tests as regular passing checks.
 - When the loose first-order table is missing, compare the maximum absolute radiance difference at each solar elevation with 0.1% of the maximum absolute packed radiance at that elevation.
 - Restore the archived table on agreement. On disagreement, keep the pack intact and report `E_PACK_TABLE_MISMATCH` with the table and the differing axes or the maximum normalized difference and its solar elevation.

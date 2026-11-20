@@ -100,21 +100,28 @@ def test_rss_units(monkeypatch, platform, scale):
     assert isinstance(host_limits.peak_rss_bytes(), int)
 
 
-@pytest.mark.parametrize('free_gib', [3, 4, 8])
-def test_apply_pool_limit(monkeypatch, free_gib):
-    monkeypatch.setenv('SOSFUSE2_POOL_LIMIT_GIB', '5')
+@pytest.mark.parametrize(
+    'driver_gib,cached_gib,used_gib,cap_gib,limit_gib',
+    [(3, 0, 1, '5', None), (4, 0, 0, '5', 3), (8, 0, 0, '5', 5), (2, 2, 1, '', 4)],
+)
+def test_apply_pool_limit(monkeypatch, driver_gib, cached_gib, used_gib, cap_gib, limit_gib):
+    monkeypatch.setenv('SOSFUSE2_POOL_LIMIT_GIB', cap_gib)
+    gib = 1024**3
     limits = []
-    free = free_gib * 1024**3
-    pool = SimpleNamespace(set_limit=lambda *, size: limits.append(size))
-    xp = SimpleNamespace(cuda=SimpleNamespace(runtime=SimpleNamespace(memGetInfo=lambda: (free, free))),
-                         get_default_memory_pool=lambda: pool)
-    if free_gib < 4:
-        with pytest.raises(RuntimeError, match='E_VRAM_FREE: need at least 4 GiB free'):
+    driver_free = driver_gib * gib
+    pool = SimpleNamespace(
+        free_bytes=lambda: cached_gib * gib, used_bytes=lambda: used_gib * gib,
+        set_limit=lambda *, size: limits.append(size),
+    )
+    runtime = SimpleNamespace(memGetInfo=lambda: (driver_free, 10 * gib))
+    xp = SimpleNamespace(cuda=SimpleNamespace(runtime=runtime), get_default_memory_pool=lambda: pool)
+    if limit_gib is None:
+        with pytest.raises(RuntimeError, match=rf'E_VRAM_FREE: .*free_bytes={3 * gib}, required_bytes={4 * gib}'):
             device_profile.apply_pool_limit(xp)
         assert limits == []
     else:
-        limit = min(free - 1024**3, 5 * 1024**3)
-        assert device_profile.apply_pool_limit(xp) == (limit, free)
+        limit = limit_gib * gib
+        assert device_profile.apply_pool_limit(xp) == (limit, driver_free)
         assert limits == [limit]
 
 
@@ -176,6 +183,84 @@ def run_args(tmp_path, state, monkeypatch):
                            work_root=tmp_path, backend='numpy', reduced=True, settings_json=None,
                            polarization_model='depolarizing', threads=2, stratosphere=None,
                            extra_elevations='-4', rss_gb=6, block_size=128)
+
+
+def test_run_frees_chunk_device_memory_before_next_admission(run_args, monkeypatch):
+    from sosfuse2.backends import compile_cache
+    from sosfuse2.solve import ray_geometry_cpu, source_solver
+
+    run_args.backend = 'cupy'
+    run_args.reduced = False
+    run_args.geometry_cache = run_args.work_root
+    run_args.geometry_layers = 2
+    run_args.fixed_boxes = run_args.keep_geometry = False
+    run_args.max_eval = 1
+    run_args.group = run_args.batch = 1
+    cfg = dict(wavelengths_nm=list(range(500, 516)), solar_elevation_deg=[0.0], view_shape=[1, 1],
+               anderson_tol=runner.ANDERSON_TOLERANCE)
+    geometry = SimpleNamespace(stats={'signature': 'mock'}, cache=run_args.work_root, prepare=lambda: None)
+    geometry.bundle = SimpleNamespace(ksplit=object(), arrays={'edges': object()})
+    geometry.ground_bundle = SimpleNamespace(ksplit=object())
+    edges = geometry.bundle.arrays['edges']
+    events = []
+    gib = 1024**3
+
+    def mem_info():
+        previous_chunk_held = 'table_done' in events and 'free' not in events
+        events.append('admit')
+        return (2 if previous_chunk_held else 8) * gib, 10 * gib
+
+    def free_blocks():
+        assert geometry.bundle.ksplit is None
+        assert geometry.ground_bundle.ksplit is None
+        assert geometry.bundle.arrays['edges'] is edges
+        assert geometry.s.kernel.ksplit_aero is None
+        assert not geometry.s.kernel.ground_sh_tables
+        events.append('free')
+
+    pool = SimpleNamespace(free_bytes=lambda: 0, used_bytes=lambda: gib, set_limit=lambda **kw: None,
+                           free_all_blocks=free_blocks)
+    xp = SimpleNamespace(cuda=SimpleNamespace(runtime=SimpleNamespace(memGetInfo=mem_info)),
+                         get_default_memory_pool=lambda: pool)
+
+    def create(_path, _cfg, wavelengths, *_args, **_kwargs):
+        kernel = SimpleNamespace(xp=xp, profile_n=161, sync=lambda: None, host=np.asarray, constants={},
+                                 device_constants={}, ksplit_aero=object(), ground_sh_tables={'temp': object()})
+        return SimpleNamespace(kernel=kernel, W=len(wavelengths)), None
+
+    class SecondChunkStarted(Exception):
+        pass
+
+    def phase(_name, event, **info):
+        if event == 'source_start' and info['chunk'] == 1:
+            raise SecondChunkStarted
+        if event == 'table_done':
+            events.append('table_done')
+
+    monkeypatch.setattr(runner, 'phase', phase)
+    monkeypatch.setattr(runner, 'resolve_settings', lambda *_: cfg)
+    monkeypatch.setattr(runner, 'signed_contract', lambda *_: ('mock', {}))
+    monkeypatch.setattr(runner, 'create_configured', create)
+    monkeypatch.setattr(runner, 'register_geometry', lambda *_: geometry)
+    monkeypatch.setattr(runner, 'release_geometry', lambda *_: None)
+    monkeypatch.setattr(runner.threading, 'Thread', lambda **_: SimpleNamespace(start=lambda: None))
+    monkeypatch.setattr(ray_geometry_cpu, 'build_cells', lambda _: None)
+    monkeypatch.setattr(ray_geometry_cpu, 'cache_complete', lambda _: False)
+    monkeypatch.setattr(ray_geometry_cpu, 'ensure_column', lambda _: 'mock')
+    monkeypatch.setattr(device_profile, 'smi_device_name', lambda: None)
+    monkeypatch.setattr(compile_cache, 'configure', lambda *_: None)
+    monkeypatch.setattr(source_solver, 'Solver', lambda *a, **kw: SimpleNamespace(timings={'solve_worker': {}}))
+    monkeypatch.setattr(runner, 'solve_chunk', lambda *_: (np.zeros((1, 1, 15)), {'evaluations': 1}))
+    monkeypatch.setattr(runner, 'chunk_summary', lambda *_: {})
+    monkeypatch.setattr(radiance_table, 'make_table', lambda *_: (np.zeros((1, 1, 1, 15)), None))
+    monkeypatch.setenv('SOSFUSE2_DEVICE_PROFILE', 'split')
+    monkeypatch.setenv('SOSFUSE2_POOL_LIMIT_GIB', '')
+    monkeypatch.setenv('STRATO_ATTACH_CACHE', '')
+    monkeypatch.setenv('SOSFUSE2_VRAM_TRACE', '0')
+    monkeypatch.delenv('SOSFUSE2_EXPORT_MOMENT', raising=False)
+    with pytest.raises(SecondChunkStarted):
+        runner.run(run_args)
+    assert events == ['admit', 'table_done', 'free', 'admit']
 
 
 @pytest.mark.parametrize('version', ['v3', 'v4'])
