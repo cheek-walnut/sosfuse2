@@ -156,6 +156,546 @@ def _ksplit_request(backend, config, L):
     return KSPLIT_DEFAULT, None
 
 
+class _TransportLaunch:
+    """Owns arguments and scratch arrays until Kernel.launch returns."""
+
+
+def _section_clock_directory(kernel):
+    section_dir = None
+    if kernel.config().instrumented:
+        text = os.environ.get('SOSFUSE2_SECTION_CLOCKS_DIR', '').strip()
+        if not text:
+            raise ValueError('E_SECTION_CLOCK_OUTPUT: set SOSFUSE2_SECTION_CLOCKS_DIR')
+        section_dir = Path(text).resolve()
+        section_dir.mkdir(parents=True, exist_ok=True)
+    return section_dir
+
+
+def _prepare_transport_constants(kernel, launch, bundle, s, field, first, phase, boundary, _ksplit):
+    launch.xp = kernel.xp
+    launch.c = kernel.setup(s, bundle.nq)
+    launch.dc = kernel.constants_device(s, bundle.nq)
+    launch.W = s.W
+    launch.ncell = bundle.cells
+    launch.nr = bundle.rays
+    launch.ks = kernel.ksplit and not first and phase in (0, 1)
+    if launch.ks:
+        if launch.W != 15 or 'strato_ext' not in launch.c:
+            raise ValueError(
+                'E_KSPLIT_STATE: SOSFUSE2_KSPLIT=1 needs 15 wavelengths and an enabled stratosphere '
+                '(five separable columns plus the strato profile, kernel.cu SINV)'
+            )
+        launch.kb = bundle.ksplit if _ksplit else kernel.ksplit_columns(bundle, s, field, phase, boundary)
+        if _ksplit == 'record':
+            # Each recorded wavelength integrates one unit-basis extinction column.
+            launch.e = launch.xp.zeros(launch.dc['ext'].size, launch.dc['ext'].dtype)
+            for k in range(NCOMP):
+                launch.e[k * launch.W + k] = 1
+            launch.se = launch.xp.zeros(launch.dc['strato_ext'].size, launch.dc['strato_ext'].dtype)
+            launch.se[STRATO_COLUMN_SLOT] = 1
+            launch.dc = dict(
+                launch.dc,
+                ext=launch.e.reshape(launch.dc['ext'].shape),
+                strato_ext=launch.se.reshape(launch.dc['strato_ext'].shape),
+            )
+        else:
+            launch.kb['hdr32'][0:1].fill(2)
+
+
+def _allocate_transport_outputs(kernel, launch, s, field, first, phase, boundary):
+    with vram_trace.item('source.contiguous'):
+        launch.src = launch.xp.ascontiguousarray(field, dtype='f4')
+    with vram_trace.item('moments.first' if first else 'moments.transport'):
+        launch.moments = (
+            launch.xp.empty((launch.ncell, 4 + kernel.K, launch.W), 'f8') if phase == 0 else launch.xp.empty(1, 'f8')
+        )
+    with vram_trace.item('transport.flux'):
+        launch.flux = launch.xp.empty((launch.ncell, launch.W), 'f8')
+    with vram_trace.item('query.radiance'):
+        launch.query = (
+            launch.xp.empty((launch.nr, launch.W, 4), 'f4')
+            if phase == 2
+            else (launch.kb['buf'] if launch.ks else launch.xp.empty(1, 'f4'))
+        )
+    launch.bd = (
+        launch.xp.ascontiguousarray(boundary, dtype='f8')
+        if boundary is not None
+        else launch.xp.zeros((len(s.geo.chi), launch.W), 'f8')
+    )
+
+
+def _assemble_transport_arguments(kernel, launch, bundle, s, first, phase, boundary):
+    launch.names = (
+        'cell_off',
+        'starts',
+        'targets',
+        'dirs',
+        'weights',
+        'edge_off',
+        'edges',
+        'lower',
+        'end_j',
+        'end_f',
+        'end_col',
+        'hits',
+    )
+    launch.args = [
+        np.int32(v)
+        for v in (
+            launch.ncell,
+            len(s.geo.h),
+            len(s.geo.chi),
+            bundle.nq,
+            len(launch.c['sun_h']),
+            launch.c['sun_col'].shape[1],
+            int(first),
+            phase,
+            int(boundary is not None),
+        )
+    ]
+    launch.args += [bundle.arrays[name] for name in launch.names]
+    if 'density_optics' in launch.c:
+        launch.args[9 + launch.names.index('end_col')] = kernel.density_end_columns(bundle, launch.c)
+    launch.args += [
+        launch.dc[name]
+        for name in (
+            'u',
+            'wu',
+            'aa',
+            'bb',
+            'dd',
+            'h',
+            'chi',
+            'hr',
+            'ha',
+            'ext',
+            'asca',
+            'sun_h',
+            'sun_col',
+            'gm',
+            'goff',
+            'gdir',
+            'gval',
+        )
+    ]
+    launch.ground_sh_l = kernel.ground_sh_l if first and phase in (0, 2) and 'ground_sh' in launch.dc else 0
+    if launch.ground_sh_l:
+        # Only the SH specialization interprets gval as its synthesized
+        # convolution table. Empty A0 uses the
+        # original binary, argument arrays, and shared-memory size.
+        launch.args[-1] = launch.dc['ground_sh']
+    launch.args += [
+        launch.c['height'],
+        launch.c['g'],
+        launch.c['mix'],
+        np.float64(launch.c['albedo']),
+        launch.src,
+        launch.bd,
+        launch.moments,
+        launch.flux,
+        launch.query,
+    ]
+    launch.sinv_index = len(launch.args) if launch.ks else None
+    if launch.ks:
+        launch.args += kernel.ksplit_pointer_args(launch.kb)
+    launch.sh_index = len(launch.args)  # the SH sidecar appended below (VPROD reads the same combined plane)
+    with stage('sh_aux_build', device=True), vram_trace.item('sh.sidecar'):
+        if 'strato_ext' in launch.c and kernel.config().strato:
+            if launch.src.shape != (len(s.geo.h) * len(s.geo.chi), 10 + 2 * kernel.K, launch.W):
+                raise ValueError(f'E_STRATO_SH_SOURCE: expected [nh*nc,{10 + 2 * kernel.K},W]')
+            if kernel.config().c3_fw15 and not first:
+                launch.args.append(combined_aux(launch.src, launch.c, kernel.L, launch.xp, skip_thin=True))
+            else:
+                from .strato_sh_aux import strato_sh_aux
+
+                launch.args.append(strato_sh_aux(launch.src, launch.xp, pair=True, L=kernel.L))
+        else:
+            launch.args.append(sh_aux_pair(launch.src, launch.xp, kernel.L))
+    if 'strato_ext' in launch.c:
+        # No optical sidecar is persisted in legacy/common endpoint files.
+        launch.endst = kernel.strato_end_columns(bundle, launch.c)
+        launch.profile = launch.c['strato_profile']
+        launch.args += [
+            launch.dc[name] for name in ('strato_ext', 'strato_sca', 'strato_chi', 'strato_density', 'strato_sun_col')
+        ]
+        launch.args += [
+            launch.endst,
+            F(launch.profile['center']),
+            F(launch.profile['sigma']),
+            F(launch.profile['norm']),
+        ]
+    kernel.check_upload(launch.c, launch.dc, 'launch')  # N and upload identity (E_PROFILE_N_MISMATCH / E_PROFILE_STALE)
+    launch.args += [
+        launch.dc.get('profile_table', np.uint64(0)),
+        np.int32(launch.c.get('density_optics', {}).get('mask', 0)),
+        F(launch.c.get('density_optics', {}).get('air_surface', 1.0)),
+    ]
+
+
+def _prepare_launch_order(kernel, launch, bundle, first, phase):
+    launch.lpt_index = None
+    launch.split_count = None
+    if not first and not (kernel.config().split_warm and phase == 0):
+        # R4 LPT_ORDER: per-launch cell order by descending segment count (block work proxy).
+        S = 2 if kernel.config().c3_fw15 else 1
+
+        xp = launch.xp
+
+        def lpt_order(c0, c1):
+            co = bundle.arrays['cell_off'][c0 : c1 + 1]
+            eo = bundle.arrays['edge_off']
+            work = xp.diff(eo[co]) - xp.diff(co)
+            if S > 1:  # units = cell*S+part, parts of a cell adjacent, cells by descending work
+                o = xp.argsort(-work).astype('i4')
+                return xp.ascontiguousarray((o[:, None] * S + xp.arange(S, dtype='i4')[None, :]).reshape(-1))
+            return xp.ascontiguousarray(xp.argsort(-work).astype('i4'))
+
+        launch.lpt_order = lpt_order
+        launch.lpt_index = len(launch.args)
+        launch.args.append(lpt_order(0, launch.ncell))
+        if S > 1:
+            with vram_trace.item('moments.split'):
+                launch.args.append(
+                    launch.xp.empty(
+                        max(1, (S - 1) * launch.ncell * (4 + kernel.K) * launch.W) if phase == 0 else 1, 'f8'
+                    )
+                )
+            launch.args.append(launch.xp.empty(S * launch.ncell * launch.W, 'f8'))
+            launch.split_count = launch.xp.zeros(launch.ncell, 'i4')
+            launch.args.append(launch.split_count)
+    launch.section_buffer = None
+    if launch.section_dir is not None:
+        launch.section_buffer = launch.xp.zeros(
+            (
+                launch.ncell,
+                launch.W // kernel.tile_width(launch.W, first, phase),
+                kernel.bs(first) // 32,
+                len(SECTION_CLOCK_NAMES),
+            ),
+            dtype='uint64',
+        )
+        launch.args.append(launch.section_buffer)
+
+
+def _select_transport_kernels(kernel, launch, first, phase, boundary, _ksplit):
+    launch.mode, launch.step = kernel.launch_mode(launch.ncell)
+    if launch.ks and launch.mode == 'single':
+        launch.mode, launch.step = 'fixed', launch.ncell  # KSPLIT always goes through the chunk loop
+    launch.ray_sync = None
+    launch.ray_mode = False
+    if phase == 0 and ((kernel.config().split_first and first) or (kernel.config().split_warm and not first)):
+        # FL_RAYSPLIT private scratch: per-ray rad rows and [ray queue, per-cell done] counters (zeroed).
+        # Cell-subset launches (split profile): the kernel reads rays cell_off[0]..cell_off[cells] and indexes ray_rads
+        # and the counters chunk-locally, so the counters are re-zeroed before every chunk.
+        # WARM_RAYSPLIT is not ported to cell-subset launches.
+        if launch.mode != 'single' and (not first):
+            raise ValueError('E_FL_RAYSPLIT_LAUNCH_CELLS: WARM_RAYSPLIT needs one launch per cell grid')
+        # Split launches and, with SOSFUSE2_FL_PROJECT=1, single launches project first light after processing the
+        # ray ranges.
+        launch.ray_mode = launch.mode != 'single' or os.environ.get('SOSFUSE2_FL_PROJECT', '').strip() == '1'
+        launch.ray_sync = launch.xp.zeros(
+            launch.ncell + 2, 'i4'
+        )  # [queue head, cell counters, ray-range end (LAUNCH_RAY_LIMIT)]
+        with vram_trace.item('transport.ray_radiance'):
+            launch.ray_rads = launch.xp.empty((max(launch.nr, 1), 4 * launch.W), 'f4')
+        launch.args += [launch.ray_rads, launch.ray_sync]
+    launch.rs = bool(kernel.device()[1].get('requires_split'))
+    if first and phase == 0 and (not launch.ray_mode):
+        err = first_light_split_error(kernel.flags, 'strato_ext' in launch.c, kernel.device()[0], kernel.device()[1])
+        if err:
+            raise RuntimeError(err)
+    launch.variant = _ksplit or ('prod' if launch.ks else None)
+    launch.raws = (
+        [
+            ('_prod', kernel.raw_kernel(launch.W, first, phase, boundary is not None, variant='prod')),
+            ('_slim', kernel.raw_kernel(launch.W, first, phase, boundary is not None, variant='slim')),
+        ]
+        if launch.ks and not _ksplit
+        else [
+            (
+                '',
+                kernel.raw_kernel(
+                    launch.W,
+                    first,
+                    phase,
+                    boundary is not None,
+                    ray_limit=launch.ray_mode,
+                    variant=_ksplit,
+                    ground_sh_l=launch.ground_sh_l,
+                ),
+            )
+        ]
+    )
+    launch.raw = launch.raws[0][1]
+
+
+def _launch_ray_ranges(kernel, launch, bundle):
+    launch.cum = kernel.ray_work(bundle)
+    nrays = len(launch.cum) - 1
+    launch.kind += '_rays'
+    # Adaptive launches start with half the estimated rays in the initial cells.
+    initial = max(
+        1,
+        (launch.step if launch.mode == 'fixed' else kernel.device()[1]['launch_cells_initial'] or 1)
+        * nrays
+        // max(launch.ncell, 1)
+        // (1 if launch.mode == 'fixed' else 2),
+    )
+    launch.report = dict(chunks=0, gpu_seconds=0.0, max_seconds=0.0, max_cells=launch.ncell, max_rays=0)
+    q0 = 0
+    while q0 < nrays:
+        q1 = (
+            nrays
+            if launch.mode == 'single'
+            else min(nrays, q0 + initial)
+            if (launch.mode == 'fixed' and not launch.rs)
+            else kernel.next_chunk_end(
+                launch.kind, q0, nrays, initial if launch.mode == 'fixed' else None, launch.cum, initial
+            )
+        )
+        launch.ray_sync[0:1].fill(q0)
+        launch.ray_sync[launch.ncell + 1 : launch.ncell + 2].fill(q1)
+        seconds = kernel.timed_launch(
+            launch.kind,
+            launch.raw,
+            (launch.ncell, launch.grid_y),
+            launch.block,
+            tuple(launch.args),
+            launch.shared,
+            q1 - q0,
+            launch.cum,
+            q0,
+            q1,
+        )
+        launch.report['chunks'] += 1
+        launch.report['gpu_seconds'] += seconds
+        launch.report['max_seconds'] = max(launch.report['max_seconds'], seconds)
+        launch.report['max_rays'] = max(launch.report['max_rays'], q1 - q0)
+        q0 = q1
+
+
+def _project_ray_ranges(kernel, launch, bundle, boundary):
+    # With LAUNCH_RAY_LIMIT the ray launches only publish ray_rads; project the cells now (fl_project,
+    # one block per cell, FP32 ray batches combined in FP64).
+    proj = kernel.fl_project_kernel(launch.W, boundary is not None, ground_sh_l=launch.ground_sh_l)
+    pkind = launch.kind[:-5] + '_project'
+    launch.co_h = np.asarray(kernel.host(bundle.arrays['cell_off']), 'i8')
+    launch.pcum = (launch.co_h - launch.co_h[0]).astype('f8')
+    ci = 9 + launch.names.index('cell_off')
+    ti = 9 + launch.names.index('targets')
+    launch.fixed_args = (
+        launch.args[9 + launch.names.index('dirs')],
+        launch.args[9 + launch.names.index('weights')],
+        launch.dc['aa'],
+        launch.dc['bb'],
+        launch.dc['dd'],
+        launch.ray_rads,
+        np.float64(launch.c['albedo']),
+    )
+    c0 = 0
+    while c0 < launch.ncell:
+        c1 = (
+            launch.ncell
+            if launch.mode == 'single'
+            else min(launch.ncell, c0 + launch.step)
+            if (launch.mode == 'fixed' and not launch.rs)
+            else kernel.next_chunk_end(
+                pkind, c0, launch.ncell, launch.step if launch.mode == 'fixed' else None, launch.pcum
+            )
+        )
+        seconds = kernel.timed_launch(
+            pkind,
+            proj,
+            (c1 - c0,),
+            (256,),
+            (np.int32(c1 - c0), np.int64(launch.co_h[0]), launch.args[ci][c0:], launch.args[ti][c0:])
+            + launch.fixed_args
+            + (launch.moments[c0:c1], launch.flux[c0:c1]),
+            0,
+            c1 - c0,
+            launch.pcum,
+            c0,
+            c1,
+        )
+        launch.report['chunks'] += 1
+        launch.report['gpu_seconds'] += seconds
+        launch.report['max_seconds'] = max(launch.report['max_seconds'], seconds)
+        c0 = c1
+
+
+def _launch_cell_ranges(kernel, launch, bundle, s, phase, boundary, _ksplit):
+    launch.cum = kernel.cell_work(bundle) if (launch.mode == 'adaptive' or launch.rs) else None
+    cell_index = {n: 9 + launch.names.index(n) for n in ('cell_off', 'starts', 'targets')}
+    mi = next(i for i, a in enumerate(launch.args) if a is launch.moments)
+    fi = next(i for i, a in enumerate(launch.args) if a is launch.flux)
+    launch.report = dict(chunks=0, gpu_seconds=0.0, max_seconds=0.0, max_cells=0)
+    c0 = launch.ncell if (launch.ks and not _ksplit and kernel.ksplit_mode in (2, 3)) else 0
+    if c0:
+
+        def cell_part(a, b):
+            part = list(launch.args)
+            part[0] = np.int32(b - a)
+            part[launch.sinv_index : launch.sinv_index + 3] = kernel.ksplit_pointer_args(launch.kb)
+            for n, i in cell_index.items():
+                part[i] = launch.args[i][a:]
+            if phase == 0:
+                part[mi] = launch.moments[a:b]
+            part[fi] = launch.flux[a:b]
+            if launch.lpt_index is not None:
+                part[launch.lpt_index] = launch.lpt_order(a, b)
+            if launch.split_count is not None:
+                launch.split_count.fill(0)
+            return tuple(part)
+
+        launch.ctx = dict(
+            args=launch.args,
+            sinv_index=launch.sinv_index,
+            lpt_index=launch.lpt_index,
+            cell_index=cell_index,
+            mi=mi,
+            fi=fi,
+            moments=launch.moments,
+            flux=launch.flux,
+            albedo=launch.c['albedo'],
+            ray_cum=kernel.ray_work(bundle) if launch.cum is not None else None,
+        )
+        kernel.vprod_launch(
+            launch.kb,
+            bundle,
+            s,
+            launch.dc,
+            launch.args[launch.sh_index],
+            launch.W,
+            phase,
+            boundary is not None,
+            launch.kind,
+            launch.raws,
+            cell_part,
+            ((launch.nsplit, launch.grid_y), launch.block, launch.shared),
+            launch.step,
+            launch.cum,
+            launch.report,
+            launch.ctx,
+        )
+    while c0 < launch.ncell:
+        c1 = kernel.next_chunk_end(launch.kind + launch.raws[0][0], c0, launch.ncell, launch.step, launch.cum)
+        if launch.ks and not _ksplit:
+            c1 = kernel.ksplit_chunk(launch.kb, c0, c1)
+        launch.part = list(launch.args)
+        launch.part[0] = np.int32(c1 - c0)
+        if launch.ks:
+            launch.part[launch.sinv_index : launch.sinv_index + 3] = kernel.ksplit_pointer_args(launch.kb)
+        for n, i in cell_index.items():
+            launch.part[i] = launch.args[i][c0:]
+        if phase == 0:
+            launch.part[mi] = launch.moments[c0:c1]
+        launch.part[fi] = launch.flux[c0:c1]
+        if launch.section_buffer is not None:
+            launch.part[-1] = launch.section_buffer[c0:c1]
+        if launch.lpt_index is not None:
+            launch.part[launch.lpt_index] = launch.lpt_order(c0, c1)
+        if launch.ray_sync is not None and c0 > 0:
+            launch.ray_sync.fill(0)
+        if launch.split_count is not None and c0 > 0:
+            launch.split_count.fill(0)
+        for suffix, r in launch.raws:  # KSPLIT: producer then consumer on the same chunk (one stream, in order)
+            seconds = kernel.timed_launch(
+                launch.kind + suffix,
+                r,
+                ((c1 - c0) * launch.nsplit, launch.grid_y),
+                launch.block,
+                tuple(launch.part),
+                launch.shared,
+                c1 - c0,
+                launch.cum,
+                c0,
+                c1,
+            )
+            launch.report['gpu_seconds'] += seconds
+            launch.report['max_seconds'] = max(launch.report['max_seconds'], seconds)
+        launch.report['chunks'] += 1
+        launch.report['max_cells'] = max(launch.report['max_cells'], c1 - c0)
+        c0 = c1
+
+
+def _dispatch_transport(kernel, launch, bundle, s, first, phase, boundary, _ksplit):
+    name = (
+        'launch_first'
+        if first
+        else ('launch_query' if phase == 2 else 'launch_ground' if phase == 1 else 'launch_warm')
+    )
+    with stage(name, device=True):
+        # Cell-subset launches (split profile thermal/watchdog cap, device_profile.py): blocks are
+        # independent, so only the cell-indexed pointers move: cell_off/starts/targets (inputs) and
+        # moments/flux (outputs); per-chunk counters (FL_RAYSPLIT ray_sync, CELL_SPLIT split_count) are
+        # re-zeroed. Numerically equivalent to one launch within the reference tolerance. 'adaptive' sizes each chunk from the last
+        # measured seconds per unit of work of the same kernel kind; 'fixed' is SOSFUSE2_LAUNCH_CELLS.
+        launch.nsplit = (2 if kernel.config().c3_fw15 else 1) if launch.lpt_index is not None else 1
+        launch.grid_y = launch.W // kernel.tile_width(launch.W, first, phase)
+        launch.block = (kernel.bs(first, launch.variant),)
+        launch.shared = kernel.shared_bytes(launch.W, phase, first=first, variant=launch.variant)
+        launch.kind = f'first{int(first)}_phase{int(phase)}_W{launch.W}' + (
+            '_record' if _ksplit else '_split' if launch.ks else ''
+        )
+        launch.report = None
+        if launch.mode == 'single' and not launch.ray_mode:
+            seconds = kernel.timed_launch(
+                launch.kind,
+                launch.raw,
+                (launch.ncell * launch.nsplit, launch.grid_y),
+                launch.block,
+                tuple(launch.args),
+                launch.shared,
+                launch.ncell,
+            )
+            launch.report = dict(chunks=1, gpu_seconds=seconds, max_seconds=seconds, max_cells=launch.ncell)
+        elif launch.ray_mode:
+            _launch_ray_ranges(kernel, launch, bundle)
+            _project_ray_ranges(kernel, launch, bundle, boundary)
+        else:
+            _launch_cell_ranges(kernel, launch, bundle, s, phase, boundary, _ksplit)
+        if launch.report is not None:
+            launch.report.update(
+                kind=launch.kind,
+                mode=launch.mode,
+                cells=launch.ncell,
+                profile=kernel.launch_log['profile'],
+                budget_seconds=kernel.launch_log['budget_seconds'],
+            )
+            print('LAUNCH_REPORT ' + json.dumps(launch.report, allow_nan=False), flush=True)
+
+
+def _record_transport_clocks(kernel, launch, first, phase, timed):
+    if timed or launch.section_buffer is not None:
+        launch.end.record()
+        launch.end.synchronize()
+        cuda_seconds = float(launch.xp.cuda.get_elapsed_time(launch.begin, launch.end) / 1000)
+        if timed:
+            kernel.cuda_events.append(cuda_seconds)
+    if launch.section_buffer is not None:
+        launch.counters = kernel.host(launch.section_buffer)
+        launch.report = section_clock_summary(launch.counters)
+        path = launch.section_dir / f'clock_{os.getpid()}_{time.time_ns()}_{kernel.metrics["launches"]}.npz'
+        with path.open('xb') as stream:
+            np.savez_compressed(stream, cycles=launch.counters)
+        launch.report.update(
+            schema='sosfuse2-section-clocks-v1',
+            flags=list(kernel.flags),
+            gpu=os.environ.get('CUDA_VISIBLE_DEVICES'),
+            pid=os.getpid(),
+            launch=kernel.metrics['launches'],
+            first=bool(first),
+            phase=int(phase),
+            wavelengths=launch.W,
+            block_size=kernel.block_size,
+            grid=[launch.ncell, launch.W // kernel.tile_width(launch.W, first, phase)],
+            launch_cells=kernel.launch_cells(),
+            cuda_event_seconds=cuda_seconds,
+            raw_path=str(path),
+        )
+        print('SECTION_CLOCKS ' + json.dumps(launch.report, allow_nan=False), flush=True)
+
+
 class Kernel(KsplitMixin):
     def __init__(
         self, threads=4, height=1.2, g=0.8, backend='numpy', block_size=128, flags=None, L=32, *, profile_step_km=0.5, domain=None
@@ -933,448 +1473,24 @@ class Kernel(KsplitMixin):
         return bundle.density_columns[key]
 
     def launch(self, bundle, s, field, first=False, phase=0, boundary=None, timed=False, _ksplit=None):
-        section_dir = None
-        if self.config().instrumented:
-            text = os.environ.get('SOSFUSE2_SECTION_CLOCKS_DIR', '').strip()
-            if not text:
-                raise ValueError('E_SECTION_CLOCK_OUTPUT: set SOSFUSE2_SECTION_CLOCKS_DIR')
-            section_dir = Path(text).resolve()
-            section_dir.mkdir(parents=True, exist_ok=True)
-        xp = self.xp
-        c = self.setup(s, bundle.nq)
-        dc = self.constants_device(s, bundle.nq)
-        W = s.W
-        ncell = bundle.cells
-        nr = bundle.rays
-        ks = self.ksplit and not first and phase in (0, 1)
-        if ks:
-            if W != 15 or 'strato_ext' not in c:
-                raise ValueError(
-                    'E_KSPLIT_STATE: SOSFUSE2_KSPLIT=1 needs 15 wavelengths and an enabled stratosphere '
-                    '(five separable columns plus the strato profile, kernel.cu SINV)'
-                )
-            kb = bundle.ksplit if _ksplit else self.ksplit_columns(bundle, s, field, phase, boundary)
-            if _ksplit == 'record':
-                # Each recorded wavelength integrates one unit-basis extinction column.
-                e = xp.zeros(dc['ext'].size, dc['ext'].dtype)
-                for k in range(NCOMP):
-                    e[k * W + k] = 1
-                se = xp.zeros(dc['strato_ext'].size, dc['strato_ext'].dtype)
-                se[STRATO_COLUMN_SLOT] = 1
-                dc = dict(dc, ext=e.reshape(dc['ext'].shape), strato_ext=se.reshape(dc['strato_ext'].shape))
-            else:
-                kb['hdr32'][0:1].fill(2)
-        with vram_trace.item('source.contiguous'):
-            src = xp.ascontiguousarray(field, dtype='f4')
-        with vram_trace.item('moments.first' if first else 'moments.transport'):
-            moments = xp.empty((ncell, 4 + self.K, W), 'f8') if phase == 0 else xp.empty(1, 'f8')
-        with vram_trace.item('transport.flux'):
-            flux = xp.empty((ncell, W), 'f8')
-        with vram_trace.item('query.radiance'):
-            query = xp.empty((nr, W, 4), 'f4') if phase == 2 else (kb['buf'] if ks else xp.empty(1, 'f4'))
-        bd = xp.ascontiguousarray(boundary, dtype='f8') if boundary is not None else xp.zeros((len(s.geo.chi), W), 'f8')
-        names = (
-            'cell_off',
-            'starts',
-            'targets',
-            'dirs',
-            'weights',
-            'edge_off',
-            'edges',
-            'lower',
-            'end_j',
-            'end_f',
-            'end_col',
-            'hits',
-        )
-        args = [
-            np.int32(v)
-            for v in (
-                ncell,
-                len(s.geo.h),
-                len(s.geo.chi),
-                bundle.nq,
-                len(c['sun_h']),
-                c['sun_col'].shape[1],
-                int(first),
-                phase,
-                int(boundary is not None),
-            )
-        ]
-        args += [bundle.arrays[name] for name in names]
-        if 'density_optics' in c:
-            args[9 + names.index('end_col')] = self.density_end_columns(bundle, c)
-        args += [
-            dc[name]
-            for name in (
-                'u',
-                'wu',
-                'aa',
-                'bb',
-                'dd',
-                'h',
-                'chi',
-                'hr',
-                'ha',
-                'ext',
-                'asca',
-                'sun_h',
-                'sun_col',
-                'gm',
-                'goff',
-                'gdir',
-                'gval',
-            )
-        ]
-        ground_sh_l = self.ground_sh_l if first and phase in (0, 2) and 'ground_sh' in dc else 0
-        if ground_sh_l:
-            # Only the SH specialization interprets gval as its synthesized
-            # convolution table. Empty A0 uses the
-            # original binary, argument arrays, and shared-memory size.
-            args[-1] = dc['ground_sh']
-        args += [c['height'], c['g'], c['mix'], np.float64(c['albedo']), src, bd, moments, flux, query]
-        sinv_index = len(args) if ks else None
-        if ks:
-            args += self.ksplit_pointer_args(kb)
-        sh_index = len(args)  # the SH sidecar appended below (VPROD reads the same combined plane)
-        with stage('sh_aux_build', device=True), vram_trace.item('sh.sidecar'):
-            if 'strato_ext' in c and self.config().strato:
-                if src.shape != (len(s.geo.h) * len(s.geo.chi), 10 + 2 * self.K, W):
-                    raise ValueError(f'E_STRATO_SH_SOURCE: expected [nh*nc,{10 + 2 * self.K},W]')
-                if self.config().c3_fw15 and not first:
-                    args.append(combined_aux(src, c, self.L, xp, skip_thin=True))
-                else:
-                    from .strato_sh_aux import strato_sh_aux
-
-                    args.append(strato_sh_aux(src, xp, pair=True, L=self.L))
-            else:
-                args.append(sh_aux_pair(src, xp, self.L))
-        if 'strato_ext' in c:
-            # No optical sidecar is persisted in legacy/common endpoint files.
-            endst = self.strato_end_columns(bundle, c)
-            profile = c['strato_profile']
-            args += [
-                dc[name] for name in ('strato_ext', 'strato_sca', 'strato_chi', 'strato_density', 'strato_sun_col')
-            ]
-            args += [endst, F(profile['center']), F(profile['sigma']), F(profile['norm'])]
-        self.check_upload(c, dc, 'launch')  # N and upload identity (E_PROFILE_N_MISMATCH / E_PROFILE_STALE)
-        args += [
-            dc.get('profile_table', np.uint64(0)),
-            np.int32(c.get('density_optics', {}).get('mask', 0)),
-            F(c.get('density_optics', {}).get('air_surface', 1.0)),
-        ]
-        lpt_index = None
-        split_count = None
-        if not first and not (self.config().split_warm and phase == 0):
-            # R4 LPT_ORDER: per-launch cell order by descending segment count (block work proxy).
-            S = 2 if self.config().c3_fw15 else 1
-
-            def lpt_order(c0, c1):
-                co = bundle.arrays['cell_off'][c0 : c1 + 1]
-                eo = bundle.arrays['edge_off']
-                work = xp.diff(eo[co]) - xp.diff(co)
-                if S > 1:  # units = cell*S+part, parts of a cell adjacent, cells by descending work
-                    o = xp.argsort(-work).astype('i4')
-                    return xp.ascontiguousarray((o[:, None] * S + xp.arange(S, dtype='i4')[None, :]).reshape(-1))
-                return xp.ascontiguousarray(xp.argsort(-work).astype('i4'))
-
-            lpt_index = len(args)
-            args.append(lpt_order(0, ncell))
-            if S > 1:
-                with vram_trace.item('moments.split'):
-                    args.append(xp.empty(max(1, (S - 1) * ncell * (4 + self.K) * W) if phase == 0 else 1, 'f8'))
-                args.append(xp.empty(S * ncell * W, 'f8'))
-                split_count = xp.zeros(ncell, 'i4')
-                args.append(split_count)
-        section_buffer = None
-        if section_dir is not None:
-            section_buffer = xp.zeros(
-                (ncell, W // self.tile_width(W, first, phase), self.bs(first) // 32, len(SECTION_CLOCK_NAMES)),
-                dtype='uint64',
-            )
-            args.append(section_buffer)
-        mode, step = self.launch_mode(ncell)
-        if ks and mode == 'single':
-            mode, step = 'fixed', ncell  # KSPLIT always goes through the chunk loop
-        ray_sync = None
-        ray_mode = False
-        if phase == 0 and ((self.config().split_first and first) or (self.config().split_warm and not first)):
-            # FL_RAYSPLIT private scratch: per-ray rad rows and [ray queue, per-cell done] counters (zeroed).
-            # Cell-subset launches (split profile): the kernel reads rays cell_off[0]..cell_off[cells] and indexes ray_rads
-            # and the counters chunk-locally, so the counters are re-zeroed before every chunk.
-            # WARM_RAYSPLIT is not ported to cell-subset launches.
-            if mode != 'single' and (not first):
-                raise ValueError('E_FL_RAYSPLIT_LAUNCH_CELLS: WARM_RAYSPLIT needs one launch per cell grid')
-            # Split launches and, with SOSFUSE2_FL_PROJECT=1, single launches project first light after processing the
-            # ray ranges.
-            ray_mode = mode != 'single' or os.environ.get('SOSFUSE2_FL_PROJECT', '').strip() == '1'
-            ray_sync = xp.zeros(ncell + 2, 'i4')  # [queue head, cell counters, ray-range end (LAUNCH_RAY_LIMIT)]
-            with vram_trace.item('transport.ray_radiance'):
-                ray_rads = xp.empty((max(nr, 1), 4 * W), 'f4')
-            args += [ray_rads, ray_sync]
-        rs = bool(self.device()[1].get('requires_split'))
-        if first and phase == 0 and (not ray_mode):
-            err = first_light_split_error(self.flags, 'strato_ext' in c, self.device()[0], self.device()[1])
-            if err:
-                raise RuntimeError(err)
-        variant = _ksplit or ('prod' if ks else None)
-        raws = (
-            [
-                ('_prod', self.raw_kernel(W, first, phase, boundary is not None, variant='prod')),
-                ('_slim', self.raw_kernel(W, first, phase, boundary is not None, variant='slim')),
-            ]
-            if ks and not _ksplit
-            else [
-                (
-                    '',
-                    self.raw_kernel(
-                        W,
-                        first,
-                        phase,
-                        boundary is not None,
-                        ray_limit=ray_mode,
-                        variant=_ksplit,
-                        ground_sh_l=ground_sh_l,
-                    ),
-                )
-            ]
-        )
-        raw = raws[0][1]
-        if timed or section_buffer is not None:
-            begin = xp.cuda.Event()
-            end = xp.cuda.Event()
-            begin.record()
-        name = (
-            'launch_first'
-            if first
-            else ('launch_query' if phase == 2 else 'launch_ground' if phase == 1 else 'launch_warm')
-        )
-        with stage(name, device=True):
-            # Cell-subset launches (split profile thermal/watchdog cap, device_profile.py): blocks are
-            # independent, so only the cell-indexed pointers move: cell_off/starts/targets (inputs) and
-            # moments/flux (outputs); per-chunk counters (FL_RAYSPLIT ray_sync, CELL_SPLIT split_count) are
-            # re-zeroed. Numerically equivalent to one launch within the reference tolerance. 'adaptive' sizes each chunk from the last
-            # measured seconds per unit of work of the same kernel kind; 'fixed' is SOSFUSE2_LAUNCH_CELLS.
-            nsplit = (2 if self.config().c3_fw15 else 1) if lpt_index is not None else 1
-            grid_y = W // self.tile_width(W, first, phase)
-            block = (self.bs(first, variant),)
-            shared = self.shared_bytes(W, phase, first=first, variant=variant)
-            kind = f'first{int(first)}_phase{int(phase)}_W{W}' + ('_record' if _ksplit else '_split' if ks else '')
-            report = None
-            if mode == 'single' and not ray_mode:
-                seconds = self.timed_launch(kind, raw, (ncell * nsplit, grid_y), block, tuple(args), shared, ncell)
-                report = dict(chunks=1, gpu_seconds=seconds, max_seconds=seconds, max_cells=ncell)
-            elif ray_mode:
-                cum = self.ray_work(bundle)
-                nrays = len(cum) - 1
-                kind += '_rays'
-                # Adaptive launches start with half the estimated rays in the initial cells.
-                initial = max(
-                    1,
-                    (step if mode == 'fixed' else self.device()[1]['launch_cells_initial'] or 1)
-                    * nrays
-                    // max(ncell, 1)
-                    // (1 if mode == 'fixed' else 2),
-                )
-                report = dict(chunks=0, gpu_seconds=0.0, max_seconds=0.0, max_cells=ncell, max_rays=0)
-                q0 = 0
-                while q0 < nrays:
-                    q1 = (
-                        nrays
-                        if mode == 'single'
-                        else min(nrays, q0 + initial)
-                        if (mode == 'fixed' and not rs)
-                        else self.next_chunk_end(kind, q0, nrays, initial if mode == 'fixed' else None, cum, initial)
-                    )
-                    ray_sync[0:1].fill(q0)
-                    ray_sync[ncell + 1 : ncell + 2].fill(q1)
-                    seconds = self.timed_launch(
-                        kind, raw, (ncell, grid_y), block, tuple(args), shared, q1 - q0, cum, q0, q1
-                    )
-                    report['chunks'] += 1
-                    report['gpu_seconds'] += seconds
-                    report['max_seconds'] = max(report['max_seconds'], seconds)
-                    report['max_rays'] = max(report['max_rays'], q1 - q0)
-                    q0 = q1
-                # With LAUNCH_RAY_LIMIT the ray launches only publish ray_rads; project the cells now (fl_project,
-                # one block per cell, FP32 ray batches combined in FP64).
-                proj = self.fl_project_kernel(W, boundary is not None, ground_sh_l=ground_sh_l)
-                pkind = kind[:-5] + '_project'
-                co_h = np.asarray(self.host(bundle.arrays['cell_off']), 'i8')
-                pcum = (co_h - co_h[0]).astype('f8')
-                ci = 9 + names.index('cell_off')
-                ti = 9 + names.index('targets')
-                fixed_args = (
-                    args[9 + names.index('dirs')],
-                    args[9 + names.index('weights')],
-                    dc['aa'],
-                    dc['bb'],
-                    dc['dd'],
-                    ray_rads,
-                    np.float64(c['albedo']),
-                )
-                c0 = 0
-                while c0 < ncell:
-                    c1 = (
-                        ncell
-                        if mode == 'single'
-                        else min(ncell, c0 + step)
-                        if (mode == 'fixed' and not rs)
-                        else self.next_chunk_end(pkind, c0, ncell, step if mode == 'fixed' else None, pcum)
-                    )
-                    seconds = self.timed_launch(
-                        pkind,
-                        proj,
-                        (c1 - c0,),
-                        (256,),
-                        (np.int32(c1 - c0), np.int64(co_h[0]), args[ci][c0:], args[ti][c0:])
-                        + fixed_args
-                        + (moments[c0:c1], flux[c0:c1]),
-                        0,
-                        c1 - c0,
-                        pcum,
-                        c0,
-                        c1,
-                    )
-                    report['chunks'] += 1
-                    report['gpu_seconds'] += seconds
-                    report['max_seconds'] = max(report['max_seconds'], seconds)
-                    c0 = c1
-            else:
-                cum = self.cell_work(bundle) if (mode == 'adaptive' or rs) else None
-                cell_index = {n: 9 + names.index(n) for n in ('cell_off', 'starts', 'targets')}
-                mi = next(i for i, a in enumerate(args) if a is moments)
-                fi = next(i for i, a in enumerate(args) if a is flux)
-                report = dict(chunks=0, gpu_seconds=0.0, max_seconds=0.0, max_cells=0)
-                c0 = ncell if (ks and not _ksplit and self.ksplit_mode in (2, 3)) else 0
-                if c0:
-
-                    def cell_part(a, b):
-                        part = list(args)
-                        part[0] = np.int32(b - a)
-                        part[sinv_index : sinv_index + 3] = self.ksplit_pointer_args(kb)
-                        for n, i in cell_index.items():
-                            part[i] = args[i][a:]
-                        if phase == 0:
-                            part[mi] = moments[a:b]
-                        part[fi] = flux[a:b]
-                        if lpt_index is not None:
-                            part[lpt_index] = lpt_order(a, b)
-                        if split_count is not None:
-                            split_count.fill(0)
-                        return tuple(part)
-
-                    ctx = dict(
-                        args=args,
-                        sinv_index=sinv_index,
-                        lpt_index=lpt_index,
-                        cell_index=cell_index,
-                        mi=mi,
-                        fi=fi,
-                        moments=moments,
-                        flux=flux,
-                        albedo=c['albedo'],
-                        ray_cum=self.ray_work(bundle) if cum is not None else None,
-                    )
-                    self.vprod_launch(
-                        kb,
-                        bundle,
-                        s,
-                        dc,
-                        args[sh_index],
-                        W,
-                        phase,
-                        boundary is not None,
-                        kind,
-                        raws,
-                        cell_part,
-                        ((nsplit, grid_y), block, shared),
-                        step,
-                        cum,
-                        report,
-                        ctx,
-                    )
-                while c0 < ncell:
-                    c1 = self.next_chunk_end(kind + raws[0][0], c0, ncell, step, cum)
-                    if ks and not _ksplit:
-                        c1 = self.ksplit_chunk(kb, c0, c1)
-                    part = list(args)
-                    part[0] = np.int32(c1 - c0)
-                    if ks:
-                        part[sinv_index : sinv_index + 3] = self.ksplit_pointer_args(kb)
-                    for n, i in cell_index.items():
-                        part[i] = args[i][c0:]
-                    if phase == 0:
-                        part[mi] = moments[c0:c1]
-                    part[fi] = flux[c0:c1]
-                    if section_buffer is not None:
-                        part[-1] = section_buffer[c0:c1]
-                    if lpt_index is not None:
-                        part[lpt_index] = lpt_order(c0, c1)
-                    if ray_sync is not None and c0 > 0:
-                        ray_sync.fill(0)
-                    if split_count is not None and c0 > 0:
-                        split_count.fill(0)
-                    for suffix, r in raws:  # KSPLIT: producer then consumer on the same chunk (one stream, in order)
-                        seconds = self.timed_launch(
-                            kind + suffix,
-                            r,
-                            ((c1 - c0) * nsplit, grid_y),
-                            block,
-                            tuple(part),
-                            shared,
-                            c1 - c0,
-                            cum,
-                            c0,
-                            c1,
-                        )
-                        report['gpu_seconds'] += seconds
-                        report['max_seconds'] = max(report['max_seconds'], seconds)
-                    report['chunks'] += 1
-                    report['max_cells'] = max(report['max_cells'], c1 - c0)
-                    c0 = c1
-            if report is not None:
-                report.update(
-                    kind=kind,
-                    mode=mode,
-                    cells=ncell,
-                    profile=self.launch_log['profile'],
-                    budget_seconds=self.launch_log['budget_seconds'],
-                )
-                print('LAUNCH_REPORT ' + json.dumps(report, allow_nan=False), flush=True)
-        if timed or section_buffer is not None:
-            end.record()
-            end.synchronize()
-            cuda_seconds = float(xp.cuda.get_elapsed_time(begin, end) / 1000)
-            if timed:
-                self.cuda_events.append(cuda_seconds)
-        if section_buffer is not None:
-            counters = self.host(section_buffer)
-            report = section_clock_summary(counters)
-            path = section_dir / f'clock_{os.getpid()}_{time.time_ns()}_{self.metrics["launches"]}.npz'
-            with path.open('xb') as stream:
-                np.savez_compressed(stream, cycles=counters)
-            report.update(
-                schema='sosfuse2-section-clocks-v1',
-                flags=list(self.flags),
-                gpu=os.environ.get('CUDA_VISIBLE_DEVICES'),
-                pid=os.getpid(),
-                launch=self.metrics['launches'],
-                first=bool(first),
-                phase=int(phase),
-                wavelengths=W,
-                block_size=self.block_size,
-                grid=[ncell, W // self.tile_width(W, first, phase)],
-                launch_cells=self.launch_cells(),
-                cuda_event_seconds=cuda_seconds,
-                raw_path=str(path),
-            )
-            print('SECTION_CLOCKS ' + json.dumps(report, allow_nan=False), flush=True)
+        launch = _TransportLaunch()
+        launch.section_dir = _section_clock_directory(self)
+        _prepare_transport_constants(self, launch, bundle, s, field, first, phase, boundary, _ksplit)
+        _allocate_transport_outputs(self, launch, s, field, first, phase, boundary)
+        _assemble_transport_arguments(self, launch, bundle, s, first, phase, boundary)
+        _prepare_launch_order(self, launch, bundle, first, phase)
+        _select_transport_kernels(self, launch, first, phase, boundary, _ksplit)
+        if timed or launch.section_buffer is not None:
+            launch.begin = launch.xp.cuda.Event()
+            launch.end = launch.xp.cuda.Event()
+            launch.begin.record()
+        _dispatch_transport(self, launch, bundle, s, first, phase, boundary, _ksplit)
+        _record_transport_clocks(self, launch, first, phase, timed)
         self.metrics['launches'] += 1
         if phase == 2:
             self.metrics['query_launches'] += 1
         self.memory()
-        return moments, flux, query
+        return launch.moments, launch.flux, launch.query
 
     def transport(self, geometry, s, field, first=False):
         """Accepted query adapter, but with regenerated geometry, not raw points."""

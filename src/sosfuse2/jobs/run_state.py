@@ -1023,8 +1023,11 @@ def trace_state(func):
     return wrapped
 
 
-@trace_state
-def run(a):
+class _StateRun:
+    """Per-run ownership of buffers, leases and the active device token."""
+
+
+def _check_run_options(a):
     from ..atmosphere.components import production_only
 
     production_only()
@@ -1043,6 +1046,9 @@ def run(a):
         raise RuntimeError(
             'E_EXPORT_MOMENT_PERSISTENT: SOSFUSE2_EXPORT_MOMENT=1 is not supported by the persistent queue; run without --persistent'
         )
+
+
+def _set_run_threads(a):
     for k in (
         'OMP_NUM_THREADS',
         'OPENBLAS_NUM_THREADS',
@@ -1052,36 +1058,16 @@ def run(a):
         'BLIS_NUM_THREADS',
     ):
         os.environ[k] = str(a.threads)
-    import numpy as np
-    from sosfuse2.solve import ray_geometry as gm
-    from sosfuse2.solve.source_solver import Solver
-    from sosfuse2.solve.ray_geometry_cpu import build_cells, cache_complete, column_ready, ensure_column
-    from sosfuse2.outputs import pack_state as pm
-    from sosfuse2.foundation.host_limits import monitor, peak_rss_bytes as peak
 
-    for k in (
-        'OMP_NUM_THREADS',
-        'OPENBLAS_NUM_THREADS',
-        'MKL_NUM_THREADS',
-        'VECLIB_MAXIMUM_THREADS',
-        'NUMEXPR_NUM_THREADS',
-        'BLIS_NUM_THREADS',
-    ):
-        os.environ[k] = str(a.threads)
-    if a.backend == 'numpy':
 
-        class ScalarKernel(gm.Kernel):
-            def host(self, x):
-                return np.asarray(x)
-
-        gm.Kernel = ScalarKernel
+def _select_run_state(job, a):
     states = read_states(a.states, True)
     found = [s for s in states if s['id'] == a.id and s.get('runnable')]
     if len(found) != 1:
         raise ValueError('E_STATE_ID: exactly one runnable state required')
-    state = effective_state(found[0], a)
-    cfg = resolve_settings(settings_for(a), state)
-    name = a.out_name or a.id
+    job.state = effective_state(found[0], a)
+    job.cfg = resolve_settings(settings_for(a), job.state)
+    job.name = a.out_name or a.id
     if a.backend == 'cupy':
         # Refuse a first light the device profile cannot split, before any geometry or CPU preparation (split profile, C2 8.6 s).
         from sosfuse2.backends.device_profile import select, smi_device_name, first_light_split_error
@@ -1089,425 +1075,537 @@ def run(a):
         from sosfuse2.atmosphere.stratosphere import tau_of
 
         pname, profile, _ = select(smi_device_name())
-        err = first_light_split_error(default_flags(), tau_of(state) > 0, pname, profile)
+        err = first_light_split_error(default_flags(), tau_of(job.state) > 0, pname, profile)
         if err:
             raise RuntimeError(err)
-    signature, hashes = signed_contract(state, cfg, a.backend, a.reduced, a.polarization_model)
-    out = a.work_root / 'out' / name
-    prepare = a.work_root / 'tmp' / name
-    out.mkdir(parents=True, exist_ok=True)
-    output_lock = (out / '.worker.lock').open('a')
+    job.signature, job.hashes = signed_contract(job.state, job.cfg, a.backend, a.reduced, a.polarization_model)
+
+
+def _lock_run_output(job, a):
+    job.out = a.work_root / 'out' / job.name
+    job.prepare = a.work_root / 'tmp' / job.name
+    job.out.mkdir(parents=True, exist_ok=True)
+    job.output_lock = (job.out / '.worker.lock').open('a')
     try:
-        fcntl.flock(output_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(job.output_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         raise RuntimeError('E_OUTPUT_BUSY: out_name already owned by another worker')
-    prepare.mkdir(parents=True, exist_ok=True)
-    meta_path = out / 'meta.json'
-    if meta_path.exists():
-        previous = json.loads(meta_path.read_text())
-        check_optics(previous.get('optics_state'), optics_state(state))
-        if previous.get('signature') != signature:
-            raise RuntimeError(output_identity_message(out, f"signature differs (stored format={previous.get('contract')!r})"))
-    # Recompute an interrupted attempt rather than treating a loose table as validated success.
-    started = time.monotonic()
-    stop = threading.Event()
-    geometry = None
-    leased = None
-    released = False
-    threading.Thread(target=monitor, args=(stop, a.rss_gb * 1e9), daemon=True).start()
-    from sosfuse2.backends.compile_cache import configure, default_root
+    job.prepare.mkdir(parents=True, exist_ok=True)
+    job.meta_path = job.out / 'meta.json'
+    if job.meta_path.exists():
+        previous = json.loads(job.meta_path.read_text())
+        check_optics(previous.get('optics_state'), optics_state(job.state))
+        if previous.get('signature') != job.signature:
+            raise RuntimeError(
+                output_identity_message(job.out, f"signature differs (stored format={previous.get('contract')!r})")
+            )
 
-    pipeline_lock = getattr(a, 'gpu_lock', None)
-    token = None
-    pending_tables = []
-    solver = field = None
-    persistent = bool(os.environ.get('SOS_PERSISTENT_ROOT'))
-    if not pipeline_lock:
+
+def _start_run_monitor(job, a, monitor):
+    job.started = time.monotonic()
+    job.stop = threading.Event()
+    job.geometry = None
+    job.leased = None
+    job.released = False
+    threading.Thread(target=monitor, args=(job.stop, a.rss_gb * 1e9), daemon=True).start()
+
+
+def _prepare_run_grid(job, a, np, configure, default_root):
+    job.pipeline_lock = getattr(a, 'gpu_lock', None)
+    job.token = None
+    job.pending_tables = []
+    job.solver = job.field = None
+    job.persistent = bool(os.environ.get('SOS_PERSISTENT_ROOT'))
+    if not job.pipeline_lock:
         configure(default_root(a.work_root), a.backend, a.block_size)
-    os.environ['CUDA_CACHE_PATH'] = str(prepare / 'cuda_driver_cache')
-    wl = np.asarray(cfg['wavelengths_nm'])
-    hs = np.asarray(cfg['solar_elevation_deg'])
-    nr, nc = cfg['view_shape']
-    el = 90 - (np.arange(nr) + 0.5) * 90 / nr
-    az = (np.arange(nc) + 0.5) * 180 / nc
-    tables = []
-    first_tables = []
-    fields = []
-    moments = []
-    stats_all = []
-    timings = []
-    trace = vram_trace.current.get()
-    service_traces = []
-    source_seconds = query_seconds = 0.0
-    ksplit_decision = None
-    try:
-        phase(name, 'geometry_start')
-        geometry_start = time.monotonic()
-        # Independent wavelengths: use unchanged FW=15 kernel, padding the final chunk.
-        chunks = [wl] if len(wl) in (1, 15) else [wl[i : i + 15] for i in range(0, len(wl), 15)]
-        from sosfuse2.atmosphere.density import chunk_metadata
+    os.environ['CUDA_CACHE_PATH'] = str(job.prepare / 'cuda_driver_cache')
+    job.wl = np.asarray(job.cfg['wavelengths_nm'])
+    job.hs = np.asarray(job.cfg['solar_elevation_deg'])
+    nr, nc = job.cfg['view_shape']
+    job.el = 90 - (np.arange(nr) + 0.5) * 90 / nr
+    job.az = (np.arange(nc) + 0.5) * 180 / nc
+    job.tables = []
+    job.first_tables = []
+    job.fields = []
+    job.moments = []
+    job.stats_all = []
+    job.timings = []
+    job.trace = vram_trace.current.get()
+    job.service_traces = []
+    job.source_seconds = job.query_seconds = 0.0
+    job.ksplit_decision = None
 
-        table_density = None
-        for index, chunk in enumerate(chunks):
-            if trace is not None:
-                trace.chunk, trace.stage, trace.iteration = index, 'setup', None
-            count = len(chunk)
-            padded = (
-                chunk
-                if count == 15 or (count == 1 and len(chunks) == 1)
-                else np.r_[chunk, np.repeat(chunk[-1], 15 - count)]
+
+def _prepare_wavelength_chunk(job, a, np, chunk_metadata):
+    if job.trace is not None:
+        job.trace.chunk, job.trace.stage, job.trace.iteration = job.index, 'setup', None
+    count = len(job.chunk)
+    job.padded = (
+        job.chunk
+        if count == 15 or (count == 1 and len(job.chunks) == 1)
+        else np.r_[job.chunk, np.repeat(job.chunk[-1], 15 - count)]
+    )
+    if job.pipeline_lock:
+        phase(job.name, 'cpu_prepare_start', chunk=job.index)
+    with attach_cache_event(job.name, job.index, job.state) as job.made:
+        job.made.append(
+            create_configured(
+                job.prepare / f'prepare_{job.index}',
+                job.cfg,
+                job.padded,
+                'numpy' if job.pipeline_lock else a.backend,
+                job.state,
+                a.block_size,
+                geometry_cache=a.geometry_cache,
             )
-            if pipeline_lock:
-                phase(name, 'cpu_prepare_start', chunk=index)
-            with attach_cache_event(name, index, state) as made:
-                made.append(
-                    create_configured(
-                        prepare / f'prepare_{index}',
-                        cfg,
-                        padded,
-                        'numpy' if pipeline_lock else a.backend,
-                        state,
-                        a.block_size,
-                        geometry_cache=a.geometry_cache,
-                    )
-                )
-            s, scope = made[0]
-            table_density = chunk_metadata(s, chunk, table_density)
-            if ksplit_decision is not None:
-                s.ksplit_decision = ksplit_decision
+        )
+    job.s, job.scope = job.made[0]
+    job.table_density = chunk_metadata(job.s, job.chunk, job.table_density)
+    if job.ksplit_decision is not None:
+        job.s.ksplit_decision = job.ksplit_decision
 
-            def ksplit_fallback(decision):
-                from sosfuse2.foundation.host_limits import ksplit_fallback_warning
+    name = job.name
 
-                phase(name, 'KSPLIT_FALLBACK', **decision)
-                print(ksplit_fallback_warning(decision, name), file=sys.stderr, flush=True)
+    def ksplit_fallback(decision):
+        from sosfuse2.foundation.host_limits import ksplit_fallback_warning
 
-            s.kernel.ksplit_emit = ksplit_fallback
-            from sosfuse2.atmosphere.density import evidence as profile_evidence
+        phase(name, 'KSPLIT_FALLBACK', **decision)
+        print(ksplit_fallback_warning(decision, name), file=sys.stderr, flush=True)
 
-            phase(
-                name,
-                'profile',
-                chunk=index,
-                where='host',
-                **profile_evidence(getattr(s, 'density_optics', None), s.kernel.profile_n),
-            )
-            xp = s.kernel.xp
-            if xp is not np:
-                from sosfuse2.backends.device_profile import apply_pool_limit
+    job.s.kernel.ksplit_emit = ksplit_fallback
+    from sosfuse2.atmosphere.density import evidence as profile_evidence
 
-                apply_pool_limit(xp)
-            if geometry is None:
-                leased = register_geometry(s, scope, a.geometry_cache, a.geometry_layers)
-                with (a.geometry_cache / (leased.stats['signature'] + '.lock')).open('a') as lock:
-                    fcntl.flock(lock, fcntl.LOCK_EX)
-                    common = cache_complete(leased)
-                    build_cells(leased)
-                # layers=2: column written here (per-height lock) so prepare() below only loads it.
-                had_column = common and column_ready(leased)
-                column = ensure_column(leased)
-                hit = common and had_column
-                geometry = gm.TransientGeometry(s, scope) if a.reduced else leased
-                if not a.reduced:
-                    # host_geometry uses a shallow CPU view: bind the actual CUDA solver.
-                    geometry.s = s
-                    geometry.prepare()
-                else:
-                    # Populate transient groups now so geometry phase excludes source work.
-                    for i in range(s.geo.ns):
-                        geometry.cell(i)
-                phase(
-                    name,
-                    'geometry_done',
-                    cache='hit' if hit else 'miss',
-                    seconds=time.monotonic() - geometry_start,
-                    signature=leased.stats['signature'],
-                    layers=a.geometry_layers,
-                    common='hit' if common else 'miss',
-                    column=column,
-                    column_load=leased.stats.get('aerosol_column') if not a.reduced else None,
-                )
-            else:
-                geometry.s = s
-                geometry.scope = scope
-            if pipeline_lock:
-                from sosfuse2.jobs.pipeline_execution import (
-                    GpuToken,
-                    prepare_geometry,
-                    prepare_tables,
-                    promote_solver,
-                    evaluate_tables,
-                    replay_tables,
-                    release_device,
-                )
+    phase(
+        job.name,
+        'profile',
+        chunk=job.index,
+        where='host',
+        **profile_evidence(getattr(job.s, 'density_optics', None), job.s.kernel.profile_n),
+    )
+    job.xp = job.s.kernel.xp
+    if job.xp is not np:
+        from sosfuse2.backends.device_profile import apply_pool_limit
 
-                prepare_geometry(s, geometry, a.reduced)
-                prepared_table = prepare_tables(s, hs, el, az, a.group, a.batch)
-                if persistent:
-                    from sosfuse2.jobs.pipeline_execution import persistent_chunk
+        apply_pool_limit(job.xp)
+    return count
 
-                    host, stats, stiming, collected, sec, qsec = persistent_chunk(
-                        s, geometry, prepared_table, a, name, phase, tol=cfg['anderson_tol']
-                    )
-                    if trace is not None:
-                        service_traces.append(stiming.pop('vram_trace'))
-                    ksplit_decision = stiming.get('ksplit', ksplit_decision)
-                    fields.append(host[..., :count])
-                    stats_all.append(stats)
-                    timings.append(stiming)
-                    source_seconds += sec
-                    query_seconds += qsec
-                    pending_tables.append((s, prepared_table, collected, count, index))
-                    phase(name, 'source_done', chunk=index, evals=stats['evaluations'], seconds=sec,
-                          **chunk_summary(stats, stiming['solve_worker']))
-                    phase(name, 'table_transport_done', chunk=index, seconds=qsec)
-                    continue
-                phase(name, 'cpu_prepare_done', chunk=index, cuda_imported='cupy' in sys.modules)
-                token = GpuToken(pipeline_lock, name, phase)
-                token.acquire()
-                configure(default_root(a.work_root), a.backend, a.block_size)
-                promote_solver(s, geometry, a.backend, a.block_size, a.threads)
-                xp = s.kernel.xp
-                if xp is not np:
-                    from sosfuse2.backends.device_profile import apply_pool_limit
 
-                    apply_pool_limit(xp)
-            phase(name, 'source_start', chunk=index, wavelengths=count)
-            if trace is not None:
-                trace.stage = 'source'
+def _prepare_chunk_geometry(job, a, gm, cache_complete, build_cells, column_ready, ensure_column):
+    if job.geometry is None:
+        job.leased = register_geometry(job.s, job.scope, a.geometry_cache, a.geometry_layers)
+        with (a.geometry_cache / (job.leased.stats['signature'] + '.lock')).open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            common = cache_complete(job.leased)
+            build_cells(job.leased)
+        # layers=2: column written here (per-height lock) so prepare() below only loads it.
+        had_column = common and column_ready(job.leased)
+        column = ensure_column(job.leased)
+        hit = common and had_column
+        job.geometry = gm.TransientGeometry(job.s, job.scope) if a.reduced else job.leased
+        if not a.reduced:
+            # host_geometry uses a shallow CPU view: bind the actual CUDA solver.
+            job.geometry.s = job.s
+            job.geometry.prepare()
+        else:
+            # Populate transient groups now so geometry phase excludes source work.
+            for i in range(job.s.geo.ns):
+                job.geometry.cell(i)
+        phase(
+            job.name,
+            'geometry_done',
+            cache='hit' if hit else 'miss',
+            seconds=time.monotonic() - job.geometry_start,
+            signature=job.leased.stats['signature'],
+            layers=a.geometry_layers,
+            common='hit' if common else 'miss',
+            column=column,
+            column_load=job.leased.stats.get('aerosol_column') if not a.reduced else None,
+        )
+    else:
+        job.geometry.s = job.s
+        job.geometry.scope = job.scope
+
+
+def _solve_chunk_source(job, a, np, Solver, count):
+    phase(job.name, 'source_start', chunk=job.index, wavelengths=count)
+    if job.trace is not None:
+        job.trace.stage = 'source'
+    t = time.monotonic()
+    job.solver = Solver(job.s, job.geometry, fixed_boxes=a.fixed_boxes)
+    job.field, job.stats = solve_chunk(job.solver, a.max_eval, job.cfg['anderson_tol'])
+    job.s.kernel.sync()
+    sec = time.monotonic() - t
+    job.ksplit_decision = job.solver.timings.get('ksplit', job.ksplit_decision)
+    job.source_seconds += sec
+    job.stats_all.append(job.stats)
+    job.timings.append(job.solver.timings)
+    phase(
+        job.name,
+        'source_done',
+        chunk=job.index,
+        evals=job.stats['evaluations'],
+        seconds=sec,
+        **chunk_summary(job.stats, job.solver.timings['solve_worker']),
+    )
+    job.host = job.s.kernel.host(job.field)
+    job.fields.append(job.host[..., :count])
+    if os.environ.get('SOSFUSE2_EXPORT_MOMENT') == '1':
+        # One extra apply() on the converged source: its radiance moments (4 coherency + K scalar SH) are consistent with
+        # the source that table.npz is made from (the loop's last apply saw the pre-mixing iterate). Enabled by SOSFUSE2_EXPORT_MOMENT.
+        job.solver.apply(job.field)
+        job.moments.append(job.s.kernel.host(job.solver.last_moment)[..., :count].astype('f4'))
+    job.s.ms = np.zeros((*job.host.shape[:2], 2 * job.s.W), 'f4')
+    job.s.ms[..., ::2] = job.host
+
+
+def _collect_chunk_table(job, a, np, count):
+    from sosfuse2.outputs.radiance_table import make_table
+
+    if job.trace is not None:
+        job.trace.stage, job.trace.iteration = 'table_transport', None
+    t = time.monotonic()
+    if job.pipeline_lock:
+        job.collected = job.evaluate_tables(job.s, job.field, job.prepared_table)
+        sec = time.monotonic() - t
+        job.query_seconds += sec
+        job.pending_tables.append((job.s, job.prepared_table, job.collected, count, job.index))
+        phase(job.name, 'table_transport_done', chunk=job.index, seconds=sec)
+        # Drop every source-owned array before relinquishing the GPU.
+        del job.solver, job.field, job.host
+        job.solver = job.field = None
+        job.release_device(job.s, job.geometry)
+        job.token.release()
+        job.token = None
+    else:
+        job.table, job.table_aux = make_table(job.s, job.host, job.hs, job.el, job.az, a.group, a.batch)
+        sec = time.monotonic() - t
+        job.query_seconds += sec
+        job.tables.append(job.table[..., :count])
+        if job.cfg.get('export_first_order'):
+            job.first_tables.append(job.s.first_order_table[..., :count])
+        phase(job.name, 'table_done', chunk=job.index, seconds=sec)
+        # Device buffers belong to the chunk kernel, not to geometry.
+        job.s.kernel.constants.clear()
+        job.s.kernel.device_constants.clear()
+        del job.solver, job.field, job.host
+        job.solver = job.field = None
+        if job.xp is not np and job.index + 1 < len(job.chunks):
+            # The endpoints are shared, but split records and plans belong to this solve.
+            job.s.kernel.sync()
+            bundles = iter((job.geometry.bundle, job.geometry.ground_bundle))
+            for job.bundle in bundles:
+                if job.bundle is not None:
+                    job.bundle.ksplit = None
+            job.s.kernel.ksplit_aero = None
+            job.s.kernel.ground_sh_tables.clear()
+            job.xp.get_default_memory_pool().free_all_blocks()
+
+
+def _prepare_pipeline_chunk(job, a, np, count, configure, default_root):
+    from sosfuse2.jobs.pipeline_execution import (
+        GpuToken,
+        prepare_geometry,
+        prepare_tables,
+        promote_solver,
+        evaluate_tables,
+        replay_tables,
+        release_device,
+    )
+
+    job.release_device = release_device
+    job.evaluate_tables = evaluate_tables
+    job.replay_tables = replay_tables
+    prepare_geometry(job.s, job.geometry, a.reduced)
+    job.prepared_table = prepare_tables(job.s, job.hs, job.el, job.az, a.group, a.batch)
+    if job.persistent:
+        from sosfuse2.jobs.pipeline_execution import persistent_chunk
+
+        job.host, job.stats, job.stiming, job.collected, sec, qsec = persistent_chunk(
+            job.s, job.geometry, job.prepared_table, a, job.name, phase, tol=job.cfg['anderson_tol']
+        )
+        if job.trace is not None:
+            job.service_traces.append(job.stiming.pop('vram_trace'))
+        job.ksplit_decision = job.stiming.get('ksplit', job.ksplit_decision)
+        job.fields.append(job.host[..., :count])
+        job.stats_all.append(job.stats)
+        job.timings.append(job.stiming)
+        job.source_seconds += sec
+        job.query_seconds += qsec
+        job.pending_tables.append((job.s, job.prepared_table, job.collected, count, job.index))
+        phase(
+            job.name,
+            'source_done',
+            chunk=job.index,
+            evals=job.stats['evaluations'],
+            seconds=sec,
+            **chunk_summary(job.stats, job.stiming['solve_worker']),
+        )
+        phase(job.name, 'table_transport_done', chunk=job.index, seconds=qsec)
+        return True
+    phase(job.name, 'cpu_prepare_done', chunk=job.index, cuda_imported='cupy' in sys.modules)
+    job.token = GpuToken(job.pipeline_lock, job.name, phase)
+    job.token.acquire()
+    configure(default_root(a.work_root), a.backend, a.block_size)
+    promote_solver(job.s, job.geometry, a.backend, a.block_size, a.threads)
+    job.xp = job.s.kernel.xp
+    if job.xp is not np:
+        from sosfuse2.backends.device_profile import apply_pool_limit
+
+        apply_pool_limit(job.xp)
+    return False
+
+
+def _solve_wavelength_chunks(
+    job, a, np, gm, Solver, build_cells, cache_complete, column_ready, ensure_column, configure, default_root
+):
+    phase(job.name, 'geometry_start')
+    job.geometry_start = time.monotonic()
+    # Independent wavelengths: use unchanged FW=15 kernel, padding the final chunk.
+    job.chunks = [job.wl] if len(job.wl) in (1, 15) else [job.wl[i : i + 15] for i in range(0, len(job.wl), 15)]
+    from sosfuse2.atmosphere.density import chunk_metadata
+
+    job.table_density = None
+    chunks = enumerate(job.chunks)
+    for job.index, job.chunk in chunks:
+        count = _prepare_wavelength_chunk(job, a, np, chunk_metadata)
+        _prepare_chunk_geometry(job, a, gm, cache_complete, build_cells, column_ready, ensure_column)
+        if job.pipeline_lock and _prepare_pipeline_chunk(job, a, np, count, configure, default_root):
+            continue
+        _solve_chunk_source(job, a, np, Solver, count)
+        _collect_chunk_table(job, a, np, count)
+
+
+def _finish_chunk_tables(job, np):
+    if job.ksplit_decision is not None:
+        phase(job.name, 'ksplit', decision=job.ksplit_decision)
+    if job.pipeline_lock:
+        phase(job.name, 'cpu_finalize_start')
+        pending = iter(job.pending_tables)
+        for job.table_s, job.prepared_table, job.collected, count, job.index in pending:
             t = time.monotonic()
-            solver = Solver(s, geometry, fixed_boxes=a.fixed_boxes)
-            field, stats = solve_chunk(solver, a.max_eval, cfg['anderson_tol'])
-            s.kernel.sync()
+            job.table = job.replay_tables(job.table_s, job.prepared_table, job.collected)
             sec = time.monotonic() - t
-            ksplit_decision = solver.timings.get('ksplit', ksplit_decision)
-            source_seconds += sec
-            stats_all.append(stats)
-            timings.append(solver.timings)
-            phase(name, 'source_done', chunk=index, evals=stats['evaluations'], seconds=sec,
-                  **chunk_summary(stats, solver.timings['solve_worker']))
-            host = s.kernel.host(field)
-            fields.append(host[..., :count])
-            if os.environ.get('SOSFUSE2_EXPORT_MOMENT') == '1':
-                # One extra apply() on the converged source: its radiance moments (4 coherency + K scalar SH) are consistent with
-                # the source that table.npz is made from (the loop's last apply saw the pre-mixing iterate). Enabled by SOSFUSE2_EXPORT_MOMENT.
-                solver.apply(field)
-                moments.append(s.kernel.host(solver.last_moment)[..., :count].astype('f4'))
-            s.ms = np.zeros((*host.shape[:2], 2 * s.W), 'f4')
-            s.ms[..., ::2] = host
-            from sosfuse2.outputs.radiance_table import make_table
+            job.query_seconds += sec
+            job.tables.append(job.table[..., :count])
+            if job.cfg.get('export_first_order'):
+                job.first_tables.append(job.table_s.first_order_table[..., :count])
+            phase(job.name, 'table_done', chunk=job.index, seconds=sec, deferred_replay=True)
+        job.pending_tables.clear()
+    job.table = np.concatenate(job.tables, axis=-1)
+    if not np.isfinite(job.table).all():
+        raise RuntimeError('E_TABLE_FINITE')
 
-            if trace is not None:
-                trace.stage, trace.iteration = 'table_transport', None
-            t = time.monotonic()
-            if pipeline_lock:
-                collected = evaluate_tables(s, field, prepared_table)
-                sec = time.monotonic() - t
-                query_seconds += sec
-                pending_tables.append((s, prepared_table, collected, count, index))
-                phase(name, 'table_transport_done', chunk=index, seconds=sec)
-                # Drop every source-owned array before relinquishing the GPU.
-                del solver, field, host
-                solver = field = None
-                release_device(s, geometry)
-                token.release()
-                token = None
-            else:
-                table, _ = make_table(s, host, hs, el, az, a.group, a.batch)
-                sec = time.monotonic() - t
-                query_seconds += sec
-                tables.append(table[..., :count])
-                if cfg.get('export_first_order'):
-                    first_tables.append(s.first_order_table[..., :count])
-                phase(name, 'table_done', chunk=index, seconds=sec)
-                # Device buffers belong to the chunk kernel, not to geometry.
-                s.kernel.constants.clear()
-                s.kernel.device_constants.clear()
-                del solver, field, host
-                solver = field = None
-                if xp is not np and index + 1 < len(chunks):
-                    # The endpoints are shared, but split records and plans belong to this solve.
-                    s.kernel.sync()
-                    for bundle in (geometry.bundle, geometry.ground_bundle):
-                        if bundle is not None:
-                            bundle.ksplit = None
-                    s.kernel.ksplit_aero = None
-                    s.kernel.ground_sh_tables.clear()
-                    xp.get_default_memory_pool().free_all_blocks()
-        if ksplit_decision is not None:
-            phase(name, 'ksplit', decision=ksplit_decision)
-        if pipeline_lock:
-            phase(name, 'cpu_finalize_start')
-            for table_s, prepared_table, collected, count, index in pending_tables:
-                t = time.monotonic()
-                table = replay_tables(table_s, prepared_table, collected)
-                sec = time.monotonic() - t
-                query_seconds += sec
-                tables.append(table[..., :count])
-                if cfg.get('export_first_order'):
-                    first_tables.append(table_s.first_order_table[..., :count])
-                phase(name, 'table_done', chunk=index, seconds=sec, deferred_replay=True)
-            pending_tables.clear()
-        table = np.concatenate(tables, axis=-1)
-        if not np.isfinite(table).all():
-            raise RuntimeError('E_TABLE_FINITE')
-        # Uncompressed: a per-state diagnostic read only through np.load (gate.py); zlib saved 6 % in
-        # 0.5-1 s of single-core time per state. table.npz too (numeric identity is judged on
-        # arrays, not file SHA); the pack is tar.zst either way, and same arrays still give the same file bytes.
+
+def _write_run_arrays(job, np, a):
+    prepare, s, moments = job.prepare, job.s, job.moments
+    # Uncompressed: a per-state diagnostic read only through np.load (gate.py); zlib saved 6 % in
+    # 0.5-1 s of single-core time per state. table.npz too (numeric identity is judged on
+    # arrays, not file SHA); the pack is tar.zst either way, and same arrays still give the same file bytes.
+    np.savez(
+        prepare / 'source.npz',
+        source=np.concatenate(job.fields, axis=-1),
+        h=s.geo.h,
+        chi=s.geo.chi,
+        wavelength_nm=job.wl,
+        physics=np.array(json.dumps(physics(), sort_keys=True)),
+        optics_state=np.array(json.dumps(optics_state(job.state), sort_keys=True)),
+        source_contract=np.array(
+            json.dumps(
+                dict(
+                    state=canonical_state(job.state),
+                    anderson_tol=job.stats_all[0]['tolerance'],
+                    settings=job.cfg,
+                    backend=a.backend,
+                    polarization_model=a.polarization_model,
+                ),
+                sort_keys=True,
+                allow_nan=False,
+            )
+        ),
+    )
+    if moments:
         np.savez(
-            prepare / 'source.npz',
-            source=np.concatenate(fields, axis=-1),
+            prepare / 'moment.npz',
+            moment=np.concatenate(moments, axis=-1),
             h=s.geo.h,
             chi=s.geo.chi,
-            wavelength_nm=wl,
-            physics=np.array(json.dumps(physics(), sort_keys=True)),
-            optics_state=np.array(json.dumps(optics_state(state), sort_keys=True)),
-            source_contract=np.array(
-                json.dumps(
-                    dict(
-                        state=canonical_state(state),
-                        anderson_tol=stats_all[0]['tolerance'],
-                        settings=cfg,
-                        backend=a.backend,
-                        polarization_model=a.polarization_model,
-                    ),
-                    sort_keys=True,
-                    allow_nan=False,
-                )
+            wavelength_nm=job.wl,
+            L=np.int32(s.kernel.L),
+            layout=np.array(
+                '(cell=ih*n_chi+ic, slot, channel); slot [0:4] Rayleigh coherency, [4:4+K] scalar radiance SH k=l(l+1)/2+m (m>=0, cos m phi), frame up=radial ex=sun-ward horizontal'
             ),
         )
-        if moments:
-            np.savez(
-                prepare / 'moment.npz',
-                moment=np.concatenate(moments, axis=-1),
-                h=s.geo.h,
-                chi=s.geo.chi,
-                wavelength_nm=wl,
-                L=np.int32(s.kernel.L),
-                layout=np.array(
-                    '(cell=ih*n_chi+ic, slot, channel); slot [0:4] Rayleigh coherency, [4:4+K] scalar radiance SH k=l(l+1)/2+m (m>=0, cos m phi), frame up=radial ex=sun-ward horizontal'
-                ),
-            )
-        with (out / 'table.npz.tmp').open('wb') as f:
-            np.savez(
-                f,
-                radiance=table,
-                wavelength_nm=wl.astype('f4'),
-                solar_elevation_deg=hs.astype('f4'),
-                view_elevation_deg=el.astype('f4'),
-                relative_azimuth_deg=az.astype('f4'),
-                units=np.array('W m^-2 sr^-1 nm^-1'),
-            )
-        os.replace(out / 'table.npz.tmp', out / 'table.npz')
-        from sosfuse2.outputs.radiance_table import save_first_order
-
-        first_meta = save_first_order(out, first_tables, wl, hs, el, az) if cfg.get('export_first_order') else {}
-        from sosfuse2.atmosphere.stratosphere import computed_metadata
-
-        optical_meta = computed_metadata(state, getattr(s, 'strato', None))
-        from sosfuse2.atmosphere.density import evidence as profile_evidence
-
-        # ②b evidence: compiled/uploaded N, consumed mask, effective f8/f4 SHA, identity, policy,
-        # origin. consumed = this process's GPU upload (source_solver.constants_device); persistent runs log it from the service.
-        profile_meta = dict(
-            host=profile_evidence(getattr(s, 'density_optics', None), s.kernel.profile_n),
-            consumed=getattr(s.kernel, 'profile_consumed', None),
-            persistent_service=bool(persistent and pipeline_lock),
-            sun_method=getattr(s, 'density_sun_method', None),
-        )  # ③ 0(b): gl/exact PROFILE columns of sun table+ground, None = no PROFILE
-        meta = dict(
-            **first_meta,
-            **vram_trace.metadata(service_traces),
-            density=table_density,
-            profile=profile_meta,
-            complete=True,
-            contract=CONTRACT_VERSION,
-            physics=physics(),
-            optics_state=optics_state(state),
-            **package_info(),
-            signature=signature,
-            id=a.id,
-            out_name=name,
-            parameters=state['parameters'],
-            parameters_requested=state['parameters'],
-            parameters_computed=optical_meta['parameters_computed'],
-            stratosphere=optical_meta['stratosphere'],
-            stratosphere_computed=optical_meta['stratosphere_computed'],
-            settings=cfg,
-            grid=grid_metadata(cfg, s.geo.h),
-            mode='reduced-validation' if a.reduced else 'full',
-            shape=list(table.shape),
-            dtype='float32',
-            code_hashes=hashes,
-            backend=a.backend,
-            polarization_model=a.polarization_model,
-            anderson_tol=stats_all[0]['tolerance'],
-            solve_grid=dict(h_km=s.geo.h.tolist(), chi_rad=s.geo.chi.tolist(), L=s.kernel.L),
-            source_solve=stats_all[0] if len(stats_all) == 1 else stats_all,
-            source_seconds=source_seconds,
-            query_seconds=query_seconds,
-            elapsed_seconds=time.monotonic() - started,
-            geometry=geometry.stats,
-            timings=timings,
-            threads=a.threads,
-            peak_rss_bytes=peak(),
-            attempt=a.attempt,
-            gpu=os.environ.get('CUDA_VISIBLE_DEVICES'),
-            unsupported_parameters=[],
-            units='W m^-2 sr^-1 nm^-1',
-            folding='mirror azimuth around solar plane',
-            table_method=dict(runner='run_gpu_state_v3', table='table_fast.make_table', group=a.group, batch=a.batch),
-            spectral_chunks=[len(c) for c in chunks],
-            ksplit_effective=(ksplit_decision or {}).get('effective', 0),
-            ksplit=ksplit_decision,
-            geometry_cache_removed=False,
-            reason='pack_not_verified',
-            kernel=dict(
-                deterministic=s.kernel.deterministic,
-                requested=cfg.get('kernel'),
-                effective_flags=list(s.kernel.flags),
-                block_size=s.kernel.block_size,
-                launch=getattr(s.kernel, 'launch_log', None),
-                profile_n=s.kernel.profile_n,
-                domain=s.kernel.domain.identity(),
-            ),
+    with (job.out / 'table.npz.tmp').open('wb') as f:
+        np.savez(
+            f,
+            radiance=job.table,
+            wavelength_nm=job.wl.astype('f4'),
+            solar_elevation_deg=job.hs.astype('f4'),
+            view_elevation_deg=job.el.astype('f4'),
+            relative_azimuth_deg=job.az.astype('f4'),
+            units=np.array('W m^-2 sr^-1 nm^-1'),
         )
-        if s.kernel.domain.monitors()['record']:
-            meta.update(monitor_sets=s.kernel.domain.monitors(), convergence_path='extended-top-observer')
-        if getattr(s, 'tropo', None) is not None:
-            meta['troposphere_phase_computed'] = s.tropo['meta']
-        if getattr(s, 'aerosol_profile', None) is not None:
-            meta['troposphere_profile_computed'] = s.aerosol_profile['meta']
-        atomic_json(meta_path, meta)
-        enable_spectral_previews(pm)
-        pack = pm.pack_state(out, a.work_root / 'pack', 'zstd', started=started)
-        verify_pack(pack, signature)
-        # layers=2: the common layer is shared by every state; never removed by a worker.
-        result = release_geometry(a.geometry_cache, leased.cache, True, a.keep_geometry or a.geometry_layers == 2)
-        released = True
-        meta = json.loads(meta_path.read_text())
-        meta.update(result)
-        atomic_json(meta_path, meta)
-        phase(name, 'geometry_cleanup', **result)
-        # Repack once so archived meta records the actual post-verification deletion result.
-        # This attempt's first pack and verification completed; its previews are ready.
-        pack = pm.pack_state(out, a.work_root / 'pack', 'zstd', started=started, reuse_previews=True)
-        verify_pack(pack, signature)
-        phase(name, 'pack_done', bytes=pack.stat().st_size, **result)
-        if pipeline_lock:
-            phase(name, 'cpu_finalize_done')
+    os.replace(job.out / 'table.npz.tmp', job.out / 'table.npz')
+    from sosfuse2.outputs.radiance_table import save_first_order
+
+    first_meta = (
+        save_first_order(job.out, job.first_tables, job.wl, job.hs, job.el, job.az)
+        if job.cfg.get('export_first_order')
+        else {}
+    )
+    return first_meta
+
+
+def _record_run_metadata(job, a, peak, first_meta):
+    from sosfuse2.atmosphere.stratosphere import computed_metadata
+
+    optical_meta = computed_metadata(job.state, getattr(job.s, 'strato', None))
+    from sosfuse2.atmosphere.density import evidence as profile_evidence
+
+    # ②b evidence: compiled/uploaded N, consumed mask, effective f8/f4 SHA, identity, policy,
+    # origin. consumed = this process's GPU upload (source_solver.constants_device); persistent runs log it from the service.
+    profile_meta = dict(
+        host=profile_evidence(getattr(job.s, 'density_optics', None), job.s.kernel.profile_n),
+        consumed=getattr(job.s.kernel, 'profile_consumed', None),
+        persistent_service=bool(job.persistent and job.pipeline_lock),
+        sun_method=getattr(job.s, 'density_sun_method', None),
+    )  # ③ 0(b): gl/exact PROFILE columns of sun table+ground, None = no PROFILE
+    meta = dict(
+        **first_meta,
+        **vram_trace.metadata(job.service_traces),
+        density=job.table_density,
+        profile=profile_meta,
+        complete=True,
+        contract=CONTRACT_VERSION,
+        physics=physics(),
+        optics_state=optics_state(job.state),
+        **package_info(),
+        signature=job.signature,
+        id=a.id,
+        out_name=job.name,
+        parameters=job.state['parameters'],
+        parameters_requested=job.state['parameters'],
+        parameters_computed=optical_meta['parameters_computed'],
+        stratosphere=optical_meta['stratosphere'],
+        stratosphere_computed=optical_meta['stratosphere_computed'],
+        settings=job.cfg,
+        grid=grid_metadata(job.cfg, job.s.geo.h),
+        mode='reduced-validation' if a.reduced else 'full',
+        shape=list(job.table.shape),
+        dtype='float32',
+        code_hashes=job.hashes,
+        backend=a.backend,
+        polarization_model=a.polarization_model,
+        anderson_tol=job.stats_all[0]['tolerance'],
+        solve_grid=dict(h_km=job.s.geo.h.tolist(), chi_rad=job.s.geo.chi.tolist(), L=job.s.kernel.L),
+        source_solve=job.stats_all[0] if len(job.stats_all) == 1 else job.stats_all,
+        source_seconds=job.source_seconds,
+        query_seconds=job.query_seconds,
+        elapsed_seconds=time.monotonic() - job.started,
+        geometry=job.geometry.stats,
+        timings=job.timings,
+        threads=a.threads,
+        peak_rss_bytes=peak(),
+        attempt=a.attempt,
+        gpu=os.environ.get('CUDA_VISIBLE_DEVICES'),
+        unsupported_parameters=[],
+        units='W m^-2 sr^-1 nm^-1',
+        folding='mirror azimuth around solar plane',
+        table_method=dict(runner='run_gpu_state_v3', table='table_fast.make_table', group=a.group, batch=a.batch),
+        spectral_chunks=[len(c) for c in job.chunks],
+        ksplit_effective=(job.ksplit_decision or {}).get('effective', 0),
+        ksplit=job.ksplit_decision,
+        geometry_cache_removed=False,
+        reason='pack_not_verified',
+        kernel=dict(
+            deterministic=job.s.kernel.deterministic,
+            requested=job.cfg.get('kernel'),
+            effective_flags=list(job.s.kernel.flags),
+            block_size=job.s.kernel.block_size,
+            launch=getattr(job.s.kernel, 'launch_log', None),
+            profile_n=job.s.kernel.profile_n,
+            domain=job.s.kernel.domain.identity(),
+        ),
+    )
+    if job.s.kernel.domain.monitors()['record']:
+        meta.update(monitor_sets=job.s.kernel.domain.monitors(), convergence_path='extended-top-observer')
+    if getattr(job.s, 'tropo', None) is not None:
+        meta['troposphere_phase_computed'] = job.s.tropo['meta']
+    if getattr(job.s, 'aerosol_profile', None) is not None:
+        meta['troposphere_profile_computed'] = job.s.aerosol_profile['meta']
+    atomic_json(job.meta_path, meta)
+
+
+def _pack_verified_output(job, a, pm):
+    enable_spectral_previews(pm)
+    pack = pm.pack_state(job.out, a.work_root / 'pack', 'zstd', started=job.started)
+    verify_pack(pack, job.signature)
+    # layers=2: the common layer is shared by every state; never removed by a worker.
+    result = release_geometry(a.geometry_cache, job.leased.cache, True, a.keep_geometry or a.geometry_layers == 2)
+    job.released = True
+    meta = json.loads(job.meta_path.read_text())
+    meta.update(result)
+    atomic_json(job.meta_path, meta)
+    phase(job.name, 'geometry_cleanup', **result)
+    # Repack once so archived meta records the actual post-verification deletion result.
+    # This attempt's first pack and verification completed; its previews are ready.
+    pack = pm.pack_state(job.out, a.work_root / 'pack', 'zstd', started=job.started, reuse_previews=True)
+    verify_pack(pack, job.signature)
+    phase(job.name, 'pack_done', bytes=pack.stat().st_size, **result)
+    if job.pipeline_lock:
+        phase(job.name, 'cpu_finalize_done')
+
+
+def _release_run_resources(job, a):
+    if job.token is not None:
+        # Exceptions must not unlock while this process still owns queued
+        # CUDA work. Driver failures remain failures, never successful packs.
+        job.solver = job.field = None
+        try:
+            job.release_device(job.s, job.geometry)
+        finally:
+            job.token.release()
+    if job.leased is not None and not job.released:
+        release_geometry(a.geometry_cache, job.leased.cache, False, a.keep_geometry)
+    job.stop.set()
+
+
+@trace_state
+def run(a):
+    _check_run_options(a)
+    _set_run_threads(a)
+    import numpy as np
+    from sosfuse2.solve import ray_geometry as gm
+    from sosfuse2.solve.source_solver import Solver
+    from sosfuse2.solve.ray_geometry_cpu import build_cells, cache_complete, column_ready, ensure_column
+    from sosfuse2.outputs import pack_state as pm
+    from sosfuse2.foundation.host_limits import monitor, peak_rss_bytes as peak
+
+    _set_run_threads(a)
+    if a.backend == 'numpy':
+
+        class ScalarKernel(gm.Kernel):
+            def host(self, x):
+                return np.asarray(x)
+
+        gm.Kernel = ScalarKernel
+    job = _StateRun()
+    _select_run_state(job, a)
+    _lock_run_output(job, a)
+    _start_run_monitor(job, a, monitor)
+    from sosfuse2.backends.compile_cache import configure, default_root
+
+    _prepare_run_grid(job, a, np, configure, default_root)
+    try:
+        _solve_wavelength_chunks(
+            job, a, np, gm, Solver, build_cells, cache_complete, column_ready, ensure_column, configure, default_root
+        )
+        _finish_chunk_tables(job, np)
+        first_meta = _write_run_arrays(job, np, a)
+        _record_run_metadata(job, a, peak, first_meta)
+        _pack_verified_output(job, a, pm)
     finally:
-        if token is not None:
-            # Exceptions must not unlock while this process still owns queued
-            # CUDA work. Driver failures remain failures, never successful packs.
-            solver = field = None
-            try:
-                release_device(s, geometry)
-            finally:
-                token.release()
-        if leased is not None and not released:
-            release_geometry(a.geometry_cache, leased.cache, False, a.keep_geometry)
-        stop.set()
+        _release_run_resources(job, a)
 
 
 @trace_state
