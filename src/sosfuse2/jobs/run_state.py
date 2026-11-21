@@ -1023,6 +1023,37 @@ def trace_state(func):
     return wrapped
 
 
+#: The four preparation pools; the same names as jobs/pipeline.py PREP_WORKER_ENV (tests/test_threads_pools.py).
+POOL_WORKER_ENV = (
+    'SOSFUSE2_COLUMN_WORKERS',
+    'SOSFUSE2_SUN_WORKERS',
+    'SOSFUSE2_GROUND_WORKERS',
+    'SOSFUSE2_GEOMETRY_WORKERS',
+)
+
+
+def _bound_pool_workers(threads, environ):
+    """An explicit --threads also sizes each preparation pool whose variable is unset or blank; nonblank values are kept."""
+    for name in POOL_WORKER_ENV:
+        if not environ.get(name, '').strip():
+            environ[name] = str(threads)
+
+
+@contextlib.contextmanager
+def _pool_limit(threads, environ):
+    """Apply _bound_pool_workers for one mode call and put the previous values back afterwards, also after an error."""
+    saved = {name: environ.get(name) for name in POOL_WORKER_ENV}
+    _bound_pool_workers(threads, environ)
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                environ.pop(name, None)
+            else:
+                environ[name] = value
+
+
 class _StateRun:
     """Per-run ownership of buffers, leases and the active device token."""
 
@@ -1883,7 +1914,13 @@ def main():
     p.add_argument('--geometry-cache', type=Path)
     p.add_argument('--backend', choices=['cupy', 'numpy'], default='cupy')
     p.add_argument('--reduced', action='store_true')
-    p.add_argument('--threads', type=int, default=2)
+    p.add_argument(
+        '--threads',
+        type=int,
+        help='value for OMP_NUM_THREADS and the related thread variables, default 2; given explicitly, it also sets each '
+        'unset or blank preparation-pool variable (POOL_WORKER_ENV) to N for the run in every mode, and nonblank values '
+        'take precedence. Omitted: the pool variables are left unchanged',
+    )
     p.add_argument('--max-eval', type=int, default=64)
     p.add_argument('--rss-gb', type=float)
     p.add_argument(
@@ -1927,6 +1964,11 @@ def main():
         help='explicitly enable the state stratospheric layer; default honors state.status',
     )
     a = p.parse_args()
+    a.threads_explicit = a.threads is not None
+    if a.threads is None:
+        a.threads = 2
+    if a.threads < 1:
+        p.error('--threads must be a positive integer')
     a.work_root = a.work_root.resolve()
     a.geometry_cache = (a.geometry_cache or a.work_root / 'geometry_cache').resolve()
     if a.column_cache is not None:
@@ -1973,12 +2015,15 @@ def main():
         p.error('--extra-elevations and --source-out-name go together')
     if a.extra_elevations and a.geometry_only:
         p.error('--extra-elevations has no geometry phase')
-    if a.geometry_only:
-        geometry_only(a)
-    elif a.extra_elevations:
-        run_extra(a)
-    else:
-        run(a)
+    # An explicit limit holds in every mode (geometry only, extra elevations, solve) for this call only; without one the
+    # pool variables are left as they are.
+    with _pool_limit(a.threads, os.environ) if a.threads_explicit else contextlib.nullcontext():
+        if a.geometry_only:
+            geometry_only(a)
+        elif a.extra_elevations:
+            run_extra(a)
+        else:
+            run(a)
 
 
 if __name__ == '__main__':
