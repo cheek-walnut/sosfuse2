@@ -307,6 +307,60 @@ reduced grid stays fixed. For example, `b2a6` gives 59 nodes, and `chi_refine_de
 The runner's reduced option uses 4 heights, 10 angles and one wavelength (550 nm). It is a software check, and its grid is
 too coarse for physical use.
 
+### Finer and taller grids together
+
+The production grid is the default. The settings below, saved as `settings.json`, raise all of its resolution options at
+once, with a 200 km top, 59 height nodes up to 80 km, two refinement windows in `χ`, Legendre degree 24 and an Anderson
+tolerance of 2e-4.
+
+```json
+{"top_km": 200, "h_refine": "b2a6", "chi_refine_deg": [[88, 104.5], [104, 104.25]], "L": 24, "anderson_tol": 0.0002}
+```
+
+The runner resolves it to 71 height nodes and 109 `χ` nodes, with `upper_air` left at `us76_neff`. The 71 heights are
+the 59 nodes up to 80 km and 12 more every 10 km from 90 to 200 km. The first `χ` window inserts the midpoints between
+88° and 104.5°, which halves the spacing there to 0.25°, and the second adds 104.125°. `meta.json` records the resolved
+grid. As described under *Calculation boundary*, the extended top adds −15° to the stopping and acceleration samples and
+records −18°.
+
+Each state needs the explicit `density` block given under *Calculation boundary*. The states in `states_v2.json` carry
+no such block, so the first command below writes a copy of the file with the block added to every state. The copy drops
+the `parent` entry, which names `states_v1.json` by a path relative to the file, so it holds the 64 states of
+`states_v2.json` and no others.
+
+```sh
+python - <<'EOF'
+import json, pathlib, sosfuse2
+doc = json.loads((pathlib.Path(sosfuse2.__file__).parent / 'assets' / 'states_v2.json').read_text())
+doc.pop('parent')
+for state in doc['states']:
+    state['density'] = {'density_profile': 'usstd76', 'ozone_profile': 'usstd76', 'rayleigh_column': 'usstd'}
+pathlib.Path('states.json').write_text(json.dumps(doc, indent=1))
+EOF
+SOSFUSE2_ANDERSON_HISTORY=host SOSFUSE2_GROUND_SH_L=24 python -B -m sosfuse2.jobs.run_state --id clear_80 \
+  --states states.json --settings-json settings.json --backend cupy --work-root ./work
+```
+
+The two environment variables are separate from the settings file, and `docs/ENVIRONMENT.md` describes both.
+`SOSFUSE2_ANDERSON_HISTORY=host` keeps the Anderson history in host memory and copies one wavelength's history to the
+device at a time, so the solve holds less device memory, although the memory admission estimate does not change.
+`SOSFUSE2_GROUND_SH_L=24` sets the order of the ground convolution, which is off by default and changes the result only
+for a state with nonzero albedo.
+
+The runner stops with an error in each of these cases.
+
+| case | error |
+|---|---|
+| `top_km` above 80 for a state without a `density` block, with a `density_profile` other than `usstd76` or with an external profile | `E_SETTINGS_TOP` |
+| `top_km` above 80 with the reduced grid (`--reduced`) | `E_SETTINGS_TOP` |
+| `nr` or `nchi` given with a value other than the counts above | `E_SETTINGS_GRID` |
+| `SOSFUSE2_KSPLIT=2` or `3` with `L` above 16 | `E_KSPLIT_FLAGS` |
+| `SOSFUSE2_GROUND_SH_L` set to a nonzero order for a state with a `troposphere_phase` block or without an enabled stratospheric layer of nonzero optical depth | `E_GROUND_SH_PHASE` |
+| a wavelength that has not converged within the evaluation limit | `E_NOT_CONVERGED` |
+
+With `L` above 16 and `SOSFUSE2_KSPLIT` unset, the solver uses the unsplit kernel, and `meta.json` records
+`ksplit_effective` 0.
+
 ## Spectral treatment and colour
 
 The default wavelength grid has 45 bands between 360 and 830 nm. It starts from 40 bands of 11.75 nm, five of which

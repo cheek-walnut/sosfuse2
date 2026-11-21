@@ -180,6 +180,8 @@ settings, and is not part of a state. All 64 states in `states_v2.json` mark the
 is on when `--stratosphere` is omitted. The first-generation `states_v1.json` marks the layer `unsupported`, so it
 stays off unless `--stratosphere on` is given. A full-resolution table needs the CUDA backend (`--backend cupy`).
 The production queue that bakes many states with overlapping preparation is `python -B -m sosfuse2.jobs.pipeline`.
+For a 200 km top with finer height and `χ` grids, Legendre degree 24 and a tighter tolerance, *Finer and taller grids
+together* in `docs/MODEL.md` gives the settings file, the command and the errors that stop such a run.
 
 ### Production queues and checks
 
