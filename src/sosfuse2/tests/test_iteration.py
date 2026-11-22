@@ -139,3 +139,19 @@ def test_ground_sh_order_reads_this_state_only():
     assert solver.ground_sh_order() == 24
     plain = SimpleNamespace(W=1, geo=SimpleNamespace(ns=1), kernel=DummyKernel())
     assert Solver(plain, None, prepared=True).ground_sh_order() == 0
+
+
+def test_numpy_solve_records_no_ground_table(monkeypatch):
+    from sosfuse2.backends.sh_layout import source_size
+    from sosfuse2.solve.source_solver import Kernel
+
+    monkeypatch.setenv('SOSFUSE2_GROUND_SH_L', '24')
+    kernel = Kernel(backend='numpy', L=16)
+    assert kernel.ground_sh_l == 24
+    s = SimpleNamespace(W=1, geo=SimpleNamespace(ns=1), kernel=kernel)
+    solver = Solver(s, None, prepared=True)
+    forcing = np.full((1, source_size(s), 1), 0.1, 'f4')
+    solver.apply = lambda field: forcing + 0.5 * field
+    solver.boxes = lambda field: np.broadcast_to(field[0, 0], (5, 7, 1)).copy()
+    solver.solve(max_eval=16, tolerance=0.005)
+    assert solver.timings['ground_sh_order'] == 0
