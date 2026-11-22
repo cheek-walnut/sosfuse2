@@ -123,3 +123,19 @@ def test_invalid_anderson_storage(monkeypatch):
     solver = Solver(SimpleNamespace(kernel=DummyKernel()), None, prepared=True)
     with pytest.raises(ValueError, match='E_ANDERSON_HISTORY'):
         solver.solve()
+
+
+def test_ground_sh_order_reads_this_state_only():
+    s = SimpleNamespace(W=1, geo=SimpleNamespace(ns=1))
+    other = SimpleNamespace()
+    kernel = SimpleNamespace(xp=np, ground_sh_l=24, device_constants={})
+    s.kernel = kernel
+    solver = Solver(s, None, prepared=True)
+    assert solver.ground_sh_order() == 0
+    kernel.device_constants[(id(s), 12)] = {'h': None}
+    kernel.device_constants[(id(other), 12)] = {'ground_sh': None}
+    assert solver.ground_sh_order() == 0
+    kernel.device_constants[(id(s), 24)] = {'ground_sh': None}
+    assert solver.ground_sh_order() == 24
+    plain = SimpleNamespace(W=1, geo=SimpleNamespace(ns=1), kernel=DummyKernel())
+    assert Solver(plain, None, prepared=True).ground_sh_order() == 0

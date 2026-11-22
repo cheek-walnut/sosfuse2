@@ -109,7 +109,7 @@ def record_identity(rec, item, settings, inputs):
         sha256=rec['sha256'],
         pinned_sha256=RECORD_SHA256,
         decision=c.get('decision'),
-        record_id=RECORD_ID,
+        record_id=RECORD_ID if rec['sha_ok'] and c.get('decision') == DECISION else None,
         contract='pinned record sha + decision + normal state + settings + query inputs',
     )
 

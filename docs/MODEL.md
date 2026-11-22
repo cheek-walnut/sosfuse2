@@ -374,7 +374,7 @@ the environment.
 | `L` | `settings.L` and `solve_grid.L` |
 | `anderson_tol` | `settings.anderson_tol` and `anderson_tol` |
 | `SOSFUSE2_ANDERSON_HISTORY=host` | `timings[i].anderson_history` for each chunk |
-| `SOSFUSE2_GROUND_SH_L` | `settings.kernel.ground_sh.order`, and `timings[i].ground_sh_order` for each chunk, the order the CUDA kernel applied (0 when it built no ground table, and with the NumPy backend, which convolves the ground exactly) |
+| `SOSFUSE2_GROUND_SH_L` | `settings.kernel.ground_sh.order`, and `timings[i].ground_sh_order` for each chunk, the order of the ground table the CUDA kernel used (0 without one, and with the NumPy backend, which convolves the ground exactly) |
 | the density block | `density` |
 
 If any of these differs, the run did not use the requested settings and its table should not be used as such. A

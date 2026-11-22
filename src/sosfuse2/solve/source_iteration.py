@@ -192,6 +192,13 @@ class Solver:
                 raise RuntimeError('E_REPLAY_COUNT')
             return result[..., 0].reshape(-1, 7, s.W)
 
+    def ground_sh_order(self):
+        """Order of the ground convolution table in this state's device constants, which the first-light launches
+        use; 0 without one. Only CUDA builds device constants; NumPy convolves the ground exactly."""
+        constants = getattr(self.kernel, 'device_constants', {})
+        used = any('ground_sh' in dc for (state, _), dc in constants.items() if state == id(self.s))
+        return getattr(self.kernel, 'ground_sh_l', 0) if used else 0
+
     def solve(self, max_eval=16, tolerance=0.005):
         """Same Anderson4 normalization, regularization and candidate guard."""
         s = self.s
@@ -308,10 +315,9 @@ class Solver:
             TIMERS.add('anderson', history[-1]['Anderson_seconds'])
             history[-1]['evaluation_seconds'] = time.perf_counter() - evaluation_start
         self.kernel.sync()
-        # Order of the ground convolution table the CUDA kernel built and used; 0 without one (always 0 with NumPy).
-        self.timings['ground_sh_order'] = self.kernel.metrics.get('ground_sh_order', 0)
         if not done.all():
             raise RuntimeError(f'E_NOT_CONVERGED: {done.sum()}/{s.W} within {tolerance}')
+        self.timings['ground_sh_order'] = self.ground_sh_order()
         return x, dict(
             seconds=time.perf_counter() - started,
             evaluations=iteration,

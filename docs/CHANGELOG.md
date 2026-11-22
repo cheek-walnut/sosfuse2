@@ -21,9 +21,11 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   still names the same class, so existing imports keep working. A `Solver` pickled by this version names the new
   module and cannot be loaded by 1.6.x, and VRAM trace sites inside `Solver` name the new module. The code identity
   changes as for the step-helper split.
-- `meta.json` records in `timings[i].ground_sh_order` the order of the ground convolution that the CUDA kernel applied
-  to each chunk. It is 0 when the kernel built no ground table and with the NumPy backend.
-- `checks.validate` reports `record_id` `selftest-record-2` next to the unchanged `decision` of the selftest record.
+- The `meta.json` of a run that solves the source field records in `timings[i].ground_sh_order`, for each chunk, the
+  order of the ground convolution table that the CUDA kernel used. It is 0 without a ground table and with the NumPy
+  backend. Outputs that reuse saved sources, such as `--extra-elevations`, have no `timings`.
+- `checks.validate` reports `record_id` `selftest-record-2` next to the unchanged `decision` when the pinned selftest
+  record matches its SHA and decision, and `null` otherwise.
 - `tests/test_option_combinations.py` checks the selection and rejection of the 200 km settings example in
   `docs/MODEL.md`. On a CUDA machine, `SOSFUSE2_OPTION_SMOKE_SLOW=1` also compares its NumPy and CUDA tables at
   `rtol=1e-3`.

@@ -64,7 +64,8 @@ def test_record_is_pinned_with_decision_and_provenance():
     assert identity['pass_'] and identity['decision'] == meta['decision']
     assert identity['record_id'] == 'selftest-record-2'
     rec['contract']['decision'] = identity['record_id']
-    assert v.record_identity(rec, 'selftest', settings, {})['mismatch'] == ['decision']
+    changed = v.record_identity(rec, 'selftest', settings, {})
+    assert changed['mismatch'] == ['decision'] and changed['record_id'] is None
     assert meta['record']['sha256'] == digest and meta['numerical_files_equal_commit'] is True
     assert meta['numpy'] and meta['generated_commit'] and meta['command']['argv']
     for key in ('selftest_radiance', 'full_35_single', 'full_35_multiple', 'spectral_15_first', 'spectral_15_multiple'):
