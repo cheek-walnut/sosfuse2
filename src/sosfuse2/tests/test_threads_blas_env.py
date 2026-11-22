@@ -7,9 +7,21 @@ import textwrap
 
 import pytest
 
-from sosfuse2.jobs import run_state
+from sosfuse2.jobs import pipeline, run_state
 
-THREAD_ENV = run_state._THREAD_ENV
+# Written out here so that a name dropped from the implementation fails the tests.
+THREAD_ENV = (
+    'OMP_NUM_THREADS',
+    'OPENBLAS_NUM_THREADS',
+    'MKL_NUM_THREADS',
+    'VECLIB_MAXIMUM_THREADS',
+    'NUMEXPR_NUM_THREADS',
+    'BLIS_NUM_THREADS',
+)
+
+
+def test_thread_variables_match_pipeline():
+    assert run_state._THREAD_ENV == THREAD_ENV == pipeline.THREAD_ENV
 
 
 @pytest.mark.parametrize(
