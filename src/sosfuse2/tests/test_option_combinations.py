@@ -1,6 +1,7 @@
 """Selection, rejection and transport for explicit bake options.
 
-On a CUDA machine, the NumPy and CUDA tables of a small 200 km fixture with the same options are compared, and
+On a CUDA machine, the NumPy and CUDA tables of a small 200 km fixture are compared. It shares the example's upper air,
+stratospheric layer, L, tolerance, history and ground order; its grid and ground albedo differ.
 SOSFUSE2_OPTION_SMOKE_SLOW=1 python -B -m pytest -q -rs --pyargs sosfuse2.tests.test_option_combinations
 also runs the 200 km settings example through run_state on CUDA and checks its records.
 """
