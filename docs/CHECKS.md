@@ -80,8 +80,9 @@ for 15 wavelengths with KSPLIT mode 3 against the NumPy result at `rtol=1e-3`. R
 
 The installed `sosfuse2.tests.test_option_combinations` module compares at `rtol=1e-3` the NumPy and CUDA tables of a
 small 200 km fixture that shares the options of the settings example in `docs/MODEL.md` but not its grid or albedo.
-With `SOSFUSE2_OPTION_SMOKE_SLOW=1` it also solves the settings example itself through `run_state` on CUDA and checks
-its records. Run it with
+With `SOSFUSE2_OPTION_SMOKE_SLOW=1` it also runs `run_state` on CUDA with the solve grid of the settings example (71
+heights, 109 `χ` nodes, Legendre degree 24, tolerance 2e-4) on a test state for one wavelength, two solar elevations and
+2×2 directions, and checks its records. Run it with
 `SOSFUSE2_OPTION_SMOKE_SLOW=1 python -B -m pytest -q -rs --pyargs sosfuse2.tests.test_option_combinations` and check
 that both CUDA cases ran.
 
