@@ -14,8 +14,8 @@ Values marked *estimate* were derived from those measurements.
 
 ## Release 1.6.1 on GPU A
 
-The reproduction command below (*Reproducing*) for `clear_34`, device profile `split`, on GPU A with the same power and clock
-settings for both releases. Each cold run starts from an empty work root and empty caches, and the warm run repeats the
+Both releases ran the command under *Reproducing* for `clear_34` on GPU A, using the `split` device profile and the same
+power and clock settings. Each cold run starts from an empty work root and empty caches, and the warm run repeats the
 command on the same root. Times are the wall time of the command.
 
 | release | cold runs (s) | warm runs (s) | split path (`ksplit_effective`) |

@@ -361,6 +361,30 @@ The runner stops with an error in each of these cases.
 With `L` above 16 and `SOSFUSE2_KSPLIT` unset, the solver uses the unsplit kernel, and `meta.json` records
 `ksplit_effective` 0.
 
+Each key in the settings file can also be given alone. A `top_km` above 80 still needs the `density` block, and the
+other keys need nothing else. The production queue, `python -B -m sosfuse2.jobs.pipeline`, takes the same
+`--settings-json`, and its workers inherit the two environment variables.
+
+To confirm that a run used what was requested, compare these entries of its `meta.json` with the settings file and
+the environment.
+
+| requested | entry in `meta.json` |
+|---|---|
+| `top_km`, the upper air and the height and `χ` grids | `settings.nr`, `settings.nchi` and `grid`, and for a top above 80 km `settings.top_km` and `settings.upper_air` |
+| `L` | `settings.L` and `solve_grid.L` |
+| `anderson_tol` | `settings.anderson_tol` and `anderson_tol` |
+| `SOSFUSE2_ANDERSON_HISTORY=host` | `timings[i].anderson_history` for each chunk |
+| `SOSFUSE2_GROUND_SH_L` | `settings.kernel.ground_sh.order` |
+| the density block | `density` |
+
+If any of these differs, the run did not use the requested settings and its table should not be used as such. A
+wavelength that does not converge stops the run with `E_NOT_CONVERGED`, so a run that writes its table has converged at
+the recorded tolerance. Two changes of the kernel path leave these entries as requested and are recorded instead. One
+is the unsplit kernel described above, with `ksplit.reason` `sh_order_gt_16` for `L` above 16 or
+`state_minimum_exceeds_solo_budget` when the split records do not fit in device memory. The other is the splitting of a
+transport evaluation into several launches under the device profile's time limit, whose profile and launch count are
+in `kernel.launch`. `docs/ENVIRONMENT.md` lists the `ksplit` reasons and the device profiles.
+
 ## Spectral treatment and colour
 
 The default wavelength grid has 45 bands between 360 and 830 nm. It starts from 40 bands of 11.75 nm, five of which
