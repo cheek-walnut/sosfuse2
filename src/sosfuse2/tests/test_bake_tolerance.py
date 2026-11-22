@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sosfuse2.foundation import paths
+from sosfuse2.foundation import available_cpus, paths
 from sosfuse2.jobs import run_state
 from sosfuse2.outputs import radiance_table
 from sosfuse2.tests.test_identity_caches import cache_keys
@@ -95,14 +95,16 @@ def test_solve_arguments_cross_process(tmp_path, persistent):
             for i, tol in enumerate(expected):
                 out = tmp_path/str(i)
                 args = ['--states', str(paths.ASSETS/'states_v1_usstd.json'), '--id','clear_01',
-                        '--reduced','--backend','numpy','--threads','1','--work-root',str(out),'--max-eval','16']
+                        '--reduced','--backend','numpy','--threads',str(available_cpus.cores()[0]),
+                        '--work-root',str(out),'--max-eval','16']
                 if persistent:
                     args += ['--gpu-lock', str(root/'lock')]
                 if tol != .001:
                     settings = tmp_path/'settings.json'
                     settings.write_text(json.dumps({'anderson_tol':tol}))
                     args += ['--settings-json',str(settings)]
-                proc = subprocess.run([*cmd, 'sosfuse2.jobs.run_state', *args], env=env, capture_output=True, text=True, timeout=120)
+                # --threads also bounds the BLAS threads and the preparation pools (1.7.0), so 1 would run the solve serially.
+                proc = subprocess.run([*cmd, 'sosfuse2.jobs.run_state', *args], env=env, capture_output=True, text=True, timeout=300)
                 assert proc.returncode == 0, proc.stdout[-1200:]+proc.stderr
                 meta = json.loads((out/'out/clear_01/meta.json').read_text())
                 observed = [json.loads(line) for line in (tmp_path/'calls').read_text().splitlines()]

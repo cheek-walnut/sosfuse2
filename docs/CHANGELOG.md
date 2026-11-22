@@ -3,6 +3,12 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.7.1
+
+- `tests/test_bake_tolerance.py::test_solve_arguments_cross_process` starts `run_state` with `--threads` set to the usable
+  CPUs and allows 300 s per run. With `--threads 1`, which since 1.7.0 also bounds the BLAS threads and the preparation
+  pools, a run took longer than the earlier 120 s limit on 4-CPU Linux CI machines. The package code is unchanged.
+
 ## 1.7.0
 
 - `jobs/run_state.py --threads N` also sets each preparation-pool variable that is unset or blank
