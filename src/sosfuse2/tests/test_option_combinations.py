@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from sosfuse2.atmosphere import density
+from sosfuse2.foundation import available_cpus
 from sosfuse2.jobs import run_state as rs
 from sosfuse2.outputs.radiance_table import make_table
 from sosfuse2.solve.ray_geometry import TransientGeometry, normal_state
@@ -193,11 +194,14 @@ def settings_example_table(work):
     states = work / 'states.json'
     states.write_text(json.dumps(dict(states=[state])))
     args = ['--id', state['id'], '--states', str(states), '--settings-json', str(work / 'settings.json'),
-            '--work-root', str(work), '--backend', 'cupy', '--threads', '1']
+            '--work-root', str(work), '--backend', 'cupy', '--threads', str(available_cpus.cores()[0])]
     command = [sys.executable, '-B', '-m', 'sosfuse2.jobs.run_state']
+    # The serial fixture sets the preparation pools to 1 for in-process solves. Without them, --threads sizes the pools
+    # of this run to the usable CPUs, the pool default; one worker spends most of the run on the full grid's endpoints.
+    env = {key: value for key, value in os.environ.items() if key not in rs.POOL_WORKER_ENV}
     log_path = work / 'run.log'
     with log_path.open('w') as log:
-        result = subprocess.run([*command, *args], stdout=log, stderr=subprocess.STDOUT)
+        result = subprocess.run([*command, *args], stdout=log, stderr=subprocess.STDOUT, env=env)
     if result.returncode:
         raise RuntimeError(log_path.read_text()[-4000:])
     out = work / 'out' / state['id']
