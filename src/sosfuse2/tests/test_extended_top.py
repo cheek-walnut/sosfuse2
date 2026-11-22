@@ -255,19 +255,23 @@ def test_worker_bindings_roundtrip(monkeypatch):
     assert sun_parallel._STATE['old'].domain == d
 
 
-def small_solver(path, T=120, upper_air='vacuum', backend='numpy', step=.5, wavelengths=None):
-    """Small full-domain fixture; no production reduced-grid setting is overridden."""
+def small_solver(path, T=120, upper_air='vacuum', backend='numpy', step=.5, wavelengths=None, L=16, directions=(1, 2)):
+    """Small full-domain fixture; no production reduced-grid setting is overridden.
+
+    `directions` is the (zenith, azimuth) count of each cell's incoming rays. The default serves fixed apply
+    evaluations. Solver.solve on the 200 km fixture of test_option_combinations does not converge with it (the relative
+    change stays near 0.35), and does with (2, 4)."""
     d = top.resolve(dict(top_km=T, upper_air=upper_air) if T > 80 else {}, step)
 
     def grid(mode, h, ch, nmu, nphi, path_n):
-        return np.array([0., .1, 8., 40., 80.] + ([d.top_km] if T > 80 else [])), np.deg2rad([0., 85., 95., 105., 180.]), 1, 2, 12
+        return np.array([0., .1, 8., 40., 80.] + ([d.top_km] if T > 80 else [])), np.deg2rad([0., 85., 95., 105., 180.]), *directions, 12
 
     inputs = state(step)
     if wavelengths is not None:
         inputs['stratosphere'] = dict(status='enabled')
         inputs['parameters']['stratosphere_tau550'] = .01
     s, ctx, _ = engine.create(inputs, path, 'full', 1, domain=d, grid=grid,
-                              kernel_factory=lambda *a: source_solver.Kernel(1, a[1], a[2], backend, L=16, domain=d),
+                              kernel_factory=lambda *a: source_solver.Kernel(1, a[1], a[2], backend, L=L, domain=d),
                               prepare_ground=False)
     if wavelengths is not None:
         s = ctx.Solver(s.geo, s.kernel, wavelengths, 1, .03)

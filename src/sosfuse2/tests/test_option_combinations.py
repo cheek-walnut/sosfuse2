@@ -1,7 +1,8 @@
 """Selection, rejection and transport for explicit bake options.
 
-On a CUDA machine, SOSFUSE2_OPTION_SMOKE_SLOW=1 python -B -m pytest -q -rs --pyargs sosfuse2.tests.test_option_combinations
-also compares the NumPy and CUDA tables of the 200 km settings example.
+On a CUDA machine, the NumPy and CUDA tables of a small 200 km fixture with the same options are compared, and
+SOSFUSE2_OPTION_SMOKE_SLOW=1 python -B -m pytest -q -rs --pyargs sosfuse2.tests.test_option_combinations
+also runs the 200 km settings example through run_state on CUDA and checks its records.
 """
 
 from itertools import combinations, product
@@ -19,7 +20,7 @@ from sosfuse2.jobs import run_state as rs
 from sosfuse2.outputs.radiance_table import make_table
 from sosfuse2.solve.ray_geometry import TransientGeometry, normal_state
 from sosfuse2.solve.source_solver import Kernel, Solver, ksplit_setting
-from sosfuse2.tests.test_extended_top import config, serial  # noqa: F401
+from sosfuse2.tests.test_extended_top import config, serial, small_solver  # noqa: F401
 
 
 EXTENDED = dict(top_km=200, h_refine='b2a6', chi_refine_deg=[[88, 104.5], [104, 104.25]])
@@ -149,24 +150,49 @@ def test_unsplit_above_degree_16(tmp_path):
     assert kernel.ksplit_preflight(SimpleNamespace(), [])['effective'] == 0
 
 
-def smoke_table(work, backend):
+def option_table(path, backend):
+    """Converged table of the small 200 km fixture with the stratospheric layer, ground albedo 0.3, L24, tol 2e-4 and
+    the history and ground order set by the caller. CUDA applies the ground order; NumPy convolves the ground exactly."""
+    s, scope = small_solver(path, T=200, upper_air='us76_neff', backend=backend, wavelengths=np.array([550.]), L=24,
+                            directions=(2, 4))
+    solver = Solver(s, TransientGeometry(s, scope), prepared=True)
+    field, stats = rs.solve_chunk(solver, 64, 2e-4)
+    table = make_table(s, s.kernel.host(field), [-3., -6.], [67.5, 22.5], [45., 135.], log=lambda _: None)[0]
+    assert s.strato is not None and s.fuse_state['parameters']['albedo'] > 0
+    assert solver.timings['solve_worker']['L'] == 24 and solver.timings['solve_worker']['top_km'] == 200
+    assert solver.timings['anderson_history'] == 'host' and stats['tolerance'] == 2e-4 and all(stats['converged'])
+    return table, solver
+
+
+def test_cuda_option_parity(tmp_path, monkeypatch):
+    cupy = pytest.importorskip('cupy', reason='CuPy is unavailable')
+    if not cupy.is_available():
+        pytest.skip('CUDA device is unavailable')
+    monkeypatch.setenv('SOSFUSE2_ANDERSON_HISTORY', 'host')
+    monkeypatch.setenv('SOSFUSE2_GROUND_SH_L', '24')
+    reference, reference_solver = option_table(tmp_path / 'numpy', 'numpy')
+    actual, solver = option_table(tmp_path / 'cuda', 'cupy')
+    assert reference_solver.timings['ground_sh_order'] == 0
+    assert solver.timings['ground_sh_order'] == 24
+    assert (solver.kernel.L, solver.kernel.ksplit, solver.timings['ksplit']['effective']) == (24, False, 0)
+    assert actual.shape == reference.shape == (2, 2, 2, 1)
+    assert np.all(np.isfinite(reference)) and np.all(reference > 0)
+    np.testing.assert_allclose(actual, reference, rtol=1e-3, atol=0)
+
+
+def settings_example_table(work):
+    """Run the 200 km settings example of docs/MODEL.md through run_state on CUDA and check its records."""
     work.mkdir()
     state = normal_state()
     state.update(density=density.DEFAULTS, stratosphere={'status': 'enabled'})
     state['parameters'].update(albedo=.05, stratosphere_tau550=.01)
     raw = dict(EXTENDED, L=24, anderson_tol=2e-4, spectral_mode='legacy', wavelengths=1,
                wavelengths_nm=[550.], solar_elevation_deg=[-3., -6.], view_shape=[2, 2])
-    cfg = rs.resolve_settings(config(work, raw), state)
-    if backend == 'numpy':
-        # Packed geometry dispatches to CUDA. NumPy uses the same grid through transient geometry.
-        s, scope = rs.create_configured(work / 'prepare', cfg, cfg['wavelengths_nm'], backend, state)
-        solver = Solver(s, TransientGeometry(s, scope), prepared=True)
-        field, _ = rs.solve_chunk(solver, 64, cfg['anderson_tol'])
-        return make_table(s, field, cfg['solar_elevation_deg'], [67.5, 22.5], [45., 135.])[0]
+    rs.resolve_settings(config(work, raw), state)  # config writes settings.json; a wrong example fails here, not in run_state
     states = work / 'states.json'
     states.write_text(json.dumps(dict(states=[state])))
     args = ['--id', state['id'], '--states', str(states), '--settings-json', str(work / 'settings.json'),
-            '--work-root', str(work), '--backend', backend, '--threads', '1']
+            '--work-root', str(work), '--backend', 'cupy', '--threads', '1']
     command = [sys.executable, '-B', '-m', 'sosfuse2.jobs.run_state']
     log_path = work / 'run.log'
     with log_path.open('w') as log:
@@ -193,16 +219,14 @@ def smoke_table(work, backend):
 
 @pytest.mark.skipif(
     os.environ.get('SOSFUSE2_OPTION_SMOKE_SLOW') != '1',
-    reason='set SOSFUSE2_OPTION_SMOKE_SLOW=1: the NumPy reference on the full 200 km grid takes more than five minutes',
+    reason='set SOSFUSE2_OPTION_SMOKE_SLOW=1: run_state solves the full 200 km grid of the settings example',
 )
-def test_cuda_option_combination(tmp_path, monkeypatch):
+def test_cuda_settings_example(tmp_path, monkeypatch):
     cupy = pytest.importorskip('cupy', reason='CuPy is unavailable')
     if not cupy.is_available():
         pytest.skip('CUDA device is unavailable')
     monkeypatch.setenv('SOSFUSE2_ANDERSON_HISTORY', 'host')
     monkeypatch.setenv('SOSFUSE2_GROUND_SH_L', '24')
-    reference = smoke_table(tmp_path / 'numpy', 'numpy')
-    actual = smoke_table(tmp_path / 'cuda', 'cupy')
-    assert actual.shape == reference.shape == (2, 2, 2, 1)
-    assert np.all(np.isfinite(reference)) and np.all(reference > 0)
-    np.testing.assert_allclose(actual, reference, rtol=1e-3, atol=0)
+    table = settings_example_table(tmp_path / 'cuda')
+    assert table.shape == (2, 2, 2, 1)
+    assert np.all(np.isfinite(table)) and np.all(table > 0)
