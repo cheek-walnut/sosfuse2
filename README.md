@@ -97,8 +97,10 @@ regressions across refactors and other hardware; they do not measure physical ac
   The exp8/triangle/keep configuration, the default through 1.4.0, holds more air above 20 km than the US Standard
   Atmosphere 1976 at the same column (1.2 times at 20 km, 1.7 times at 30 km). Against measured zenith and all-sky
   twilight brightness (Koomen et al. 1952; Patat et al. 2006) it gives 1.4 to 2.1 times the Maryland and Paranal
-  measurements and 2.9 to 3.2 times those at Sacramento Peak. Two variants reproduce the purple light of Lee and Hernández-Andrés
-  (2003): `density_profile: exp8`, `ozone_profile: usstd76`, `rayleigh_column: usstd` with stratospheric τ550 0.006
+  measurements and 2.9 to 3.2 times those at Sacramento Peak. Two variants reproduce the timing of the purple light of
+  Lee and Hernández-Andrés (2003), that is, the solar elevations at which it begins, peaks and ends. The three events are
+  approximated by u′ extrema along one line of sight, and each variant is fitted to those observations:
+  `density_profile: exp8`, `ozone_profile: usstd76`, `rayleigh_column: usstd` with stratospheric τ550 0.006
   gives 1.6 to 2.1 times the Maryland and Paranal measurements; `density_profile: usstd76`, `ozone_profile: usstd76`,
   `rayleigh_column: usstd` with τ550 0.0037 gives 0.65 to 1.04 times. Specify all three options in the state's
   `density` block when selecting a configuration; partial blocks and partial CLI choices stop with `E_DENSITY_PARTIAL`.
@@ -124,8 +126,10 @@ regressions across refactors and other hardware; they do not measure physical ac
 
 ## Install
 
+The package is not on PyPI. Install it in a virtual environment from a checkout of the tagged commit:
+
 ```sh
-pip install .                 # from a checkout; or `pip install <sdist>` outside the source tree
+pip install .                 # from a checkout of the tagged commit; or `pip install <sdist>` outside the source tree
 pip install ".[test]"         # + pytest
 pip install ".[gpu,test]"     # + CuPy (CUDA 12) and the NVIDIA runtime/NVRTC/cuBLAS wheels
 ```
@@ -157,6 +161,11 @@ python -m sosfuse2.asset_tools.prepare_minor_absorbers --download
 python -m sosfuse2 generate_density_profile
 python -B -m sosfuse2.jobs.run_state --id clear_34 --reduced --backend numpy --threads 2 --work-root ./work
 ```
+
+`--threads N` also sets each preparation-pool variable that is unset or blank (`SOSFUSE2_COLUMN_WORKERS`,
+`SOSFUSE2_SUN_WORKERS`, `SOSFUSE2_GROUND_WORKERS` and `SOSFUSE2_GEOMETRY_WORKERS`) to N for that run, in a solve, with
+`--geometry-only` and with `--extra-elevations`; nonblank values take precedence. Without `--threads`, these variables
+are left unchanged, and an unset or blank one means all usable CPUs.
 
 The table and its `meta.json` land under `./work/out/clear_34/`. `meta.json` carries `contract: "v5"`, the state, the
 backend, the tolerance settings and the `code_hashes` of a fixed list of production modules, solver sources
@@ -202,7 +211,8 @@ Production queues and reference checks use the following settings.
   the default for reference checks and benchmarks, turns the fallback into an `E_KSPLIT_MEMORY` error, and `1` permits it.
   A fallback emits a `WARNING KSPLIT fallback` line on stderr and a `KSPLIT_FALLBACK` phase event. The table
   metadata records `ksplit_effective`. See [Device memory diagnostics](docs/ENVIRONMENT.md#device-memory-diagnostics)
-  for the reason, itemized estimates and persistent admission records.
+  for the reason, itemized estimates and persistent admission records. With `SOSFUSE2_VRAM_TRACE=1`, `meta.json` also
+  records the CuPy memory-pool accounting (`vram_trace`).
 - The runner and pipeline apply a host-dependent resident set size (RSS) limit per process. `SOSFUSE2_RSS_GB`
   sets both the default and the ceiling for `--rss-gb`. The host rule and the pipeline's treatment of concurrent
   processes are described in [Environment variables](docs/ENVIRONMENT.md#host-rss-limits).
@@ -228,13 +238,15 @@ Production queues and reference checks use the following settings.
 
 ## Numerical tolerances
 
-The checks compare each result with a fixed reference at the stated tolerance.
+The checks compare each result with a fixed reference at the stated tolerance. G-R records hash differences and
+numerical deltas, and those differences do not block.
 
 | check | compares | tolerance |
 |---|---|---|
+| G-R | CUDA outputs vs the baseline of the matching toolchain and configuration, or the canonical baseline | none; differences recorded, not blocking |
 | G-P | CUDA kernel vs NumPy golden (fixed number of apply steps) | rtol 1e-3 |
 | G-T | anchor radiances (`checks/gate_data/anchors.json`) | ratchet, recorded |
-| G-A / H / PS | queue parity, historical reduced selftest, persistent service | per case |
+| G-A / H / PS | queue parity, historical reduced selftest (G-H), persistent service | per case |
 | repeat (`gate --stage`) | same build, cold vs warm, repeated runs | rtol 1e-5, max difference recorded |
 | G-F | full-grid fixed table (needs the research checkout) | rtol 1e-3 |
 
@@ -251,7 +263,9 @@ need bit-stable repeats. The baseline log and the reference manifest live in `sr
    skip unless `SOSFUSE2_SKY_SOS_ROOT` points at that checkout, and tests that need `clang++` skip when it is absent. The
    tests use a synthetic O₄ table in an isolated temporary root and download no HITRAN data; reproduction from the
    original data is optional (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) and skips when neither is supplied.
-2. A CUDA machine: `python -B -m sosfuse2.checks.gate --all --out <dir>` runs G-P, G-T, G-A, H and PS, and
+   To run a single test file, pass its module name, for example
+   `python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2.tests.test_names`.
+2. A CUDA machine: `python -B -m sosfuse2.checks.gate --all --out <dir>` runs G-R, G-P, G-T, G-A, H and PS, and
    `gate --stage --out <dir>` runs the repeat checks.
 3. A CUDA machine with the research checkout: `gate --gf --reference <table.npz> --out <dir>` (`docs/CHECKS.md`).
 

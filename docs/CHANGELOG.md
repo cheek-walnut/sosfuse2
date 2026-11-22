@@ -3,6 +3,21 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.7.0
+
+- `jobs/run_state.py --threads N` also sets each preparation-pool variable that is unset or blank
+  (`SOSFUSE2_COLUMN_WORKERS`, `SOSFUSE2_SUN_WORKERS`, `SOSFUSE2_GROUND_WORKERS`, `SOSFUSE2_GEOMETRY_WORKERS`) to N
+  for that run, in a solve, with `--geometry-only` and with `--extra-elevations`. Nonblank values take precedence,
+  and the previous values are restored when the run ends. Without `--threads`, the preparation-pool variables are
+  left unchanged.
+  `jobs/pipeline.py` sets all four variables before it starts `run_state`, so pipeline pool sizes are unchanged.
+- Running `jobs/run_state.py` directly now sets `OMP_NUM_THREADS` and the related thread variables from `--threads`
+  (default 2) before NumPy is imported. Before, NumPy was already loaded at that point, so OpenBLAS ignored them and
+  used every CPU. Runs started by `jobs/pipeline.py` already had these variables set and are unchanged.
+- `run_state.run` and `SourceSolver.launch` are split into step helpers in the same files. The GPU checks give the same
+  values as 1.6.1. The code identity changes, so reusing earlier outputs or saved sources can fail the existing identity
+  checks (`E_OUTPUT_IDENTITY`, `E_EXTRA_SOURCE`), and staged runs from different code cannot be blessed.
+
 ## 1.6.1
 
 - Fix a 1.6.0 regression where `run_state` could stop with `E_VRAM_FREE` at the second wavelength chunk on a 10 GB GPU.
