@@ -22,15 +22,17 @@ def _thread_env_before_numpy(argv, environ):
 
     BLAS libraries read these variables once, when NumPy is first imported, and this module imports NumPy further
     down, so a direct run has to set them before that import. The last --threads N or --threads=N before a bare
-    '--' wins, as in argparse, including its unique prefixes from --th (no other option of main() starts with --th).
-    A value that is not a positive integer writes nothing; main() then rejects it. Returns the value written, or None.
+    '--' wins, as in argparse, and so do its prefixes from --t: argparse reads a prefix as --threads or, when another
+    option shares it, rejects the command line, so no mode runs with a value other than the one written here
+    (test_threads_blas_env pins that no other option name is itself such a prefix). A value that is not a positive
+    integer writes nothing; main() then rejects it. Returns the value written, or None.
     """
     value = '2'
     for i, arg in enumerate(argv):
         if arg == '--':
             break
         name, eq, rest = arg.partition('=')
-        if not (name.startswith('--th') and '--threads'.startswith(name)):
+        if not (len(name) >= 3 and '--threads'.startswith(name)):
             continue
         if eq:
             value = rest
@@ -1946,7 +1948,7 @@ def run_extra(a):
         stop.set()
 
 
-def main():
+def build_parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--id', required=True)
     p.add_argument('--out-name')
@@ -2004,6 +2006,11 @@ def main():
         choices=['on'],
         help='explicitly enable the state stratospheric layer; default honors state.status',
     )
+    return p
+
+
+def main():
+    p = build_parser()
     a = p.parse_args()
     a.threads_explicit = a.threads is not None
     if a.threads is None:
