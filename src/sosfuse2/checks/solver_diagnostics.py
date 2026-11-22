@@ -52,7 +52,7 @@ def parser():
     p.add_argument('--tolerance', type=float, default=0.005)
     p.add_argument('--rss-gb', type=float, help='default and ceiling from host_limits (default_rss_gb, rss_cap_gb)')
     p.add_argument(
-        '--fixed-boxes', action='store_true', help='A5: observer boxes via one fixed Bundle on the device source'
+        '--fixed-boxes', action='store_true', help='observer boxes via one fixed Bundle on the device source'
     )
     from sosfuse2.atmosphere.density import add_arguments
 
@@ -203,7 +203,7 @@ def probe_state(args, output, wavelengths, state=None, cache=None):
         timing_path,
         dict(
             state=s.fuse_state['id'],
-            scope='A1 stage timers; setup_seconds = first_light_total (includes geometry prepare)',
+            scope='stage timers; setup_seconds = first_light_total (includes geometry prepare)',
         ),
     )
     return report

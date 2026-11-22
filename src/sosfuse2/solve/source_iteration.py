@@ -30,7 +30,7 @@ class Solver:
         self.first_flux = None
         self.observer = observer
         self.box_evaluate = box_evaluate
-        # A5: opt-in observer path (fixed captured rays, device source read directly).
+        # Opt-in observer path: fixed captured rays that read the device source directly.
         self.fixed_boxes = fixed_boxes
         self.box_group = box_group
         self._box_rays = None
@@ -268,7 +268,7 @@ class Solver:
                 break
             anderson_start = time.perf_counter()
             with vram_trace.item('source.candidate'):
-                nxt = g.copy()  # A1: Anderson time recorded below as stage 'anderson'
+                nxt = g.copy()  # the Anderson time is recorded below as stage 'anderson'
             for w in range(s.W):
                 if done[w]:
                     continue

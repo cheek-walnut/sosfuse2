@@ -105,7 +105,7 @@ def _groups(raws, group):
 
 
 def _bundle(s, raws, group):
-    """A5: one Bundle per captured batch, shared by the first and multiple launches
+    """One Bundle per captured batch, shared by the first and multiple launches
     (the ray set/order is identical; only the source field and FIRST differ)."""
     from sosfuse2.solve.ray_geometry import Bundle
     from sosfuse2.foundation.timers import stage

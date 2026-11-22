@@ -1,4 +1,4 @@
-"""A1 stage timers.  Measurement only: no array is read, written or reordered.
+"""Stage timers.  Measurement only: no array is read, written or reordered.
 
 Every stage records host wall time (perf_counter).  A stage marked device=True
 additionally records a CUDA Event pair on the current stream when the backend

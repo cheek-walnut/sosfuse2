@@ -465,7 +465,7 @@ def transport(g, c, field, first=False, boundary=None, statistics=None, return_b
 
 
 def _transport(g, c, field, first=False, boundary=None, statistics=None, return_basis=False, sh_source=None):
-    """sh_source (A6 SH_AUX): optional [cell][wave][KPAD] copy of field[:,10:571,:];
+    """sh_source (SH_AUX): optional [cell][wave][KPAD] copy of field[:,10:571,:];
     when given the SH contraction reads it, exactly like kernel.cu under -DSH_AUX."""
     n, W = len(g['d']), c['W']
     Y = basis(g['d'][:, 2], c.get('L', 32))

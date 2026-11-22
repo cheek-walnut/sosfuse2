@@ -48,7 +48,7 @@ from .ksplit import (  # noqa: E402,F401 (re-exported: KSPLIT host side, ksplit.
     VPROD_COUNT_SHARED,
     VPROD_PLAN_SRC,
 )
-# A6 kernel variants (kernel.cu header); each independent, all off = original kernel.
+# Kernel variants (kernel.cu header); each independent, all off = original kernel.
 # Stage-1 compile options: SOSFUSE2_<NAME>=1/0 overrides,
 # unset = device profile stage1_defaults (backends/configs/devices.json: cuda FMAD+FASTMATH, split/mac none).
 # None active = the exact pre-r17 options, key and kernel tokens.
@@ -92,7 +92,7 @@ def default_flags():
 
 
 def sh_aux(src, xp=np, L=32):
-    """A6(c): SH source as a new contiguous [cell][wave][KPAD] array (not a view):
+    """SH source as a new contiguous [cell][wave][KPAD] array (not a view):
     sh[c, w, k] = src[c, 10+k, w] for k<561, zero padding to KPAD."""
     K = count(L)
     KPAD = padded(L)
@@ -282,7 +282,7 @@ def _assemble_transport_arguments(kernel, launch, bundle, s, first, phase, bound
     launch.ground_sh_l = kernel.ground_sh_l if first and phase in (0, 2) and 'ground_sh' in launch.dc else 0
     if launch.ground_sh_l:
         # Only the SH specialization interprets gval as its synthesized
-        # convolution table. Empty A0 uses the
+        # convolution table. Without it the launch uses the
         # original binary, argument arrays, and shared-memory size.
         launch.args[-1] = launch.dc['ground_sh']
     launch.args += [

@@ -1971,10 +1971,10 @@ def build_parser():
         type=int,
         choices=(128, 256),
         default=None,
-        help='A6(d): 256 threads/block (97,872 B shared at 15 wavelengths); default SOSFUSE2_BLOCK_SIZE or 128',
+        help='256 threads/block (97,872 B shared at 15 wavelengths); default SOSFUSE2_BLOCK_SIZE or 128',
     )
     p.add_argument(
-        '--fixed-boxes', action='store_true', help='A5: observer boxes from one fixed Bundle on the device source'
+        '--fixed-boxes', action='store_true', help='observer boxes from one fixed Bundle on the device source'
     )
     p.add_argument(
         '--geometry-layers',
