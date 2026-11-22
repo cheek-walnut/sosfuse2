@@ -39,15 +39,22 @@ are warps per issue-active cycle (`smsp__average_warps_issue_stalled_<reason>_pe
 | `sos_vprod` | 4 (760–12,897) | 57.7–63.1 | 64.2–70.0 | 23.2–24.7 / 25.0 | 128 | `mio_throttle` 1.09–1.19 | `not_selected` 0.73–0.79, `wait` 0.60–0.61, `long_scoreboard` 0.53–0.59 |
 | `sos_vprod_y` | 3 (1,314–25,251) | 73.2–84.7 | 31.8–37.1 | 79.5–97.2 / 100 | 28 | `tex_throttle` 8.75–12.34 | `short_scoreboard` 6.08–6.64, `wait` 1.55–1.58 |
 | `vp_scatter` | 3 (127–1,015) | 8.5–14.7 | 30.3–49.2 | 3.8–14.3 / 14.6 | 39 | `short_scoreboard` 4.79–20.25 | `long_scoreboard` 4.01–8.92, `wait` 2.06–2.13 |
+| `sos_slim_proj` | 1 (60) | 11.7 | 11.7 | 8.3 / 33.3 | 119 | `short_scoreboard` 2.93 | `barrier` 2.01, `wait` 1.45 |
+| `sos_fused` slimray | 1 (6,566) | 51.8 | 37.9 | 24.6 / 25.0 | 147 | `wait` 1.25 | `long_scoreboard` 0.90, `not_selected` 0.73 |
 
 Of the 20 stall metrics measured, the 17 that are neither `selected` nor a per-pipe sub-breakdown sum to 4.2–4.3 warps
 per issue-active cycle in `sos_vprod`. Adding the issuing warp gives the measured 5.2–5.3 warp cycles per issued
 instruction, so these reasons account for its stalled cycles. The pre-1.1.0 probe under *Where the time goes* placed
 `sos_vprod` on the memory pipe (`mio_throttle` 0.83, L1 61 %). In 1.6.1 `mio_throttle` is its largest stall, with the
-L1 cache at 69–71 % of its peak. `sos_slim_proj` and the slimray variant of
-`sos_fused` are not in this capture. The launch limit was reached before the first `sos_slim_proj` launch, and the
-slimray variant shares the name `sos_fused` with the first-light and record variants, so a kernel-name filter cannot
-select it.
+L1 cache at 69–71 % of its peak.
+
+The last two rows come from two further runs of the same command, because the capture above reached its launch limit
+before the first `sos_slim_proj` launch, and the slimray variant shares the name `sos_fused` with the first-light and
+record variants, so a kernel-name filter alone cannot select it. Each run skipped the first matching launch, profiled
+the next one and then ended the command. `sos_slim_proj` was selected by kernel name. The slimray launch was selected
+by kernel name and by the NVTX range `p2min_slimray`, which the runner opens around each slimray launch when
+`SOSFUSE2_P2MIN_NVTX=1` (`ncu --nvtx --nvtx-include 'p2min_slimray/'`). Both launches come early in the first
+wavelength chunk, so each row is a single sample, and its grid is that launch's grid only.
 
 ## How the work is laid out
 
