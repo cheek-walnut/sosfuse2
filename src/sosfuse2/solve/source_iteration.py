@@ -308,6 +308,8 @@ class Solver:
             TIMERS.add('anderson', history[-1]['Anderson_seconds'])
             history[-1]['evaluation_seconds'] = time.perf_counter() - evaluation_start
         self.kernel.sync()
+        # Order of the ground convolution table the CUDA kernel built and used; 0 without one (always 0 with NumPy).
+        self.timings['ground_sh_order'] = self.kernel.metrics.get('ground_sh_order', 0)
         if not done.all():
             raise RuntimeError(f'E_NOT_CONVERGED: {done.sum()}/{s.W} within {tolerance}')
         return x, dict(

@@ -178,6 +178,7 @@ def smoke_table(work, backend):
     assert (meta['settings']['nr'], meta['settings']['nchi'], meta['solve_grid']['L']) == (71, 109, 24)
     assert (meta['settings']['top_km'], meta['settings']['upper_air'], meta['anderson_tol']) == (200, 'us76_neff', 2e-4)
     assert meta['timings'][0]['anderson_history'] == 'host'
+    assert {timing['ground_sh_order'] for timing in meta['timings']} == {24}
     assert meta['settings']['kernel']['ground_sh']['order'] == 24
     assert meta['ksplit_effective'] == meta['ksplit']['effective'] == 0
     assert meta['parameters']['albedo'] == .05

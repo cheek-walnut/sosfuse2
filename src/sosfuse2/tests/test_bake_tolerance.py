@@ -110,6 +110,7 @@ def test_solve_arguments_cross_process(tmp_path, persistent):
                 worker = meta['timings'][0]['solve_worker']
                 assert observed[-1] == [worker['pid'],16,tol]
                 assert meta['anderson_tol'] == meta['source_solve']['tolerance'] == tol
+                assert meta['timings'][0]['ground_sh_order'] == 0
                 assert Path(worker['file']).resolve() == paths.PKG/'__init__.py'
                 if service:
                     assert worker['pid'] == service.pid
