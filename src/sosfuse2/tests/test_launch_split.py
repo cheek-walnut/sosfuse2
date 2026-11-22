@@ -74,8 +74,8 @@ class LaunchSplit(unittest.TestCase):
         with mock.patch.dict(os.environ, {'SOSFUSE2_LAUNCH_CELLS': '408'}):
             self.assertEqual(device_profile.select('NVIDIA GeForce RTX 3080')[1]['launch_cells_fixed'], 408)
 
-    def test_removed_profile_names_are_rejected(self):
-        for name in ('eda', 'rig'):
+    def test_unknown_profile_names_are_rejected(self):
+        for name in ('retired-profile', 'no-such-profile'):
             with self.subTest(name=name), mock.patch.dict(os.environ, {'SOSFUSE2_DEVICE_PROFILE': name}):
                 with self.assertRaisesRegex(ValueError, 'E_DEVICE_PROFILE: unknown'):
                     device_profile.select()

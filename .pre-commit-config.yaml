@@ -33,7 +33,7 @@ repos:
       - id: public-identifiers
         name: scratch/home paths and private remotes, all text files (blocking)
         language: pygrep
-        entry: '(/private)?/tmp/claude-[0-9]+/|/home/[a-z][a-z0-9_-]*/|/Users/[a-z][a-z0-9_-]*/|[a-z][a-z0-9_-]*:work/|-Users-[A-Za-z0-9]+-Workspace'
+        entry: '(/private)?/tmp/[a-z]+-[0-9]+/|/home/[a-z][a-z0-9_-]*/|/Users/[a-z][a-z0-9_-]*/|[a-z][a-z0-9_-]*:work/|-Users-[A-Za-z0-9]+-[A-Za-z0-9]+'
         types: [text]
   # Machine-independence rule: no absolute user paths, private addresses or account identifiers in tracked files.
   # `.machine-paths-strict` makes a violation block the commit. The checker is a local tool (not part of the package).

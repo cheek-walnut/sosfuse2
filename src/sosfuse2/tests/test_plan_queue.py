@@ -482,7 +482,7 @@ def test_cost_profile_default_split_and_former_name(tmp_path):
     assert default.cost_profile == 'split'
     assert plan_queue.parser().parse_args(base + ['--cost-profile', 'cuda']).cost_profile == 'cuda'
     with pytest.raises(SystemExit) as exc:
-        plan_queue.parser().parse_args(base + ['--cost-profile', 'eda'])
+        plan_queue.parser().parse_args(base + ['--cost-profile', 'retired-profile'])
     assert exc.value.code == 2
 
 
