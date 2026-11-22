@@ -723,6 +723,7 @@ def test_package_hashes(monkeypatch):
         'sosfuse2/backends/vram_budget.py',
         'sosfuse2/backends/vram_trace.py',
         'sosfuse2/solve/source_solver.py',
+        'sosfuse2/solve/source_iteration.py',
         'sosfuse2/checks/gate.py',
         'sosfuse2/checks/kernel_diagnostics.py',
         'sosfuse2/asset_tools/generate_density_profile.py',

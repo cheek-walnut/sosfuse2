@@ -51,11 +51,11 @@ UPWARD_IMPORTS = {
         ('tables',),
         'column tables are stored under the CPU preparation cache keys',
     ),
-    ('sosfuse2.solve.source_solver', 'sosfuse2.jobs.pipeline_execution'): (
+    ('sosfuse2.solve.source_iteration', 'sosfuse2.jobs.pipeline_execution'): (
         ('Solver.initialize',),
         'ray bundles are prepared for the kernel with the same code as in the persistent service',
     ),
-    ('sosfuse2.solve.source_solver', 'sosfuse2.outputs.radiance_table'): (
+    ('sosfuse2.solve.source_iteration', 'sosfuse2.outputs.radiance_table'): (
         ('Solver.boxes_fixed',),
         'fixed observer boxes reuse the bundle and evaluation code of the radiance table',
     ),
@@ -149,6 +149,20 @@ def test_imported_modules_and_package_names_exist():
     found, result = imports(paths.PKG)
     missing = [row for row in result if row[1] not in found]
     assert not missing, where(found, paths.PKG, missing)
+
+
+def test_solver_reexport():
+    from sosfuse2.solve import source_iteration, source_solver
+
+    assert source_solver.Solver is source_iteration.Solver
+    assert source_iteration.Solver.__module__ == 'sosfuse2.solve.source_iteration'
+
+
+def test_source_iteration_does_not_import_source_solver():
+    found, rows = imports(paths.PKG)
+    edge = ('sosfuse2.solve.source_iteration', 'sosfuse2.solve.source_solver')
+    reverse = [row for row in rows if row[:2] == edge]
+    assert not reverse, where(found, paths.PKG, reverse)
 
 
 def test_upward_imports_are_the_listed_ones():

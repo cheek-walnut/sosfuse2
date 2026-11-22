@@ -44,8 +44,8 @@ def test_static_map_points_at_real_code():
             missing.append(ref)
     assert not missing
     # The check itself can fail: a method that does not exist, a module-level name that is a method.
-    assert not defined(paths.PKG / 'solve/source_solver.py', 'Solver.no_such_step')
-    assert not defined(paths.PKG / 'solve/source_solver.py', 'initialize')
+    assert not defined(paths.PKG / 'solve/source_iteration.py', 'Solver.no_such_step')
+    assert not defined(paths.PKG / 'solve/source_iteration.py', 'initialize')
 
 
 @pytest.mark.parametrize('where', ['run', 'render'])

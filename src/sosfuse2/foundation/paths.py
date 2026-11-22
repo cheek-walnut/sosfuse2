@@ -126,6 +126,7 @@ PRODUCTION_MODULES = (
     'backends/vram_budget',
     'backends/vram_trace',
     'solve/source_solver',
+    'solve/source_iteration',
     'checks/gate',
     'checks/kernel_diagnostics',
     'asset_tools/generate_density_profile',

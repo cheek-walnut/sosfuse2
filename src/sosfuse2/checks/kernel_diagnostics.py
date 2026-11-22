@@ -109,7 +109,8 @@ def main():
             name: content_identity.file_sha(paths.PKG / path)
             for name, path in (('kernel.cu', 'backends/kernel.cu'), ('fused.py', 'solve/source_solver.py'),
                                ('ksplit.py', 'solve/ksplit.py'), ('reference.py', 'backends/numpy_reference.py'),
-                               ('validate.py', 'checks/validate.py'))
+                               ('validate.py', 'checks/validate.py'),
+                               ('source_iteration.py', 'solve/source_iteration.py'))
         },
         exact={},
         approximate={},

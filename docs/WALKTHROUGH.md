@@ -74,7 +74,7 @@ The driver (`jobs/walkthrough.py: run_example`) repeats the glue of `jobs/run_st
 | # | call | what came out |
 |---|---|---|
 | 1 | `jobs/run_state.py: create_configured`, then the cell fill | NumPy backend; 1 wavelength (550 nm); heights 0, 0.1, 8, 80 km; 10 solar zenith nodes (0, 60, 85, 90, 93, 96, 105, 110, 140, 180 deg); 40 cells; quadrature nmu 1, nphi 2, path_n 4; SH order L 16 (153 scalar coefficients); 982 rays in the cells |
-| 2 | `solve/source_solver.py: Solver.solve` | source field shape (40, 163, 1) (cell, source slot, wavelength); 12 evaluations; tolerance 0.001; converged yes; last observer change 3.96e-04, last source change 2.27e-04 |
+| 2 | `solve/source_iteration.py: Solver.solve` | source field shape (40, 163, 1) (cell, source slot, wavelength); 12 evaluations; tolerance 0.001; converged yes; last observer change 3.96e-04, last source change 2.27e-04 |
 | 3 | `outputs/radiance_table.py: make_table` | table shape (2, 4, 6, 1) (solar elevation, view elevation, relative azimuth, wavelength); all values finite; minimum 1.284e-05, maximum 0.003163 W m^-2 sr^-1 nm^-1 |
 
 Radiance in the azimuth column nearest the sun (relative azimuth 15 deg), W m^-2 sr^-1 nm^-1. The evaluation count and these values are information only; the tests compare the table with `jobs/run_state.py` at rtol 1e-3.
@@ -101,11 +101,11 @@ Inside the boundaries, in the order the code reaches them. The last column names
 | 9 | cells | Register and build the endpoint cache as run() does, then build the rays of every cell for the solve. | `jobs/run_state.py: register_geometry`<br>`solve/ray_geometry_cpu.py: build_cells`<br>`solve/ray_geometry.py: TransientGeometry.cell` | 1 |
 | 10 | segments | Cut each ray at the spherical shell boundaries. | `rays/shell_segments.py: boundaries` |  |
 | 11 | columns | Integrate the component columns along each ray and pack the rays. | `rays/ray_columns.py: integrate`<br>`solve/ray_geometry.py: pack` |  |
-| 12 | solve start | Start the fixed-point iteration from a zero source field. | `solve/source_solver.py: Solver.solve` | 2 |
-| 13 | first scattering | Single scattering of direct sunlight (computed once, by the first apply). | `solve/source_solver.py: Solver.initialize` |  |
-| 14 | apply | One update of the source: ground reflection, then atmospheric scattering. | `solve/source_solver.py: Solver.apply` |  |
+| 12 | solve start | Start the fixed-point iteration from a zero source field. | `solve/source_iteration.py: Solver.solve` | 2 |
+| 13 | first scattering | Single scattering of direct sunlight (computed once, by the first apply). | `solve/source_iteration.py: Solver.initialize` |  |
+| 14 | apply | One update of the source: ground reflection, then atmospheric scattering. | `solve/source_iteration.py: Solver.apply` |  |
 | 15 | transport | NumPy transport along the rays of one cell. | `backends/numpy_reference.py: transport` |  |
-| 16 | convergence | Mix the next source (Anderson); stop when the observer and source changes are within the tolerance. | `solve/source_solver.py: Solver.boxes`<br>`solve/source_solver.py: Solver.solve` | 2 |
+| 16 | convergence | Mix the next source (Anderson); stop when the observer and source changes are within the tolerance. | `solve/source_iteration.py: Solver.boxes`<br>`solve/source_iteration.py: Solver.solve` | 2 |
 | 17 | radiance table | Turn the converged source into radiance for every view direction. | `outputs/radiance_table.py: make_table` | 3 |
 | 18 | summary | Write this page from the observed record. | `jobs/walkthrough.py: render` |  |
 

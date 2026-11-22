@@ -1518,6 +1518,7 @@ def run_main(p, args, argv):
             ('kernel.cu', 'backends/kernel.cu'), ('fused.py', 'solve/source_solver.py'),
             ('ksplit.py', 'solve/ksplit.py'), ('reference.py', 'backends/numpy_reference.py'),
             ('gate.py', 'checks/gate.py'),
+            ('source_iteration.py', 'solve/source_iteration.py'),
         )},
         env={k: v for k, v in os.environ.items() if k.startswith(('SOSFUSE2_', 'CUDA_VISIBLE'))},
     )

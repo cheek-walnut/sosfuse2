@@ -33,15 +33,15 @@ A module may import only from its own layer and from the layers listed in the `M
 | `rays` | spherical ray segments, quadrature points for incoming directions and column amounts | `shell_segments`, `incoming_quadrature`, `incoming_rings`, `zenith_interpolation`, `ray_columns`, `column_table` | foundation, atmosphere |
 | `precompute` | reusable CPU-prepared arrays and their caches | `host_cache`, `column_cache`, `column_parallel`, `sun_parallel`, `ground_parallel`, `endpoint_contract` | foundation through rays |
 | `backends` | one transport evaluation (NumPy, CUDA, native), arithmetic, spherical-harmonic (SH) layout, compile rules | `numpy_reference`, `arithmetic`, `sh_layout`, `flags`, `flags_env`, `device_profile`, `compile_cache`, `kernel.cu`, `native/`, `configs/` | foundation through precompute |
-| `solve` | build the per-state solver objects and iterate the source field | `engine`, `engine_core`, `ray_geometry`, `ray_geometry_cpu`, `ray_geometry_parallel`, `source_solver`, `ksplit`, `ksplit_tolerance`, `ground_sh`, `strato_sh_aux` | foundation through backends |
+| `solve` | build the per-state solver objects and iterate the source field | `engine`, `engine_core`, `ray_geometry`, `ray_geometry_cpu`, `ray_geometry_parallel`, `source_solver`, `source_iteration`, `ksplit`, `ksplit_tolerance`, `ground_sh`, `strato_sh_aux` | foundation through backends |
 | `outputs` | turn the converged field into a table, previews and a pack | `radiance_table`, `quantized_table`, `pack_state`, `preview_functions` | foundation through solve |
 | `jobs` | run one state or many, with caches, queues and records | `run_state`, `pipeline`, `pipeline_execution`, `plan_queue`, `tables_from_sources`, `precompile`, `cache_store`, `walkthrough` | foundation through outputs |
 | `checks` | check calculations, records and test inputs | `gate`, `validate`, `validation_evidence`, `numerical_checks`, `solver_diagnostics`, `kernel_diagnostics`, `stratosphere_checks`, `testkit`, `gate_data/`, `fixtures/` | foundation through jobs |
 | `asset_tools` | build data assets from source data | `generate_density_profile`, `generate_upper_air`, `generate_minor_absorbers`, `generate_strato_optics`, `generate_tropo_optics`, `mie`, `iprt`, `prepare_minor_absorbers`, `strato_states` | all of them |
 
-Each folder groups modules by their main duty, though some modules combine two roles and some functions are long. For
-example, `solve/source_solver.py` defines both `Kernel` for CUDA launch planning and `Solver` for the iteration, while
-`jobs/run_state.py` combines the settings rules with the runner.
+Each folder groups modules by their main duty, though some modules combine two roles and some functions are long.
+`solve/source_solver.py` defines `Kernel` for CUDA launch planning, and `solve/source_iteration.py` defines `Solver` for the
+iteration. `jobs/run_state.py` combines the settings rules with the runner.
 
 ## 3. The walkthrough
 
@@ -63,7 +63,7 @@ document as it was.
 ```
 state + settings
   -> jobs/run_state.py::create_configured     build the Solver for one state
-  -> solve/source_solver.py::Solver.solve     iterate the source field to convergence
+  -> solve/source_iteration.py::Solver.solve     iterate the source field to convergence
   -> outputs/radiance_table.py::make_table    read the table rows from the converged field
 ```
 
@@ -95,8 +95,8 @@ table. A cell can use four legacy profiles, four corrected profiles and one stra
 
 Four connections are hard to find by name:
 
-- The `Kernel` class, which handles launch planning and device buffers, lives alongside `Solver` in
-  `solve/source_solver.py` rather than in `backends/`.
+- The `Kernel` class, which handles launch planning and device buffers, lives in `solve/source_solver.py` rather than
+  in `backends/`.
 - The preview functions are read as source text. `outputs/pack_state.py::render_functions` parses
   `outputs/preview_functions.py` with `ast` and runs nine named functions in a prepared scope.
 - Importing `solve/ray_geometry_parallel.py` replaces `PackedCache` with its parallel version. `solve/ray_geometry.py`
@@ -124,8 +124,8 @@ and the list differ in either direction, without comparing the number of occurre
 | `atmosphere/stratosphere.py` | `backends/sh_layout.py` | `attach`, `source_size`, `eigen_by_sh` | SH layout sizes |
 | `atmosphere/tropo_mie.py` | `backends/sh_layout.py` | `eigen_by_sh` | SH layout sizes |
 | `rays/column_table.py` | `precompute/host_cache.py` | `tables` | store the profile tables |
-| `solve/source_solver.py` | `outputs/radiance_table.py` | `Solver.boxes_fixed` | fixed-ray observation |
-| `solve/source_solver.py` | `jobs/pipeline_execution.py` | `Solver.initialize` | prepare GPU bundles |
+| `solve/source_iteration.py` | `outputs/radiance_table.py` | `Solver.boxes_fixed` | fixed-ray observation |
+| `solve/source_iteration.py` | `jobs/pipeline_execution.py` | `Solver.initialize` | prepare GPU bundles |
 | `outputs/radiance_table.py` | `jobs/run_state.py` | `load_source`, `check_source_tol`, `restored_settings`, `restored_table`, `main` | restore the settings of a saved source |
 | `checks/testkit.py` | `asset_tools/generate_minor_absorbers.py` | `synthetic_o4` | grid constants of the O₄ generator |
 

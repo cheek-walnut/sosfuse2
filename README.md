@@ -12,7 +12,7 @@ every table with the hashes of the code and data that produced it.
 
 1. The input is one atmosphere state, an entry of `src/sosfuse2/assets/states_v2.json`, with settings for the grids.
 2. `create_configured` (`src/sosfuse2/jobs/run_state.py`) builds the solver for that state.
-3. `Solver.solve` (`src/sosfuse2/solve/source_solver.py`) iterates the source field to convergence.
+3. `Solver.solve` (`src/sosfuse2/solve/source_iteration.py`) iterates the source field to convergence.
 4. `make_table` (`src/sosfuse2/outputs/radiance_table.py`) turns the converged field into a radiance table.
 5. `python -m sosfuse2 walkthrough` runs a small example through these three calls. `docs/ARCHITECTURE.md` explains the
    layers, and `AGENTS.md` lists the files to open first for each kind of task.
@@ -389,7 +389,7 @@ src/sosfuse2/
   rays/           spherical ray segments, incoming-direction quadrature, columns
   precompute/     reusable CPU arrays and their caches
   backends/       one transport evaluation: numpy_reference.py, kernel.cu, native/sh_cpu.cpp, configs/
-  solve/          per-state solver objects and the source iteration (source_solver.py, engine.py, ksplit.py)
+  solve/          per-state solver objects and the source iteration (source_solver.py, source_iteration.py, engine.py, ksplit.py)
   outputs/        radiance tables, previews, packs
   jobs/           state runner, production queue, planner, cache store, walkthrough
   checks/         numeric checks (gate.py, gate_data/), diagnostics, fixtures/, testkit.py

@@ -102,26 +102,26 @@ STEPS = (
     (
         'solve start',
         'Start the fixed-point iteration from a zero source field.',
-        ('solve/source_solver.py:Solver.solve',),
+        ('solve/source_iteration.py:Solver.solve',),
         2,
     ),
     (
         'first scattering',
         'Single scattering of direct sunlight (computed once, by the first apply).',
-        ('solve/source_solver.py:Solver.initialize',),
+        ('solve/source_iteration.py:Solver.initialize',),
         None,
     ),
     (
         'apply',
         'One update of the source: ground reflection, then atmospheric scattering.',
-        ('solve/source_solver.py:Solver.apply',),
+        ('solve/source_iteration.py:Solver.apply',),
         None,
     ),
     ('transport', 'NumPy transport along the rays of one cell.', ('backends/numpy_reference.py:transport',), None),
     (
         'convergence',
         'Mix the next source (Anderson); stop when the observer and source changes are within the tolerance.',
-        ('solve/source_solver.py:Solver.boxes', 'solve/source_solver.py:Solver.solve'),
+        ('solve/source_iteration.py:Solver.boxes', 'solve/source_iteration.py:Solver.solve'),
         2,
     ),
     (
@@ -391,7 +391,7 @@ def render(record):
             a['K'],
             record['geometry']['rays'],
         ),
-        '| 2 | `solve/source_solver.py: Solver.solve` | source field shape %s (cell, source slot, wavelength); '
+        '| 2 | `solve/source_iteration.py: Solver.solve` | source field shape %s (cell, source slot, wavelength); '
         '%d evaluations; tolerance %s; converged %s; last observer change %s, last source change %s |'
         % (
             tuple(sv['source_shape']),

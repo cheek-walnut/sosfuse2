@@ -7,7 +7,7 @@ variables.
 | Task | Open first | Section |
 |---|---|---|
 | State and grid settings | `jobs/run_state.py::settings_for`, `jobs/run_state.py::resolve_settings`, `atmosphere/components.py::canonical_state` | [1](docs/ARCHITECTURE.md#1-one-input-state-and-one-output-table) |
-| Transport and iteration | `solve/source_solver.py::Solver.solve`, `solve/source_solver.py::Kernel`, `backends/numpy_reference.py::transport` | [4](docs/ARCHITECTURE.md#4-the-call-spine) |
+| Transport and iteration | `solve/source_iteration.py::Solver.solve`, `solve/source_solver.py::Kernel`, `backends/numpy_reference.py::transport` | [4](docs/ARCHITECTURE.md#4-the-call-spine) |
 | Endpoint preparation and parallel workers | `solve/ray_geometry.py::PackedCache`, `solve/ray_geometry_parallel.py::workers`, `precompute/column_parallel.py::workers`, `precompute/host_cache.py` | [5](docs/ARCHITECTURE.md#5-topics-that-cross-layers) |
 | Cache and code identity | `foundation/content_identity.py::package_hashes`, `foundation/paths.py::PRODUCTION_MODULES`, `precompute/endpoint_contract.py::identity` | [8](docs/ARCHITECTURE.md#8-moving-or-adding-a-file) |
 | Observation table and previews | `outputs/radiance_table.py::make_table`, `outputs/pack_state.py::render_functions`, `outputs/preview_functions.py` | [4](docs/ARCHITECTURE.md#4-the-call-spine) |
