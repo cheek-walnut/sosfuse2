@@ -59,6 +59,12 @@ def test_record_is_pinned_with_decision_and_provenance():
     assert meta.keys().isdisjoint({'generated_utc', 'env', 'platform', 'worktree_changes_vs_commit'})
     rec = v.load_record()
     assert meta['decision'] == rec['contract']['decision'] == v.DECISION == 'b2-s2-gatev2-20261105'
+    settings = rec['contract']['settings']['selftest']
+    identity = v.record_identity(rec, 'selftest', settings, {})
+    assert identity['pass_'] and identity['decision'] == meta['decision']
+    assert identity['record_id'] == 'selftest-record-2'
+    rec['contract']['decision'] = identity['record_id']
+    assert v.record_identity(rec, 'selftest', settings, {})['mismatch'] == ['decision']
     assert meta['record']['sha256'] == digest and meta['numerical_files_equal_commit'] is True
     assert meta['numpy'] and meta['generated_commit'] and meta['command']['argv']
     for key in ('selftest_radiance', 'full_35_single', 'full_35_multiple', 'spectral_15_first', 'spectral_15_multiple'):

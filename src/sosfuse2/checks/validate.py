@@ -38,6 +38,7 @@ def legacy_available():
 # Pinned once; a new record needs a new decision ID.
 RECORD_SHA256 = '6fab113dc99e71ee2dc59fdb934919fe2fe2f7fcab52156634d54bc6737832e4'
 DECISION = 'b2-s2-gatev2-20261105'
+RECORD_ID = 'selftest-record-2'
 TOLERANCE = 1e-5
 SPECTRAL_WAVELENGTHS = 360 + (np.arange(15) + 0.5) * 470 / 15
 
@@ -108,6 +109,7 @@ def record_identity(rec, item, settings, inputs):
         sha256=rec['sha256'],
         pinned_sha256=RECORD_SHA256,
         decision=c.get('decision'),
+        record_id=RECORD_ID,
         contract='pinned record sha + decision + normal state + settings + query inputs',
     )
 

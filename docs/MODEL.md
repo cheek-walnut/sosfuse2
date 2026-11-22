@@ -355,7 +355,7 @@ The runner stops with an error in each of these cases.
 | `top_km` above 80 with the reduced grid (`--reduced`) | `E_SETTINGS_TOP` |
 | `nr` or `nchi` given with a value other than the counts above | `E_SETTINGS_GRID` |
 | `SOSFUSE2_KSPLIT=2` or `3` with `L` above 16 | `E_KSPLIT_FLAGS` |
-| `SOSFUSE2_GROUND_SH_L` set to a nonzero order for a state with a `troposphere_phase` block or without an enabled stratospheric layer of nonzero optical depth | `E_GROUND_SH_PHASE` |
+| `SOSFUSE2_GROUND_SH_L` set to a nonzero order for a state with an enabled `troposphere_phase` block or without an enabled stratospheric layer of nonzero optical depth | `E_GROUND_SH_PHASE` |
 | a wavelength that has not converged within the evaluation limit | `E_NOT_CONVERGED` |
 
 With `L` above 16 and `SOSFUSE2_KSPLIT` unset, the solver uses the unsplit kernel, and `meta.json` records
