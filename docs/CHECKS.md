@@ -78,6 +78,13 @@ The installed `sosfuse2.tests.test_upper_air` module compares extended-domain ra
 for 15 wavelengths with KSPLIT mode 3 against the NumPy result at `rtol=1e-3`. Run it with
 `python -B -m pytest -q -rs --pyargs sosfuse2.tests.test_upper_air` and check that both CUDA cases ran.
 
+The installed `sosfuse2.tests.test_option_combinations` module compares at `rtol=1e-3` the NumPy and CUDA tables of a
+small 200 km fixture that shares the options of the settings example in `docs/MODEL.md` but not its grid or albedo.
+With `SOSFUSE2_OPTION_SMOKE_SLOW=1` it also solves the settings example itself through `run_state` on CUDA and checks
+its records. Run it with
+`SOSFUSE2_OPTION_SMOKE_SLOW=1 python -B -m pytest -q -rs --pyargs sosfuse2.tests.test_option_combinations` and check
+that both CUDA cases ran.
+
 The `gpu` extra brings the CUDA libraries that CuPy loads at run time: NVRTC, the runtime, cuBLAS, cuSOLVER, cuSPARSE and
 nvJitLink. A venv without cuSOLVER and nvJitLink fails in the Anderson step with `Failure finding "libnvJitLink.so.12"`
 (`E_GATE_SOLVE`). The fixtures (`checks/gate_data/fixtures.json`) and baselines (`checks/gate_data/baselines/`) ship with the package. `--bless`

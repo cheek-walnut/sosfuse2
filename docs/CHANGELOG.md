@@ -34,6 +34,10 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   input of state A, with NO₂ and O₄, instead of a 1.0.0 research build. `docs/validation/mystic_compare.csv`,
   `mystic_vs_engine.png` and the README summary are updated, and a new Table 19 lists the engine version behind each
   comparison.
+- `docs/MODEL.md` gives one settings example that raises the resolution options together: a 200 km top, 59 height
+  nodes up to 80 km, two refinement windows in `χ`, Legendre degree 24 and an Anderson tolerance of 2e-4, with the
+  command and the errors that stop such a run. The package defaults are unchanged.
+- `README.md` and `docs/VALIDATION.md` are shorter. The shortening changes no reported result.
 
 ## 1.6.1
 
