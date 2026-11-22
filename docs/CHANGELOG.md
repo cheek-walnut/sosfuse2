@@ -30,6 +30,10 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   `docs/MODEL.md`. On a CUDA machine it compares at `rtol=1e-3` the NumPy and CUDA tables of a small 200 km fixture
   that shares the example's upper air, stratospheric layer, L, tolerance, history and ground order (not its grid or
   albedo), and `SOSFUSE2_OPTION_SMOKE_SLOW=1` also runs the example itself through `run_state` on CUDA.
+- Figure 1 and Tables 1 and 2 of `docs/VALIDATION.md` now compare the installed 1.7.0 package with MYSTIC on the 1.7.0
+  input of state A, with NO₂ and O₄, instead of a 1.0.0 research build. `docs/validation/mystic_compare.csv`,
+  `mystic_vs_engine.png` and the README summary are updated, and a new Table 19 lists the engine version behind each
+  comparison.
 
 ## 1.6.1
 

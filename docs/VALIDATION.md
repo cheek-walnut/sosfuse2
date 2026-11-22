@@ -1,17 +1,17 @@
 # Validation
 
-The upstream research repository supplied the comparison runs. The first radiance comparison with MYSTIC (Figure 1) predates 1.1.0. It uses
-one atmospheric state, called state A in this document, and one sky pixel on the sun side of the sky, at 20.25° elevation
-and 0.5° relative azimuth, seen from 0.1 km above the ground. The solar zenith angles (SZA) are 93°, 96° and 99°, which are
-solar elevations −3°, −6° and −9°. State A has a tropospheric aerosol with aod550 0.0551, Ångström exponent 1.889,
-single-scattering albedo 0.898, Henyey–Greenstein asymmetry parameter 0.683 and a 1.0 km scale height; an ozone column of
-224.75 DU; a Gaussian stratospheric sulfate layer with centre 19 km, σ 3 km and τ550 0.0037; and a Lambert surface of albedo
-0.376.
+The upstream research repository supplied the comparison runs. The first radiance comparison with MYSTIC (Figure 1),
+originally made with the 1.0.0 physics and repeated with 1.7.0, uses one atmospheric state, called state A in this
+document, and one sky pixel on the sun side of the sky, at 20.25° elevation and 0.5° relative azimuth, seen from 0.1 km
+above the ground. The solar zenith angles (SZA) are 93°, 96° and 99°, which are solar elevations −3°, −6° and −9°. State
+A has a tropospheric aerosol with aod550 0.0551, Ångström exponent 1.889, single-scattering albedo 0.898,
+Henyey–Greenstein asymmetry parameter 0.683 and a 1.0 km scale height; an ozone column of 224.75 DU; a Gaussian
+stratospheric sulfate layer with centre 19 km, σ 3 km and τ550 0.0037; and a Lambert surface of albedo 0.376.
 
 ![Engine and MYSTIC radiance spectra and their ratio at SZA 93, 96 and 99 degrees](validation/mystic_vs_engine.png)
 
 Figure 1. Top: radiance divided by the solar irradiance, L/E₀, from the engine (lines) and from MYSTIC (open markers). The
-relative standard error of MYSTIC lies between 0.52 % and 2.41 % and is not drawn. Bottom: MYSTIC divided by the engine, with
+relative standard error of MYSTIC lies between 0.52 % and 2.46 % and is not drawn. Bottom: MYSTIC divided by the engine, with
 the MYSTIC standard error as bars; the three SZA are offset by ±3 nm so that the bars do not overlap. Data:
 `docs/validation/mystic_compare.csv`. Script: `docs/validation/plot_validation.py`.
 
@@ -28,86 +28,83 @@ parts of the deep-twilight problem down to −18°: the second order of scatteri
 atmosphere against SASKTRAN2. Two sections compare with measurements of the brightness of the twilight sky and of the timing
 of the purple light. The last two sections before the open checks return to numerics: the grids in solar zenith angle and in
 height, and the error of the band approximation, measured against `point` tables of the engine. Every same-input comparison
-with MYSTIC ran at single wavelengths, none in the default band mode. The engine runs of all sections from *Bundled states
-against MYSTIC (1.2.3)* onwards set `SOSFUSE2_DETERMINISTIC=1`, which is off by default and changes only the order of
-accumulation.
+with MYSTIC ran at single wavelengths, none in the default band mode. For Figure 1 and all sections from *Bundled states
+against MYSTIC (1.2.3)* onwards we ran the engine with `SOSFUSE2_DETERMINISTIC=1`, which is off by default and changes only
+the order of accumulation.
 
-## Same-input comparison with MYSTIC (1.0.0 physics)
+## Same-input comparison with MYSTIC (1.7.0)
 
 The reference is MYSTIC, the Monte Carlo solver of libRadtran 2.0.6 (Mayer 2009; Emde et al. 2016), run in a 1D
-spherical-shell atmosphere with polarisation and backward tracing. Both codes were given the same optical input, so any
-difference between them comes from the transport and its numerics rather than from the atmosphere.
+spherical-shell atmosphere with polarisation and backward tracing. Both codes read the same optical input, so any
+difference between them comes from the transport and its numerics.
 
-The input is the engine's, written out for MYSTIC in 0.5 km layers up to 80 km plus the observer level at 0.1 km: Rayleigh
-and ozone optical depth per layer, the tropospheric and stratospheric aerosol with their phase functions, and the surface
-albedo. The Earth radius is 6371 km and the Rayleigh depolarisation factor is 0.03 in both codes. Aerosol scattering
-depolarises completely in both, in the engine by construction and in MYSTIC because it is given only the P₁₁ element of the
-phase matrix, and neither code models refraction. A script rebuilds the engine's coefficients from the same asset files and
-state parameters and writes the MYSTIC input without calling the engine, so a mistake in that script would appear as a
-transport difference. Reading the generated files back through a DISORT direct-beam calculation reproduces the aerosol
-optical depth to a relative error of at most 5.8e-7 and the total vertical optical depth to at most 3.7e-7, at 430.5, 555.8
-and 696.8 nm.
+MYSTIC reads the engine's input for state A with NO₂ (0.207 DU) and O₄, in 0.5 km layers up to 80 km plus the observer
+level at 0.1 km: the Rayleigh scattering optical depth and the ozone, NO₂ and O₄ absorption optical depths of each layer,
+both aerosol layers with their phase functions, and the surface albedo. MYSTIC's own molecular absorption is switched off.
+Both codes use an Earth radius of 6371 km and a Rayleigh depolarisation factor of 0.03, depolarise aerosol scattering
+completely (MYSTIC receives only the P₁₁ element) and omit refraction. The input files are those of state A with both
+absorbers in *NO₂ and O₄ in 1.1.0: engine against MYSTIC on the same input*, written again with 1.7.0. They differ from
+the files of that comparison in at most four absorption optical depths per file, by at most 4.3e-16 relative, so the input
+checks of that section carry over.
 
-The engine radiance comes from a table baked with the research build. That table uses the legacy spectral inputs, the 48-band
-solar and ozone table `src/sosfuse2/assets/spectra.json` (the shipped file has the sha256 recorded for the comparison). The
-inputs are read as point values at 30 wavelengths, the centres of 30 equal bins over 360–830 nm, and MYSTIC ran at the same 30
-wavelengths, each as a single wavelength. The 1.0.0 default on the production grid uses band means and a temperature-dependent
-ozone cross section instead (`src/sosfuse2/atmosphere/spectral.py`). The ozone cross section of the legacy table has a half-bin shift that was corrected in
-the research build. Because both codes read the same legacy table, that shift does not affect the comparison, but the
-comparison also does not test the current spectral defaults, and we did not re-bake the table with the installed package for
-it. The research build had the 1.0.0 physics, a λ⁻⁴ Rayleigh law and no NO₂ or O₄, and the MYSTIC input was made from the
-same coefficients, so this comparison tests the transport of the 1.0.0 model. The 1.1.0 absorbers are tested below, under
-*NO₂ and O₄ in 1.1.0: engine against MYSTIC on the same input*.
+We solved the state with the installed 1.7.0 package on a CUDA machine in `spectral_mode` `point` at 30 wavelengths, the
+centres of 30 equal bins over 360–830 nm, with the ozone cross section fixed at 233 K as in the 1.1.0 comparison. The grid,
+the Legendre order of 16 and the 80 km top are the defaults. Besides `SOSFUSE2_DETERMINISTIC=1` we set
+`SOSFUSE2_BLOCK_SIZE=256`, `SOSFUSE2_FMAD=0` and `SOSFUSE2_FASTMATH=0`. MYSTIC ran each wavelength alone with a unit
+solar spectrum, and both codes are scaled by the solar irradiance of the point set-up. The comparison does not test the
+default band mode or the temperature-dependent ozone cross section (*Error of the band approximation*).
 
-Each of the 90 cells (3 SZA × 30 wavelengths) combines two or four independent MYSTIC runs with different random seeds, 260
-runs and 2,074,640,958 photons in total. The first pass was too noisy at SZA 99 and in 10 of 30 cells at SZA 96, so those
-cells received further runs. The cell value is the mean over its runs weighted by photon count, and its standard error (SE)
-is the photon-weighted combination of the standard errors that MYSTIC reports for each run (`mc_std`). Each SZA has a target
-for the relative standard error of every cell: 1 % at SZA 93 and 96, 2.5 % at SZA 99.
+Up to 1.6.1 this section compared a research build with the 1.0.0 physics, which had the legacy spectral inputs, a λ⁻⁴
+Rayleigh law and no NO₂ or O₄, against MYSTIC on that input with the same photon counts and seeds. Its ratios MYSTIC /
+engine spanned 0.984–1.010, 0.989–1.022 and 0.958–1.063 at SZA 93, 96 and 99, and its data file is
+`docs/validation/mystic_compare.csv` of release 1.6.1.
 
-The ratio in Table 1 is MYSTIC divided by the engine. Blue is the mean ratio over the wavelengths below 450 nm and red the
-mean over those above 600 nm. The last column counts the cells whose MYSTIC standard error meets the target; it describes the
-precision of the MYSTIC value, not the agreement between the two codes.
+Each of the 90 cells (3 SZA × 30 wavelengths) combines two or four MYSTIC runs with different random seeds, 260 runs and
+2,074,640,958 photons in total. Each run takes its photon count and seed from the 1.0.0 comparison, which added runs where
+its first pass was too noisy, at SZA 99 and in 10 of 30 cells at SZA 96. A cell value is the photon-weighted mean of its
+runs, and its standard error (SE) is the photon-weighted combination of the standard errors that MYSTIC reports
+(`mc_std`). The target relative SE per cell is 1 % at SZA 93 and 96 and 2.5 % at SZA 99.
+
+Table 1 gives the ratio MYSTIC / engine. Blue and red are the mean ratios below 450 nm and above 600 nm. The last column
+counts the cells whose SE meets the target, which measures the precision of MYSTIC rather than the agreement of the codes.
 
 | SZA | ratio min / median / max | blue / red mean ratio | MYSTIC relative SE | cells within target |
 |---:|---|---|---|---|
-| 93° | 0.9844 / 0.9979 / 1.0102 | 0.9971 / 0.9999 | 0.52–0.77 % | 30 of 30 (1 %) |
-| 96° | 0.9890 / 1.0016 / 1.0217 | 1.0017 / 1.0003 | 0.68–0.97 % | 30 of 30 (1 %) |
-| 99° | 0.9584 / 1.0040 / 1.0634 | 1.0027 / 1.0105 | 1.97–2.41 % | 30 of 30 (2.5 %) |
+| 93° | 0.9866 / 0.9979 / 1.0131 | 1.0002 / 0.9991 | 0.52–0.79 % | 30 of 30 (1 %) |
+| 96° | 0.9836 / 0.9998 / 1.0126 | 0.9992 / 1.0005 | 0.68–0.99 % | 30 of 30 (1 %) |
+| 99° | 0.9657 / 1.0009 / 1.0678 | 0.9990 / 1.0091 | 2.02–2.46 % | 30 of 30 (2.5 %) |
+
 
 Table 1. Radiance ratio MYSTIC / engine at the three solar zenith angles.
 
-We compare the colour through the CIE 1976 coordinates u′ and v′ of the 30-wavelength spectrum, weighted with the solar
-irradiance and the CIE 1931 colour-matching functions. Δ is MYSTIC minus engine. The standard error comes from 200 random
-draws of the MYSTIC spectrum within its per-wavelength standard errors, with the engine spectrum held fixed. The draws treat
-wavelengths as independent, which holds because every cell has its own random seeds.
+For colour we use the CIE 1976 coordinates u′ and v′ of the 30-wavelength spectrum, computed with the colour weights of
+the point set-up, which combine the solar irradiance with the CIE 1931 colour-matching functions over each bin. Δ is
+MYSTIC minus engine. Its SE comes from 200 random draws of the MYSTIC spectrum within its per-wavelength SE, with the
+engine held fixed. The draws treat the wavelengths as independent, which holds because each cell has its own seeds.
 
 | SZA | engine u′, v′ | MYSTIC u′, v′ | Δu′ ± SE | Δv′ ± SE |
 |---:|---|---|---|---|
-| 93° | 0.203054, 0.466584 | 0.203050, 0.466542 | −0.000004 ± 0.000181 | −0.000042 ± 0.000252 |
-| 96° | 0.189567, 0.435841 | 0.189052, 0.435705 | −0.000514 ± 0.000316 | −0.000135 ± 0.000496 |
-| 99° | 0.191249, 0.432994 | 0.192429, 0.433041 | +0.001181 ± 0.000754 | +0.000047 ± 0.001215 |
+| 93° | 0.198197, 0.472516 | 0.198224, 0.472311 | +0.000027 ± 0.000180 | −0.000205 ± 0.000243 |
+| 96° | 0.184588, 0.442920 | 0.184600, 0.442590 | +0.000013 ± 0.000313 | −0.000331 ± 0.000485 |
+| 99° | 0.184929, 0.442375 | 0.186189, 0.441450 | +0.001261 ± 0.000742 | −0.000925 ± 0.001195 |
+
 
 Table 2. Chromaticity of the sun-side pixel in both codes.
 
-At SZA 93 and 96 the ratio of every cell lies within 2.2 % of 1, with a standard error below 1 % per cell. At SZA 99 the
-ratios range over 0.958–1.063 with a standard error of 2.0–2.4 % per cell. The largest colour differences are Δu′ = −0.0005 ±
-0.0003 at SZA 96 and +0.0012 ± 0.0008 at SZA 99, both 1.6 times their standard error. Δu′ changes sign over the three angles
-(−, −, +), and Δv′ stays within one standard error at all three, so at the stated precision we detect no systematic
-difference. For SZA 99 the largest cell difference |engine − MYSTIC| / SE is 2.53 (the data file gives it as |ratio − 1| / ratio_se);
-one of the 30 cells exceeds 2 and none exceeds 3, where 30 independent normal deviates would give 1.4 cells above 2. At
-SZA 93 the 587.17 nm cell reaches 3.03. Over all 90 cells five exceed 2 and one exceeds 3, where independent normal
-deviates would give 4.1 and 0.24.
+At SZA 93 and 96 every ratio lies within 1.7 % of 1, with an SE below 1 % per cell. At SZA 99 the ratios span 0.966–1.068
+with an SE of 2.0–2.5 %. The largest colour difference, Δu′ = +0.0013 ± 0.0007 at SZA 99, is 1.7 SE, and the other five
+values of Δu′ and Δv′ lie within 1 SE, so at this precision we detect no systematic difference. The largest cell
+deviation, |ratio − 1| / ratio_se in the data file, is 2.66 at 743.83 nm and SZA 99. At SZA 93 the largest is 2.61 at
+587.17 nm, the same cell as in the 1.0.0 comparison. Of the 90 cells, four exceed 2 and none exceeds 3, against 4.1 and
+0.24 expected for independent normal deviates.
 
-At SZA 99 the per-cell target changed from 2 % to 2.5 %. The estimated top-up for 2 % was 6.05 CPU-hours, whereas 2.5 %
-needed an estimated 3.64 CPU-hours. The first pass reached 2 % in none of the 30 cells, with relative standard errors of
-3.9–18.4 %. After the top-up, 2 of 30 cells meet 2 % and 30 of 30 meet 2.5 %.
+The 2.5 % target at SZA 99 dates from the 1.0.0 comparison, where reaching 2 % was estimated to need 6.05 further
+CPU-hours against 3.64 for 2.5 %. With the same photon counts, no cell at SZA 99 meets 2 % and all 30 meet 2.5 %.
 
-The standard errors are Monte Carlo errors of MYSTIC only and contain no uncertainty of the engine, of the layer
-discretisation or of the input. Because both codes read the same input, an error in the input itself, whether in the ozone
-cross section, the Mie table, the solar spectrum, the colour-matching functions or the Rayleigh optical-depth law, is common
-to both and cancels in the ratio, so the comparison cannot detect such errors. This 1.0.0 comparison covers one state and one
-pixel at three SZA, with no other directions, states or solar depressions beyond 9°.
+The SEs are Monte Carlo errors of MYSTIC only and exclude any uncertainty of the engine, the layering or the input. An
+error in the shared input, such as in the ozone cross section, the Mie table, the solar spectrum, the colour-matching
+functions or the Rayleigh optical-depth law, cancels in the ratio and goes undetected. The comparison covers one state and
+one pixel at three SZA, with no solar depression beyond 9°.
 
 ## MYSTIC build check
 
@@ -134,8 +131,8 @@ Finally, its geometry is a top-of-atmosphere view rather than a sky seen from th
 
 ## Stratospheric aerosol input and zenith polarisation (Ugolnikov et al.)
 
-This calculation was made with MYSTIC rather than with the engine. We gave MYSTIC the engine's optical input for state A,
-including its stratospheric sulfate layer, and read the Stokes vector it returns. The engine itself has no Stokes output,
+This calculation was made with MYSTIC rather than with the engine. We gave MYSTIC the 1.0.0 optical input for state A,
+the input of Figure 1 up to 1.6.1, including its stratospheric sulfate layer, and read the Stokes vector it returns. The engine itself has no Stokes output,
 since its tables hold a single radiance per direction and wavelength, so this is a qualitative check of the input, namely the
 stratospheric sulfate layer, and does not test the engine's transport.
 
@@ -258,8 +255,9 @@ mode, because MYSTIC runs at single wavelengths cannot reproduce band means, and
 colour weights of this point set-up. The engine runs were made before the 1.1.0 change of the interpolation rule of the
 transport (`docs/MODEL.md`, *Multiple scattering*) and were not repeated after it. They used the production interpolation
 grid, on which that change is small: in the full-grid reference state it moves the radiance by at most 3.7e-6 relative (*Size of
-the 1.1.0 changes on the production grid*), far below the tolerance of 1e-4 used here. The two states of this check were not
-re-solved.
+the 1.1.0 changes on the production grid*), far below the tolerance of 1e-4 used here. We did not re-solve the two states
+for 1.1.0. The 1.7.0 solution of state A with both absorbers (Figure 1) differs from the development build by at most
+2.7e-7 relative at the sun-side pixel.
 
 The states are A, described at the top of this document, and B. State B has aod550 0.168, Ångström exponent 1.62,
 single-scattering albedo 0.954, asymmetry parameter 0.753 and a 2.53 km scale height; an ozone column of 307.4 DU; a
@@ -923,6 +921,22 @@ at 550 nm). The 4 nm `point` tables against the band tables at 233 K gave nearly
 still a point sample on a 0.1 nm cross-section grid. Its remaining error was not bounded, and the step from 1 nm to 0.5 nm,
 8.8e-5, is not an upper bound for it.
 
+## Versions behind the comparisons
+
+For 1.7.0 we repeated the comparison of Figure 1, reran the `clear_34` command of `docs/PERFORMANCE.md`, and checked how
+the two other comparisons with MYSTIC relate to 1.7.0. The other sections report runs of earlier versions.
+
+| section | engine of the record | rerun for 1.7.0 | relation to 1.7.0 |
+|---|---|---|---|
+| *Same-input comparison with MYSTIC (1.7.0)*, Figure 1 | 1.7.0 | engine and MYSTIC | |
+| `clear_34` command of `docs/PERFORMANCE.md` | 1.6.1 | engine | Both runs started from an empty work root on one GPU with the same NumPy and CuPy versions. The 1.7.0 table equals the 1.6.1 table in every element within a relative tolerance of 1e-3, with a largest difference of 0, and has the same settings, axes and number of source evaluations, all converged. |
+| *NO₂ and O₄ in 1.1.0: engine against MYSTIC on the same input* | 1.1.0 development build | no | The MYSTIC input written with 1.7.0 differs from the recorded one in at most four absorption optical depths per file, by at most 4.3e-16 relative. At the sun-side pixel of state A with both absorbers, the engine values of Figure 1 match the 1.1.0 values to 2.7e-7 relative at SZA 93, 96 and 99. We compared no other variant, state or pixel. |
+| *Bundled states against MYSTIC (1.2.3)*, Figure 2 | 1.2.3, with `clear_43` and `clear_80` reproduced by 1.5.0 | no | The 1,976 MYSTIC input files written with 1.7.0 equal those of the recorded runs, apart from eight netCDF text sources that MYSTIC does not read. |
+| *MYSTIC build check*, *Stratospheric aerosol input and zenith polarisation (Ugolnikov et al.)* | none, MYSTIC only | no | |
+| all other sections | earlier versions | no | |
+
+Table 19. Engine version behind each comparison and what we reran for 1.7.0.
+
 ## Open checks
 
 - A comparison of the engine's colours with measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026). We compared
@@ -976,10 +990,9 @@ still a point sample on a 0.1 nm cross-section grid. Its remaining error was not
   45-band tables at 233 K differ from `point` tables with a spacing of 0.5 nm by a Y RMS of 0.021 % and a 95th percentile of
   Δu′v′ of 3.35e-4, which is 1.16 times 2.9e-4 (*Error of the band approximation*). A comparison with MYSTIC on band-mean
   input was not run, the 1 nm and 0.5 nm references were not solved for other states, and the remaining error of the 0.5 nm
-  reference was not bounded. All three same-input comparisons with MYSTIC used single wavelengths. The 1.0.0 comparison read
-  a legacy table at 30 wavelengths for one state and one pixel. The 1.1.0 comparison used a development build in point mode
-  at two states, with SZA up to 99°, and the 1.2.3 comparison used the installed package in point mode at eight bundled
-  states and six pixels, at SZA 93° and 96°.
+  reference was not bounded. All three same-input comparisons with MYSTIC used single wavelengths in point mode: the
+  installed 1.7.0 package at one state and one pixel (Figure 1), a 1.1.0 development build at two states with SZA up to
+  99°, and the installed 1.2.3 package at eight bundled states and six pixels at SZA 93° and 96°.
 - The wavelength dependence of the Rayleigh depolarisation under multiple scattering. Only the single-scattering estimate
   above exists.
 - Temperature dependence of the O₄ cross sections, which the model does not have, and of NO₂ above 666.6 nm, where the asset
@@ -1001,8 +1014,8 @@ defines the columns and the ratio, lists the MYSTIC settings and gives the sha25
 
 `mystic_compare.csv` is the record of the MYSTIC runs and cannot be regenerated from this repository. Regenerating it needs
 libRadtran 2.0.6 built with MYSTIC and research scripts that are not distributed here: the writers of the per-layer input
-files and of the aerosol species library, the job runner and the comparison script. The engine column needs the table baked
-with the research build on a CUDA machine. The full set of MYSTIC runs took 23,897 CPU-seconds of `uvspec` time. The Korkin
+files and of the aerosol species library, the job runner and the comparison script. The engine column needs the 1.7.0
+table of state A, solved on a CUDA machine. The full set of MYSTIC runs took 19,466 CPU-seconds of `uvspec` time. The Korkin
 check has the same requirements.
 
 Figures 2 and 3 are rebuilt with

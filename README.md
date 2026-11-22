@@ -64,13 +64,13 @@ chance would give; with the standard errors at 96° given above, a difference of
 resolved there. The MYSTIC build reproduces the 120 cells of the spherical Rayleigh benchmark of Korkin et al. (2020) to
 0.27 %.
 
-Two earlier comparisons with MYSTIC use states whose stratospheric layer is centred at 19 km, with τ550 0.0037 in the
-first state and 0.0022 in the second. The first comparison covers one state, one direction and three solar elevations,
-with a table baked with the research build, the 1.0.0 physics and the legacy spectral inputs rather than the 1.0.0
-defaults. There the codes agree to within 2.2 % per wavelength at 93° and 96°, where the MYSTIC standard error is below
-1 %. At 99° the ratios spread over 0.958–1.063, consistent with the 2.0–2.4 % MYSTIC error; the largest difference is
-2.53 MYSTIC standard errors at 99° and 3.03 in the 587.17 nm cell at 93°. The colour differences are |Δu′| ≤ 0.0012
-and |Δv′| ≤ 0.00014, at most 1.7 standard errors. For 1.1.0, paired MYSTIC runs on the engine's input measure the change
+Two other comparisons with MYSTIC use states whose stratospheric layer is centred at 19 km, with τ550 0.0037 in the
+first state and 0.0022 in the second. The first covers one state, one direction and three solar elevations, and for 1.7.0
+we repeated it with the installed package in `point` mode and NO₂ and O₄ in the input of both codes. The codes agree to
+within 1.7 % per wavelength at 93° and 96°, where the MYSTIC standard error is below 1 %. At 99° the ratios span
+0.966–1.068, consistent with the 2.0–2.5 % MYSTIC error, and the largest difference is 2.66 standard errors. The colour
+differences are |Δu′| ≤ 0.0013 and |Δv′| ≤ 0.0010, at most 1.7 standard errors. For 1.1.0, paired MYSTIC runs on the
+engine's input measure the change
 caused by NO₂ and O₄ at 12 pixels of the two states and solar zenith angles 93°–99°. Of 108 values of u′, v′ and Y, 66
 reproduce MYSTIC's change to 10 % or to 1e-4, none fails, and 42 are left unresolved by the Monte Carlo noise.
 
