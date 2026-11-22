@@ -7,8 +7,49 @@ from pathlib import Path
 from functools import wraps
 from sosfuse2.backends import vram_trace
 
+_THREAD_ENV = (
+    'OMP_NUM_THREADS',
+    'OPENBLAS_NUM_THREADS',
+    'MKL_NUM_THREADS',
+    'VECLIB_MAXIMUM_THREADS',
+    'NUMEXPR_NUM_THREADS',
+    'BLIS_NUM_THREADS',
+)
+
+
+def _thread_env_before_numpy(argv, environ):
+    """Write the --threads value of argv (default 2) to the thread variables, as every mode of main() does.
+
+    BLAS libraries read these variables once, when NumPy is first imported, and this module imports NumPy further
+    down, so a direct run has to set them before that import. The last --threads N or --threads=N before a bare
+    '--' wins, as in argparse, including its unique prefixes from --th (no other option of main() starts with --th).
+    A value that is not a positive integer writes nothing; main() then rejects it. Returns the value written, or None.
+    """
+    value = '2'
+    for i, arg in enumerate(argv):
+        if arg == '--':
+            break
+        name, eq, rest = arg.partition('=')
+        if not (name.startswith('--th') and '--threads'.startswith(name)):
+            continue
+        if eq:
+            value = rest
+        elif i + 1 < len(argv):
+            value = argv[i + 1]
+    try:
+        n = int(value)
+    except ValueError:
+        return None
+    if n < 1:
+        return None
+    for k in _THREAD_ENV:
+        environ[k] = str(n)
+    return n
+
+
 if __name__ == '__main__':
     sys.dont_write_bytecode = True
+    _thread_env_before_numpy(sys.argv[1:], os.environ)
 from sosfuse2.foundation import paths
 from sosfuse2.foundation.top import TOP_KM
 from sosfuse2.foundation import top
