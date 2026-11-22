@@ -17,6 +17,16 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 - `run_state.run` and `SourceSolver.launch` are split into step helpers in the same files. The GPU checks give the same
   values as 1.6.1. The code identity changes, so reusing earlier outputs or saved sources can fail the existing identity
   checks (`E_OUTPUT_IDENTITY`, `E_EXTRA_SOURCE`), and staged runs from different code cannot be blessed.
+- `Solver` moved from `solve/source_solver.py` to `solve/source_iteration.py`. `sosfuse2.solve.source_solver.Solver`
+  still names the same class, so existing imports keep working. A `Solver` pickled by this version names the new
+  module and cannot be loaded by 1.6.x, and VRAM trace sites inside `Solver` name the new module. The code identity
+  changes as for the step-helper split.
+- `meta.json` records in `timings[i].ground_sh_order` the order of the ground convolution that the CUDA kernel applied
+  to each chunk. It is 0 when the kernel built no ground table and with the NumPy backend.
+- `checks.validate` reports `record_id` `selftest-record-2` next to the unchanged `decision` of the selftest record.
+- `tests/test_option_combinations.py` checks the selection and rejection of the 200 km settings example in
+  `docs/MODEL.md`. On a CUDA machine, `SOSFUSE2_OPTION_SMOKE_SLOW=1` also compares its NumPy and CUDA tables at
+  `rtol=1e-3`.
 
 ## 1.6.1
 
