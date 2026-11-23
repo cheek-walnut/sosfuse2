@@ -331,6 +331,9 @@ def _geometry_key(s, scope, profile):
         'atmosphere/density.py',
         'rays/column_table.py',
         'precompute/column_parallel.py',
+        # the incoming directions and weights stored in the file, and the frame, boundaries and solar lookup of each ray
+        'rays/incoming_quadrature.py',
+        'rays/shell_segments.py',
     ):
         h.update(name.encode())
         h.update(bytes.fromhex(source_identity.file_sha(here / name)))

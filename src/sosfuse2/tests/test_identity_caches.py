@@ -292,7 +292,8 @@ def test_source_digest_encodings(tmp_path, monkeypatch):
     for array in (s.geo.h, s.geo.chi, s.geo.sun.h, s.geo.sun.x, s.geo.sun.col):
         expected.update(np.ascontiguousarray(array).tobytes())
     for name in ('foundation/top.py', 'atmosphere/stratosphere.py', 'precompute/ground_parallel.py', 'rays/ray_columns.py',
-                 'atmosphere/density.py', 'rays/column_table.py', 'precompute/column_parallel.py'):
+                 'atmosphere/density.py', 'rays/column_table.py', 'precompute/column_parallel.py',
+                     'rays/incoming_quadrature.py', 'rays/shell_segments.py'):
         expected.update(name.encode())
         expected.update(bytes.fromhex(source_identity.file_sha(paths.PKG / name)))
     expected.update(json.dumps({

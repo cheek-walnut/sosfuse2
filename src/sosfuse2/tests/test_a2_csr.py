@@ -160,4 +160,4 @@ def main(log):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1])
+    raise SystemExit(0 if main(sys.argv[1])['pass'] else 1)

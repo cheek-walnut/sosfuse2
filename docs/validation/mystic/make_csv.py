@@ -192,6 +192,8 @@ def main():
     engine_pixels = read(d / "engine_pixels.A0.json")
     engine_cfg = engine_pixels["contract"]
     engine_version = engine_cfg["engine_version"]
+    if engine_cfg["settings"].get("nr") != 44:  # the header below states nr 44
+        raise ValueError("E_PUBLIC_GRID")
     if engine_cfg["engine_config_id"] != ARM or engine_cfg["optics_sha256"] != sha["optics.json"]:
         raise ValueError("E_ENGINE_INPUT_SHA")
     if mc["engine_pixels_sha256"][ARM] != sha256(d / "engine_pixels.A0.json"):

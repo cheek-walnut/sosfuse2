@@ -632,23 +632,52 @@ def _transport(g, c, field, first=False, boundary=None, statistics=None, return_
         E = (F(1) - g['end_fraction'].astype('f4'))[:, None] * boundary[g['end_index']].astype('f4')
         E += g['end_fraction'].astype('f4')[:, None] * boundary[g['end_index'] + 1].astype('f4')
         optical = np.zeros((n, W), 'f4')
-        endcol = g['end_columns']
-        if 'density_optics' in c:
-            from ..atmosphere.density import correct_columns
-
-            opt = c['density_optics']
-            endcol = correct_columns(g['p'], g['d'], endcol, opt['old'], opt, 24, end=g['edges'][:, -1])
+        endcol, stcol = boundary_end_columns(g, c, strat)
         for k in range(NCOMP):
             optical += endcol[:, k, None].astype('f4') * c['ext'][k]
         if strat:
-            from ..atmosphere.stratosphere import columns
-
-            stcol = columns(g['p'], g['d'], c['strato_old'], c['strato_profile'], 24).astype('f4')
             optical += stcol[:, None] * c['strato_ext']
         E *= np.exp(-optical) * g['hits_ground'][:, None]
         for k in range(4):
             total[:, :, k] += (E * pu[:, k, None]) / F(2)
     return (total, Y) if return_basis else total
+
+
+def boundary_end_columns(g, c, strat):
+    """(component end columns, stratospheric end column or None) of the rays that end on the ground. The columns of the
+    selected density profiles and of the stratospheric layer follow the column method (rays/column_table.method), like
+    the sidecars of the CUDA host preparation (source_solver.Kernel density_end_columns and strato_end_columns): the
+    GL24 walk for gl24, the column table or the exact integral otherwise, over the cached ray ends of `g`. Without
+    density optics the cached end columns are used as they are."""
+    from ..atmosphere.components import MOLECULAR_COLUMNS
+    from ..rays import column_table
+
+    walk = column_table.method() == 'gl24'
+    starts = np.ascontiguousarray(np.broadcast_to(g['p'], np.shape(g['d'])))
+    endcol = g['end_columns']
+    if 'density_optics' in c:
+        opt = c['density_optics']
+        if walk:
+            from ..atmosphere.density import correct_columns
+
+            endcol = correct_columns(g['p'], g['d'], endcol, opt['old'], opt, 24, end=g['edges'][:, -1])
+        else:
+            endcol = np.array(endcol, 'f4')
+            corrected = column_table.integrate(starts, g['d'], opt['old'], optics=opt, edges=g['edges'])[1]
+            for k, col in enumerate(MOLECULAR_COLUMNS):
+                if k >= 2 or opt['mask'] & (1 << k):
+                    endcol[:, col] = corrected[:, k]
+    stcol = None
+    if strat:
+        if walk:
+            from ..atmosphere.stratosphere import columns
+
+            stcol = columns(g['p'], g['d'], c['strato_old'], c['strato_profile'], 24).astype('f4')
+        else:
+            stcol = column_table.integrate(
+                starts, g['d'], c['strato_old'], profile=c['strato_profile'], edges=g['edges']
+            )[2].astype('f4')
+    return endcol, stcol
 
 
 def project(g, radiance, c, Y=None, ground_only=False):

@@ -13,7 +13,7 @@ usage: python -B -m sosfuse2.tests.test_tropo_mie --static --host --out <dir>   
 """
 
 from sosfuse2.foundation import paths
-import argparse, copy, itertools, json, os, re, shutil, subprocess, sys, time
+import argparse, copy, itertools, json, math, os, re, shutil, subprocess, sys, time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -475,10 +475,12 @@ def judge(rows):
             dict(
                 case=r['case'],
                 first=r['first'],
+                control=h['case'],
                 ray_ratio_to_hg=r['ray_max_relative'] / max(h['ray_max_relative'], 1e-30),
                 moment_l2=r['moment_l2_relative'],
                 ground=r['ground_flux_max_relative'],
-                pass_=r['ray_max_relative'] <= 2 * h['ray_max_relative']
+                pass_=math.isfinite(h['ray_max_relative'])
+                and r['ray_max_relative'] <= 2 * h['ray_max_relative']
                 and r['moment_l2_relative'] <= 1e-5
                 and r['ground_flux_max_relative'] <= 1e-5,
             )
@@ -492,7 +494,8 @@ def judge(rows):
         rule='ray <= 2x HG control (same first), moment l2 and ground <= 1e-5',
         checks=checks,
         cases=rows,
-        note='HG control row gives the float32 parity floor of the same flag set',
+        note='the HG control row named in each check gives the float32 parity floor; it has the same flag set when '
+        'the case has an HG twin, else it is hg_strato_on_C3',
     )
 
 
@@ -504,6 +507,8 @@ def main():
     p.add_argument('--gpu-cases', help='comma list of gpu case names (default all)')
     p.add_argument('--recheck', type=Path, help='re-judge the gpu rows of an earlier tropo_mie_tests.json (no GPU)')
     a = p.parse_args()
+    if a.gpu and a.recheck:
+        p.error('--gpu and --recheck both write the gpu result; give one')
     a.out.mkdir(parents=True, exist_ok=True)
     rep = {}
     if a.static:

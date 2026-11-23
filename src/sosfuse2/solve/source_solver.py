@@ -475,10 +475,10 @@ def _launch_ray_ranges(kernel, launch, bundle):
         q0 = q1
 
 
-def _project_ray_ranges(kernel, launch, bundle, boundary):
+def _project_ray_ranges(kernel, launch, bundle, boundary, first):
     # With LAUNCH_RAY_LIMIT the ray launches only publish ray_rads; project the cells now (fl_project,
     # one block per cell, FP32 ray batches combined in FP64).
-    proj = kernel.fl_project_kernel(launch.W, boundary is not None, ground_sh_l=launch.ground_sh_l)
+    proj = kernel.fl_project_kernel(launch.W, boundary is not None, ground_sh_l=launch.ground_sh_l, first=first)
     pkind = launch.kind[:-5] + '_project'
     launch.co_h = np.asarray(kernel.host(bundle.arrays['cell_off']), 'i8')
     launch.pcum = (launch.co_h - launch.co_h[0]).astype('f8')
@@ -652,7 +652,7 @@ def _dispatch_transport(kernel, launch, bundle, s, first, phase, boundary, _kspl
             launch.report = dict(chunks=1, gpu_seconds=seconds, max_seconds=seconds, max_cells=launch.ncell)
         elif launch.ray_mode:
             _launch_ray_ranges(kernel, launch, bundle)
-            _project_ray_ranges(kernel, launch, bundle, boundary)
+            _project_ray_ranges(kernel, launch, bundle, boundary, first)
         else:
             _launch_cell_ranges(kernel, launch, bundle, s, phase, boundary, _ksplit)
         if launch.report is not None:
@@ -1265,20 +1265,21 @@ class Kernel(KsplitMixin):
             self.attributes[str(W)] = self.attributes[akey]
         return self.raw[key]
 
-    def fl_project_kernel(self, W, boundary=0, ground_sh_l=0):
-        """kernel.cu fl_project from the same source and options as the ray-range first-light kernel."""
+    def fl_project_kernel(self, W, boundary=0, ground_sh_l=0, first=True):
+        """kernel.cu fl_project from the same source and options as the ray-range kernel of this pass: the first-light
+        kernel, or with first=False the warm kernel of WARM_RAYSPLIT, which compiles its own specialization."""
         stage1 = self.stage1_flags()
         key = self.kernel_key(
             self.config(W).defines,
             W,
-            self.tile_width(W, True, 0),
-            1,
+            self.tile_width(W, first, 0),
+            int(bool(first)),
             0,
             boundary,
             ground_sh_l=ground_sh_l,
             ray_limit=True,
             stage1=stage1,
-        )  # same key as raw_kernel(..., ray_limit=True)
+        )  # same key as raw_kernel(W, first, 0, boundary, ray_limit=True)
         pkey = key + ('fl_project',)
         if pkey not in self.raw:
             code, options = self.raw_options[key]

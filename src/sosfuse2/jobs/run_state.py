@@ -962,7 +962,7 @@ def geometry_only(a):
         raise RuntimeError('E_PREFETCH_LEASE_PID')
     found = [s for s in read_states(a.states, True) if s['id'] == a.id and s.get('runnable')]
     if len(found) != 1:
-        raise ValueError('E_STATE_ID: exactly one runnable state required')
+        raise ValueError(f'E_STATE_ID: exactly one runnable state {a.id!r} required in {a.states}')
     cfg = settings_for(a)
     state = effective_state(found[0], a)
     cfg = resolve_settings(cfg, state)
@@ -1138,7 +1138,7 @@ def _select_run_state(job, a):
     states = read_states(a.states, True)
     found = [s for s in states if s['id'] == a.id and s.get('runnable')]
     if len(found) != 1:
-        raise ValueError('E_STATE_ID: exactly one runnable state required')
+        raise ValueError(f'E_STATE_ID: exactly one runnable state {a.id!r} required in {a.states}')
     job.state = effective_state(found[0], a)
     job.cfg = resolve_settings(settings_for(a), job.state)
     job.name = a.out_name or a.id
@@ -1717,7 +1717,7 @@ def run_extra(a):
         gm.Kernel = ScalarKernel
     found = [s for s in read_states(a.states, True) if s['id'] == a.id and s.get('runnable')]
     if len(found) != 1:
-        raise ValueError('E_STATE_ID: exactly one runnable state required')
+        raise ValueError(f'E_STATE_ID: exactly one runnable state {a.id!r} required in {a.states}')
     state = effective_state(found[0], a)
     cfg = resolve_settings(settings_for(a), state)
     name = a.out_name or a.id

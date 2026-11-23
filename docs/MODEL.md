@@ -55,7 +55,10 @@ The precompiler reads the profile spacing from the command line and defaults to 
 
 Above 80 km, the default `upper_air: us76_neff` extends Rayleigh scattering with a tabulated effective air density
 matched to the coefficient at 80 km. `upper_air: vacuum` leaves the extension empty. The other constituents end at
-or below 80 km. The extended grid adds the top shell to the incident-direction quadrature, adds −15° to the stopping
+or below 80 km. The scattering source of the stratospheric layer is a value per height node that conserves the layer's
+column over the cells of the grid, so the node at 80 km changes with the cell above it: an empty extension reproduces
+the 80 km result only for a layer with no mass in the last cell below 80 km. The bundled layer (21 km, σ 3 km) has
+none and its node values are equal with and without the extension; a layer centred near 77 km is not equivalent. The extended grid adds the top shell to the incident-direction quadrature, adds −15° to the stopping
 and acceleration samples, and records −18° in the convergence history.
 
 ## Constituents

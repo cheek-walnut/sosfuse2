@@ -170,6 +170,19 @@ def check_lm_lut():
     return dict(entries=561, exact=bool(np.array_equal(m, lut_m)), lut_bytes=2 * 561)
 
 
+def verdict(r):
+    """Pass when every comparison holds, the ground values also match the reference, and the ground comparison had
+    at least one sample."""
+    return bool(
+        all(r['SH_AUX']['layout'].values())
+        and all(r['SH_AUX']['transport_within_tol'].values())
+        and r['LANE_GROUND']['lane_vs_original_within_tol']
+        and r['LANE_GROUND']['original_vs_reference_within_tol']
+        and r['LANE_GROUND']['samples_checked'] > 0
+        and r['LM_LUT']['exact']
+    )
+
+
 def main(out, source_npz):
     with np.load(source_npz) as z:
         src = z['source']
@@ -179,12 +192,7 @@ def main(out, source_npz):
         LANE_GROUND=check_lane_ground(s, scope),
         LM_LUT=check_lm_lut(),
     )
-    r['pass_'] = bool(
-        all(r['SH_AUX']['layout'].values())
-        and all(r['SH_AUX']['transport_within_tol'].values())
-        and r['LANE_GROUND']['lane_vs_original_within_tol']
-        and r['LM_LUT']['exact']
-    )
+    r['pass_'] = verdict(r)
     Path(out).write_text(json.dumps(r, indent=1) + '\n')
     print(json.dumps(r, indent=1))
     print('A6 PASS' if r['pass_'] else 'A6 FAIL')

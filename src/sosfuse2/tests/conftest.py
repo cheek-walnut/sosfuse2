@@ -10,6 +10,7 @@ build caches and take most of the run time. `-m "not heavy"` runs the remaining 
 """
 
 import os
+import re
 import shutil
 
 import pytest
@@ -48,6 +49,18 @@ def pytest_collection_modifyitems(items):
     for item in items:
         if item.path.name in HEAVY_FILES:
             item.add_marker(pytest.mark.heavy)
+
+
+def offline_stop(text):
+    """True when `text` is the offline stop itself: the message starts with the code, or the message quotes a child's
+    traceback whose error line carries it. A message that mentions the code elsewhere is another failure."""
+    if text.startswith('E_IPRT_OFFLINE: '):
+        return True
+    _, found, after = text.rpartition('Traceback (most recent call last):')
+    if not found:
+        return False
+    error = next((line for line in after.splitlines()[1:] if line and not line[0].isspace()), '')
+    return re.match(r'[A-Za-z_][\w.]*: E_IPRT_OFFLINE: ', error) is not None
 
 
 def _chain(error):
@@ -92,7 +105,7 @@ def pytest_runtest_makereport(item, call):
     report = outcome.get_result()
     if not (report.failed and IPRT_MISSING and call.excinfo is not None):
         return
-    if not any('E_IPRT_OFFLINE: ' in str(e) for e in _chain(call.excinfo.value)):
+    if not any(offline_stop(str(e)) for e in _chain(call.excinfo.value)):
         return
     reason = (
         f'E_IPRT_OFFLINE: {", ".join(IPRT_MISSING)} not in the work root; fetch with '

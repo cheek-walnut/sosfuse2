@@ -42,6 +42,15 @@ def validate(meta, st, expected, contract):
         raise ValueError('E_ENGINE_DETERMINISTIC')
     if expected.get('kernel', {}).get('ground_sh', {}).get('order') != 24:
         raise ValueError('E_ENGINE_GROUND_SH')
+    # The published tables are CUDA runs, and the order a run applied is in its timings from 1.7.0 on.
+    if meta['backend'] != 'cupy':
+        raise ValueError('E_ENGINE_BACKEND')
+    # Each solve record of the run (the timings entries with solve_worker) names the order it applied. Tables of
+    # versions before 1.7.0 have no such field; where it is present it must be 24.
+    solves = [t for t in meta.get('timings') or [] if isinstance(t, dict) and 'solve_worker' in t]
+    recorded = tuple(int(x) for x in meta['package_version'].split('.')[:2]) >= (1, 7)
+    if any(t.get('ground_sh_order', None if recorded else 24) != 24 for t in solves) or (recorded and not solves):
+        raise ValueError('E_ENGINE_GROUND_SH')
     # Check the tolerance included in the signed contract.
     if expected.get('anderson_tol', engine.ANDERSON_TOLERANCE) != 0.001 or contract.get('tolerance') != 0.001:
         raise ValueError('E_ENGINE_TOLERANCE')

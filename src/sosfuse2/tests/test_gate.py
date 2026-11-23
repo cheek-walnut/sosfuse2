@@ -663,3 +663,45 @@ def test_gf_template_import_error_is_coded(home, monkeypatch, tmp_path):
     with pytest.raises(gate.GateError, match='ImportError') as caught:
         gate.gf(args, gate.load_fixtures(), dict(gates={}))
     assert caught.value.code == 'E_GATE_TEMPLATE'
+
+
+def bless_arguments(home):
+    return gate.NS(out=home / 'b', staged=home / 'staged', measure_anchors=False, decision=None, atol=0.0,
+                   canonical=False, reason='staged input test')
+
+
+@pytest.mark.parametrize('change, message', [('numpy', 'is a numpy run'), ('no solve', 'has no solve.json')])
+def test_bless_refuses_staged_runs_that_compare_nothing(home, monkeypatch, change, message):
+    """A stored NumPy result skips the CUDA and golden comparisons, and two runs without solve.json compare no solve."""
+    F = gate.load_fixtures()
+    base = runs(home / 'staged_runs')
+
+    def load(*a, **k):
+        r = gate.load_run(base, 'FX-A')
+        r['meta']['code_identity'] = gate.code_identity()
+        if change == 'numpy':
+            r['meta']['backend'] = 'numpy'
+        else:
+            del r['solve']
+        return {'FX-A': r}
+
+    monkeypatch.setattr(gate, 'run_all', load)
+    before = gate.manifest()
+    with pytest.raises(gate.GateError, match=message) as stop:
+        gate.bless(F, ['FX-A'], bless_arguments(home), dict(fixtures={}, gates={}))
+    assert stop.value.code == 'E_GATE_CONFIG' and gate.manifest() == before
+
+
+def test_reused_all_lists_the_checks_it_does_not_run(home):
+    out = home / 'out_all_reuse'
+    rc = gate.main(['--all', '--reuse', str(runs(home / 'same_all')), '--out', str(out)])
+    g = json.loads((out / 'gate.json').read_text())
+    assert rc == 0 and g['not_run'] == {'H': '--reuse', 'PS': '--reuse'} and 'H' not in g['gates']
+
+
+def test_failed_solve_child_always_has_a_reason():
+    tail = ['Traceback (most recent call last):', 'ImportError: libexample.so.1: cannot open shared object file', '']
+    assert gate.child_reason(1, None, tail) == 'E_GATE_CHILD: rc 1: ImportError: libexample.so.1: cannot open shared object file'
+    assert gate.child_reason(-9, None, []) == 'E_GATE_CHILD: rc -9, empty log'
+    assert gate.child_reason(1, 'E_VRAM_FREE', tail) == 'E_VRAM_FREE'
+    assert gate.child_reason(0, None, tail) is None

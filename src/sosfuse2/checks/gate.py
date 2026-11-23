@@ -448,6 +448,16 @@ def child(cmd, log, env, cwd=paths.SRC, timeout=3600):
     return rc, tail, (re.findall(r'\bE_[A-Z][A-Z0-9_]+', '\n'.join(tail)) or [None])[-1]
 
 
+def child_reason(rc, reason, tail):
+    """The reason of a solve child for solve.json. A failed child without a summary reason and without an E_ code in
+    its log (a missing library, a signal) keeps the last line of the log, so the report never shows a failure with no
+    reason."""
+    if not rc or reason:
+        return reason
+    last = next((line.strip() for line in reversed(tail) if line.strip()), '')
+    return f'E_GATE_CHILD: rc {rc}: {last[:300]}' if last else f'E_GATE_CHILD: rc {rc}, empty log'
+
+
 def log_launch(paths):
     m = 0.0
     for p in paths:
@@ -516,7 +526,7 @@ def run_fixture(F, fx, d, backend, solve, base=None):
         row = json.loads((w / 'pipeline_summary.json').read_text())['states'][0]
     except (OSError, ValueError, KeyError, IndexError):
         pass
-    meta = dict(rc=rc, reason=row.get('reason') or code)
+    meta = dict(rc=rc, reason=child_reason(rc, row.get('reason') or code, tail))
     if rc == 0:
         m = json.loads((w / 'out' / sid / 'meta.json').read_text())
         solve_ = m['source_solve']
@@ -1177,6 +1187,14 @@ def bless(F, names, args, report):
             f'staged runs in {base} have missing or mismatched code_identity; '
             'stage again with the current identity rules',
         )
+    for label, group in (('run1', runs), ('run2', again)):
+        for fx, r in group.items():
+            # A record of CUDA runs needs CUDA runs with their solve: a stored NumPy result skips the CUDA and golden
+            # comparisons, and two runs without solve.json compare no solve at all.
+            if r['meta'].get('backend') != 'cupy':
+                raise GateError('E_GATE_CONFIG', f'{label}/{fx} is a {r["meta"].get("backend")} run; --bless records CUDA runs')
+            if 'solve' not in r:
+                raise GateError('E_GATE_CONFIG', f'{label}/{fx} has no solve.json; --bless needs the solve of both runs')
     report['staged'] = str(args.staged) if args.staged else None
     report['determinism'] = {fx: repeat_run(runs[fx], again[fx]) for fx in names}
     report['repeat_max_rel'] = max((v['repeat_max_rel'] for v in report['determinism'].values()), default=0.0)
@@ -1438,6 +1456,9 @@ def dispatch(args, report):
         if not args.no_persistent:
             report['gates']['PS'] = persistent(args.out)
             ok &= report['gates']['PS']['pass_']
+    elif args.all:
+        # H and PS run a solve of their own, so a reused output has nothing for them; the report says so.
+        report['not_run'] = dict(H='--reuse', PS='--reuse')
     return ok
 
 
@@ -1462,7 +1483,8 @@ def main(argv=None):
     p.add_argument('--fixtures', help='comma list (default all)')
     p.add_argument('--flagsets', help='pregate: plan flag sets, e.g. C3,C3_nostrato')
     p.add_argument(
-        '--reuse', type=Path, help='compare stored fixture outputs instead of running them (negative controls)'
+        '--reuse', type=Path, help='compare stored fixture outputs instead of running them (negative controls); with --all, H and PS are not '
+        'run and the report lists them under not_run'
     )
     p.add_argument('--staged', type=Path, help='--bless from a --stage output (run1, run2) made by identical code')
     p.add_argument(

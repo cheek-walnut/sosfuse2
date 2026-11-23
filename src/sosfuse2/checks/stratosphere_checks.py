@@ -29,7 +29,7 @@ def zero_bytes(current, baseline):
                 for k in sorted(set(az.files) | set(bz.files))
             }
         report[name] = dict(
-            pass_=all(arrays.values()),
+            pass_=bool(arrays) and all(arrays.values()),  # a pair of empty files compares nothing
             arrays=arrays,
             archive_sha256=hashlib.sha256(b.read_bytes()).hexdigest(),
             sha256=hashlib.sha256(a.read_bytes()).hexdigest(),
