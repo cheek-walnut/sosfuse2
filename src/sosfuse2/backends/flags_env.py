@@ -10,10 +10,14 @@ The same settings can be typed as options of jobs/run_state.py and jobs/pipeline
 --config, --ground-sh, --device-profile, --compile-cache and --attach-cache, and apply_run_options writes each given
 option to the environment variable that the package reads, so an option takes precedence over the variable and the
 child processes inherit it. run_options_environment does the same for the duration of one call and restores the
-variables afterwards."""
+variables afterwards.
+
+resolve_backend fills in what was not typed: --backend auto (the default) is cupy when nvidia-smi names a visible
+device and numpy on a machine without CUDA (cuda_device_present), and numpy selects the reduced grid, the only one it solves."""
 
 import contextlib
-import json, os, sys
+import importlib.util
+import json, os, shutil, sys
 from pathlib import Path
 
 from sosfuse2.foundation import paths
@@ -107,6 +111,47 @@ def apply_run_options(args, environ):
     if args.attach_cache is not None:
         text = args.attach_cache.strip()
         environ['STRATO_ATTACH_CACHE'] = 'off' if text.lower() == 'off' else str(Path(text).resolve()) if text else ''
+
+
+def cuda_device_present():
+    """Whether --backend auto has a CUDA device to use, without initializing CUDA. False on a Mac, when
+    CUDA_VISIBLE_DEVICES is set and blank (every device hidden), and when the machine has neither nvidia-smi nor CuPy.
+    True when nvidia-smi names the visible device. The cases in between are E_BACKEND_AUTO, so the choice between a
+    full CUDA table and a reduced NumPy table is not made silently: nvidia-smi without an answering device, and CuPy
+    installed without nvidia-smi on PATH."""
+    if sys.platform == 'darwin':
+        return False
+    visible = os.environ.get('CUDA_VISIBLE_DEVICES')
+    if visible is not None and not visible.strip():
+        return False
+    if shutil.which('nvidia-smi') is None:
+        if importlib.util.find_spec('cupy') is None:
+            return False
+        raise ValueError(
+            'E_BACKEND_AUTO: CuPy is installed but nvidia-smi is not on PATH; pass --backend cupy or --backend numpy'
+        )
+    from sosfuse2.backends.device_profile import smi_device_name
+
+    if smi_device_name() is None:
+        raise ValueError(
+            'E_BACKEND_AUTO: nvidia-smi is installed but names no visible device; pass --backend cupy or --backend numpy'
+        )
+    return True
+
+
+def resolve_backend(backend, reduced, *, full_numpy=False, cuda=None):
+    """(backend, reduced, notes) for the typed --backend and --reduced. 'auto' becomes cupy when `cuda()` (default
+    cuda_device_present) is true and numpy otherwise. NumPy solves only the reduced grid, so numpy turns `reduced` on unless `full_numpy` (a phase that
+    runs on NumPy at full resolution, such as --geometry-only). Typed values are kept. `notes` are the lines to show
+    the person for each value that was filled in."""
+    notes = []
+    if backend == 'auto':
+        backend = 'cupy' if (cuda or cuda_device_present)() else 'numpy'
+        notes.append(f'--backend auto: {backend} ' + ('(CUDA device found)' if backend == 'cupy' else '(no CUDA device)'))
+    if backend == 'numpy' and not reduced and not full_numpy:
+        reduced = True
+        notes.append('--backend numpy solves the reduced grid: --reduced is on (full resolution needs CUDA)')
+    return backend, reduced, notes
 
 
 RUN_OPTION_VARIABLES = (

@@ -1948,15 +1948,31 @@ def run_extra(a):
         stop.set()
 
 
+DEFAULT_ID = 'clear_34'  # the state of the README quick start
+DEFAULT_WORK_ROOT = 'work'
+
+
 def build_parser():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--id', required=True)
+    p.add_argument('--id', default=DEFAULT_ID, help=f'state id in --states (default {DEFAULT_ID})')
     p.add_argument('--out-name')
     p.add_argument('--states', type=Path, default=paths.ASSETS / 'states_v2.json')
-    p.add_argument('--work-root', type=Path, required=True)
+    p.add_argument(
+        '--work-root',
+        type=Path,
+        default=Path(DEFAULT_WORK_ROOT),
+        help=f'folder of out/, tmp/, pack/ and the caches of the run (default ./{DEFAULT_WORK_ROOT})',
+    )
     p.add_argument('--geometry-cache', type=Path)
-    p.add_argument('--backend', choices=['cupy', 'numpy'], default='cupy')
-    p.add_argument('--reduced', action='store_true')
+    p.add_argument(
+        '--backend',
+        choices=['auto', 'cupy', 'numpy'],
+        default='auto',
+        help='auto (default): cupy when nvidia-smi names a visible device, numpy on a machine without CUDA',
+    )
+    p.add_argument(
+        '--reduced', action='store_true', help='reduced grid; always on with the numpy backend, except --geometry-only'
+    )
     p.add_argument(
         '--threads',
         type=int,
@@ -2054,6 +2070,14 @@ def main():
         p.error('E_PIPELINE_MODE: gpu-lock requires ordinary state mode')
     if a.geometry_only:
         a.backend = 'numpy'
+    from sosfuse2.backends.flags_env import resolve_backend
+
+    try:
+        a.backend, a.reduced, notes = resolve_backend(a.backend, a.reduced, full_numpy=a.geometry_only)
+    except ValueError as e:
+        p.error(str(e))
+    for note in notes:
+        print('run_state: ' + note, file=sys.stderr, flush=True)
     if a.backend == 'numpy' and not a.reduced and not a.geometry_only:
         p.error('numpy requires --reduced unless geometry-only')
     if sys.platform == 'darwin' and (a.backend != 'numpy' or not a.reduced):

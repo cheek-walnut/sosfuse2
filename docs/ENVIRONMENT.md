@@ -1,11 +1,19 @@
 # Environment variables
 
-**No environment variable is needed to run the package.** A first run uses the defaults, and the settings that a person
-changes from run to run are command-line options of `jobs/run_state.py` and `jobs/pipeline.py`:
+**No environment variable is needed to run the package, and `jobs/run_state.py` needs no argument.** Without arguments
+it solves the state `clear_34` under `./work`; `--backend auto`, the default, is `cupy` when `nvidia-smi` names a
+visible device, and `numpy` on a Mac, with a blank `CUDA_VISIBLE_DEVICES`, or on a machine with neither `nvidia-smi` nor
+CuPy; `numpy` solves the reduced grid. Two cases stop with `E_BACKEND_AUTO` instead of choosing: `nvidia-smi` without
+an answering device, and CuPy installed without `nvidia-smi` on `PATH`. A typed `--backend` is never changed.
+`jobs/pipeline.py` has the same defaults for `--states` (the packaged `states_v2.json`), `--work-root` and `--backend`,
+and still requires `--ids` or `--plan`; the commands that `jobs/plan_queue.py` writes name `--backend cupy`. The
+settings that a person changes from run to run are command-line options of both:
 
 | Option | Sets | Meaning |
 |---|---|---|
-| `--work-root DIR` | folders of the run | where `out/`, `tmp/`, `pack/` and the caches of the run go |
+| `--id NAME` | state of `run_state` | default `clear_34` |
+| `--work-root DIR` | folders of the run | where `out/`, `tmp/`, `pack/` and the caches of the run go; default `./work` |
+| `--backend auto\|cupy\|numpy` | backend | default `auto` |
 | `--threads N` | thread variables and the preparation pools | CPU threads of the run |
 | `--rss-gb X` | host memory limit of the process | see [Host RSS limits](#host-rss-limits) |
 | `--config NAME` | `SOSFUSE2_KERNEL_FLAGS`, `SOSFUSE2_BLOCK_SIZE` | kernel config `backends/configs/NAME.json`, for instance `C3` |

@@ -620,6 +620,8 @@ def commands(a, lists, columns, attach_root, out, res):
         '--geometry-cache',
         str(a.geometry_cache.resolve()),
         '--persistent',
+        '--backend',
+        'cupy',  # the plan is a full-grid CUDA queue; not left to --backend auto
         '--geometry-layers',
         str(a.geometry_layers),
     ]

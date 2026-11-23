@@ -154,8 +154,15 @@ The solve takes about a minute on a laptop, and 57 s with two threads in the mea
 pip install ".[test]"
 python -m sosfuse2.asset_tools.prepare_minor_absorbers --download
 python -m sosfuse2 generate_density_profile
-python -B -m sosfuse2.jobs.run_state --id clear_34 --reduced --backend numpy --threads 2 --work-root ./work
+python -m sosfuse2 run_state --backend numpy
 ```
+
+No argument of `run_state` is required. The last line is the short form of
+`python -B -m sosfuse2.jobs.run_state --id clear_34 --reduced --backend numpy --work-root ./work`: the state is
+`clear_34`, the work root is `./work`, and the NumPy backend always solves the reduced grid. With no argument at all,
+`--backend auto` selects `cupy` at full resolution when `nvidia-smi` names a visible device and `numpy` on a machine
+without CUDA, and the run prints the choice; `docs/ENVIRONMENT.md` lists the cases in which it stops instead of
+choosing. The measured run added `--threads 2`.
 
 During a solve, `--geometry-only`, or `--extra-elevations`, `--threads N` sets any unset or blank preparation-pool
 variable (`SOSFUSE2_COLUMN_WORKERS`, `SOSFUSE2_SUN_WORKERS`, `SOSFUSE2_GROUND_WORKERS`, `SOSFUSE2_GEOMETRY_WORKERS`) to

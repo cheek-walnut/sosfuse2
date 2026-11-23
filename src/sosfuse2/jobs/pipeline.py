@@ -176,13 +176,15 @@ class PipelineParser(argparse.ArgumentParser):
 
 def parser():
     p = PipelineParser(description=__doc__)
-    p.add_argument('--states', type=Path, required=True)
+    p.add_argument(
+        '--states', type=Path, default=paths.ASSETS / 'states_v2.json', help='default: the packaged states_v2.json'
+    )
     p.add_argument('--ids', help='comma list in queue order; required unless --plan')
     p.add_argument(
         '--plan', type=Path, help='plan_queue.py output: run the --plan-gpu list in its order (excludes --ids)'
     )
     p.add_argument('--plan-gpu', type=int, default=0, help='which GPU list of --plan (default 0)')
-    p.add_argument('--work-root', type=Path)
+    p.add_argument('--work-root', type=Path, default=Path('work'), help='default ./work')
     p.add_argument('--column-cache', type=Path, default=os.environ.get('SOSFUSE2_COLUMN_CACHE'))
     p.add_argument('--column-cache-plan', action='store_true')
     p.add_argument('--geometry-cache', type=Path)
@@ -213,8 +215,13 @@ def parser():
         default=None,
         help='Python runner script path (default: python -m sosfuse2.jobs.run_state); public subprocess testing seam',
     )
-    p.add_argument('--backend', choices=('numpy', 'cupy'), default='cupy')
-    p.add_argument('--reduced', action='store_true')
+    p.add_argument(
+        '--backend',
+        choices=('auto', 'numpy', 'cupy'),
+        default='auto',
+        help='auto (default): cupy when nvidia-smi names a visible device, numpy on a machine without CUDA',
+    )
+    p.add_argument('--reduced', action='store_true', help='reduced grid; always on with the numpy backend')
     p.add_argument('--block-size', type=int, choices=(128, 256))
     p.add_argument('--max-eval', type=int, default=64)
     p.add_argument('--group', type=int, default=32)
@@ -236,8 +243,20 @@ def parser():
     return p
 
 
+def fill_backend(a):
+    """--backend auto and the reduced grid of the numpy backend (flags_env.resolve_backend), with a line for each value
+    that was filled in. A second call changes nothing."""
+    from sosfuse2.backends.flags_env import resolve_backend
+
+    a.backend, a.reduced, notes = resolve_backend(a.backend, a.reduced)
+    for note in notes:
+        print('pipeline: ' + note, file=sys.stderr, flush=True)
+    return a
+
+
 def validate(a):
     """Complete read-only preflight before starting any state process."""
+    a = fill_backend(a)
     if a.work_root is None:
         raise ValueError('E_PIPELINE_ARGUMENTS: --work-root required')
     ids = a.ids.split(',')
@@ -780,7 +799,9 @@ def main(argv=None):
     with contextlib.ExitStack() as stack:
         try:
             stack.enter_context(run_options_environment(a, os.environ))
-            a = resolve_plan(a)
+            if a.plan is None and not a.ids:  # before the device is looked for
+                raise ValueError('E_PIPELINE_ARGUMENTS: --ids or --plan required')
+            a = resolve_plan(fill_backend(a))
             if a.column_cache_plan:
                 return column_cache_plan(a)
             a = validate(a)

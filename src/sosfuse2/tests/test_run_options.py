@@ -2,6 +2,9 @@
 
 Each option writes the variable the package reads, so the settings derived from an option equal the settings derived
 from the variable typed by hand.
+
+The defaults: a command with no argument, or with some of them, resolves to the same arguments as the command typed in
+full.
 """
 
 import argparse
@@ -137,3 +140,155 @@ def test_pipeline_main_leaves_the_environment_as_it_was(tmp_path, monkeypatch, c
         pipeline.main(['--states', str(tmp_path / 'states.json'), '--ground-sh', '24', '--config', 'C3'])
     assert 'E_PIPELINE_ARGUMENTS' in capsys.readouterr().err
     assert {name: os.environ.get(name) for name in flags_env.RUN_OPTION_VARIABLES} == before
+
+
+def no_cuda():
+    return False
+
+
+def never():
+    raise AssertionError('a typed backend must not look for a device')
+
+
+@pytest.mark.parametrize(
+    'typed, cuda, full_numpy, expected, note_count',
+    [
+        (('auto', False), lambda: True, False, ('cupy', False), 1),
+        (('auto', True), lambda: True, False, ('cupy', True), 1),
+        (('auto', False), no_cuda, False, ('numpy', True), 2),
+        (('auto', True), no_cuda, False, ('numpy', True), 1),
+        (('numpy', False), never, False, ('numpy', True), 1),
+        (('numpy', True), never, False, ('numpy', True), 0),
+        (('numpy', False), never, True, ('numpy', False), 0),
+        (('cupy', False), never, False, ('cupy', False), 0),
+        (('cupy', True), never, False, ('cupy', True), 0),
+    ],
+)
+def test_resolve_backend_fills_only_what_was_not_typed(typed, cuda, full_numpy, expected, note_count):
+    backend, reduced, notes = flags_env.resolve_backend(*typed, full_numpy=full_numpy, cuda=cuda)
+    assert (backend, reduced) == expected
+    assert len(notes) == note_count
+
+
+def test_cuda_device_present(monkeypatch):
+    from sosfuse2.backends import device_profile
+
+    cupy_installed = [False]
+    monkeypatch.setattr(flags_env.importlib.util, 'find_spec', lambda name: object() if cupy_installed[0] else None)
+    monkeypatch.delenv('CUDA_VISIBLE_DEVICES', raising=False)
+    monkeypatch.setattr(flags_env.sys, 'platform', 'linux')
+    monkeypatch.setattr(flags_env.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(device_profile, 'smi_device_name', never)
+    assert flags_env.cuda_device_present() is False
+    # CuPy without nvidia-smi: a CUDA machine is possible, so no silent choice of the reduced NumPy table
+    cupy_installed[0] = True
+    with pytest.raises(ValueError, match='E_BACKEND_AUTO: CuPy is installed'):
+        flags_env.cuda_device_present()
+    monkeypatch.setattr(flags_env.shutil, 'which', lambda name: '/usr/bin/' + name)
+    monkeypatch.setattr(device_profile, 'smi_device_name', lambda: 'some device')
+    assert flags_env.cuda_device_present() is True
+    monkeypatch.setattr(device_profile, 'smi_device_name', lambda: None)
+    with pytest.raises(ValueError, match='E_BACKEND_AUTO: nvidia-smi is installed'):
+        flags_env.cuda_device_present()
+    # every device hidden: nvidia-smi would still answer for device 0
+    monkeypatch.setattr(device_profile, 'smi_device_name', never)
+    for blank in ('', '  '):
+        monkeypatch.setenv('CUDA_VISIBLE_DEVICES', blank)
+        assert flags_env.cuda_device_present() is False
+    monkeypatch.delenv('CUDA_VISIBLE_DEVICES')
+    monkeypatch.setattr(flags_env.sys, 'platform', 'darwin')
+    assert flags_env.cuda_device_present() is False
+
+
+def test_pipeline_asks_for_ids_before_it_looks_for_a_device(monkeypatch, capsys):
+    from sosfuse2.jobs import pipeline
+
+    monkeypatch.setattr(flags_env, 'cuda_device_present', never)
+    with pytest.raises(SystemExit):
+        pipeline.main([])
+    assert '--ids or --plan required' in capsys.readouterr().err
+
+
+def test_plan_queue_commands_name_the_backend():
+    import inspect
+
+    from sosfuse2.jobs import plan_queue
+
+    assert "'--backend',\n        'cupy'" in inspect.getsource(plan_queue.commands)
+
+
+def resolved_run_state(monkeypatch, tmp_path, *argv):
+    """The arguments run_state.main hands to run() for `argv`, on a machine without a CUDA device, started in tmp_path."""
+    import sys
+
+    from sosfuse2.jobs import run_state
+
+    seen = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(flags_env, 'cuda_device_present', no_cuda)
+    monkeypatch.setattr(run_state, 'run', lambda a: seen.update(vars(a)))
+    monkeypatch.setattr(sys, 'argv', ['run_state', *argv])
+    for name in ('SOSFUSE2_COLUMN_CACHE_JOB', 'SOSFUSE2_STATE_ID', 'STRATO_ATTACH_CACHE'):
+        monkeypatch.setenv(name, '')  # main writes these; monkeypatch restores them
+    run_state.main()
+    return seen
+
+
+FULL = ('--id', 'clear_34', '--work-root', 'work', '--backend', 'numpy', '--reduced')
+
+
+def test_run_state_without_arguments_is_the_quick_start_command(monkeypatch, tmp_path, capsys):
+    full = resolved_run_state(monkeypatch, tmp_path, *FULL)
+    assert capsys.readouterr().err == ''
+    bare = resolved_run_state(monkeypatch, tmp_path)
+    assert bare == full
+    assert (bare['id'], bare['backend'], bare['reduced']) == ('clear_34', 'numpy', True)
+    assert bare['work_root'] == (tmp_path / 'work').resolve()
+    err = capsys.readouterr().err
+    assert '--backend auto: numpy' in err and '--reduced is on' in err
+
+
+@pytest.mark.parametrize(
+    'argv',
+    [
+        ('--id', 'clear_34'),
+        ('--work-root', 'work'),
+        ('--backend', 'numpy'),
+        ('--reduced',),
+        ('--backend', 'numpy', '--work-root', 'work'),
+    ],
+)
+def test_run_state_with_some_arguments_equals_the_full_command(monkeypatch, tmp_path, argv):
+    assert resolved_run_state(monkeypatch, tmp_path, *argv) == resolved_run_state(monkeypatch, tmp_path, *FULL)
+
+
+def test_run_state_typed_values_are_kept(monkeypatch, tmp_path):
+    a = resolved_run_state(monkeypatch, tmp_path, '--id', 'clear_40', '--work-root', str(tmp_path / 'elsewhere'))
+    assert (a['id'], a['work_root']) == ('clear_40', (tmp_path / 'elsewhere').resolve())
+
+
+def test_pipeline_defaults(monkeypatch, capsys):
+    from sosfuse2.foundation import paths
+    from sosfuse2.jobs import pipeline
+
+    monkeypatch.setattr(flags_env, 'cuda_device_present', no_cuda)
+    a = pipeline.parser().parse_args([])
+    assert a.states == paths.ASSETS / 'states_v2.json' and a.states.is_file()
+    assert (str(a.work_root), a.backend, a.reduced, a.ids) == ('work', 'auto', False, None)
+    a = pipeline.fill_backend(a)
+    assert (a.backend, a.reduced) == ('numpy', True)
+    assert pipeline.fill_backend(a) is a and (a.backend, a.reduced) == ('numpy', True)
+    # the queue itself is not defaulted: without --ids or --plan nothing starts
+    with pytest.raises(SystemExit):
+        pipeline.main([])
+    assert '--ids or --plan required' in capsys.readouterr().err
+
+
+def test_pipeline_validate_with_only_ids(monkeypatch, tmp_path):
+    from sosfuse2.jobs import pipeline
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(flags_env, 'cuda_device_present', no_cuda)
+    a = pipeline.validate(pipeline.parser().parse_args(['--ids', 'clear_34', '--workers', '1']))
+    assert (a.ids, a.backend, a.reduced) == (['clear_34'], 'numpy', True)
+    assert a.work_root == (tmp_path / 'work').resolve()
