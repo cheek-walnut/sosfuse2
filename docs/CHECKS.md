@@ -54,6 +54,11 @@ single core busy. `.github/ci/ci_shard.py` assigns whole files to shards by the 
 `.github/ci/shard_weights.json`; a file that is not listed there gets the median time, so a new file still runs once. The
 `shard-coverage` job collects every shard and fails unless together they hold each collected test exactly once.
 
+The tests of the long-running files carry the marker `heavy`; `HEAVY_FILES` in `tests/conftest.py` lists those files, each
+of which took 20 s or longer in a serial run. `python -B -m pytest --pyargs sosfuse2 -m "not heavy"` runs the other files
+and finishes in a few minutes. The public CI runs that selection once in the `quick` job and starts the shards only when
+it passes; the shards run every test, with or without the marker.
+
 The kernel syntax and preprocess tests need a C++ compiler, `clang++` or `clang` on `PATH`: `test_ground_fused`,
 `test_sh_l`, `test_kernel_config`, `test_section_clocks_adversarial`, `test_profile_step`, the frozen kernel variant check in
 `test_strato_adversarial`, `test_ground_sh`, `test_density_order`, `test_kernel_static`, `test_identity`, `test_regressions_110`,

@@ -4,6 +4,9 @@ The two IPRT inputs are not redistributed. The session fetches them into the wor
 set, and then runs offline. When they cannot be had, a test that stops with E_IPRT_OFFLINE is reported as skipped with
 that reason, like a test whose compiler is missing; a test that fails for any other reason stays a failure, also when it
 handled an E_IPRT_OFFLINE on the way (only the raised error and its explicit `raise ... from` causes are read).
+
+The tests of the files in HEAVY_FILES carry the marker `heavy`: they solve reduced states, start child processes or
+build caches and take most of the run time. `-m "not heavy"` runs the remaining files, which finish in a few minutes.
 """
 
 import os
@@ -13,6 +16,38 @@ import pytest
 
 IPRT_MISSING = []  # names of the IPRT inputs the session work root lacks; filled once by synthetic_minor_work
 FETCH_FAILURE = []  # the E_IPRT_DOWNLOAD or E_IPRT_SHA256 message of the session's own fetch, if it failed
+
+# Test files that took 20 s or longer in a serial run on one machine; tests/test_tiers.py checks that each name exists.
+HEAVY_FILES = frozenset({
+    'test_b2_s2.py',
+    'test_bake_tolerance.py',
+    'test_column_cache.py',
+    'test_cpu_replay.py',
+    'test_density_order.py',
+    'test_extended_top.py',
+    'test_gate.py',
+    'test_host_cache.py',
+    'test_ozone_temperature.py',
+    'test_pipeline_persistent.py',
+    'test_profile_step.py',
+    'test_r17_port.py',
+    'test_regressions_110.py',
+    'test_sh_l.py',
+    'test_strato_delta_adversarial.py',
+    'test_sun_method.py',
+    'test_tables_from_sources.py',
+    'test_upper_air.py',
+})
+
+
+def pytest_configure(config):
+    config.addinivalue_line('markers', 'heavy: test of a long-running file (see HEAVY_FILES in tests/conftest.py)')
+
+
+def pytest_collection_modifyitems(items):
+    for item in items:
+        if item.path.name in HEAVY_FILES:
+            item.add_marker(pytest.mark.heavy)
 
 
 def _chain(error):

@@ -44,8 +44,36 @@ jobs:
           done
           printf 'count=%s\nindices=[%s]\n' "$count" "$indices" >> "$GITHUB_OUTPUT"
 
+  # The files outside HEAVY_FILES of tests/conftest.py, once, before the shards start: a failure in them shows within
+  # minutes and the shards (which run every test, heavy or not) do not start.
+  quick:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build and install the sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist
+          SDIST="$(ls "$PWD"/dist/*.tar.gz)"
+          python -m pip install "sosfuse2[test] @ file://$SDIST"
+          python -m pip install "pytest-xdist==3.8.0"
+      - name: Compiler for the kernel syntax tests
+        run: clang++ --version
+      - name: Tests without the heavy marker
+        working-directory: ${{ runner.temp }}
+        run: >-
+          python -B -m pytest -q -p no:cacheprovider -rsxX --durations=10 -m "not heavy"
+          -n "$(python -c 'import os; print(os.cpu_count() or 1)')" --dist loadfile --pyargs sosfuse2
+
   tests:
-    needs: [lint, shard-config]
+    needs: [lint, shard-config, quick]
     strategy:
       fail-fast: false
       matrix:
