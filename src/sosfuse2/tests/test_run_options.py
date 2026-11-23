@@ -187,6 +187,11 @@ def test_cuda_device_present(monkeypatch):
     monkeypatch.setattr(flags_env.shutil, 'which', lambda name: '/usr/bin/' + name)
     monkeypatch.setattr(device_profile, 'smi_device_name', lambda: 'some device')
     assert flags_env.cuda_device_present() is True
+    # a device without CuPy (the package installed without the gpu extra): cupy would fail at its import
+    cupy_installed[0] = False
+    with pytest.raises(ValueError, match=r'E_BACKEND_AUTO: nvidia-smi names a CUDA device but CuPy is not installed'):
+        flags_env.cuda_device_present()
+    cupy_installed[0] = True
     monkeypatch.setattr(device_profile, 'smi_device_name', lambda: None)
     with pytest.raises(ValueError, match='E_BACKEND_AUTO: nvidia-smi is installed'):
         flags_env.cuda_device_present()
@@ -207,6 +212,14 @@ def test_pipeline_asks_for_ids_before_it_looks_for_a_device(monkeypatch, capsys)
     with pytest.raises(SystemExit):
         pipeline.main([])
     assert '--ids or --plan required' in capsys.readouterr().err
+
+
+def test_column_cache_plan_looks_for_no_device(monkeypatch, capsys):
+    from sosfuse2.jobs import pipeline
+
+    monkeypatch.setattr(flags_env, 'cuda_device_present', never)
+    assert pipeline.main(['--column-cache-plan', '--ids', 'clear_34']) in (0, None)
+    assert 'clear_34' in capsys.readouterr().out
 
 
 def test_plan_queue_commands_name_the_backend():

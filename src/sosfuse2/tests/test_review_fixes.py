@@ -203,7 +203,7 @@ def test_ground_boundary_columns_follow_the_column_method(monkeypatch, method, d
 
 def test_ground_boundary_columns_of_real_rays_agree_between_methods(tmp_path, monkeypatch):
     """Real rays to the ground through the stratospheric layer, with the prepared-segments stand-in of the queue
-    service as `old`: the table method and the exact integral agree with the GL24 walk to 1e-4 of the column."""
+    service as `old`: the table method and the exact integral agree with each other to 1e-4 of the column."""
     from sosfuse2.atmosphere import stratosphere
     from sosfuse2.backends import numpy_reference
     from sosfuse2.jobs.pipeline_execution import PreparedSegments

@@ -3,8 +3,10 @@
 **No environment variable is needed to run the package, and `jobs/run_state.py` needs no argument.** Without arguments
 it solves the state `clear_34` under `./work`; `--backend auto`, the default, is `cupy` when `nvidia-smi` names a
 visible device, and `numpy` on a Mac, with a blank `CUDA_VISIBLE_DEVICES`, or on a machine with neither `nvidia-smi` nor
-CuPy; `numpy` solves the reduced grid. Two cases stop with `E_BACKEND_AUTO` instead of choosing: `nvidia-smi` without
-an answering device, and CuPy installed without `nvidia-smi` on `PATH`. A typed `--backend` is never changed.
+CuPy; `numpy` solves the reduced grid. Three cases stop with `E_BACKEND_AUTO` instead of choosing: `nvidia-smi` without
+an answering device, CuPy installed without `nvidia-smi` on `PATH`, and a device named by `nvidia-smi` without CuPy
+installed (the package without its `gpu` extra). A typed `--backend` is not replaced by this choice; `--geometry-only`
+prepares the geometry on NumPy whichever backend is named.
 `jobs/pipeline.py` has the same defaults for `--states` (the packaged `states_v2.json`), `--work-root` and `--backend`,
 and still requires `--ids` or `--plan`; the commands that `jobs/plan_queue.py` writes name `--backend cupy`. The
 settings that a person changes from run to run are command-line options of both:
@@ -223,7 +225,7 @@ variable, or a path that does not name a file, skips only the cases that need th
 | `SOSFUSE2_STRATO_BASELINE` | `tests/test_strato_delta_adversarial.py` | A nonempty path after trimming names the fixed measurement folder; unset or empty skips that comparison. The supplied folder must contain its expected files. |
 | `SOSFUSE2_STRATO_COLOR_ARTIFACT` | `tests/test_strato_adversarial.py` | An unset value uses the default colour output folder; a supplied string is used as a path, and empty denotes the current directory. The test skips if its summary is missing. |
 | `PERSISTENT_TEST_BACKEND` | `tests/test_pipeline_persistent.py`, `tests/test_column_cache.py` | Unset selects `numpy`; `numpy` or `cupy` is passed as the queue backend. Empty and other strings are passed through and fail backend validation. |
-| `PERSISTENT_TEST_DEADLINE` | `tests/test_pipeline_persistent.py`, `tests/test_column_cache.py` | A string converted by `float` sets the timeout in seconds; unset defaults to 2400 or 120, respectively. Empty or nonnumeric strings fail conversion; there is no finite or positive check, and the persistent test clamps its remaining wait to at least 0.01 seconds. |
+| `PERSISTENT_TEST_DEADLINE` | `tests/test_pipeline_persistent.py`, `tests/test_column_cache.py` | A string converted by `float` sets the timeout in seconds; unset defaults to 2400 in both. Empty or nonnumeric strings fail conversion; there is no finite or positive check, and the persistent test clamps its remaining wait to at least 0.01 seconds. |
 | `PERSISTENT_TEST_OBSERVER_DELAY` | `tests/test_pipeline_persistent.py` | The string is passed unchanged to the queue of the interleaving case as `SOS_PERSISTENT_TEST_OBSERVER_DELAY`, and unset passes `0.02`. The queue converts it with `float`, so an empty or nonnumeric string fails conversion. |
 | `SOSFUSE2_TEST_SIMPSON_FIXTURE` | `tests/test_simpson_prefix.py` | Optional ray fixture path relative to the research checkout. The synthetic cases run without it. |
 | `SADDLE_DATA_ROOT` | `tests/test_plan_queue.py`, `tests/test_column_parallel.py` | The tests search this input folder before `SOSFUSE2_SKY_SOS_ROOT`; the cases that need a packed full-grid geometry cache and run logs skip when neither folder holds them. |

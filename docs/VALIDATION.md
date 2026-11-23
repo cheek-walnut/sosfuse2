@@ -927,6 +927,12 @@ the two other MYSTIC comparisons relate to 1.7.0. The remaining sections report 
 
 Table 19. Engine version behind each comparison and what we reran for 1.7.0.
 
+For 1.8.0 we reran none of these comparisons and reuse the 1.7.0 record. The CUDA checks of 1.8.0 (G-P, G-T, G-A, G-H
+and the full-grid G-F table) give the same values as for 1.7.0, and the `clear_34` command of `docs/PERFORMANCE.md`
+gives a table equal to the one from the command typed in full. The one numeric change of 1.8.0 is in the NumPy
+backend, for a nonzero albedo with a column method other than `gl24`; we did not rerun comparisons made with NumPy
+runs.
+
 ## Open checks
 
 - Engine colours against measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026). We compared only
@@ -1022,7 +1028,7 @@ gives the commands, requirements and a small configuration. They export the shar
 2.0.6, write and check the MYSTIC inputs, run MYSTIC, bake the eight engine tables on a CUDA machine, read them at the
 six pixels and write the comparison and CSV. The 46,080 recorded MYSTIC runs took 359,883 CPU-seconds (100.0 CPU-hours)
 of `uvspec` time. Given the stored run records, the scripts regenerate every input file, every CSV value and all twelve
-rows of Table 7 at printed precision. With 1.5.0, `SOSFUSE2_DETERMINISTIC=1` and the `cuda` device profile, the engine
+rows of Table 7 at printed precision. With 1.5.0, `SOSFUSE2_DETERMINISTIC=1` and the device profile now named `cuda`, the engine
 tables of `clear_43` and `clear_80` matched the recorded 1.2.3 tables value for value, and the small configuration ran
 from the libRadtran build to the comparison on the same Linux machine. Because a new MYSTIC run is a new Monte Carlo
 sample, we compare it with the record using both standard errors rather than checking whether it falls inside the

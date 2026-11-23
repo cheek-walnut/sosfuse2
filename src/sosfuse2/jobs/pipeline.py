@@ -801,9 +801,9 @@ def main(argv=None):
             stack.enter_context(run_options_environment(a, os.environ))
             if a.plan is None and not a.ids:  # before the device is looked for
                 raise ValueError('E_PIPELINE_ARGUMENTS: --ids or --plan required')
+            if a.column_cache_plan:  # read from the states file alone: no backend, so no device is looked for
+                return column_cache_plan(resolve_plan(a))
             a = resolve_plan(fill_backend(a))
-            if a.column_cache_plan:
-                return column_cache_plan(a)
             a = validate(a)
         except (ValueError, OSError, KeyError, TypeError) as e:
             p.error(str(e))

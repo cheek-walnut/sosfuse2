@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """v2 numerical path with v3 identities, cooperative cache leases and phase events."""
 
-import argparse, contextlib, copy, fcntl, hashlib, json, os, re, shutil
+import argparse, contextlib, copy, errno, fcntl, hashlib, json, os, re, shutil
 import subprocess, sys, tarfile, threading, time
 from pathlib import Path
 from functools import wraps
@@ -1758,8 +1758,10 @@ def run_extra(a):
             source_lock = (src_out / '.worker.lock').open('a')
         except FileNotFoundError:
             raise RuntimeError('E_EXTRA_SOURCE: source job meta missing')
-        except PermissionError:
-            try:  # another user's lock file: a shared hold needs no write access
+        except OSError as exc:
+            if exc.errno not in (errno.EACCES, errno.EPERM, errno.EROFS):
+                raise
+            try:  # another user's lock file, or a read-only mount: a shared hold needs no write access
                 source_lock = (src_out / '.worker.lock').open('r')
             except FileNotFoundError:
                 pass  # a read-only source folder that no worker has locked: nothing to hold

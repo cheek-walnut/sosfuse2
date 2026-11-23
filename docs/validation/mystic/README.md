@@ -14,8 +14,9 @@ privileges.
 The build script installs `netcdf-bin`, which provides `ncgen` for input generation.
 Engine tables require a CUDA GPU, CuPy and the `zstd` command.
 Kernel options follow the sosfuse2 device profile of the GPU. The recorded tables used the profile now named `cuda`. The commands below select it explicitly
-to reproduce the same kernel options across GPUs. Releases before 1.6.0 have another name for that profile and stop
-with `E_DEVICE_PROFILE` at `cuda`; `backends/configs/devices.json` of the installed release lists its profile names.
+to reproduce the same kernel options across GPUs. Releases before 1.6.0, 1.5.0 and 1.5.1 among them, have another name for that profile and stop
+with `E_DEVICE_PROFILE` at `cuda`: with such a release, replace `cuda` in the two `bake_engine.sh` commands below by the
+name that `backends/configs/devices.json` of the installed release gives the same profile.
 `bake_engine.sh` clears `SOSFUSE2_FMAD` and `SOSFUSE2_FASTMATH` inherited from the shell, so those two options come
 from the profile as the CSV header states.
 Set `PYTHON` to the Python executable when it is not `python`.

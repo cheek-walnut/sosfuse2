@@ -116,9 +116,9 @@ def apply_run_options(args, environ):
 def cuda_device_present():
     """Whether --backend auto has a CUDA device to use, without initializing CUDA. False on a Mac, when
     CUDA_VISIBLE_DEVICES is set and blank (every device hidden), and when the machine has neither nvidia-smi nor CuPy.
-    True when nvidia-smi names the visible device. The cases in between are E_BACKEND_AUTO, so the choice between a
-    full CUDA table and a reduced NumPy table is not made silently: nvidia-smi without an answering device, and CuPy
-    installed without nvidia-smi on PATH."""
+    True when nvidia-smi names the visible device and CuPy is installed. The cases in between are E_BACKEND_AUTO, so
+    the choice between a full CUDA table and a reduced NumPy table is not made silently: nvidia-smi without an
+    answering device, CuPy installed without nvidia-smi on PATH, and a device without CuPy."""
     if sys.platform == 'darwin':
         return False
     visible = os.environ.get('CUDA_VISIBLE_DEVICES')
@@ -135,6 +135,11 @@ def cuda_device_present():
     if smi_device_name() is None:
         raise ValueError(
             'E_BACKEND_AUTO: nvidia-smi is installed but names no visible device; pass --backend cupy or --backend numpy'
+        )
+    if importlib.util.find_spec('cupy') is None:
+        raise ValueError(
+            'E_BACKEND_AUTO: nvidia-smi names a CUDA device but CuPy is not installed; install the gpu extra '
+            '(pip install ".[gpu]") or pass --backend numpy'
         )
     return True
 

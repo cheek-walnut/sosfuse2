@@ -66,6 +66,9 @@ jobs:
           python -m pip install "pytest-xdist==3.8.0"
       - name: Compiler for the kernel syntax tests
         run: clang++ --version
+      - name: IPRT inputs (network, pinned sha256)
+        working-directory: ${{ runner.temp }}
+        run: python -B -c "from sosfuse2.asset_tools import iprt; iprt.inputs()"
       - name: Tests without the heavy marker
         working-directory: ${{ runner.temp }}
         run: >-

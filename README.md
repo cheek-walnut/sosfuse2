@@ -5,7 +5,8 @@ convergence on a height and angle grid with Anderson mixing, the solver models p
 tropospheric aerosol layer, a stratospheric sulfate layer enabled in the bundled v2 states, absorption by ozone, NO₂
 and O₄, and a Lambertian ground. One solve covers every solar elevation of a table, by default +6° to −18°. The package
 ships a NumPy reference implementation, an optional CUDA kernel compiled at run time through CuPy and NVRTC, numeric
-checks against fixed references within tolerances, and a provenance record signing every table with hashes of its
+checks against fixed references within tolerances, and a provenance record that signs the tables written by
+`run_state` and `tables_from_sources` with hashes of its
 producing code and data.
 
 ## Start here
@@ -118,6 +119,10 @@ references across refactors and other hardware; they do not measure physical acc
 - Numeric tolerances bound discretisation and iteration error against fixed references of the same model; they do not
   measure physical error.
 - We have not compared the colours with measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026).
+- A stored source does not record the content of an optics table outside the package (`stratosphere.optics_table`),
+  only its path. `outputs/radiance_table` and `jobs/tables_from_sources` therefore accept a stored source after that
+  file has changed under the same path, and the signature of `tables_from_sources` does not change either. `run_state`
+  and `--extra-elevations` hash the file and stop. Give a changed table a new path, or solve the source again.
 
 ## Install
 
@@ -236,7 +241,7 @@ Production queues and reference checks use these settings:
 
 ## Numerical tolerances
 
-G-P, G-T, G-H and G-F compare results against fixed references at the stated tolerance. G-R records hash and numerical
+G-P, the fixed CUDA comparison, G-T, G-H and G-F compare results against fixed references at the stated tolerance. G-R records hash and numerical
 differences without blocking. G-A and the repeat check have no fixed reference: G-A compares two solves of one run, and
 the repeat check compares runs of one build with each other.
 
@@ -244,6 +249,7 @@ the repeat check compares runs of one build with each other.
 |---|---|---|
 | G-R | CUDA outputs vs the baseline of the matching toolchain and configuration, or the canonical baseline | none; differences recorded, not blocking |
 | G-P | CUDA kernel vs NumPy golden (fixed number of apply steps) | rtol 1e-3 |
+| CUDA | the fixture without a NumPy golden (nonzero albedo) vs its fixed CUDA baseline: radiance after the fixed apply steps and the solved table | rtol 1e-3 |
 | G-T | anchor radiances (`checks/gate_data/anchors.json`) | ratchet, recorded |
 | G-A | approximate fixture vs the exact fixture of the same run, which must pass its own check: radiance after the fixed apply steps and, when both were solved, the table | rtol 1e-3 (plus `--atol`, default 0); the approximate solve must converge in no more evaluations than the exact one |
 | G-H | reduced selftest vs its recorded values | per case |
@@ -265,7 +271,7 @@ repeats. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and r
    isolated temporary root without downloading HITRAN data, while optional reproduction from original data
    (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) skips when neither is set. Pass a module name to run one file, such as
    `python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2.tests.test_names`.
-2. Any CUDA machine: `python -B -m sosfuse2.checks.gate --all --out <dir>` runs G-R, G-P, G-T, G-A, G-H and G-PS, while
+2. Any CUDA machine: `python -B -m sosfuse2.checks.gate --all --out <dir>` runs G-R, G-P, the fixed CUDA comparison, G-T, G-A, G-H and G-PS, while
    `python -B -m sosfuse2.checks.gate --stage --out <dir>` runs the repeat check.
 3. A CUDA machine with the research checkout: run
    `python -B -m sosfuse2.checks.gate --gf --reference <table.npz> --out <dir>` (`docs/CHECKS.md`).

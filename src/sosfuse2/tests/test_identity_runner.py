@@ -2,7 +2,9 @@
 
 import argparse
 import copy
+import errno
 import json
+import os
 import resource
 import sys
 from pathlib import Path
@@ -312,7 +314,9 @@ def stale_source(run_args, state, monkeypatch):
     monkeypatch.setattr(runner.threading, 'Thread', lambda **kw: SimpleNamespace(start=lambda: None))
     for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS',
                  'NUMEXPR_NUM_THREADS', 'BLIS_NUM_THREADS', 'CUDA_CACHE_PATH'):
-        monkeypatch.delenv(name, raising=False)  # run_extra sets them; the fixture puts the earlier values back
+        # run_extra sets them. setenv records the earlier state, also of a name that was not set, so the fixture
+        # puts it back; delenv records nothing for a name that is absent.
+        monkeypatch.setenv(name, os.environ.get(name, ''))
     out = run_args.work_root / 'out' / 'source'
     out.mkdir(parents=True)
     source_dir = run_args.work_root / 'tmp' / 'source'
@@ -333,11 +337,21 @@ def test_extra_elevations_stop_while_a_worker_writes_the_source(run_args, state,
         fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with pytest.raises(RuntimeError, match=r'E_EXTRA_SOURCE: source job is owned by a running worker'):
             runner.run_extra(run_args)
-    lock.chmod(0o444)  # a lock file of another user: the shared hold opens it for reading
+    opened = []
+    real_open = type(lock).open
+
+    def refuse_append(path, mode='r', *args, **kwargs):  # a lock file of another user, or a read-only mount
+        opened.append((path.name, mode))
+        if path == lock and mode == 'a':
+            raise OSError(errno.EROFS, 'read-only file system')
+        return real_open(path, mode, *args, **kwargs)
+
     with lock.open('r') as writer:
         fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        monkeypatch.setattr(type(lock), 'open', refuse_append)
         with pytest.raises(RuntimeError, match=r'E_EXTRA_SOURCE: source job is owned by a running worker'):
             runner.run_extra(run_args)
+    assert ('.worker.lock', 'r') in opened  # the shared hold was taken on a file opened for reading
 
 
 def test_extra_elevations_hold_the_source_against_a_rerun(run_args, state, monkeypatch):

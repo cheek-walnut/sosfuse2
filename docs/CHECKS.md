@@ -45,7 +45,7 @@ there is no `--stratosphere off` option.
 On macOS, the persistent queue (`pipeline --persistent`, `test_r17_port`, `test_pipeline_persistent`) listens on a Unix
 socket under the run's temporary root, and macOS limits that path to 104 bytes. Keep `TMPDIR` and `SOSFUSE2_TEST_SCRATCH`
 short; the default `/var/folders/...` is fine, whereas a 108-byte `TMPDIR` failed with `E_PERSISTENT_SERVICE_START` in a
-fresh virtual environment outside the source tree. The five `test_pipeline_persistent` cases wait
+fresh virtual environment outside the source tree. The six `test_pipeline_persistent` cases wait
 `PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, for a 4-state NumPy reduced queue to finish.
 The public CI also sets `PERSISTENT_TEST_DEADLINE=2400`, and the CUDA G-PS check of tier 2 runs three of those cases with 900 s.
 The public CI splits this run into four shards for each platform and Python version and runs the test files of a shard
@@ -75,6 +75,7 @@ samples and of the last bit of atan2 are ordinary tests on every platform.
 
 ```sh
 pip install ".[gpu,test]"        # from a checkout of the tagged commit; not on PyPI
+python -m sosfuse2.asset_tools.prepare_minor_absorbers --download   # once: the fixtures use the O₄ asset (README, Quick start)
 python -B -m sosfuse2.checks.gate --all --out <dir>          # G-R per GPU toolchain and kernel configuration, G-P vs NumPy, G-T anchors, G-A approximate vs exact solve of the same run, G-H reduced selftest vs its record, G-PS persistent service
 python -B -m sosfuse2.checks.gate --stage --out <dir>        # repeat runs, rtol 1e-5
 ```

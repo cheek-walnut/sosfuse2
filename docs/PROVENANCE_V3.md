@@ -12,7 +12,8 @@ A reader accepts signed tables in provenance formats v3, v4 and v5 (`atmosphere/
 `E_PROVENANCE_CONTRACT`).
 
 What the reader checks is narrower than the record: `spectral.check_meta_contract` requires a known `contract` on a
-signed table and agreement of the physics, optics-state and spectral-block metadata. It does not recompute the
+signed table, a known physics identity that agrees with the table's own spectral block, and a well-formed
+`optics_state` (not its agreement with the state's parameters). It does not recompute the
 signature, does not compare `code_hashes` with the installed package, and does not read the arrays (`read_table` takes
 no metadata). The comparisons of `code_hashes` are made where a job continues or reuses earlier work
 (`E_OUTPUT_IDENTITY`, `E_EXTRA_SOURCE`, *Signature inputs*), and the rules below say how the keys of each format read.
@@ -75,8 +76,8 @@ x86_64 with CPython 3.12; other interpreters are not covered by that measurement
 `a7ccf7b1…` was produced with float64/numpy and differs per CPU architecture in the last ulp, 6 values at ≤ 1.9e-15
 relative between arm64 and x86_64. The expressions, physical constants, inputs and normalization are unchanged; what
 changed is the arithmetic implementation, the derived asset's values (≤ 4.7e-15 relative for air, ≤ 1.2e-15 for ozone) and
-its hash. These differences lie nine orders of magnitude below the 1e-6 tolerance used for
-prepared quantities. v3 tables record `ozone_profile.asset_sha256 = a7ccf7b1…` in their resolved spectral block and v4
+its hash. These differences lie nine orders of magnitude below the 1e-6 tolerance that was used for
+prepared quantities when the asset was replaced. v3 tables record `ozone_profile.asset_sha256 = a7ccf7b1…` in their resolved spectral block and v4
 tables record `05dfeb6e…`; readers compare asset hashes within the same `contract` version only.
 
 ## Signature inputs (v4 and v5)

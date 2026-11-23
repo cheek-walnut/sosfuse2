@@ -10,7 +10,8 @@ Running
 - `run_state` needs no argument. `--id` defaults to `clear_34` and `--work-root` to `./work`. `--backend auto`, the new
   default, selects `cupy` when `nvidia-smi` names a visible device and `numpy` on a machine without CUDA, and prints the
   choice; the NumPy backend turns the reduced grid on by itself. A machine where the choice is unclear stops with
-  `E_BACKEND_AUTO`. `pipeline` has the same defaults for `--states`, `--work-root` and `--backend` and still requires
+  `E_BACKEND_AUTO`: `nvidia-smi` without an answering device, CuPy without `nvidia-smi`, or a device without CuPy
+  installed. `pipeline --column-cache-plan` reads the states file alone and looks for no device. `pipeline` has the same defaults for `--states`, `--work-root` and `--backend` and still requires
   `--ids` or `--plan`. A command typed in full behaves as before.
 - `run_state` and `pipeline` accept `--config NAME`, `--ground-sh 0|16|24|32`, `--device-profile NAME`,
   `--compile-cache DIR` and `--attach-cache DIR|off`. Each sets the variable it replaces for that run and takes
@@ -32,7 +33,8 @@ Corrections
   source under the same name could rewrite `source.npz` while the derived job read it, so the arrays used and the
   recorded `source_sha256` could come from different files. A derived job now stops with `E_EXTRA_SOURCE` while a worker
   writes the source, a rerun of the source started during a derived job stops with `E_OUTPUT_BUSY`, and several derived
-  jobs can still read one source at once.
+  jobs can still read one source at once. A lock file that the user cannot write, or one on a read-only mount, is held
+  through a read-only handle.
 - `Solver.query` restores the active-lane mask when the transport raises, so a later `apply()` on the same solver keeps
   its inactive lanes.
 - The counting sort of the split kernel reads the cell-range error before `vp_scatter` runs, so a record outside the
@@ -65,7 +67,8 @@ Checks
   recorded for every solve; the public CSV requires the 44 view rows of A0 that its header states (`E_PUBLIC_GRID`). `bake_engine.sh` clears `SOSFUSE2_FMAD` and
   `SOSFUSE2_FASTMATH` inherited from the shell.
 - The tests of the files that took 20 s or longer carry the marker `heavy`; `-m "not heavy"` runs the others in a few
-  minutes, and the public CI runs that selection first (`quick`) and the full shards after it.
+  minutes, and the public CI runs that selection first (`quick`, after fetching the IPRT inputs once) and the full
+  shards after it.
 
 Documentation
 
@@ -75,6 +78,9 @@ Documentation
   runs of one build, neither against a fixed reference. The gate commands are written in full.
 - `docs/PROVENANCE_V3.md` says which writers sign a table, what the signature covers, what reading a table checks and
   the full conditions under which `--extra-elevations` reuses a stored source.
+- `README.md` lists as a limitation that `outputs/radiance_table` and `jobs/tables_from_sources` do not notice a
+  changed optics table outside the package when its path is the same. `docs/VALIDATION.md` states that 1.8.0 reuses
+  the comparisons recorded for 1.7.0.
 - `docs/validation/mystic/README.md`: the merge example lists real arguments, the profile name of releases before
   1.6.0 is noted, and the settings pairs that the extraction accepts are listed.
 
