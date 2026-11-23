@@ -14,7 +14,10 @@ privileges.
 The build script installs `netcdf-bin`, which provides `ncgen` for input generation.
 Engine tables require a CUDA GPU, CuPy and the `zstd` command.
 Kernel options follow the sosfuse2 device profile of the GPU. The recorded tables used the profile now named `cuda`. The commands below select it explicitly
-to reproduce the same kernel options across GPUs.
+to reproduce the same kernel options across GPUs. Releases before 1.6.0 have another name for that profile and stop
+with `E_DEVICE_PROFILE` at `cuda`; `backends/configs/devices.json` of the installed release lists its profile names.
+`bake_engine.sh` clears `SOSFUSE2_FMAD` and `SOSFUSE2_FASTMATH` inherited from the shell, so those two options come
+from the profile as the CSV header states.
 Set `PYTHON` to the Python executable when it is not `python`.
 
 Prepare the O₄ asset before exporting optics.
@@ -67,12 +70,16 @@ contents.
 Merge them after all shards have finished:
 
 ```sh
-"$PYTHON" -B "$H/merge_shards.py" --work "$WORK" --shards "$SHARD1" "$SHARD2" ... --output "$MERGED"
+"$PYTHON" -B "$H/merge_shards.py" --work "$WORK" --shards "$SHARD1" "$SHARD2" --output "$MERGED"
 ```
+
+List the working directory of every shard after `--shards`; the example has two.
 
 Use `$MERGED` as the working directory for baking, engine extraction, comparison and CSV generation.
 Passing `--arms A0,A1,A2` enables the additional engine settings for baking, extraction and comparison;
-`--arms-file` names another file of engine settings in the format of `arms.json`.
+`--arms-file` names another file of engine settings in the format of `arms.json`. Extraction accepts only the bundled
+definitions of `path_n` and `L` (A0 12 and 16, A1 24 and 16, A2 12 and 24) and stops with `E_ARM_DEFINITION` on any
+other pair after the bake, so such a file may change other settings only.
 
 ## Small run
 

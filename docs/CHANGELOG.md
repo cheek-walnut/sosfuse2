@@ -3,6 +3,85 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.8.0
+
+Running
+
+- `run_state` needs no argument. `--id` defaults to `clear_34` and `--work-root` to `./work`. `--backend auto`, the new
+  default, selects `cupy` when `nvidia-smi` names a visible device and `numpy` on a machine without CUDA, and prints the
+  choice; the NumPy backend turns the reduced grid on by itself. A machine where the choice is unclear stops with
+  `E_BACKEND_AUTO`. `pipeline` has the same defaults for `--states`, `--work-root` and `--backend` and still requires
+  `--ids` or `--plan`. A command typed in full behaves as before.
+- `run_state` and `pipeline` accept `--config NAME`, `--ground-sh 0|16|24|32`, `--device-profile NAME`,
+  `--compile-cache DIR` and `--attach-cache DIR|off`. Each sets the variable it replaces for that run and takes
+  precedence over it; the variables keep working. `docs/ENVIRONMENT.md` lists the options first and orders the variables
+  by who sets them.
+- `E_STATE_ID` names the state and the states file.
+
+Corrections
+
+- NumPy backend: the ground boundary computes the end columns of the selected profiles and of the stratospheric layer
+  by the selected column method (`SOSFUSE2_COLUMN_METHOD`) instead of always walking GL24, as the CUDA backend does.
+  Only states with a nonzero albedo and a method other than `gl24` change. The fixed NumPy references have zero albedo
+  and are unchanged.
+- A warm ray-range pass with a projected single launch (`SOSFUSE2_KERNEL_FLAGS` with `WARM_RAYSPLIT`,
+  `SOSFUSE2_FL_PROJECT=1`, `SOSFUSE2_KSPLIT=0`) no longer stops with `KeyError`.
+- The attach cache key of the stratospheric ground geometry includes `rays/incoming_quadrature.py` and
+  `rays/shell_segments.py`. Attach caches are rebuilt once.
+- `--extra-elevations` holds the source job's `<out>/.worker.lock` shared for its whole run. Before, a rerun of the
+  source under the same name could rewrite `source.npz` while the derived job read it, so the arrays used and the
+  recorded `source_sha256` could come from different files. A derived job now stops with `E_EXTRA_SOURCE` while a worker
+  writes the source, a rerun of the source started during a derived job stops with `E_OUTPUT_BUSY`, and several derived
+  jobs can still read one source at once.
+- `Solver.query` restores the active-lane mask when the transport raises, so a later `apply()` on the same solver keeps
+  its inactive lanes.
+- The counting sort of the split kernel reads the cell-range error before `vp_scatter` runs, so a record outside the
+  cell range stops with `E_VPROD_CELL_RANGE` before that kernel indexes its counters with it. The key sort used for
+  larger grids is unchanged.
+- The column workers compare `atmosphere/density.py`, `atmosphere/stratosphere.py` and `precompute/column_parallel.py`
+  with the parent as well (`E_COLUMN_WORKER_SOURCE_DRIFT`).
+- `asset_tools/iprt.fetch` writes to a temporary file of its own in every thread; two threads fetching one input at the
+  same time could fail with `FileNotFoundError`.
+- Cache store: a pull reports `E_CACHE_LOCAL_PARTIAL` for a mirror build that kept its completion marker and lost
+  `layout.json` or an array, where it reported the build as present, and publishes no aerosol column under such a
+  build (`E_CACHE_ORPHAN`). A manifest whose rows are not `[name, bytes, sha256]`, or that lists no file, is
+  `E_CACHE_MANIFEST` for that unit instead of an internal error that ended the whole pull.
+  When a push cannot write the endpoints tar of a geometry key for lack of disk space, finds another copy stored
+  first, or finds the stored tar refused, it keeps the aerosol columns of that key back and lists them under
+  `orphans`; before, they were uploaded without the build they need. A push that ends on a transfer error reports as
+  before.
+
+Checks
+
+- Checks that could pass without comparing now fail: the A6 verdict includes the ground reference comparison and
+  needs a sample, the A2 command exits 1 on FAIL, the Mie judgement needs a finite control and names the control it
+  used, and an empty baseline pair is not a pass. `test_tropo_mie` refuses `--gpu` together with `--recheck`.
+- The offline skip of the tests applies only when `E_IPRT_OFFLINE` is the error itself or the error line of a quoted
+  traceback.
+- `gate --bless` refuses runs that are not CUDA runs or lack `solve.json` (`E_GATE_CONFIG`). A solve child that ends
+  without an `E_` code leaves the last line of its log as the reason (`E_GATE_CHILD`). `gate --all --reuse` lists the
+  checks it did not run under `not_run`.
+- MYSTIC comparison scripts: the extraction requires a CUDA run and, for tables of 1.7.0 and later, ground order 24
+  recorded for every solve; the public CSV requires the 44 view rows of A0 that its header states (`E_PUBLIC_GRID`). `bake_engine.sh` clears `SOSFUSE2_FMAD` and
+  `SOSFUSE2_FASTMATH` inherited from the shell.
+- The tests of the files that took 20 s or longer carry the marker `heavy`; `-m "not heavy"` runs the others in a few
+  minutes, and the public CI runs that selection first (`quick`) and the full shards after it.
+
+Documentation
+
+- `docs/MODEL.md` states when an empty extension above 80 km reproduces the 80 km result for a stratospheric layer: a
+  layer with mass near 80 km changes the value of the top node. A test fixes that behaviour; the numbers are unchanged.
+- `README.md` names the reference of each check: G-A compares two solves of one run and the repeat check compares
+  runs of one build, neither against a fixed reference. The gate commands are written in full.
+- `docs/PROVENANCE_V3.md` says which writers sign a table, what the signature covers, what reading a table checks and
+  the full conditions under which `--extra-elevations` reuses a stored source.
+- `docs/validation/mystic/README.md`: the merge example lists real arguments, the profile name of releases before
+  1.6.0 is noted, and the settings pairs that the extraction accepts are listed.
+
+The code identity changes, so reusing earlier outputs or saved sources can fail the existing identity checks
+(`E_OUTPUT_IDENTITY`, `E_EXTRA_SOURCE`), staged runs from different code cannot be blessed, and geometry
+and host caches are rebuilt on first use.
+
 ## 1.7.1
 
 - `tests/test_bake_tolerance.py::test_solve_arguments_cross_process` starts `run_state` with `--threads` set to the usable

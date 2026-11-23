@@ -24,6 +24,8 @@ while (( $# )); do
 done
 export SOSFUSE2_WORK_ROOT=${SOSFUSE2_WORK_ROOT:-"$WORK/sosfuse2_root"}
 export SOSFUSE2_DETERMINISTIC=1 SOSFUSE2_GROUND_SH_L=24
+# The CSV header states FMAD and FASTMATH as the device profile sets them; a value left in the shell would override it.
+unset SOSFUSE2_FMAD SOSFUSE2_FASTMATH
 flags=$("$PYTHON" -B -m sosfuse2.backends.flags_env C3) || exit 2
 eval "$flags"
 if [[ -z $STATES ]]; then

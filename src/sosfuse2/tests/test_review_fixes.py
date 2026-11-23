@@ -263,3 +263,108 @@ def test_stratospheric_source_density_under_an_extended_top(refine):
             assert high[n - 1] == low[n - 1] == 0
         else:
             assert 0 < high[n - 1] < low[n - 1]
+
+
+def test_query_restores_the_active_lanes_after_an_error():
+    from sosfuse2.solve import engine_core
+
+    class PackFailed(Exception):
+        pass
+
+    def pack(*_):
+        raise PackFailed
+
+    up, east = np.array([0.0, 0.0, 1.0]), np.array([1.0, 0.0, 0.0])
+    probe = types.SimpleNamespace(frame=lambda *_: (up, up, east))
+    shell = types.SimpleNamespace(old=types.SimpleNamespace(probe=probe), OBS=0.0)
+    solver = types.SimpleNamespace(
+        ctx=types.SimpleNamespace(b=types.SimpleNamespace(sh=shell, R=1.0)),
+        W=1, ms=None, active=np.array([1, 0]), geo=types.SimpleNamespace(pack=pack), kernel=None,
+    )
+    with pytest.raises(PackFailed):
+        engine_core.Solver.query(solver, 0.0, 10.0, 0.0)
+    assert solver.active.tolist() == [1, 0]
+
+
+def test_column_workers_compare_every_package_module_their_task_imports():
+    import ast
+
+    from sosfuse2.precompute import column_parallel
+
+    watched = set(column_parallel.source_hashes())
+    task = ast.parse(inspect.getsource(column_parallel._run))
+    imported = {
+        'atmosphere/' + node.module.rsplit('.', 1)[-1] + '.py'
+        for node in ast.walk(task)
+        if isinstance(node, ast.ImportFrom) and node.level == 2 and node.module.startswith('atmosphere.')
+    }
+    assert imported == {'atmosphere/density.py', 'atmosphere/stratosphere.py'}
+    assert imported | {'precompute/column_parallel.py'} <= watched
+
+
+def test_two_threads_fetching_one_input_do_not_share_a_temporary_file(tmp_path, monkeypatch):
+    import hashlib
+    import threading
+
+    from sosfuse2.asset_tools import iprt
+
+    data = b'profile'
+    both = threading.Barrier(2)
+
+    class Reply:
+        def __enter__(self):
+            both.wait(timeout=30)  # both callers have missed the cache before either writes
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return data
+
+    monkeypatch.setattr(iprt, 'FILES', {'input.dat': hashlib.sha256(data).hexdigest()})
+    monkeypatch.setattr(iprt, 'cache_dir', lambda: tmp_path)
+    monkeypatch.setattr(iprt.urllib.request, 'urlopen', lambda *_, **__: Reply())
+    made = []
+    replace = os.replace
+
+    def record(source, target):
+        made.append(Path(source).name)
+        replace(source, target)
+
+    monkeypatch.setattr(iprt.os, 'replace', record)
+    errors = []
+
+    def fetch():
+        try:
+            iprt.fetch('input.dat', offline=False)
+        except Exception as exc:  # noqa: BLE001 - the test reports whatever a caller raised
+            errors.append(exc)
+
+    threads = [threading.Thread(target=fetch) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == [] and len(set(made)) == 2 and (tmp_path / 'input.dat').read_bytes() == data
+    assert sorted(path.name for path in tmp_path.iterdir()) == ['input.dat']
+
+
+def test_record_cell_range_stops_the_sort_before_the_scatter_kernel():
+    from sosfuse2.solve import ksplit
+
+    launched = []
+
+    def get_function(name):
+        def kernel(_grid, _block, arguments, **_):
+            launched.append(name)
+            if name == 'vp_count':
+                arguments[-1][0] = 1  # the kernel reports a record whose cell is outside the grid
+
+        return kernel
+
+    solver = types.SimpleNamespace(xp=np, vprod_plan_module=lambda: types.SimpleNamespace(get_function=get_function))
+    kb = dict(chunks=[(0, 1)], pcum=np.array([0, 2]), co=np.array([0, 1]), plans={})
+    with pytest.raises(ValueError, match='E_VPROD_CELL_RANGE'):
+        ksplit.KsplitMixin.vprod_build_plan(solver, kb, 0, None, np.zeros(8, 'i4'), 2, 2)
+    assert launched == ['vp_count']

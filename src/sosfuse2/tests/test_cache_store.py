@@ -621,3 +621,44 @@ def test_legacy_loose_store_is_read_only_and_migrates(tmp_path, store):
     new = cs.pull(tmp_path / 'm3')
     assert new['codes'] == [] and new['legacy_skipped'] == []
     assert content(tmp_path / 'm3') == content(tmp_path / 'm2')
+
+
+def test_push_keeps_an_aerosol_column_back_when_its_endpoints_tar_fails(tmp_path, store, monkeypatch):
+    """No room to write the tar: the aerosol column that needs that endpoints build stays local with it, and the next
+    push sends both."""
+    src = tmp_path / 'cache'
+    e = tree(src)
+    column = f'{e}/aerosol/H_0x1.3333333333333p+0.f4'
+    with monkeypatch.context() as patch:
+        patch.setattr(cs, 'DISK_MARGIN', 1 << 62)
+        row = cs.push(src)
+    assert 'E_CACHE_DISK_LOW' in row['codes'] and column in row['orphans']
+    assert files(store.remote) == store_files(e) - {e + '.tar', column}  # units that need no endpoints still travel
+    assert row['units_sent'] + len(row['orphans']) + len(row['conflicts']) == row['units']
+    assert cs.push(src)['codes'] == ['E_CACHE_ORPHAN'] and files(store.remote) == store_files(e)
+
+
+@pytest.mark.parametrize('rows', [[['packed/layout.json', 'a' * 64]], [['packed/layout.json', -1, 'a' * 64]],
+                                  [['packed/layout.json', 3, 'A' * 64]], [['packed/layout.json', True, 'a' * 64]],
+                                  [], {}, ''])
+def test_manifest_rows_have_a_name_a_size_and_a_sha256(rows):
+    data = json.dumps(dict(format=cs.FORMAT, key='geometry/endpoints_' + SIG, files=rows,
+                           content_sha256=cs.hashlib.sha256(json.dumps(rows).encode()).hexdigest()))
+    with pytest.raises(cs.CacheStoreError) as caught:
+        cs._manifest_json(data)
+    assert caught.value.code == 'E_CACHE_MANIFEST'
+
+
+def test_pull_reports_a_mirror_build_that_kept_only_its_marker(tmp_path, store):
+    src = tmp_path / 'cache'
+    e = tree(src)
+    cs.push(src)
+    mirror = tmp_path / 'mirror'
+    cs.pull(mirror)
+    column = f'{e}/aerosol/H_0x1.3333333333333p+0.f4'
+    (mirror / e / 'packed/layout.json').unlink()
+    (mirror / column).unlink()
+    row = cs.pull(mirror)
+    assert row['failed'] == {e: 'E_CACHE_LOCAL_PARTIAL', column: 'E_CACHE_ORPHAN'} and row['published'] == 0
+    assert not (mirror / e / 'packed/layout.json').exists()  # reported, never replaced
+    assert not (mirror / column).exists()  # and nothing new is put under a build that cannot be opened

@@ -1749,7 +1749,25 @@ def run_extra(a):
 
     configure(default_root(a.work_root), a.backend, a.block_size)
     os.environ['CUDA_CACHE_PATH'] = str(prepare / 'cuda_driver_cache')
+    source_lock = None
     try:
+        # run() rewrites tmp/<source>/source.npz and out/<source>/ in place while it holds out/<source>/.worker.lock.
+        # A shared hold for this whole job admits other derived jobs and makes a rerun of the source stop with
+        # E_OUTPUT_BUSY, so the arrays loaded, the SHA recorded and the anchor rows all come from one source.
+        try:
+            source_lock = (src_out / '.worker.lock').open('a')
+        except FileNotFoundError:
+            raise RuntimeError('E_EXTRA_SOURCE: source job meta missing')
+        except PermissionError:
+            try:  # another user's lock file: a shared hold needs no write access
+                source_lock = (src_out / '.worker.lock').open('r')
+            except FileNotFoundError:
+                pass  # a read-only source folder that no worker has locked: nothing to hold
+        if source_lock is not None:
+            try:
+                fcntl.flock(source_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RuntimeError('E_EXTRA_SOURCE: source job is owned by a running worker (.worker.lock)')
         phase(name, 'source_reuse_start', source_out_name=a.source_out_name)
         try:
             source_meta = json.loads((src_out / 'meta.json').read_text())
@@ -1946,6 +1964,8 @@ def run_extra(a):
         phase(name, 'pack_done', bytes=pack.stat().st_size, geometry_cache_removed=False, reason='no_geometry')
     finally:
         stop.set()
+        if source_lock is not None:
+            source_lock.close()
 
 
 DEFAULT_ID = 'clear_34'  # the state of the README quick start

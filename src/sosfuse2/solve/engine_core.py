@@ -216,11 +216,13 @@ class Solver:
         field = self.ms if field is None else field
         active = self.active.copy()
         self.active[:] = 1
-        for j in range(0, len(d), 64):
-            dd = d[j : j + 64]
-            raw = self.geo.pack(np.broadcast_to(p, dd.shape), dd, getattr(self.geo, 'query_n', 24))
-            out[j : j + len(dd)] = self.kernel.transport(raw, self, field, first)[..., :3].sum(-1)
-        self.active = active
+        try:
+            for j in range(0, len(d), 64):
+                dd = d[j : j + 64]
+                raw = self.geo.pack(np.broadcast_to(p, dd.shape), dd, getattr(self.geo, 'query_n', 24))
+                out[j : j + len(dd)] = self.kernel.transport(raw, self, field, first)[..., :3].sum(-1)
+        finally:
+            self.active = active  # also after an error, so a later apply() on this solver keeps its inactive lanes
         return out.reshape(*shape, self.W, 2) * self.solar[:, None]
 
     def boxes(self, field, first=False):

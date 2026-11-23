@@ -1,6 +1,8 @@
 # Provenance records: v3 → v4 → v5
 
-The `meta.json` of every table carries `contract`, `signature` and `code_hashes`. Legacy upstream tables
+The `meta.json` of a table written by `jobs/run_state.py` or `jobs/tables_from_sources.py` carries `contract`,
+`signature` and `code_hashes`. A table written by the `outputs/radiance_table` command on its own carries `contract`
+without the other two, and merged tables are described under *Reader rule*. Legacy upstream tables
 use v3, tables baked from the `sosfuse2` package up to 1.3.4 are v4, and tables baked from 1.4.0 on are v5
 (`jobs/run_state.py` `CONTRACT_VERSION`). This note is for readers that hold these provenance formats.
 
@@ -9,10 +11,15 @@ use v3, tables baked from the `sosfuse2` package up to 1.3.4 are v4, and tables 
 A reader accepts signed tables in provenance formats v3, v4 and v5 (`atmosphere/spectral.py`, the list next to
 `E_PROVENANCE_CONTRACT`).
 
-- When `contract == 'v3'`, the reader keeps the existing reading and verification semantics, with the
-  repository-relative keys in *Keys*. Such tables are verified in place; they are neither rejected nor accepted without
-  checking, and they are not re-baked or re-signed to v4 or v5.
-- When `contract == 'v4'`, `code_hashes` uses package-relative keys, and readers compare hashes by logical key rather
+What the reader checks is narrower than the record: `spectral.check_meta_contract` requires a known `contract` on a
+signed table and agreement of the physics, optics-state and spectral-block metadata. It does not recompute the
+signature, does not compare `code_hashes` with the installed package, and does not read the arrays (`read_table` takes
+no metadata). The comparisons of `code_hashes` are made where a job continues or reuses earlier work
+(`E_OUTPUT_IDENTITY`, `E_EXTRA_SOURCE`, *Signature inputs*), and the rules below say how the keys of each format read.
+
+- When `contract == 'v3'`, `code_hashes` has the repository-relative keys in *Keys*. Such tables are read in place;
+  they are not re-baked or re-signed to v4 or v5.
+- When `contract == 'v4'`, `code_hashes` uses package-relative keys, so a comparison goes by logical key rather
   than by file location.
 - When `contract == 'v5'` (`jobs/run_state.py` `CONTRACT_VERSION`), `code_hashes` uses package-relative keys that carry
   the folder and the content identities of `foundation/content_identity.py` under rule identifier
@@ -20,9 +27,9 @@ A reader accepts signed tables in provenance formats v3, v4 and v5 (`atmosphere/
 - Any other value on a signed table, that is a `meta.json` with `signature` written by `jobs/run_state.py`, is an error
   (`atmosphere/spectral.py`, `spectral.check_meta_contract`, `E_PROVENANCE_CONTRACT`). Readers of 1.3.4 and earlier
   refuse v5 tables with `E_PROVENANCE_CONTRACT`.
-- A derived table without a signature is not a signed provenance record. Upstream merge tools write their own descriptive text into `contract`. Readers apply the v3, v4 or v5 key rules to the
-  signed source tables of such a table rather than to the table itself, and may pair it with a signed table; the product
-  twilight/day pair is exactly that.
+- A derived table without a signature is not a signed provenance record. Upstream merge tools write their own descriptive text into `contract`. The v3, v4 or v5 key rules belong to the
+  signed source tables of such a table rather than to the table itself, and the reader does not open those source
+  tables. Such a table may be paired with a signed table; the product twilight/day pair is exactly that.
 
 ## Keys
 
@@ -52,13 +59,13 @@ The `usstd76` ozone profile asset (`density.ASSET_KEY`) is regenerated from the 
 `density.ASSET_SHA256`. When the generator's arithmetic implementation changes without changing formulas, inputs or
 normalization, the earlier digest is kept in `density.ASSET_SHA256_SUPERSEDED`, and readers treat a block or table whose
 `ozone_profile.asset_sha256` is one of those digests as the same logical asset (`ozone_temperature.same_profile_identity`,
-used by `spectral.check_asset`, `resolve` and `representative`). A digest outside that set is another asset and is refused
-(`E_OZONE_T_ASSET_SHA`). New tables always record the current digest, and re-resolving a block that carries a superseded
+used by `spectral.check_asset`, `resolve` and `representative`). A digest outside that set is another asset and those
+checks refuse it (`E_OZONE_T_ASSET_SHA`); reading the metadata of a table alone does not run them. New tables always record the current digest, and re-resolving a block that carries a superseded
 digest records the current one.
 
 | digest | generation | why superseded |
 |---|---|---|
-| `a7ccf7b1…` | float64/numpy generator | last-ulp values differed between arm64 and x86_64 (6 values, ≤1.9e-15), so a pinned digest could not hold across platforms; the decimal generator (`05dfeb6e…`) gives the same bytes everywhere, values within 4.7e-15 of this one |
+| `a7ccf7b1…` | float64/numpy generator | last-ulp values differed between arm64 and x86_64 (6 values, ≤1.9e-15), so a pinned digest could not hold across platforms; the decimal generator (`05dfeb6e…`) gave the same bytes on both platforms measured below, values within 4.7e-15 of this one |
 
 The current `usstd76_profile.json` asset is regenerated from the IPRT inputs with `decimal` arithmetic. Its libmpdec
 implementation is the same C algorithm in every CPython build, independent of libm and SIMD width; its `power()` is
@@ -78,6 +85,12 @@ The signed dictionary has the keys `contract`, `physics`, `optics_state`, `state
 `polarization_model`, `tolerance`, `code_hashes` and `grid`, plus `derived` when a derived source is used. Its signature is
 `hashlib.sha256(json.dumps(signed, sort_keys=True, allow_nan=False).encode()).hexdigest()`.
 
+This is the dictionary of `jobs/run_state.py` (`signed_contract`). It identifies the inputs of a job: neither the table
+arrays nor the bytes of a stored source enter it, and a table made from a stored source records that file separately as
+`source_sha256`. `jobs/tables_from_sources.py` signs a dictionary of its own (`signature_of`): `physics`,
+`optics_state`, `state`, `backend`, `reduced`, the wavelengths, solar elevations and view shape, `tolerance`,
+`code_hashes`, and `settings` when given.
+
 `package_version` and `package_commit` are outside the signed dictionary. The version literal in production source
 contributes through `code_hashes`. `package_version` is the installed metadata
 version when that metadata describes the loaded package, `sosfuse2.__version__` when it belongs to another installed copy,
@@ -91,9 +104,16 @@ records the same value, or `GATE_SOURCE_COMMIT`.
 
 The code identity for baseline updates (`gate.code_identity`) is the same `package_hashes()` manifest minus `sosfuse2/checks/gate.py`, plus
 `checks/gate_data/fixtures.json`, `backends/configs/{C3,C3_nostrato,devices}.json` and the ozone asset under its logical key, in one manifest
-for both versions. A derived table (`--extra-elevations`) reuses a stored source only when
-`contract, id, settings, backend, polarization_model, mode, code_hashes` match; `package_version` and `package_commit`
-are recorded in its meta but are not a reuse condition.
+for both versions. A derived table (`--extra-elevations`) reuses a stored source only when the source job is complete, its
+`contract, physics, id, settings, backend, polarization_model, mode, code_hashes` match, it recorded its density
+profile, and its requested and computed optical state equal those of the derived job; the source file then passes the
+checks of `radiance_table.load_source` (`E_SOURCE_DENSITY` and `E_SOURCE_TOL` below among them). After the tables are
+made, the density record of the derived job must equal that of the source job, and its rows at −3° and −6° must differ
+from the source job's table by at most 1e-6 of the row maximum (`E_EXTRA_ANCHOR`). `package_version` and
+`package_commit` are recorded in its meta but are not a reuse condition. For its whole run the derived job holds the
+source job's `<out>/.worker.lock` shared: it stops with `E_EXTRA_SOURCE` while a worker is writing that source, several
+derived jobs may read one source at once, and a rerun of the source started meanwhile stops with `E_OUTPUT_BUSY`. Only
+a source folder that the user cannot write and that holds no lock file is read without the lock.
 
 ## v3 to v4: signatures, caches and regression evidence
 

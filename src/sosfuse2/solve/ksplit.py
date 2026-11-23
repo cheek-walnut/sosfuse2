@@ -772,6 +772,8 @@ class KsplitMixin:
             counts = xp.empty(ncell * nb, 'i4')
             args = (np.int64(n), c0cp, np.int32(nc), np.int32(ncell), np.int32(seg), np.int32(nb))
             mod.get_function('vp_count')((nb,), (T,), args + (counts, err), shared_mem=4 * ncell)
+            if int(err[0]):  # before vp_scatter, which indexes its shared counters by the record cell
+                raise ValueError(f'E_VPROD_CELL_RANGE: a record cell is outside 0..{ncell - 1} (chunk {ci})')
             offs = xp.cumsum(counts, dtype=xp.int32)
             offs -= counts
             mod.get_function('vp_scatter')((nb,), (32,), args + (offs, slot), shared_mem=4 * ncell)
@@ -780,8 +782,6 @@ class KsplitMixin:
                 g(ncell + 1), (T,), (np.int32(ncell), np.int32(nb), np.int64(nrec), offs, rstart)
             )
             mod.get_function('vp_fill_cell')((ncell,), (T,), (np.int32(ncell), rstart, cell))
-            if int(err[0]):
-                raise ValueError(f'E_VPROD_CELL_RANGE: a record cell is outside 0..{ncell - 1} (chunk {ci})')
             del err, counts, offs
         elif nrec:  # more cells than one block's shared counters: the key sort (same slot/cell)
             key = xp.empty(n, xp.uint64)

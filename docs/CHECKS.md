@@ -47,7 +47,7 @@ socket under the run's temporary root, and macOS limits that path to 104 bytes. 
 short; the default `/var/folders/...` is fine, whereas a 108-byte `TMPDIR` failed with `E_PERSISTENT_SERVICE_START` in a
 fresh virtual environment outside the source tree. The five `test_pipeline_persistent` cases wait
 `PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, for a 4-state NumPy reduced queue to finish.
-The public CI also sets `PERSISTENT_TEST_DEADLINE=2400`, and the CUDA G-A check of tier 2 runs the same cases with 900 s.
+The public CI also sets `PERSISTENT_TEST_DEADLINE=2400`, and the CUDA G-PS check of tier 2 runs three of those cases with 900 s.
 The public CI splits this run into four shards for each platform and Python version and runs the test files of a shard
 side by side, one file per worker (`pytest-xdist` with `--dist loadfile`, one worker per CPU), because most files keep a
 single core busy. `.github/ci/ci_shard.py` assigns whole files to shards by the measured file times in
@@ -75,7 +75,7 @@ samples and of the last bit of atan2 are ordinary tests on every platform.
 
 ```sh
 pip install ".[gpu,test]"        # from a checkout of the tagged commit; not on PyPI
-python -B -m sosfuse2.checks.gate --all --out <dir>          # G-R per GPU toolchain and kernel configuration, G-P vs NumPy, G-T anchors, G-A queue parity, H historical selftest, PS persistent service
+python -B -m sosfuse2.checks.gate --all --out <dir>          # G-R per GPU toolchain and kernel configuration, G-P vs NumPy, G-T anchors, G-A approximate vs exact solve of the same run, G-H reduced selftest vs its record, G-PS persistent service
 python -B -m sosfuse2.checks.gate --stage --out <dir>        # repeat runs, rtol 1e-5
 ```
 

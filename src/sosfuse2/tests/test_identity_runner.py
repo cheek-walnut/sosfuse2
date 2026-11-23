@@ -304,6 +304,74 @@ def test_old_extra_source_rejected_with_reason(run_args, state, monkeypatch, ver
         runner.run_extra(run_args)
 
 
+def stale_source(run_args, state, monkeypatch):
+    """A finished source job without a density record, so run_extra stops at the first comparison after reading it."""
+    from sosfuse2.backends import compile_cache
+
+    monkeypatch.setattr(compile_cache, 'configure', lambda *args: None)
+    monkeypatch.setattr(runner.threading, 'Thread', lambda **kw: SimpleNamespace(start=lambda: None))
+    for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS',
+                 'NUMEXPR_NUM_THREADS', 'BLIS_NUM_THREADS', 'CUDA_CACHE_PATH'):
+        monkeypatch.delenv(name, raising=False)  # run_extra sets them; the fixture puts the earlier values back
+    out = run_args.work_root / 'out' / 'source'
+    out.mkdir(parents=True)
+    source_dir = run_args.work_root / 'tmp' / 'source'
+    source_dir.mkdir(parents=True)
+    (source_dir / 'source.npz').touch()
+    meta = dict(complete=True, contract=runner.CONTRACT_VERSION, physics=physics(), optics_state=optics_state(state),
+                id=state['id'], settings=settings(state), backend='numpy', polarization_model='depolarizing',
+                mode='reduced-validation', code_hashes={'module': 'current'})
+    (out / 'meta.json').write_text(json.dumps(meta))
+    return out / '.worker.lock'
+
+
+def test_extra_elevations_stop_while_a_worker_writes_the_source(run_args, state, monkeypatch):
+    import fcntl
+
+    lock = stale_source(run_args, state, monkeypatch)
+    with lock.open('a') as writer:  # run() holds this lock while it rewrites source.npz, table.npz and meta.json
+        fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(RuntimeError, match=r'E_EXTRA_SOURCE: source job is owned by a running worker'):
+            runner.run_extra(run_args)
+    lock.chmod(0o444)  # a lock file of another user: the shared hold opens it for reading
+    with lock.open('r') as writer:
+        fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(RuntimeError, match=r'E_EXTRA_SOURCE: source job is owned by a running worker'):
+            runner.run_extra(run_args)
+
+
+def test_extra_elevations_hold_the_source_against_a_rerun(run_args, state, monkeypatch):
+    import fcntl
+
+    lock = stale_source(run_args, state, monkeypatch)
+    seen = {}
+
+    def phase(_name, event, **_info):
+        if event != 'source_reuse_start':
+            return
+        with lock.open('a') as other:  # a second derived job reads the same source
+            fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        with lock.open('a') as rerun:  # the source job started again under the same name
+            try:
+                fcntl.flock(rerun, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                seen['rerun'] = 'admitted'
+            except BlockingIOError:
+                seen['rerun'] = 'refused'
+
+    monkeypatch.setattr(runner, 'phase', phase)
+    with lock.open('a') as reader:  # another derived job already holds the source
+        fcntl.flock(reader, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        with pytest.raises(RuntimeError, match='E_EXTRA_SOURCE: density profile missing'):  # the first stop after the read
+            runner.run_extra(run_args)
+        assert seen == {'rerun': 'refused'}
+    seen.clear()
+    with pytest.raises(RuntimeError, match='E_EXTRA_SOURCE: density profile missing'):
+        runner.run_extra(run_args)  # alone: only this job's own hold can refuse the rerun
+    assert seen == {'rerun': 'refused'}
+    with lock.open('a') as rerun:  # released when the derived job ends, also when it ends with an error
+        fcntl.flock(rerun, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 def test_script_path_peak():
     import runpy
 

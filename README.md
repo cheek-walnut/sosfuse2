@@ -236,17 +236,20 @@ Production queues and reference checks use these settings:
 
 ## Numerical tolerances
 
-Each check compares results against a fixed reference at its stated tolerance, while G-R records hash and numerical
-differences without blocking.
+G-P, G-T, G-H and G-F compare results against fixed references at the stated tolerance. G-R records hash and numerical
+differences without blocking. G-A and the repeat check have no fixed reference: G-A compares two solves of one run, and
+the repeat check compares runs of one build with each other.
 
 | check | compares | tolerance |
 |---|---|---|
 | G-R | CUDA outputs vs the baseline of the matching toolchain and configuration, or the canonical baseline | none; differences recorded, not blocking |
 | G-P | CUDA kernel vs NumPy golden (fixed number of apply steps) | rtol 1e-3 |
 | G-T | anchor radiances (`checks/gate_data/anchors.json`) | ratchet, recorded |
-| G-A / H / PS | queue parity, historical reduced selftest (G-H), persistent service | per case |
-| repeat (`gate --stage`) | same build, cold vs warm, repeated runs | rtol 1e-5, max difference recorded |
-| G-F | full-grid fixed table (needs the research checkout) | rtol 1e-3 |
+| G-A | approximate fixture vs the exact fixture of the same run, which must pass its own check: radiance after the fixed apply steps and, when both were solved, the table | rtol 1e-3 (plus `--atol`, default 0); the approximate solve must converge in no more evaluations than the exact one |
+| G-H | reduced selftest vs its recorded values | per case |
+| G-PS | three persistent-service tests on the CUDA backend (parity, no state mixing, interleaving) | pass or fail |
+| repeat (`--stage`) | same build, fresh runs in separate folders (two by default); also runs G-H and G-PS | rtol 1e-5, max difference recorded |
+| G-F | full-grid fixed table, solved cold and then warm (needs the research checkout) | rtol 1e-3 |
 
 Accumulation order, lane mapping, and record layout may change between versions and are judged against these fixed
 references and tolerances. Set `SOSFUSE2_DETERMINISTIC=1` for deterministic accumulation when studies require bit-stable
@@ -262,9 +265,13 @@ repeats. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and r
    isolated temporary root without downloading HITRAN data, while optional reproduction from original data
    (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) skips when neither is set. Pass a module name to run one file, such as
    `python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2.tests.test_names`.
-2. Any CUDA machine: `python -B -m sosfuse2.checks.gate --all --out <dir>` runs G-R, G-P, G-T, G-A, H, and PS, while
-   `gate --stage --out <dir>` runs repeat checks.
-3. A CUDA machine with the research checkout: run `gate --gf --reference <table.npz> --out <dir>` (`docs/CHECKS.md`).
+2. Any CUDA machine: `python -B -m sosfuse2.checks.gate --all --out <dir>` runs G-R, G-P, G-T, G-A, G-H and G-PS, while
+   `python -B -m sosfuse2.checks.gate --stage --out <dir>` runs the repeat check.
+3. A CUDA machine with the research checkout: run
+   `python -B -m sosfuse2.checks.gate --gf --reference <table.npz> --out <dir>` (`docs/CHECKS.md`).
+
+In the tables below, `gate --all`, `gate --stage` and `gate --gf` stand for these commands, and H and PS for G-H and
+G-PS.
 
 `docs/KNOWN_FAILURES.md` lists environment-dependent outcomes.
 

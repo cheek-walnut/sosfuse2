@@ -11,6 +11,7 @@ A failed download is retried (3 attempts, short backoff) and then reported as E_
 import hashlib
 import http.client
 import os
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -61,7 +62,7 @@ def fetch(name, offline=None):
             f'E_IPRT_OFFLINE: {name} missing from {dst.parent}; download {url} and place it there (sha256 {want}). '
             + hint
         )
-    tmp = dst.with_suffix(dst.suffix + f'.{os.getpid()}.tmp')
+    tmp = dst.with_suffix(dst.suffix + f'.{os.getpid()}.{threading.get_ident()}.tmp')  # one name per caller
     for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(url, timeout=60) as r:

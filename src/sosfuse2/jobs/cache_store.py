@@ -479,6 +479,18 @@ def _manifest_json(data):
         names = [r[0] for r in m['files']]
     except (KeyError, TypeError, IndexError):
         raise CacheStoreError('E_CACHE_MANIFEST', 'manifest files') from None
+    if not (isinstance(m['files'], list) and m['files']):
+        raise CacheStoreError('E_CACHE_MANIFEST', 'manifest files')
+    for row in m['files']:  # [name, bytes, sha256]: extract_tar unpacks three fields and compares the last two
+        if not (
+            isinstance(row, list)
+            and len(row) == 3
+            and type(row[1]) is int
+            and row[1] >= 0
+            and isinstance(row[2], str)
+            and re.fullmatch('[0-9a-f]{64}', row[2])
+        ):
+            raise CacheStoreError('E_CACHE_MANIFEST', 'manifest row is not [name, bytes, sha256]')
     if (
         m.get('format') != FORMAT
         or hashlib.sha256(json.dumps(m.get('files')).encode()).hexdigest() != m.get('content_sha256')
@@ -789,6 +801,15 @@ def push(root, remote=None, work=None):
             sent.append(u.key)
         else:
             conflict(u.key, 'another copy was stored first')
+    # A unit stays behind with its endpoints build when that build's tar did not reach the store in this push or the
+    # stored tar was refused (another manifest, an unreadable one, a duplicate).
+    unstored = ({u.key for u, _ in tars} - set(sent)) | {c['key'] for c in conflicts}
+    for u in ordered(units):
+        if u.requires in unstored and u.key in sent:
+            sent.remove(u.key)
+            orphans.append(u.key)
+            content[:] = [f for f in content if f not in u.all()]
+            markers[:] = [f for f in markers if f not in u.all()]
     seconds += copy_files(root, remote, content, work)
     seconds += copy_files(root, remote, markers, work)
     codes = sorted({c['code'] for c in conflicts} | ({'E_CACHE_ORPHAN'} if orphans else set()))
@@ -839,7 +860,8 @@ def publish(u, stage, root):
         # Builder lock of jobs/run_state.py (every build and completeness check of this signature holds it).
         with flocked(root / 'geometry' / (sig + '.lock')):
             if (dst / 'packed/complete.json').exists():
-                return 'present'
+                # The marker alone is not a build: a mirror that lost layout.json or an array fails when it is opened.
+                return 'present' if _endpoints(root, u.key)[0] else 'E_CACHE_LOCAL_PARTIAL'
             if (dst / 'packed').exists():
                 return 'E_CACHE_LOCAL_PARTIAL'
             for name in ('identity.json', 'source_height.json'):
@@ -853,7 +875,7 @@ def publish(u, stage, root):
             os.rename(stage / u.key / 'packed', dst / 'packed')  # the whole build appears at once, complete.json inside
         return 'published'
     if u.kind == 'aerosol':
-        if not (root / u.requires / 'packed/complete.json').exists():
+        if not _endpoints(root, u.requires)[0]:  # the build it belongs to, complete as scan() requires
             return 'E_CACHE_ORPHAN'
         with flocked((root / u.key).with_name((root / u.key).name + '.lock')):  # ensure_column's per-height lock
             return _link(stage / u.key, root / u.key)
