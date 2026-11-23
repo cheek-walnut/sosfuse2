@@ -7,6 +7,7 @@ the production runner, and is not independent authentication of arbitrary jobs.
 """
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -229,6 +230,9 @@ def parser():
     p.add_argument('--density-profile', choices=('exp8', 'usstd76'))
     p.add_argument('--ozone-profile', choices=('triangle', 'usstd76'))
     p.add_argument('--rayleigh-column', choices=('keep', 'usstd'))
+    from sosfuse2.backends.flags_env import add_run_options  # standard library only, like this module
+
+    add_run_options(p)
     return p
 
 
@@ -767,13 +771,22 @@ def main(argv=None):
     p = parser()
     try:
         a = p.parse_args(argv)
-        a = resolve_plan(a)
-        if a.column_cache_plan:
-            return column_cache_plan(a)
-        a = validate(a)
     except (ValueError, OSError, KeyError, TypeError) as e:
         p.error(str(e))
-    return run_queue(a)
+    from sosfuse2.backends.flags_env import run_options_environment
+
+    # The option values are in the environment while the queue runs, so its children inherit them, and are taken out
+    # again when main returns or fails: a later call in the same process starts from the caller's environment.
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(run_options_environment(a, os.environ))
+            a = resolve_plan(a)
+            if a.column_cache_plan:
+                return column_cache_plan(a)
+            a = validate(a)
+        except (ValueError, OSError, KeyError, TypeError) as e:
+            p.error(str(e))
+        return run_queue(a)
 
 
 if __name__ == '__main__':

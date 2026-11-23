@@ -4,9 +4,18 @@
 usage: flags=$(python -m sosfuse2.backends.flags_env C3) && eval "$flags"
 Checks: active flags are validated by flags, none is automatic or diagnostic; retired names warn and disappear,
 block size 128/256, and the config's launch rule (single_launch) agrees with SOSFUSE2_LAUNCH_CELLS.
-Physical dependency checks run when source_solver.Kernel attaches the state."""
+Physical dependency checks run when source_solver.Kernel attaches the state.
 
+The same settings can be typed as options of jobs/run_state.py and jobs/pipeline.py: add_run_options adds
+--config, --ground-sh, --device-profile, --compile-cache and --attach-cache, and apply_run_options writes each given
+option to the environment variable that the package reads, so an option takes precedence over the variable and the
+child processes inherit it. run_options_environment does the same for the duration of one call and restores the
+variables afterwards."""
+
+import contextlib
 import json, os, sys
+from pathlib import Path
+
 from sosfuse2.foundation import paths
 
 HERE = paths.CONFIGS
@@ -47,6 +56,83 @@ def load(name):
         raise SystemExit(f'E_CONFIG_LAUNCH_CELLS: {name} needs one launch per cell grid; unset SOSFUSE2_LAUNCH_CELLS')
     c['kernel_flags'] = list(resolved.flags)
     return c
+
+
+def add_run_options(parser):
+    """Options for the settings a full run usually changes; each one sets an environment variable (apply_run_options)."""
+    parser.add_argument(
+        '--config',
+        metavar='NAME',
+        help='kernel config backends/configs/NAME.json (for instance C3): sets SOSFUSE2_KERNEL_FLAGS and '
+        'SOSFUSE2_BLOCK_SIZE',
+    )
+    parser.add_argument(
+        '--ground-sh', type=int, choices=(0, 16, 24, 32), help='ground convolution order; sets SOSFUSE2_GROUND_SH_L'
+    )
+    parser.add_argument(
+        '--device-profile', metavar='NAME', help='profile of backends/configs/devices.json; sets SOSFUSE2_DEVICE_PROFILE'
+    )
+    parser.add_argument(
+        '--compile-cache', metavar='DIR', help='CUDA runtime compilation cache; sets SOSFUSE2_COMPILE_CACHE'
+    )
+    parser.add_argument(
+        '--attach-cache', metavar='DIR|off', help='stratosphere attach cache folder, or off; sets STRATO_ATTACH_CACHE'
+    )
+
+
+def apply_run_options(args, environ):
+    """Write the given options of add_run_options into `environ`; an option that was not given leaves its variable as
+    it is. A blank --compile-cache or --attach-cache writes an empty value, which selects the default like an empty
+    variable. Raises ValueError for an unknown config and for a --block-size that differs from the config's."""
+    if args.config is not None:
+        try:
+            config = load(args.config)
+        except SystemExit as e:
+            raise ValueError(str(e)) from None
+        block = getattr(args, 'block_size', None)
+        if block is not None and block != config['block_size']:
+            raise ValueError(
+                f"E_KERNEL_BLOCK_SIZE: --block-size {block} differs from block_size {config['block_size']} "
+                f'of --config {args.config}'
+            )
+        environ['SOSFUSE2_KERNEL_FLAGS'] = ','.join(sorted(config['kernel_flags']))
+        environ['SOSFUSE2_BLOCK_SIZE'] = str(config['block_size'])
+    if args.ground_sh is not None:
+        environ['SOSFUSE2_GROUND_SH_L'] = str(args.ground_sh)
+    if args.device_profile is not None:
+        environ['SOSFUSE2_DEVICE_PROFILE'] = args.device_profile
+    if args.compile_cache is not None:
+        text = args.compile_cache.strip()
+        environ['SOSFUSE2_COMPILE_CACHE'] = str(Path(text).resolve()) if text else ''
+    if args.attach_cache is not None:
+        text = args.attach_cache.strip()
+        environ['STRATO_ATTACH_CACHE'] = 'off' if text.lower() == 'off' else str(Path(text).resolve()) if text else ''
+
+
+RUN_OPTION_VARIABLES = (
+    'SOSFUSE2_KERNEL_FLAGS',
+    'SOSFUSE2_BLOCK_SIZE',
+    'SOSFUSE2_GROUND_SH_L',
+    'SOSFUSE2_DEVICE_PROFILE',
+    'SOSFUSE2_COMPILE_CACHE',
+    'STRATO_ATTACH_CACHE',
+)
+
+
+@contextlib.contextmanager
+def run_options_environment(args, environ):
+    """apply_run_options for the duration of the block; the variables it can write are restored afterwards, also when
+    the options or the block raise."""
+    before = {name: environ.get(name) for name in RUN_OPTION_VARIABLES}
+    try:
+        apply_run_options(args, environ)
+        yield
+    finally:
+        for name, value in before.items():
+            if value is None:
+                environ.pop(name, None)
+            else:
+                environ[name] = value
 
 
 if __name__ == '__main__':

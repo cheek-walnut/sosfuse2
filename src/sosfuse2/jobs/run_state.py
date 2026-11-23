@@ -2001,6 +2001,9 @@ def build_parser():
     from sosfuse2.atmosphere.density import add_arguments
 
     add_arguments(p)
+    from sosfuse2.backends.flags_env import add_run_options
+
+    add_run_options(p)
     p.add_argument(
         '--stratosphere',
         choices=['on'],
@@ -2019,6 +2022,12 @@ def main():
         p.error('--threads must be a positive integer')
     a.work_root = a.work_root.resolve()
     a.geometry_cache = (a.geometry_cache or a.work_root / 'geometry_cache').resolve()
+    from sosfuse2.backends.flags_env import apply_run_options
+
+    try:
+        apply_run_options(a, os.environ)  # before the kernel settings, the profile and the caches are read below
+    except ValueError as e:
+        p.error(str(e))
     if a.column_cache is not None:
         os.environ['SOSFUSE2_COLUMN_CACHE'] = str(a.column_cache.resolve())
     # Column-cache job scope (column_cache.py first-use comparison): one work-root = one job, shared by
