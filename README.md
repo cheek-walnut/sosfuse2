@@ -289,6 +289,13 @@ table cover its changed default v2 states.
 1.3.3 and 1.3.4 also change documentation only and share the 1.3.2 code, with no tests or reference comparisons repeated
 beyond the CI run.
 
+Configurations verified for 1.8.0:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0 with the same results as for 1.7.0 (G-R radiance and table of the five fixtures equal to the recorded values, the fixed CUDA comparison, G-P and G-A, the five G-T pairs and G-PS passed, G-H max relative difference 1.4e-6); G-F against the fixed reference table: max relative difference 2.6e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0. On the same 10 GB GPU, `python -m sosfuse2 run_state` with no argument chose `cupy` and gave a table equal in every array to that of the command typed in full |
+| macOS arm64 | 3.14 | NumPy | release tree installed in a fresh virtual environment (`SOSFUSE2_SKY_SOS_ROOT` unset), every test module in file order: 1246 passed, 76 skipped, 0 failed |
+
 Configurations verified for 1.6.1:
 
 | platform | Python | backend | what was run |
