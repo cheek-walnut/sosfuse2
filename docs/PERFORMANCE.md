@@ -28,6 +28,23 @@ reference build, and the tables agreed within about 1e-6 of each solar elevation
 phase 0 took 810 s of GPU time with 1.8.0 and 23 s with 1.9.0, all of it on the angular direction-table path; the first
 scattering (about 126 s) and the Anderson step now take most of the remaining source solve.
 
+## MLX transport on Apple silicon (1.9.0, experimental)
+
+Measured on one otherwise idle Apple silicon Mac with 16 GB of unified memory, in the covered configuration only:
+`run_state --backend numpy --reduced --threads 2` on the check fixture state FX-N with the stratospheric layer
+disabled (AOD 0.02, black surface, 45 wavelengths in three chunks, 21 Anderson evaluations), two runs of each.
+
+| what | MLX | NumPy |
+|---|---|---|
+| whole run | 39–41 s | 79–80 s |
+| source solve | 20–21 s | 61 s |
+| of which transport passes | 0.1–0.2 s | 41 s |
+| of which observer queries (NumPy in both runs) | about 20 s | about 20 s |
+
+MLX removes nearly all of the transport time. The observer queries after each evaluation and the geometry
+preparation still run on the CPU, so the whole run is about twice as fast. On the full grid only the transport
+passes have been run with MLX; a whole full-grid table has not been timed.
+
 ## Release 1.6.1 on GPU A
 
 Both releases ran the command under *Reproducing* for `clear_34` on GPU A, using the `split` device profile and the same

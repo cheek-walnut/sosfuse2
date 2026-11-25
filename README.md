@@ -284,8 +284,9 @@ the repeat check compares runs of one build with each other.
 
 Accumulation order, lane mapping, record layout and the transport path may change between versions and are judged
 against these fixed references and tolerances. Set `SOSFUSE2_DETERMINISTIC=1` when studies require bit-stable repeats of a run on the same GPU:
-it fixes the accumulation order and turns off the angular direction table and the tabulated first-light ground phase,
-so the transport contracts the coefficients directly or uses the fused kernel. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and reference manifest.
+it fixes the accumulation order and turns off the angular direction table, the tabulated first-light ground phase and
+the GPU arithmetic for Anderson history staged in host memory, so the transport contracts the coefficients directly or
+uses the fused kernel. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and reference manifest.
 
 ## Tests and checks
 
@@ -314,6 +315,14 @@ table cover its changed default v2 states.
 
 1.3.3 and 1.3.4 also change documentation only and share the 1.3.2 code, with no tests or reference comparisons repeated
 beyond the CI run.
+
+Configurations verified for 1.9.0:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0 (G-R radiance of the five fixtures within 3.1e-5 and tables within 6.4e-6 of the recorded values, the fixed CUDA comparison, G-P and G-A, the five G-T pairs and G-PS passed, G-H max relative difference 1.3e-6); G-F against the fixed reference table: max relative difference 8.1e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0; the upper-air CUDA check against NumPy: max relative difference 1.9e-5. With `SOSFUSE2_DETERMINISTIC=1`, `gate --stage --runs 2` gave equal output hashes for the five fixtures. The CUDA test modules (projection batches, kernel occupancy, persistent pipeline) passed. On the same 10 GB GPU, the reproduction command of `docs/PERFORMANCE.md` for `clear_34` completed from an empty work root and warm |
+| macOS arm64 | 3.14 | NumPy | wheel in a fresh virtual environment, all test modules except the persistent-service and r17 port modules, in file order and in two random orders: 1272 passed, 99 skipped, 0 failed in each of the three runs |
+| macOS arm64, Apple silicon GPU (16 GB) | 3.12 | NumPy + MLX 0.32.4 (`SOSFUSE2_MLX=1`) | `run_state --backend numpy --reduced` on the check fixture state FX-N (`checks/gate_data/fixtures.json`) with the stratospheric layer disabled (its reduced-solve AOD 0.02, black surface, 45 wavelengths in three chunks): every transport call on MLX (first 3, ground 21, warm 21, none on NumPy), Anderson evaluations per chunk 10/6/5 as with NumPy, table against the NumPy run of the same tree: max difference 3.2e-6 of each solar elevation's maximum, 2.6e-5 relative over all elements; on an otherwise idle machine, two runs each with two threads: about 39–41 s against 79–80 s with NumPy (transport passes 0.1–0.2 s against 41 s; the observer queries, on NumPy in both, about 20 s). Fixed applies of the check fixture FX-N against the NumPy golden: radiance max relative difference 9.3e-5 (rtol 1e-3). `tests/test_mlx_*.py`: 17 passed |
 
 Configurations verified for 1.8.0:
 
@@ -400,7 +409,7 @@ Configurations verified for 1.2.0:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | installed sdist: `gate --all` exit 0 with all 78 test nodes passing (G-R, G-P, G-T, G-A, H, PS); the full-grid G-F reference state baked through the production queue, table byte-identical to the fixed G-F table of 1.1.0 (max relative difference 0.0), same O₄ asset |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | installed sdist: `gate --all` exit 0 with all 78 test nodes passing (G-R, G-P, G-T, G-A, H, PS); the full-grid G-F reference state baked through the production queue, table equal to the fixed G-F table of 1.1.0 (max relative difference 0.0), same O₄ asset |
 | macOS arm64 | 3.14 | NumPy | installed sdist (a fresh virtual environment outside the source tree): 524 passed, 65 skipped, 5 xfailed, 0 failed; comparison with 1.1.1 in separate interpreters: the prepared arrays of five states, with and without the host cache, at rtol 1e-6 and a reduced solve (radiance and source) at rtol 1e-5, max relative difference 0.0 |
 
 Configurations verified for 1.1.1, a documentation-only release:
