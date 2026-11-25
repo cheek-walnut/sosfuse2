@@ -3,6 +3,47 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.9.0
+
+Transport
+
+- Warm phase 0 and 1 at spherical-harmonic degree 16, 24 and 32 run in bounded, record-free chunks. Each cell's warm
+  source is evaluated once on a periodic angular grid (a cubic B-spline direction table) and the quadrature points read
+  it by interpolation instead of contracting every coefficient. When the table does not fit in memory, or with
+  `SOSFUSE2_DETERMINISTIC=1`, the transport contracts the coefficients directly or uses the fused kernel. The choice is
+  made per launch from ray density, table cost, determinism and free memory, and a resource failure restarts the pass
+  on the next path.
+- Stratospheric states use the same path: the combined coefficients carry the stratospheric component, the
+  stratospheric extinction enters the Simpson nodes, midpoints and segment ends, and direction tables are built only for
+  heights where the tropospheric aerosol or the stratospheric layer is active.
+- First-light phase 0 evaluates batches of points in parallel and reads a tabulated Henyey-Greenstein ground
+  quadrature where it applies.
+- The visitor plan, the device memory estimate and the launch split follow one work model. One cell above the
+  pre-launch work cap stops with `E_LAUNCH_BUDGET`.
+- Thin layers (aerosol or stratospheric density at most 1e-7 of the Rayleigh density) are skipped consistently on grids
+  of up to 128 heights.
+- On a 10 GB GPU, a 200 km, degree-24 state without the stratosphere solves about 13 times faster than with 1.8.0 and a
+  stratospheric state about 4.5 times faster (`docs/PERFORMANCE.md`).
+
+Precision
+
+- CUDA ray geometry, spherical harmonics, moments and ground flux are FP32; the kernel source has no `double` and no
+  two-word emulation. Ray and segment constants are prepared in FP64 on the host and passed as single words; projection
+  sums are compensated.
+- The Anderson history, its products and the mixing are FP32; the regularized Gram system of at most four rows is
+  solved in FP64 on the host.
+- Approximate exponential and logarithm operations in the warm kernel are used only with `SOSFUSE2_FASTMATH=1`.
+- Tables of the checked states agree with 1.8.0 within about 1e-6 of each solar elevation's maximum. Without
+  `SOSFUSE2_DETERMINISTIC=1`, repeated runs and releases are compared numerically (`rtol=1e-3` for tables); they are not
+  promised to be equal byte for byte.
+
+MLX (experimental)
+
+- `SOSFUSE2_MLX=1` with the `numpy` backend runs the transport on Apple silicon through MLX for the configurations it
+  covers: no stratosphere, no extended upper domain, a black surface and a Henyey-Greenstein troposphere without a Mie
+  table. Other configurations use the NumPy reference path. Without the variable nothing changes.
+- With `SOSFUSE2_MLX=1` and no `mlx` package, a run stops with `E_MLX_UNAVAILABLE`.
+
 ## 1.8.0
 
 Running

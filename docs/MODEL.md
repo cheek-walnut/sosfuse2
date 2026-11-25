@@ -276,9 +276,10 @@ field.
 
 ### Reference implementation and solver modules
 
-A NumPy reference reproduces the arithmetic of the CUDA kernel in single precision, with double-single arithmetic for the
-ray geometry, and serves as the golden reference of the numeric checks; the README and `docs/CHECKS.md` describe the
-tolerances and checks. The solver definitions in `src/sosfuse2/rays/`, `src/sosfuse2/atmosphere/extinction.py` and
+A NumPy reference implements the same transport with double-single arithmetic for the ray geometry and FP64 projection
+sums, and serves as the golden reference of the numeric checks. The CUDA transport uses FP32 ray geometry, spherical
+harmonics and compensated projection sums, with the ray and segment constants prepared in FP64 on the host. The
+README and `docs/CHECKS.md` describe the tolerances and checks. The solver definitions in `src/sosfuse2/rays/`, `src/sosfuse2/atmosphere/extinction.py` and
 `src/sosfuse2/solve/engine_core.py` define the grids, the quadrature and the physical constants, while
 `src/sosfuse2/atmosphere/rayleigh.py` and `src/sosfuse2/atmosphere/minor_absorbers.py` hold the Rayleigh and
 minor-absorber coefficients of 1.1.0.

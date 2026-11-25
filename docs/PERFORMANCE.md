@@ -12,6 +12,22 @@ GPU A, GPU B and GPU C denote three NVIDIA GPUs spanning multiple generations in
 The 1.2.0 stall probe in *Stall reasons* measured its `KSPLIT=0` path.
 Values marked *estimate* were derived from those measurements.
 
+## Release 1.9.0 on GPU A
+
+Two states of the 200 km settings (spherical-harmonic degree 24, Anderson tolerance 2e-4, FMAD and FASTMATH off) were
+solved with 1.8.0 and with 1.9.0 on GPU A through the same benchmark harness, with the same power and clock settings and
+warm column and geometry caches. Times are the wall time of one state.
+
+| state | stratosphere | 1.8.0 (s) | 1.9.0 (s) | ratio |
+|---|---|---:|---:|---:|
+| `clear_02` | off | 1,863 | 136.8 | 13.6 |
+| `clear_33` | on | 1,239.6 | 277.5 | 4.5 |
+
+In both states the evaluations per wavelength group and the per-wavelength convergence masks were those of the
+reference build, and the tables agreed within about 1e-6 of each solar elevation's maximum. In `clear_33` the warm
+phase 0 took 810 s of GPU time with 1.8.0 and 23 s with 1.9.0, all of it on the angular direction-table path; the first
+scattering (about 126 s) and the Anderson step now take most of the remaining source solve.
+
 ## Release 1.6.1 on GPU A
 
 Both releases ran the command under *Reproducing* for `clear_34` on GPU A, using the `split` device profile and the same
@@ -79,8 +95,9 @@ the following kernels during an evaluation.
 | `sos_slim_proj` | projects the accumulated radiance onto the source basis | 32-ray tiles of 64 moments |
 
 There are no floating-point atomics (the only atomics are integer counters that hand out rays and mark finished cells),
-and the current kernel accumulates in a fixed order in both modes;
-`SOSFUSE2_DETERMINISTIC=1` is the mode in which the package guarantees bit-stable repeats. The first-light phase-0
+and the kernel accumulates in a fixed order in both modes, but the transport path is chosen per launch;
+`SOSFUSE2_DETERMINISTIC=1` is the mode in which the package guarantees bit-stable repeats of the same run on the same
+GPU. The first-light phase-0
 variant of `sos_fused` carries `__launch_bounds__(256,2)`. In 1.0.x, the slimray variant compiled to 127 registers with 128-thread blocks and 18–19 KB of
 shared memory, limiting it to 4 blocks per SM, or 16 warps and 33 % of maximum occupancy.
 With NO₂ and O₄ included, the 1.2.1 probe used 141 registers, limiting it to 3 blocks per SM and 25 % occupancy,
@@ -233,6 +250,9 @@ The estimates then put the remaining room to shorten the solve at 1.5–1.7×.
 
 ## What was tried
 
+The *kept?* column records the outcome in the build that was measured. Release 1.9.0 replaced the double-single and FP64
+rows below with FP32 device geometry and spherical harmonics and compensated FP32 projection sums.
+
 In the pre-1.1.0 builds, the kernel work took the GPU time of the `gate --gf` run, a cold and a warm solve of the
 full-grid reference state, from 151.0 to 106.9 s (−29 %), or 53.5 s per solve. In a separate run it cut time per state by 26 %.
 
@@ -244,16 +264,16 @@ full-grid reference state, from 151.0 to 106.9 s (−29 %), or 53.5 s per solve.
 | Knockout of every step global load onto L1-resident addresses (GPU B) | `long_scoreboard` 0.476 → 0.239 warps per issue, launch time −2.6 %. Hiding the remaining load latency is worth about 3 %; the kernel is not latency-bound. | measurement |
 | Prefetch of the next ground direction (`GROUND_PREFETCH`) and 16-slot reduce-scatter instead of shuffles (`TRANSPORT_RS2`) | instructions −15 %, time −9 to −17 %; the 32-slot variant spilled 64 → 144 B and was dropped | kept |
 | Register-resident ray constants and 128-bit record reads (`WARM_LANE`) | LSU instructions in the step loop 92 → 41 (−55 %), slimray −4.3 % for the first −27 %: the LSU count was not the limiter | kept |
-| Replacing FP64 by double-single arithmetic in the point geometry (`PATH_DS`, first light and `vprod_y`) | first light −17 to −22 %, RECORD −38 %, `sos_vprod_y` 11.6 → 2.6 s; **slimray unchanged (−0.4 %)**: FP64 is not on its critical path even though the FP64 pipe reads 39 % busy | kept |
+| Replacing FP64 by double-single arithmetic in the point geometry (`PATH_DS`, first light and `vprod_y`) | first light −17 to −22 %, RECORD −38 %, `sos_vprod_y` 11.6 → 2.6 s; **slimray unchanged (−0.4 %)**: FP64 is not on its critical path even though the FP64 pipe reads 39 % busy | kept; replaced by FP32 in 1.9.0 |
 | Projection kernel rebuilt around 32-ray tiles (`sos_slim_proj`, `fl_project`) | `sos_slim_proj` 14.0 → 2.4 s (−83 %), `fl_project` 5.1 → 1.6 s, GPU total −7.5 % | kept |
-| Occupancy: global instead of shared FP64 accumulators (`ACC_GLOBAL`) | occupancy 16.7 → 24.5 %, IPC 0.58 → 0.81, first light −22 % | kept |
+| Occupancy: global instead of shared FP64 accumulators (`ACC_GLOBAL`) | occupancy 16.7 → 24.5 %, IPC 0.58 → 0.81, first light −22 % | kept; the flag is retired in 1.9.0 |
 | Occupancy: `__launch_bounds__(128,5)` on slimray (96 registers) | −0.5 % of cycles | rejected |
 | Occupancy: 3 blocks per SM for the ground batch (`GROUND_BATCH_SHFL` + bounds) | slower | rejected |
-| Plan sorting by coefficient, `vp_scatter` without scattering cells, `sos_vprod_y` in double-single | adopted on bit-identical output; the `sos_vprod` shared-memory limit (30 KB, 3 blocks/SM) remains | kept |
+| Plan sorting by coefficient, `vp_scatter` without scattering cells, `sos_vprod_y` in double-single | adopted with unchanged output; the `sos_vprod` shared-memory limit (30 KB, 3 blocks/SM) remains | kept; the double-single part replaced in 1.9.0 |
 | Host: pinned allocation repeated per launch (about 11 s per state) | removed | fixed |
 | Host launch issue cost of the plan kernels. A pre-1.1.0 run rebuilt the plan per chunk, with 12,612 small launches per evaluation. The gaps after them were 73 % of a 21 % host gap. | A run that stored the plan used 828 launches per evaluation and had a 1.3 % gap of the same class. CUDA graph capture and persistent kernels were considered for the case that rebuilt the plan. | not pursued |
-| Host: chunk switch in production bakes recomputed the stratospheric attach geometry every chunk (23.6–29.1 s), so the client CPU time of a state (103 s) exceeded its GPU time (55 s) and campaign GPU utilisation on GPU B was 66 % | attach cache on and a process memo: 15.7 → 1.1 s per chunk on GPU A; the GPU B campaign figure has not been re-measured since | fixed |
-| Port to Apple Metal (MLX) | examined, folded | not pursued |
+| Host: a chunk switch in multi-chunk runs recomputed the stratospheric attach geometry every chunk (23.6–29.1 s), so the client CPU time of a state (103 s) exceeded its GPU time (55 s) and GPU utilisation of such runs on GPU B was 66 % | attach cache on and a process memo: 15.7 → 1.1 s per chunk on GPU A; the GPU B utilisation figure has not been re-measured since | fixed |
+| Port to Apple silicon (MLX) | an experimental backend in 1.9.0 for a subset of configurations (README) | experimental |
 
 Two measurement traps shaped these numbers. First, a kernel that does more work per cycle lowers the boost clock on a
 power-capped card, so a change that shortens one kernel can lengthen the untouched ones by 1–2 s. We judge changes by

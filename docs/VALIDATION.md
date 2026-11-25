@@ -29,8 +29,9 @@ Rayleigh atmosphere against SASKTRAN2. Two further sections compare with measure
 purple-light timing. Before the open checks, two final numerical sections examine the SZA and height grids and measure
 band-approximation error against the engine's `point` tables. Every same-input MYSTIC comparison ran at single
 wavelengths and never in the default band mode. For Figure 1 and all sections from *Bundled states against MYSTIC
-(1.2.3)* onwards, we ran the engine with `SOSFUSE2_DETERMINISTIC=1`, which is off by default and changes only the
-accumulation order.
+(1.2.3)* onwards, we ran the engine with `SOSFUSE2_DETERMINISTIC=1`, which is off by default and in those releases
+fixed only the accumulation order. From 1.9.0 it also turns off the CUDA angular direction table and the tabulated
+first-light ground phase.
 
 ## Same-input comparison with MYSTIC (1.7.0)
 
@@ -448,8 +449,8 @@ mean, root mean square and largest absolute difference are +0.080 %, 0.622 % and
 SZA 93°, either change cuts any pixel's mean difference by at most 0.04 percentage points, a small fraction of the 0.18 %
 to 0.35 % offset.
 
-We also generated `clear_43` and `clear_80` with 1.3.2 using 12 nodes, order 16 and the same two switches. Both match
-the 1.2.3 tables bit for bit.
+We also generated `clear_43` and `clear_80` with 1.3.2 using 12 nodes, order 16 and the same two switches. Both agree
+with the 1.2.3 tables (maximum relative difference 0.0).
 
 This comparison spans eight states, six pixels and two SZA in `point` mode with the three US Standard Atmosphere
 options. As in earlier comparisons, errors in the common input cancel in the ratio.

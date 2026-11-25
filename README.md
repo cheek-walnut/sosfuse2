@@ -119,8 +119,8 @@ references across refactors and other hardware; they do not measure physical acc
 - Numeric tolerances bound discretisation and iteration error against fixed references of the same model; they do not
   measure physical error.
 - We have not compared the colours with measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026).
-- A stored source does not record the content of an optics table outside the package (`stratosphere.optics_table`),
-  only its path. `outputs/radiance_table` and `jobs/tables_from_sources` therefore accept a stored source after that
+- A stored source does not record the content of an optics table outside the package (`stratosphere.optics_table` or
+  `troposphere_phase.optics_table`), only its path. `outputs/radiance_table` and `jobs/tables_from_sources` therefore accept a stored source after that
   file has changed under the same path, and the signature of `tables_from_sources` does not change either. `run_state`
   and `--extra-elevations` hash the file and stop. Give a changed table a new path, or solve the source again.
 
@@ -148,7 +148,8 @@ On CUDA machines, NVRTC compiles kernels on first use. Without `SOSFUSE2_COMPILE
 compiled kernels in `nvrtc_cache_shared` in the parent of `--work-root` (`backends/compile_cache.py` `default_root`),
 while a persistent pipeline service and the reference tests each use a run-specific folder. Setting
 `SOSFUSE2_COMPILE_CACHE=<dir>` redirects all of them to that directory, and
-`python -B -m sosfuse2.jobs.precompile --jobs 8` fills that cache before a queue starts.
+`python -B -m sosfuse2.jobs.precompile --jobs 8` fills that cache before a queue starts. The angular and direct
+warm-transport kernels can still compile on their first use.
 
 ## Quick start
 
@@ -257,9 +258,10 @@ the repeat check compares runs of one build with each other.
 | repeat (`--stage`) | same build, fresh runs in separate folders (two by default); also runs G-H and G-PS | rtol 1e-5, max difference recorded |
 | G-F | full-grid fixed table, solved cold and then warm (needs the research checkout) | rtol 1e-3 |
 
-Accumulation order, lane mapping, and record layout may change between versions and are judged against these fixed
-references and tolerances. Set `SOSFUSE2_DETERMINISTIC=1` for deterministic accumulation when studies require bit-stable
-repeats. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and reference manifest.
+Accumulation order, lane mapping, record layout and the transport path may change between versions and are judged
+against these fixed references and tolerances. Set `SOSFUSE2_DETERMINISTIC=1` when studies require bit-stable repeats of a run on the same GPU:
+it fixes the accumulation order and turns off the angular direction table and the tabulated first-light ground phase,
+so the transport contracts the coefficients directly or uses the fused kernel. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and reference manifest.
 
 ## Tests and checks
 
@@ -381,7 +383,7 @@ Configurations verified for 1.1.1, a documentation-only release:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | installed sdist: the full-grid G-F reference state baked through the production queue, table bit-identical to the 1.1.0 fixed G-F table (max relative difference 0.0), same O₄ asset |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | installed sdist: the full-grid G-F reference state baked through the production queue, table equal to the 1.1.0 fixed G-F table (max relative difference 0.0), same O₄ asset |
 | macOS arm64 | 3.14 | NumPy | installed sdist (a fresh virtual environment outside the source tree): 524 passed, 65 skipped, 5 xfailed, 0 failed; the README quick start as written (O₄ download 3 s, reduced solve 36 s) |
 
 Configurations verified for 1.1.0:
