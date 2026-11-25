@@ -168,9 +168,9 @@ call by call, at NumPy speed. Three limits follow from the current entry points:
 - On macOS, `run_state` accepts only `--backend numpy --reduced`, so the command line reaches the reduced grid only.
 - None of the bundled states in `assets/states_v2.json` is in the covered configuration (every one has the
   stratospheric layer enabled and a nonzero albedo). Give your own states file with `--states`.
-- The full grid with MLX is reachable only from Python: build the solver with `jobs/run_state.py::create_configured`
-  and solve through `solve/ray_geometry.py::TransientGeometry`. The full-grid path of `run_state` uses the resident
-  host geometry, which does not call MLX.
+- On the full grid, only the transport passes (first scattering and warm iterations) through
+  `solve/ray_geometry.py::TransientGeometry` have been run with MLX, from Python; a whole full-grid table has not. The
+  full-grid path of `run_state` uses the resident host geometry, which does not call MLX.
 
 MLX runs and NumPy runs of the same state currently carry the same output signature; keep them in separate
 `--work-root` folders.

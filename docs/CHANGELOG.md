@@ -44,7 +44,8 @@ MLX (experimental)
   table. Other configurations use the NumPy reference path. Without the variable nothing changes.
 - With `SOSFUSE2_MLX=1` and no `mlx` package, a run stops with `E_MLX_UNAVAILABLE`.
 - On macOS the command line reaches the reduced grid only, and no bundled state is in the covered configuration; the
-  full grid with MLX is reachable from Python through `TransientGeometry` (README, *Experimental MLX transport*).
+  full-grid transport passes run with MLX only from Python through `TransientGeometry` (README, *Experimental MLX
+  transport*).
 - The MLX modules are part of the code identity: editing them changes `code_hashes` and the output signature.
 
 ## 1.8.0
