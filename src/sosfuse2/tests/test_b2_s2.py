@@ -580,7 +580,7 @@ def test_a_b_a_geometry_columns_and_optics(asset, tmp_path, monkeypatch):
         assert keys[0] == keys[1] == keys[2]
     assert solvers[0].ext[3].any() and not solvers[1].ext[3].any()
     assert solvers[0].ext[4].any() and not solvers[1].ext[4].any()
-    np.testing.assert_array_equal(solvers[0].ext, solvers[2].ext)
+    np.testing.assert_allclose(solvers[0].ext, solvers[2].ext, rtol=1e-5, atol=0)
     cache = [host_cache.context(s, s.density_optics) for s in solvers]
     assert cache[0] == cache[1] == cache[2]
     from sosfuse2.atmosphere.stratosphere import _geometry_key

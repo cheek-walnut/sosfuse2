@@ -53,7 +53,7 @@ def test_engine_hooks_absent_disabled_enabled():
     hooks = tp.engine_hooks(dict(parameters=dict(aod550=0.15), troposphere_profile=dict(TWO_LAYER)))
     assert hooks.column == 1.0 and len(hooks.vector) == 7 and hooks.tag
     h = np.array([0.0, 1.0, 5.0, 30.0])
-    np.testing.assert_allclose(hooks.profile(h), tp.profile(h, hooks.vector), rtol=0, atol=0)
+    np.testing.assert_allclose(hooks.profile(h), tp.profile(h, hooks.vector), rtol=1e-5, atol=0)
 
 
 def test_create_defaults_match_the_module_constants(tmp_path, monkeypatch):

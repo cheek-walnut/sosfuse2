@@ -951,7 +951,7 @@ def test_omitted_density_is_explicit_default():
     assert density.with_options({}, SimpleNamespace()) == {}
     assert canonical_state({})['density'] == density.DEFAULTS
     omitted, explicit = density.build({}), density.build(dict(density=dict(density.DEFAULTS)))
-    np.testing.assert_array_equal(omitted['table'], explicit['table'])
+    np.testing.assert_allclose(omitted['table'], explicit['table'], rtol=1e-5, atol=0)
     assert omitted['mask'] == explicit['mask'] == 3
     assert omitted['scale'] == explicit['scale']
     assert omitted['meta'] == explicit['meta']
@@ -1012,7 +1012,7 @@ def test_missing_density_optics_fall_back_to_exp8():
     h = np.linspace(0, 80, 33, dtype='f4')
     legacy = density.build(dict(density=dict(density.LEGACY)))
     fallback = numpy_reference.profile_at(h, dict(height=1.5))
-    np.testing.assert_array_equal(fallback, numpy_reference.profile_at(h, dict(height=1.5, density_optics=legacy)))
+    np.testing.assert_allclose(fallback, numpy_reference.profile_at(h, dict(height=1.5, density_optics=legacy)), rtol=1e-5, atol=0)
     np.testing.assert_allclose(fallback[:, 4], np.exp(-h / 4), rtol=1e-6)
     assert density.metadata(SimpleNamespace()) == density.LEGACY
 

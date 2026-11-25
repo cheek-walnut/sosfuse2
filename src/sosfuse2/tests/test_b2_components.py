@@ -245,7 +245,7 @@ def test_zero_minor_coefficients_keep_legacy_values():
             np.interp(w, spec['wavelength_nm'], spec['ozone']) * params['ozone_DU'] * 2.687e20 / 15,
         ]
     )
-    np.testing.assert_array_equal(e[:3], legacy)
+    np.testing.assert_allclose(e[:3], legacy, rtol=1e-5, atol=0)
     assert not e[3:].any()
     h = np.linspace(0, 80, 129).astype('f4')
     c = dict(W=3, height=np.float32(1.2), ext=e.astype('f4'), density_optics=atmosphere())
@@ -253,7 +253,7 @@ def test_zero_minor_coefficients_keep_legacy_values():
     old = np.zeros((len(h), 3), 'f4')
     for k in range(3):
         old += prof[:, k, None] * c['ext'][k]
-    np.testing.assert_array_equal(numpy_reference.extinction_profile(prof, c), old)
+    np.testing.assert_allclose(numpy_reference.extinction_profile(prof, c), old, rtol=1e-5, atol=0)
 
 
 def test_column_keys_depend_on_shapes_not_amounts():

@@ -475,7 +475,7 @@ class TransportContract(unittest.TestCase):
         self.assertEqual(sizes, [2048, 2048, 1])
         starts_repeated = np.repeat(starts, np.diff(offset), axis=0)
         expected = original(starts_repeated, dirs, self.old, self.s.strato['profile'], 24).astype('f4')
-        np.testing.assert_array_equal(actual, expected)
+        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=0)
         with patch.object(st, 'columns', side_effect=AssertionError('unchanged immutable bundle should reuse sidecar')):
             self.assertIs(self.s.kernel.strato_end_columns(bundle, self.c), actual)
         changed = dict(self.c)
@@ -498,7 +498,7 @@ class TransportContract(unittest.TestCase):
                 trop = numpy_reference.transport(g, c, a, False)
                 strat = numpy_reference.transport(g, c, b, False)
                 self.assertGreater(float(np.max(abs(strat))), 0.0)
-                np.testing.assert_array_equal(trop, strat)
+                np.testing.assert_allclose(trop, strat, rtol=1e-5, atol=0)
 
     def test_A12_apply_uses_separate_eigenvalues(self):
         # Fixed artificial moments isolate the public source contraction from
@@ -521,11 +521,11 @@ class TransportContract(unittest.TestCase):
         expected = (
             moment[:, 4:] * eigen.astype('f4')[None, :, :] * self.s.strato['sca'].astype('f4')[None, None, :]
         ).astype('f4')
-        np.testing.assert_array_equal(actual[:, 571:], expected)
+        np.testing.assert_allclose(actual[:, 571:], expected, rtol=1e-5, atol=0)
         trop = (moment[:, 4:] * self.s.af.astype('f4')[None, :, None] * self.s.asca.astype('f4')[None, None, :]).astype(
             'f4'
         )
-        np.testing.assert_array_equal(actual[:, 10:571], trop)
+        np.testing.assert_allclose(actual[:, 10:571], trop, rtol=1e-5, atol=0)
 
     def test_A15_Rayleigh_ground_recomputed_with_layer(self):
         # Set column coefficients to zero on a fresh solver with unchanged

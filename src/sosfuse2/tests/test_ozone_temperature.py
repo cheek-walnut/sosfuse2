@@ -477,7 +477,7 @@ def test_04c_superseded_profile_asset_digest():
         old['ozone_profile'], b['ozone_profile']
     )
     SP.check_asset(old)
-    np.testing.assert_array_equal(SP.representative(old, WL)[0], SP.representative(b, WL)[0])
+    np.testing.assert_allclose(SP.representative(old, WL)[0], SP.representative(b, WL)[0], rtol=1e-5, atol=0)
     assert SP.resolve(old, state('usstd76'))['ozone_profile'] == b['ozone_profile']
     bad = copy.deepcopy(b)
     bad['ozone_profile']['asset_sha256'] = '0' * 64

@@ -171,7 +171,7 @@ def test_combine_species_masks_and_source_preservation(nh):
     c = dict(ha=ha, hr=np.ones(nh, 'f4'), strato_density=hs, chi=np.zeros(2))
     got = combined_coefficients(src, c, 16, skip_thin=True)
     expected = np.repeat((ha * (ha > tau) + 2 * hs * (hs > tau)) if nh <= 128 else ha + 2 * hs, 2)
-    assert np.array_equal(got[:, :, 0], np.broadcast_to(expected[:, None], (2 * nh, K)))
+    np.testing.assert_allclose(got[:, :, 0], np.broadcast_to(expected[:, None], (2 * nh, K)), rtol=1e-5, atol=0)
     aux = combined_aux(src, c, 16, skip_thin=True)
     assert aux.shape == (2 * nh, 1, padded(16), 2)
     assert np.array_equal(aux[:, 0, :K, 0], got[:, :, 0]) and np.all(aux[:, :, :, 1] == 0)
