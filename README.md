@@ -126,6 +126,10 @@ references across refactors and other hardware; they do not measure physical acc
   or solve the source again.
 - The MLX transport is experimental and covers one configuration (see *Experimental MLX transport*); its tables are
   checked against the NumPy reference, not separately validated against measurements or other codes.
+- When a warm launch cannot use the angular direction table (the table does not fit in free memory, or with
+  `SOSFUSE2_DETERMINISTIC=1`), the transport contracts the coefficients directly or uses the fused kernel, which is much
+  slower: on a 10 GB GPU the fused warm transport of a 200 km, degree-24 state without the stratosphere took about
+  171 s per Anderson evaluation.
 
 ## Install
 
@@ -322,6 +326,7 @@ Configurations verified for 1.9.0:
 | platform | Python | backend | what was run |
 |---|---|---|---|
 | Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0 (G-R radiance of the five fixtures within 3.1e-5 and tables within 6.4e-6 of the recorded values, the fixed CUDA comparison, G-P and G-A, the five G-T pairs and G-PS passed, G-H max relative difference 1.3e-6); G-F against the fixed reference table: max relative difference 8.1e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0; the upper-air CUDA check against NumPy: max relative difference 1.9e-5. With `SOSFUSE2_DETERMINISTIC=1`, `gate --stage --runs 2` gave equal output hashes for the five fixtures. The CUDA test modules (projection batches, kernel occupancy, persistent pipeline) passed. On the same 10 GB GPU, the reproduction command of `docs/PERFORMANCE.md` for `clear_34` completed from an empty work root and warm |
+| macOS arm64 | 3.14 | NumPy | release tree in place (`PYTHONPATH=src`, `SOSFUSE2_SKY_SOS_ROOT` unset), every test module in file order with `PERSISTENT_TEST_DEADLINE=300`: 1293 passed, 91 skipped, 0 failed |
 | macOS arm64, Apple silicon GPU (16 GB) | 3.12 | NumPy + MLX 0.32.4 (`SOSFUSE2_MLX=1`) | `run_state --backend numpy --reduced` on the check fixture state FX-N (`checks/gate_data/fixtures.json`) with the stratospheric layer disabled (its reduced-solve AOD 0.02, black surface, 45 wavelengths in three chunks): every transport call on MLX (first 3, ground 21, warm 21, none on NumPy), Anderson evaluations per chunk 10/6/5 as with NumPy, table against the NumPy run of the same tree: max difference 3.2e-6 of each solar elevation's maximum, 2.6e-5 relative over all elements; on an otherwise idle machine, two runs each with two threads: about 39–41 s against 79–80 s with NumPy (transport passes 0.1–0.2 s against 41 s; the observer queries, on NumPy in both, about 20 s). Fixed applies of the check fixture FX-N against the NumPy golden: radiance max relative difference 9.3e-5 (rtol 1e-3). `tests/test_mlx_*.py`: 17 passed |
 
 Configurations verified for 1.8.0:
