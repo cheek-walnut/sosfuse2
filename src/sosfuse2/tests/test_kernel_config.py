@@ -36,7 +36,7 @@ def test_paired_sidecar_occupies_exactly_one_argument(tmp_path, monkeypatch, ins
     fixture = launch_fixture(flags=A + ('SH_AUX_PAIR',) + (('EXP_SECTION_CLOCKS',) if instrumented else ()))
     run_launch(fixture, tmp_path)
     args = fixture[2].calls[0][2]
-    assert len(args) == 52 + (1 if instrumented else 3)  # clock buffer or split reduction
+    assert len(args) == 54 + (1 if instrumented else 3)  # clock buffer or split reduction
     assert int(args[48]) == 0 and int(args[49]) == 0  # absent density: NULL and analytic mask
     assert float(args[50]) == 1.0  # analytic air surface normalization
     if instrumented:
@@ -147,6 +147,9 @@ def test_installed_transport_layout(tmp_path, monkeypatch, waves, planes, parts,
     # Select the service's CuPy defaults while allocating and inspecting its launch arguments on the CPU.
     monkeypatch.setitem(sys.modules, 'cupy', np)
     monkeypatch.setattr(np, 'cuda', SimpleNamespace(runtime=SimpleNamespace(getDeviceCount=lambda: 1)), raising=False)
+    promote = pe.promote_bundle
+    device = SimpleNamespace(asarray=np.asarray)
+    monkeypatch.setattr(pe, 'promote_bundle', lambda bundle, xp: promote(bundle, device))
     restored, geometry = pe.restore_device_payload(payload, ({}, {}))
     k = restored.kernel
     raw = Mock()

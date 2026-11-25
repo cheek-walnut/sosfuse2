@@ -254,7 +254,7 @@ def test_strato_host_occupancy_model():
     from sosfuse2.tests.test_strato_parallel_host import occupancy_tests
 
     report = occupancy_tests()
-    assert report['pass_'] and report['remaining_C3_STRATO_bytes'] == 101376 - 74008
+    assert report['pass_'] and report['remaining_C3_STRATO_bytes'] == 101376 - 73624
 
 
 @pytest.mark.skipif(shutil.which('clang++') is None, reason='clang++ required')

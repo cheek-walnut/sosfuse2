@@ -1140,7 +1140,7 @@ class KsplitMixin:
                 bundle.arrays['edge_off'],
                 y,
                 ray_rads,
-                np.float64(ctx['albedo']),
+                np.float32(ctx['albedo']),
                 ctx['moments'][a:b],
                 ctx['flux'][a:b],
             )
@@ -1227,12 +1227,12 @@ class KsplitMixin:
                 )
             plan, stored = self.vprod_plan(kb, ci, bundle, c0cp, nh, nc)
             ev['y0'].record()
-            y = xp.empty((max(nray, 1), K), 'f4')  # y rows of the chunk's rays (sh_basis_ds), every iteration
+            y = xp.empty((max(nray, 1), K), 'f4')  # y rows of the chunk's rays (sh_basis), every iteration
             if nray:
                 ykern(
                     ((nray + VPROD_THREADS // 32 - 1) // (VPROD_THREADS // 32),),
                     (VPROD_THREADS,),
-                    (np.int32(nray), bundle.arrays['dirs'].reshape(-1)[3 * r0 :], dc['aa2'], dc['bb2'], dc['dd2'], y),
+                    (np.int32(nray), bundle.arrays['dirs'].reshape(-1)[3 * r0 :], dc['aa'], dc['bb'], dc['dd'], y),
                 )
             ev['p1'].record()
             wall = time.perf_counter() - wall

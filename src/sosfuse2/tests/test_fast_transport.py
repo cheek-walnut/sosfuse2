@@ -41,7 +41,7 @@ def test_compiled_layout(order, width):
         if spec.role == 'first':
             size = k.shared_bytes(width, 0, True, ray_limit=True)
             checks += [f'HG_NODES == {spec.hg_nodes}',
-                       f'{size} == 8*FW+16+8*(FAST_BATCH*sizeof(FirstPoint)+(FAST_BATCH+1)*(NCOMP+1)*4+(32+27+12)*4)']
+                       f'{size} == 8*FW+16+8*(FAST_BATCH*sizeof(FirstPoint)+(FAST_BATCH+1)*(NCOMP+1)*4+(32+RAY_CONST_F+12)*4)']
         if spec.role == 'warm':
             size = k.shared_bytes(width, 0)
             checks += [f'{size} == 8*FW+12*4+8*((YPAD+4*FW+66+(SH_L==32 ? 4*FW : 0)+RAY_CONST_F)*4'

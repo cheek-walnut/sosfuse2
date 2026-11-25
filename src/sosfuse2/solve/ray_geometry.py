@@ -178,6 +178,103 @@ def _csr_vector(edges, lower):
     return counts, source[select], flags
 
 
+def shadow_interval(p, d, cylinder_offset):
+    """Open interval behind the Earth inside the solar cylinder, along each ray (km)."""
+    c = cylinder_offset
+    a = d[:, 0] * d[:, 0] + d[:, 1] * d[:, 1]
+    b = p[:, 0] * d[:, 0] + p[:, 1] * d[:, 1]
+    disc = b * b - a * c
+    # The product of the roots is c/a. This also resolves roots very close to the origin.
+    q = -b - np.copysign(np.sqrt(np.maximum(disc, 0)), b)
+    first = np.divide(q, a, out=np.zeros_like(a), where=a != 0)
+    second = np.divide(c, q, out=np.zeros_like(q), where=q != 0)
+    lo, hi = np.minimum(first, second), np.maximum(first, second)
+    axial = a == 0
+    lo[axial], hi[axial] = -np.inf, np.inf
+    plane = np.divide(-p[:, 2], d[:, 2], out=np.zeros_like(a), where=d[:, 2] != 0)
+    lo = np.where(d[:, 2] < 0, np.maximum(lo, plane), lo)
+    hi = np.where(d[:, 2] > 0, np.minimum(hi, plane), hi)
+    active = np.where(axial, c < 0, disc > 0) & ((d[:, 2] != 0) | (p[:, 2] < 0)) & (lo < hi)
+    # Finite bounds encompass every point in the supported atmosphere.
+    bound = np.finfo(np.float32).max
+    return np.where(active, np.clip(lo, -bound, bound), 0), np.where(active, np.clip(hi, -bound, bound), 0)
+
+
+def device_paths(host):
+    """Derive FP32 ray and interval constants from original CSR in disjoint ray batches."""
+    from concurrent.futures import ThreadPoolExecutor
+    from ..foundation.top import NORMALIZATION_TOP_KM
+    from ..rays.shell_segments import R
+    from .ray_geometry_parallel import workers
+
+    starts = np.asarray(host['starts'], dtype='f8')
+    dirs = host['dirs']
+    off = host['edge_off']
+    t = host['edges']
+    radius = np.linalg.norm(starts, axis=1)
+    h0 = radius - R
+    rho = np.hypot(starts[:, 0], starts[:, 1])
+    cylinder_offset = (rho - R) * (rho + R)
+    shell_offset = (h0 - NORMALIZATION_TOP_KM) * (radius + R + NORMALIZATION_TOP_KM)
+    edges = np.empty((len(t), 2), 'f4')
+    rays = np.empty((len(dirs), 3), 'f4')
+    chunk = 32768
+
+    def fill(lo):
+        hi = min(lo + chunk, len(dirs))
+        cell = np.searchsorted(host['cell_off'], np.arange(lo, hi), side='right') - 1
+        p, d = starts[cell], np.asarray(dirs[lo:hi], dtype='f8')
+        pd = (p[:, 0] * d[:, 0] + p[:, 1] * d[:, 1]) + p[:, 2] * d[:, 2]
+        rays[lo:hi, 0] = pd
+        rays[lo:hi, 1], rays[lo:hi, 2] = shadow_interval(p, d, cylinder_offset[cell])
+        offsets = np.asarray(off[lo:hi + 1], dtype='i8')
+        counts = np.diff(offsets)
+        e0, e1 = offsets[0], offsets[-1]
+        start = t[e0:e1]
+        length = np.diff(start, append=start[-1])
+        length[offsets[1:] - e0 - 1] = 0
+        mid = start + 0.5 * length
+        # Every support crossing is an edge. Encode which side owns the whole
+        # segment in its length sign, including both one-sided Simpson endpoints.
+        above = np.repeat(shell_offset[cell], counts) + mid * (2 * np.repeat(pd, counts) + mid) > 0
+        edges[e0:e1, 0] = start
+        edges[e0:e1, 1] = np.where(above, -length, length)
+
+    chunks = range(0, len(dirs), chunk)
+    threads = min(len(chunks), workers()) if len(chunks) > 1 else 1
+    if threads == 1:
+        for lo in chunks:
+            fill(lo)
+    else:
+        with ThreadPoolExecutor(threads) as pool:
+            list(pool.map(fill, chunks))
+    return dict(edges=edges, ray_geometry=rays)
+
+
+def device_geometry(host):
+    """Assemble kernel inputs from raw host CSR or the prepared service payload."""
+    from ..rays.shell_segments import R
+
+    starts = np.asarray(host['starts'], dtype='f8')
+    radius = np.linalg.norm(starts, axis=1)
+    origins = np.column_stack((starts, radius - R, radius)).astype('f4')
+    paths = {} if 'ray_geometry' in host else device_paths(host)
+    return dict(host, starts=origins, targets=np.asarray(host['targets'], 'f4'),
+                dirs=np.asarray(host['dirs'], 'f4'), **paths)
+
+
+def upload_geometry(bundle, host, xp, label):
+    arrays = host
+    if xp is not np:
+        arrays = device_geometry(host)
+        bundle.host_coordinates = {k: host[k] for k in ('starts', 'dirs', 'cell_off')}
+    bundle.arrays = {}
+    for name, value in arrays.items():
+        with vram_trace.item(f'{label}.{name}'):
+            bundle.arrays[name] = xp.asarray(np.ascontiguousarray(value))
+    bundle.bytes = sum(v.nbytes for v in bundle.arrays.values())
+
+
 class Bundle:
     """CSR endpoints; sorted destination cells are the block partition.
 
@@ -280,11 +377,7 @@ class Bundle:
             hits=np.concatenate([g['hits_ground'] for g in groups]).astype('u1'),
         )
         with stage('bundle_upload', device=True):
-            self.arrays = {}
-            for k, v in a.items():
-                with vram_trace.item(f'geometry.bundle.{k}'):
-                    self.arrays[k] = xp.asarray(np.ascontiguousarray(v))
-        self.bytes = sum(v.nbytes for v in self.arrays.values())
+            upload_geometry(self, a, xp, 'geometry.bundle')
 
 
 class TransientGeometry:
@@ -742,22 +835,16 @@ class ResidentGeometry(TransientGeometry):
         before = time.perf_counter()
         replace = replace or {}
         with stage('geometry_upload', device=True):
-            a = {}
-            for k, v in host.items():
-                with vram_trace.item(f'geometry.main.{k}'):
-                    value = replace.get(k, v)
-                    a[k] = xp.asarray(np.ascontiguousarray(value)) if xp is not np else np.asarray(value)
+            bundle = Bundle.__new__(Bundle)
+            upload_geometry(bundle, dict(host, **replace), xp, 'geometry.main')
             self.s.kernel.sync()
         self.stats['upload_seconds'] = time.perf_counter() - before
         offsets = np.array(host['cell_off'], 'i8')
         self._host_offsets = offsets
         rays = int(offsets[-1])
-        bundle = Bundle.__new__(Bundle)
-        bundle.arrays = a
         bundle.cells = len(records)
         bundle.rays = rays
         bundle.nq = self.s.geo.cfg['path_n']
-        bundle.bytes = sum(v.nbytes for v in a.values())
         self.bundle = bundle
         self.stats.update(
             cells=bundle.cells, rays=rays, samples=sum(m['samples'] for m in records), compact_bytes=bundle.bytes
@@ -794,6 +881,10 @@ class ResidentGeometry(TransientGeometry):
         for name in ('dirs', 'weights', 'lower', 'end_j', 'end_f', 'end_col', 'hits'):
             a[name] = source[name][:rays]
         bundle = Bundle.__new__(Bundle)
+        if 'ray_geometry' in source:
+            a['ray_geometry'] = source['ray_geometry'][:rays]
+            original = self.bundle.host_coordinates
+            bundle.host_coordinates = dict(starts=original['starts'][:cells], dirs=original['dirs'][:rays], cell_off=off)
         bundle.arrays = a
         bundle.cells = cells
         bundle.rays = rays

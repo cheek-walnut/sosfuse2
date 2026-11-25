@@ -3,6 +3,7 @@
 import json
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from sosfuse2.backends import vram_trace as vt
@@ -62,6 +63,7 @@ class Pool:
 class Block:
     def __init__(self, pool, n):
         self.pool, self.n = pool, n
+        self.nbytes = n
 
     def __del__(self):
         self.pool.used -= self.n
@@ -78,15 +80,21 @@ def events():
     return rows, emit
 
 
-def test_named_upload_peak_free_and_cached_blocks():
+def test_named_upload_peak_free_and_cached_blocks(monkeypatch):
     rows, emit = events()
     pool = Pool(4 * MIB)
+    pool.xp.asarray = lambda a: pool.allocate(a.nbytes)
+    from sosfuse2.solve import ray_geometry
+
+    monkeypatch.setattr(ray_geometry, 'device_geometry', lambda host: {
+        'dirs': np.empty(MIB - 1, 'u1'), 'edges': np.empty(33, 'u1'),
+    })
     with vt.session('sky', emit) as t:
         t.bind(pool.xp)
         t.bind(pool.xp)
         t.chunk, t.stage, t.piece = 2, 'table_transport', 5
         with vt.item('query.table_geometry'):
-            bundle = promote_bundle(SimpleNamespace(arrays={'dirs': MIB - 1, 'edges': 33}), pool.xp)
+            bundle = promote_bundle(SimpleNamespace(arrays=dict.fromkeys(('starts', 'dirs', 'cell_off'))), pool.xp)
         alias = bundle.arrays['dirs']
         del bundle
         assert pool.used == MIB

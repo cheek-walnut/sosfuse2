@@ -28,7 +28,7 @@ def compile_native(out):
     cpp.write_text(
         '#include <math.h>\n'
         + stub_text
-        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { double shared[50000]; }\n'
+        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { float4 shared_vectors[25000]; }\n'
         + f'#include "{kernel}"\n'
         + '''
 extern "C" float profile_c(float h,const float*t,int k){return profile_value(h,t,k);}
@@ -36,7 +36,12 @@ extern "C" void sample_c(const double*p,const double*d,const float*B,const float
  double a,double b,int lower,double gu,double gw,const float*h,int nh,const float*chi,int nc,float height,
  const float*sun_h,int nsh,const float*sun_col,int nsx,const float*table,int mask,float air_surface,float*out){
  ProfileParams profile{height,sun_h+nsh,table,mask,air_surface};
- Sample s{};point(s,p,d,B,dl,0.f,a,b,lower,gu,gw,h,nh,chi,nc,profile,sun_h,nsh,sun_col,nsx,false);
+ double r0=sqrt(p[0]*p[0]+p[1]*p[1]+p[2]*p[2]);
+ float origin[]={(float)p[0],(float)p[1],(float)p[2],(float)(r0-6371.),(float)r0};
+ float dir[]={(float)d[0],(float)d[1],(float)d[2]};
+ PathEdge edges[]={{(float)a,(float)(b-a)},{(float)b,0.f}};
+ RayGeometry ray{(float)(p[0]*d[0]+p[1]*d[1]+p[2]*d[2]),0.f,0.f};
+ Sample s{};point(s,origin,dir,B,dl,0.f,path_segment(origin,ray,edges,lower),gu,gw,h,nh,chi,nc,profile,sun_h,nsh,sun_col,nsx,false);
  out[0]=s.h;for(int k=0;k<3;k++)out[k+1]=s.prof[k];}
 '''
     )
@@ -123,6 +128,7 @@ def run(out):
         helper = within_tol(actual, expected)
         matched = 0
         maxerr = 0.0
+        maxrel = 0.0
         maxh = 0.0
         for seg in range(g['edges'].shape[1] - 1):
             for step in range(len(c['u'])):
@@ -159,16 +165,19 @@ def run(out):
                     maxh = max(maxh, float(abs(outp[0] - q['h'][row])))
                     for col, bit in ((0, 1), (2, 2)):
                         if mask & bit:
-                            maxerr = max(maxerr, float(abs(outp[col + 1] - q['prof'][row, col])))
+                            got, want = float(outp[col + 1]), float(q['prof'][row, col])
+                            maxerr = max(maxerr, abs(got - want))
+                            maxrel = max(maxrel, abs(got - want) / abs(want) if want else (0.0 if got == 0 else float('inf')))
                             matched += 1
         samples.append(
             dict(
                 name=name,
                 helper_within_tol=helper,
                 profile_sample_max_absolute=maxerr,
+                profile_sample_max_relative=maxrel,
                 height_sample_max_absolute=maxh,
                 selected_samples=matched,
-                pass_=helper and maxerr <= 1e-12,
+                pass_=helper and maxrel <= 1e-3,  # FP32 kernel sample against the reference: rtol 1e-3, atol 0
             )
         )
         field = rng.normal(0, 1e-5, (s.geo.ns, 1132 if strato else 571, 15)).astype('f4')

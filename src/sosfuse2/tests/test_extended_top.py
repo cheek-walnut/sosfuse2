@@ -146,11 +146,14 @@ def test_native_profiles_and_one_sided_simpson(tmp_path, air):
                    'extern "C" void assembled(float h,const float*t,const float*a,float*out){'
                    'ProfileParams profile{1.2f,a,t,3,t[0],21.f,3.f,1.f};profile_at(h,profile,out,out[5]);}\n'
                    'extern "C" float panel(const double*p,const double*d,double end,const float*t,const float*a){'
-                   'float ext[5]={1,1,1,1,1},st[1]={1};DS lo=ds(0.),hi=ds(end),mid=ds(end/2);'
+                   'float ext[5]={1,1,1,1,1},st[1]={1};double r0=std::hypot(p[0],p[1],p[2]);'
+                   'double pd=p[0]*d[0]+p[1]*d[1]+p[2]*d[2],m=end/2;'
+                   'bool above=(r0-6451.)*(r0+6451.)+m*(2*pd+m)>0;'
+                   'PathSegment path{0,(float)end,(float)(r0-6371.),(float)r0,{(float)pd,0,0},true,above};'
                    'ExtinctionParams optics{{1.2f,a,t,3,t[0],21.f,3.f,1.f},ext,st};'
-                   'float b0=beta_at_side(p,d,lo,mid,optics,0);'
-                   'float b1=beta_at_side(p,d,hi,mid,optics,0);'
-                   'return simpson_piece(p,d,lo,hi,b0,b1,optics,0);}\n')
+                   'float b0=beta_at(path,0,optics,0);'
+                   'float b1=beta_at(path,1,optics,0);'
+                   'return simpson_piece(path,0,1,b0,b1,optics,0);}\n')
     lib = tmp_path / 'profile.so'
     subprocess.run([compiler, '-std=c++17', '-ffp-contract=off', '-fPIC',
                     '-dynamiclib' if platform.system() == 'Darwin' else '-shared', *d.defines(),

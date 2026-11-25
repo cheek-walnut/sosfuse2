@@ -135,5 +135,6 @@ def test_observer_stop_acceleration_and_record(monkeypatch):
         if should_converge:
             assert np.all(tail == 0)
         else:
-            np.testing.assert_allclose(tail[-7:], .5 * np.sqrt(n / count), rtol=1e-12)
+            assert tail.dtype == np.float32  # FP32 Anderson features; the rule is rtol 1e-3
+            np.testing.assert_allclose(tail[-7:], .5 * np.sqrt(n / count), rtol=1e-3)
             assert np.all(tail[:-7] == 0)

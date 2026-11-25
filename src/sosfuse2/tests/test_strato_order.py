@@ -37,7 +37,7 @@ def run(out):
     cpp.write_text(
         STUB
         + SYNTAX_STUB_EXTRA
-        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { double shared[50000]; }\n'
+        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { float4 shared_vectors[25000]; }\n'
         + f'#include "{kernel}"\n'
         + 'extern "C" float phase_c(float mu,int w,const float*chi){return mie_phase(mu,w,chi);}\n'
         + 'extern "C" int phase_bins(){return STRATO_LUT_BINS;}\n'

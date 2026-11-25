@@ -626,9 +626,12 @@ class BaselineContract(unittest.TestCase):
                     while depth:
                         depth += (text[end] == '{') - (text[end] == '}')
                         end += 1
-                    return re.findall(r'\w+|[^\s]', text[start:end])
+                    # FP32 literals carry an f suffix (no double promotion); compare the digits.
+                    tokens = re.findall(r'\w+|[^\s]', text[start:end])
+                    return [t[:-1] if re.fullmatch(r'\d+f', t) else t for t in tokens]
 
-                for name in ('ds', 'da', 'dm', 'dr', 'dv', 'clip', 'hg'):
+                # The two-word helpers (ds, da, dm, dr, dv) left the kernel with the FP32 transport.
+                for name in ('clip', 'hg'):
                     self.assertEqual(body(before, name), body(after, name), name)
 
     # G-P/G-T/G-F (gate.py) cover the numerical regression checks.

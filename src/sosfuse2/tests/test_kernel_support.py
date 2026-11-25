@@ -32,7 +32,7 @@ def test_native_column_record_layout(tmp_path):
     cpp = tmp_path / 'columns.cpp'
     cpp.write_text(
         '#include <math.h>\n' + STUB + SYNTAX_STUB_EXTRA
-        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { double shared[50000]; }\n'
+        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { float4 shared_vectors[25000]; }\n'
         + f'#include "{paths.KERNEL_CU}"\n'
         + f'static_assert(ColumnRecord::width == {components.SINV_F});\n'
         + f'static_assert(sizeof(ColumnRecord) == {stride});\n'
@@ -98,7 +98,7 @@ extern "C" void profiles(float h, const float *table, const float *aer2, int mas
 extern "C" float supported(float h, float value, int air) {
     return support_value(h, value, air);
 }
-extern "C" float sided(float h, float inside) { return support_height(h, inside); }
+extern "C" float sided(float h, float inside) { return support_height(h, inside > LOWER_END_KM); }
 '''
     cpp = tmp_path / 'support.cpp'
     cpp.write_text(
@@ -176,9 +176,14 @@ extern "C" float sided(float h, float inside) { return support_height(h, inside)
 
     for inside in (79.0, 81.0, 119.0, 121.0):
         actual = np.array([native.sided(h, inside) for h in heights], 'f4')
-        expected = reference.support_height(heights, np.float32(inside), domain)
+        # The host has already selected the segment's side of the 80 km crossing.
+        if domain.top_km == domain.lower_end:
+            expected = heights
+        elif inside > domain.lower_end:
+            expected = np.maximum(heights, np.nextafter(np.float32(domain.lower_end), np.float32(np.inf)))
+        else:
+            expected = np.minimum(heights, domain.lower_end)
         np.testing.assert_allclose(actual, expected, rtol=1e-3, atol=0)
-        # A tolerance on heights alone would miss a one-ULP side-selection error.
         for end in (domain.lower_end, domain.air_end):
             assert np.all((actual > end) == (expected > end))
 

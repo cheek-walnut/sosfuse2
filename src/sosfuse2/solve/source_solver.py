@@ -255,10 +255,10 @@ def _allocate_transport_outputs(kernel, launch, s, field, first, phase, boundary
         launch.src = launch.xp.ascontiguousarray(field, dtype='f4')
     with vram_trace.item('moments.first' if first else 'moments.transport'):
         launch.moments = (
-            launch.xp.empty((launch.ncell, 4 + kernel.K, launch.W), 'f8') if phase == 0 else launch.xp.empty(1, 'f8')
+            launch.xp.empty((launch.ncell, 4 + kernel.K, launch.W), 'f4') if phase == 0 else launch.xp.empty(1, 'f4')
         )
     with vram_trace.item('transport.flux'):
-        launch.flux = launch.xp.empty((launch.ncell, launch.W), 'f8')
+        launch.flux = launch.xp.empty((launch.ncell, launch.W), 'f4')
     with vram_trace.item('query.radiance'):
         launch.query = (
             launch.xp.empty((launch.nr, launch.W, 4), 'f4')
@@ -266,9 +266,9 @@ def _allocate_transport_outputs(kernel, launch, s, field, first, phase, boundary
             else (launch.kb['buf'] if launch.ks else launch.xp.empty(1, 'f4'))
         )
     launch.bd = (
-        launch.xp.ascontiguousarray(boundary, dtype='f8')
+        launch.xp.ascontiguousarray(boundary, dtype='f4')
         if boundary is not None
-        else launch.xp.zeros((len(s.geo.chi), launch.W), 'f8')
+        else launch.xp.zeros((len(s.geo.chi), launch.W), 'f4')
     )
 
 
@@ -337,7 +337,7 @@ def _assemble_transport_arguments(kernel, launch, bundle, s, first, phase, bound
         launch.c['height'],
         launch.c['g'],
         launch.c['mix'],
-        np.float64(launch.c['albedo']),
+        F(launch.c['albedo']),
         launch.src,
         launch.bd,
         launch.moments,
@@ -383,6 +383,8 @@ def _assemble_transport_arguments(kernel, launch, bundle, s, first, phase, bound
         launch.dc.get('profile_table', np.uint64(0)),
         np.int32(launch.c.get('density_optics', {}).get('mask', 0)),
         F(launch.c.get('density_optics', {}).get('air_surface', 1.0)),
+        launch.xp.empty_like(launch.moments),  # reusable per-chunk Neumaier corrections
+        bundle.arrays['ray_geometry'],
     ]
 
 
@@ -510,10 +512,10 @@ def _prepare_launch_order(kernel, launch, bundle, first, phase, allow_fast=True,
             with vram_trace.item('moments.split'):
                 launch.args.append(
                     launch.xp.empty(
-                        max(1, (S - 1) * launch.ncell * (4 + kernel.K) * launch.W) if phase == 0 else 1, 'f8'
+                        max(1, 2 * (S - 1) * launch.ncell * (4 + kernel.K) * launch.W) if phase == 0 else 1, 'f4'
                     )
                 )
-            launch.args.append(launch.xp.empty(S * launch.ncell * launch.W, 'f8'))
+            launch.args.append(launch.xp.empty(2 * S * launch.ncell * launch.W, 'f4'))
             launch.split_count = launch.xp.zeros(launch.ncell, 'i4')
             launch.args.append(launch.split_count)
     launch.section_buffer = None
@@ -695,7 +697,7 @@ def _launch_ray_ranges(kernel, launch, bundle):
 
 def _project_ray_ranges(kernel, launch, bundle, boundary, first):
     # With LAUNCH_RAY_LIMIT the ray launches only publish ray_rads; project the cells now (fl_project,
-    # one block per cell, FP32 ray batches combined in FP64).
+    # one block per cell, compensated FP32 ray batches).
     proj = kernel.fl_project_kernel(launch.W, boundary is not None, ground_sh_l=launch.ground_sh_l, first=first)
     pkind = launch.kind[:-5] + '_project'
     launch.co_h = np.asarray(kernel.host(bundle.arrays['cell_off']), 'i8')
@@ -709,7 +711,7 @@ def _project_ray_ranges(kernel, launch, bundle, boundary, first):
         launch.dc['bb'],
         launch.dc['dd'],
         launch.ray_rads,
-        np.float64(launch.c['albedo']),
+        F(launch.c['albedo']),
     )
     c0 = 0
     while c0 < launch.ncell:
@@ -955,8 +957,8 @@ class Kernel(KsplitMixin):
 
         self.ground_sh_l = configured_order()
         # Production default:
-        # unset means KSPLIT=3 (VPROD + warm ray consumer + projection) where it applies (CuPy, STRATO/FW15, L<=16, FP64
-        # projection accumulator) and the unsplit kernel elsewhere; SOSFUSE2_KSPLIT=0 forces the unsplit kernel, and an
+        # unset means KSPLIT=3 (VPROD + warm ray consumer + projection) where it applies (CuPy, STRATO/FW15, L<=16)
+        # and the unsplit kernel elsewhere; SOSFUSE2_KSPLIT=0 forces the unsplit kernel, and an
         # explicit 1-3 still fails loudly on an unsupported configuration.
         ks_text, self._ksplit_zero_reason = _ksplit_request(backend, self.config(15), L)
         if ks_text not in ('0', '1', '2', '3'):
@@ -1354,8 +1356,8 @@ class Kernel(KsplitMixin):
         )
         size = (acc + 1) * W * 8 + warps * ((workspace(self.L) + 8 * W + 33) * 4 + 300 + 40 * W + 4)
         size += warps * (8 + 16 * W) if 'STRATO' in self.flags else 0
-        # Match RAY_CONST_F: six two-word coordinates cached by PATH_DS kernels (phase-0 first light and warm).
-        size += warps * (108 if (not first or phase == 0) else 60)
+        # Ray constants occupy 15 floats per warp.
+        size += warps * 15 * 4
         size += warps * 128
         # GROUND_FUSED (first-light phase 0): per-warp scratch 32 phases + 65 int2 LUT nodes (162 floats).
         # (with FL_RAYSPLIT the scratch lives in the warp's Y rows: no extra shared)
@@ -1495,7 +1497,7 @@ class Kernel(KsplitMixin):
                 compiler='NVRTC',
                 implicit_fma='--fmad=true' in options,
                 stage1=list(stage1),
-                coordinate_precision='two-word FP32',
+                coordinate_precision='FP32',
                 flags=list(flags),
                 profile_n=self.profile_n,
             )
@@ -1657,7 +1659,7 @@ class Kernel(KsplitMixin):
                         local_reserve_bytes=attr['local_size_bytes'] * props['maxThreadsPerMultiProcessor']
                                             * props['multiProcessorCount'],
                         compiler='NVRTC', stage1=list(stage1), implicit_fma='--fmad=true' in options,
-                        coordinate_precision='two-word FP32', profile_n=self.profile_n, flags=list(flags),
+                        coordinate_precision='FP32', profile_n=self.profile_n, flags=list(flags),
                     )
                     self.raw[key] = raw
                 attrs = self.attributes[akey]
@@ -1774,6 +1776,7 @@ class Kernel(KsplitMixin):
                         bundle.arrays['edge_off'],
                         bundle.arrays['edges'],
                         bundle.arrays['lower'],
+                        bundle.arrays['ray_geometry'],
                         dc['u'],
                         dc['h'],
                         dc['chi'],
@@ -1796,9 +1799,9 @@ class Kernel(KsplitMixin):
                     (
                         np.int32(nray),
                         bundle.arrays['dirs'].reshape(-1)[3 * r0 :],
-                        dc['aa2'],
-                        dc['bb2'],
-                        dc['dd2'],
+                        dc['aa'],
+                        dc['bb'],
+                        dc['dd'],
                         yb,
                     ),
                 )
@@ -1838,6 +1841,7 @@ class Kernel(KsplitMixin):
                     bundle.arrays['edge_off'],
                     bundle.arrays['edges'],
                     bundle.arrays['lower'],
+                    bundle.arrays['ray_geometry'],
                     bundle.arrays['end_j'],
                     bundle.arrays['end_f'],
                     end_col_arr,
@@ -1873,7 +1877,7 @@ class Kernel(KsplitMixin):
                 bundle.arrays['edge_off'],
                 yb,
                 ray_rads,
-                np.float64(launch.c['albedo']),
+                F(launch.c['albedo']),
                 launch.moments if launch.flux_only else launch.moments[c0:c1],
                 launch.flux[c0:c1],
             )
@@ -1923,7 +1927,7 @@ class Kernel(KsplitMixin):
                 dc = {}
                 for name in names:
                     with vram_trace.item(f'constants.{name}'):
-                        dc[name] = self.xp.asarray(np.ascontiguousarray(c[name]))
+                        dc[name] = self.xp.asarray(np.ascontiguousarray(c[name], dtype='f4' if name in ('u', 'wu') else None))
                 if 'strato_ext' in c:
                     for name in ('strato_ext', 'strato_sca', 'strato_chi', 'strato_density', 'strato_sun_col'):
                         with vram_trace.item(f'constants.{name}'):
@@ -1977,11 +1981,7 @@ class Kernel(KsplitMixin):
                         np.ascontiguousarray(np.concatenate([np.asarray(c['sun_h'], 'f4'), c['aer2']]), 'f4')
                     )
                 constants = norm_constants(self.L)
-                dc.update(zip(('aa', 'bb', 'dd'), [self.xp.asarray(v) for v in constants]))
-                # sos_vprod_y (sh_basis_ds) reads the same constants as (hi, lo) float pairs
-                for name, v in zip(('aa2', 'bb2', 'dd2'), constants):
-                    hi = v.astype('f4')
-                    dc[name] = self.xp.asarray(np.stack([hi, (v - hi.astype('f8')).astype('f4')], 1))
+                dc.update(zip(('aa', 'bb', 'dd'), [self.xp.asarray(v, dtype='f4') for v in constants]))
             self.device_constants[key] = dc
         self.check_upload(self.setup(s, nq), self.device_constants[key], 'device_constants')
         if self.config().strato and 'strato_chi' in self.device_constants[key]:
@@ -2032,9 +2032,8 @@ class Kernel(KsplitMixin):
             from ..precompute.column_cache import cached_columns
 
             def build():
-                starts = self.host(bundle.arrays['starts'])
-                co = self.host(bundle.arrays['cell_off'])
-                dirs = self.host(bundle.arrays['dirs'])
+                original = getattr(bundle, 'host_coordinates', bundle.arrays)
+                starts, co, dirs = (original[k] for k in ('starts', 'cell_off', 'dirs'))
                 out = np.empty(bundle.rays, 'f4')
                 from ..precompute.column_parallel import parallel_columns
 
@@ -2064,9 +2063,8 @@ class Kernel(KsplitMixin):
             from ..precompute.column_cache import cached_columns
 
             def build():
-                starts = self.host(bundle.arrays['starts'])
-                co = self.host(bundle.arrays['cell_off'])
-                dirs = self.host(bundle.arrays['dirs'])
+                original = getattr(bundle, 'host_coordinates', bundle.arrays)
+                starts, co, dirs = (original[k] for k in ('starts', 'cell_off', 'dirs'))
                 out = self.host(bundle.arrays['end_col']).copy()
                 from ..precompute.column_parallel import parallel_columns
 

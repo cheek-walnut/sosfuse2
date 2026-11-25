@@ -30,7 +30,9 @@ def ksplit_reserve(mode, free, field_bytes):
 def bundle_fixed_items(column_bytes, cells, phase, copies, grid_cells, K, W):
     return Counter(
         column_records=column_bytes,
-        moments_and_split_scratch=int(copies * cells * (4 + K) * W * 8) if phase == 0 else 0,
+        moments_and_split_scratch=int(copies * cells * (4 + K) * W * (2 * 4)) if phase == 0 else 0,
+        flux=cells * W * 4,
+        split_flux=copies * cells * W * (2 * 4) if copies > 1 else 0,
         sh_sidecar_and_scratch=int(5 * grid_cells * K * W * 4),
     )
 

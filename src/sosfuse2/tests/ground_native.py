@@ -59,7 +59,7 @@ static float warp_down(float value, int offset) {
 
 POISON = r'''
 Dim blockIdx{}, threadIdx{}, blockDim{};
-extern "C" { double shared[50000]; }
+extern "C" { float4 shared_vectors[25000]; }
 struct Sample;
 // Deliberately undefined: an inactive SH reference must fail at link time.
 void forbidden_ground_sh_sums(const Sample &, int, const int64_t *, const float *,

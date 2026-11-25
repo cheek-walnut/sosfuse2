@@ -38,7 +38,8 @@ def check_projection_batches(L, W, deterministic):
     K = count(L)
     lm = source[source.index('struct LMTable') : source.index('#endif', source.index('struct LMTable'))]
     fl_start = source.index('#define FLP_THREADS')
-    sp_start = source.index('#define SP_THREADS')
+    # SP_THREADS is chosen under #ifdef FAST_VPROD_ON; start at that directive so the #else/#endif stay paired.
+    sp_start = source.rindex('#ifdef FAST_VPROD_ON', 0, source.index('#define SP_THREADS'))
     header = (
         f'''typedef long long int64_t; typedef unsigned int uint32_t;
 #define K {K}
@@ -47,11 +48,12 @@ def check_projection_batches(L, W, deterministic):
 #define FW {W}
 #define SH_L {L}
 #define GW(w) (w)
-#define PI 3.14159265358979323846
+#define PI 3.14159265358979323846f
 #define SP_PARTS 9
 __device__ int ix(int l,int m){{return l*(l+1)/2+m;}}
 __device__ float clip(float x,float a,float b){{return fminf(b,fmaxf(a,x));}}
 '''
+        + source[source.index('struct ProjectionSum {'):source.index('struct PointData {')]
         + lm
         + function(source, 'sh_basis')
     )
@@ -95,34 +97,36 @@ __device__ float clip(float x,float a,float b){{return fminf(b,fmaxf(a,x));}}
     for c, (a, b) in enumerate(zip(offsets[:-1] - base, offsets[1:] - base)):
         want_m[c] = terms[a:b].sum(axis=0, dtype='f8')
         want_f[c] = flux_terms[a:b].sum(axis=0, dtype='f8') * (0.2 / np.pi)
-    dev = [cp.asarray(x) for x in (offsets, targets, dirs, weights)]
+    dev = [cp.asarray(x) for x in (offsets, targets.astype('f4'), dirs.astype('f4'), weights)]
     rr = cp.asarray(radiance)
     yy = cp.asarray(y)
-    coeff = tuple(cp.asarray(x) for x in norm_constants(L))
+    coeff = tuple(cp.asarray(x, dtype='f4') for x in norm_constants(L))
     edge = cp.arange(n + 1, dtype='uint32')
     for name, block, grid, args in (
         (
             'fl_project',
             256,
             (len(lengths),),
-            (np.int32(len(lengths)), np.int64(base), *dev, *coeff, rr, np.float64(0.2)),
+            (np.int32(len(lengths)), np.int64(base), *dev, *coeff, rr, np.float32(0.2)),
         ),
         (
             'sos_slim_proj',
             128,
             (len(lengths), (5 + K + 63) // 64),
-            (np.int32(len(lengths)), np.int32(4), np.int64(base), *dev, edge, yy, rr, np.float64(0.2)),
+            (np.int32(len(lengths)), np.int32(4), np.int64(base), *dev, edge, yy, rr, np.float32(0.2)),
         ),
     ):
         kernel = module.get_function(name)
         outputs = []
         for _ in range(2):
-            out = cp.full(want_m.shape, cp.nan, dtype='f8')
-            flux = cp.full(want_f.shape, cp.nan, dtype='f8')
+            out = cp.full(want_m.shape, cp.nan, dtype='f4')
+            flux = cp.full(want_f.shape, cp.nan, dtype='f4')
             kernel(grid, (block,), args + (out, flux))
             actual = (cp.asnumpy(out), cp.asnumpy(flux))
-            np.testing.assert_allclose(actual[0], want_m, rtol=1e-5, atol=2e-6, err_msg=name)
-            np.testing.assert_allclose(actual[1], want_f, rtol=1e-5, atol=2e-6, err_msg=name)
+            # FP32 basis and compensated FP32 sums against the FP64 truth: rtol 1e-3, with near-zero
+            # moments judged against the array's largest magnitude (as twilight differences are).
+            for got, want in zip(actual, (want_m, want_f)):
+                np.testing.assert_allclose(got, want, rtol=1e-3, atol=1e-3 * np.abs(want).max(), err_msg=name)
             outputs.append(actual)
         for a, b in zip(*outputs):
             if deterministic:

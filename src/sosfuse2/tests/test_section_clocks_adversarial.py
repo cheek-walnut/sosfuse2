@@ -73,6 +73,7 @@ class FakeXP:
         return value
 
     ascontiguousarray = staticmethod(np.ascontiguousarray)
+    empty_like = staticmethod(np.empty_like)
     transpose = staticmethod(np.transpose)
     diff = staticmethod(np.diff)
     arange = staticmethod(np.arange)
@@ -168,8 +169,10 @@ def launch_fixture(module=source_solver, flags=(), W=15, cells=5, block=256):
         'hits',
     )
     arrays = {name: np.arange(cells + 1) for name in names}
-    arrays['starts'] = np.stack((np.arange(cells), np.zeros(cells), np.zeros(cells)), axis=1)
-    arrays['targets'] = np.zeros((cells, 9))
+    arrays['starts'] = np.zeros((cells, 5), 'f4')
+    arrays['starts'][:, 0] = np.arange(cells)
+    arrays['targets'] = np.zeros((cells, 9), 'f4')
+    arrays['ray_geometry'] = np.zeros((cells, 3), 'f4')
     bundle = SimpleNamespace(nq=2, cells=cells, rays=cells, arrays=arrays)
     field = np.arange(cells * 571 * W, dtype='f4').reshape(cells, 571, W)
     return kernel, xp, raw, state, bundle, field

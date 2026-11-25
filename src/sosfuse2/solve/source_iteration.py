@@ -16,10 +16,21 @@ from ..foundation import top
 
 
 def _use_gpu_history(host_history, on_device, deterministic, strato, order, waves, features, free):
-    # Stage one wavelength's residual ring and FP64 mixing vectors. Preserve
+    # Stage one wavelength's residual ring and FP32 mixing vectors. Preserve
     # the pre-existing stratospheric dispatch; new orders apply to clear transport.
     supported = (order in (16, 24, 32) and waves in (1, 15)) if not strato else (order, waves) == (24, 15)
-    return host_history and on_device and supported and not deterministic and 64 * features + (32 << 20) < free
+    return host_history and on_device and supported and not deterministic and 32 * features + (32 << 20) < free
+
+
+def _anderson_weights(products):
+    """Solve the small regularized Gram system on the host before rounding the weights."""
+    gram = np.array(products, dtype=np.float64, copy=True)
+    gram[np.diag_indices_from(gram)] += max(float(np.trace(gram)) * 1e-10, 1e-30)
+    weights = np.linalg.solve(gram, np.ones(len(gram)))
+    weights /= weights.sum()
+    if np.isfinite(weights).all() and np.max(np.abs(weights)) < 8:
+        return weights.astype(np.float32)
+    return None
 
 
 def _history_row(xp, shape, dtype, pin):
@@ -231,15 +242,13 @@ class Solver:
         if history_storage not in ('host', 'device'):
             raise ValueError('E_ANDERSON_HISTORY: expected device or host')
         host_history = history_storage == 'host'
-        history_xp = np if host_history else xp
         self.timings['anderson_history'] = history_storage
         with vram_trace.item('source.iterate'):
             x = xp.zeros((s.geo.ns, source_size(s), s.W), 'f4')
         gs = [[] for _ in range(s.W)]
         fs = [[] for _ in range(s.W)]
         grams = [np.empty((0, 0), 'f8') for _ in range(s.W)] if host_history else None
-        mix_buf = np.empty((s.geo.ns, source_size(s)), 'f8') if host_history else None
-        tmp_buf = np.empty((s.geo.ns, source_size(s)), 'f8') if host_history else None
+        tmp_buf = np.empty((s.geo.ns, source_size(s)), 'f4') if host_history else None
         if host_history and xp is not np:
             shape = (s.geo.ns, source_size(s))
             src_pin = _history_row(xp, shape, np.float32, True)
@@ -323,10 +332,10 @@ class Solver:
                 norm = xp.linalg.norm(gw, axis=1)
                 scale = xp.maximum(norm, norm.max() * 1e-8)
                 with vram_trace.item('anderson.feature'):
-                    feature = ((gw - x[:, :, w]) / scale[:, None]).astype('f8').ravel()
+                    feature = ((gw - x[:, :, w]) / scale[:, None]).astype('f4', copy=False).ravel()
                 obs = xp.asarray(
                     ((stop_new[:, :, w] - stop_old[:, :, w]) / np.maximum(abs(stop_new[:, :, w]), 1e-20)).ravel()
-                    * math.sqrt(len(feature) / (stop_new.shape[0] * stop_new.shape[1]))
+                    * math.sqrt(len(feature) / (stop_new.shape[0] * stop_new.shape[1])), dtype=xp.float32,
                 )
                 with vram_trace.item('anderson.source_history'):
                     source = gw.copy()
@@ -337,7 +346,7 @@ class Solver:
                     nfeat = int(residual.size)
                     cur_len = ring_len[w]
                     if fs_mat[w] is None:
-                        fs_mat[w] = _history_row(xp, (4, nfeat), 'f8', gpu_history_math and pin_history)
+                        fs_mat[w] = _history_row(xp, (4, nfeat), 'f4', gpu_history_math and pin_history)
                     if cur_len < 4:
                         slot = cur_len
                         gs[w].append(_history_row(xp, source.shape, source.dtype, gpu_history_math and pin_history))
@@ -358,7 +367,7 @@ class Solver:
                         residual.get(out=res_view)
                     elif xp is not np:
                         if res_pin is None or res_pin.size != nfeat:
-                            res_pin = _history_row(xp, (nfeat,), np.float64, True)
+                            res_pin = _history_row(xp, (nfeat,), np.float32, True)
                         source.get(out=src_pin)
                         residual.get(out=res_pin)
                         np.copyto(gs[w][slot], src_pin)
@@ -389,19 +398,16 @@ class Solver:
                     del residual
                     grams[w] = G
                     if len(order_new) > 1:
-                        gram = G.copy()
-                        gram[np.diag_indices_from(gram)] += max(float(np.trace(gram)) * 1e-10, 1e-30)
                         self.kernel.memory()
                         try:
-                            ah = np.linalg.solve(gram, np.ones(len(gram), dtype='f8'))
-                            ah /= ah.sum()
-                            if np.isfinite(ah).all() and max(abs(ah)) < 8:
+                            ah = _anderson_weights(G)
+                            if ah is not None:
                                 if gpu_history_math:
                                     mixed = None
                                     try:
-                                        mixed = xp.multiply(xp.asarray(gs[w][order_new[0]]), ah[0], dtype=xp.float64)
+                                        mixed = xp.multiply(xp.asarray(gs[w][order_new[0]]), ah[0], dtype=xp.float32)
                                         for c_val, s_idx in zip(ah[1:], order_new[1:]):
-                                            mixed += xp.multiply(xp.asarray(gs[w][s_idx]), c_val, dtype=xp.float64)
+                                            mixed += xp.multiply(xp.asarray(gs[w][s_idx]), c_val, dtype=xp.float32)
                                         nxt[:, :, w] = mixed
                                         continue
                                     except MemoryError as exc:
@@ -409,11 +415,10 @@ class Solver:
                                         gpu_history_math = False
                                     finally:
                                         del mixed
-                                np.multiply(gs[w][order_new[0]], ah[0], out=mix_buf)
+                                np.multiply(gs[w][order_new[0]], ah[0], out=mix_f4)
                                 for c_val, s_idx in zip(ah[1:], order_new[1:]):
                                     np.multiply(gs[w][s_idx], c_val, out=tmp_buf)
-                                    mix_buf += tmp_buf
-                                np.copyto(mix_f4, mix_buf, casting='unsafe')
+                                    mix_f4 += tmp_buf
                                 nxt[:, :, w] = xp.asarray(mix_f4)
                         except np.linalg.LinAlgError:
                             pass
@@ -425,18 +430,14 @@ class Solver:
                         gs[w].pop(0)
                         fs[w].pop(0)
                     if len(fs[w]) > 1:
-                        # Stage one wavelength at a time. Gram and mixing arithmetic stay on the solve backend.
                         with vram_trace.item('anderson.stack'):
-                            f = xp.asarray(history_xp.stack(fs[w], 1))
-                        gram = f.T @ f
-                        gram += xp.eye(len(gram)) * max(float(self.kernel.host(xp.trace(gram))) * 1e-10, 1e-30)
+                            f = xp.stack(fs[w], 1)
+                        products = self.kernel.host(f.T @ f)
                         self.kernel.memory()
                         try:
-                            alpha = xp.linalg.solve(gram, xp.ones(len(gram)))
-                            alpha /= alpha.sum()
-                            ah = self.kernel.host(alpha)
-                            if np.isfinite(ah).all() and max(abs(ah)) < 8:
-                                nxt[:, :, w] = sum(c * xp.asarray(q) for c, q in zip(alpha, gs[w]))
+                            ah = _anderson_weights(products)
+                            if ah is not None:
+                                nxt[:, :, w] = sum(c * q for c, q in zip(ah, gs[w]))
                         except np.linalg.LinAlgError:
                             pass
             # A converged wavelength is frozen exactly as the accepted active mask.

@@ -5,7 +5,7 @@
 
 #include "cuda_stub.h"
 Dim blockIdx{}, threadIdx{}, blockDim{};
-extern "C" { double shared[50000]; }
+extern "C" { float4 shared_vectors[25000]; }
 template <> inline float __shfl_sync(unsigned, float value, int source_lane) {
     return warp_read(value, source_lane);
 }
@@ -30,13 +30,20 @@ void run_segment(int mode, int ray, int seg, int lower, double a, double b,
     using Kernel = Transport<Sample>;
     constexpr int capacity = TransportPolicy::batch_size;
     const float basis[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    DS p[3], d[3];
+    float p[5], d[3];
     float dl[3];
     for (int k = 0; k < 3; ++k) {
-        p[k] = ds(start[k]);
-        d[k] = ds(direction[k]);
+        p[k] = start[k];
+        d[k] = direction[k];
         dl[k] = direction[k];
     }
+    const double r0 = std::hypot(start[0], start[1], start[2]);
+    p[3] = r0 - 6371.;
+    p[4] = r0;
+    const float pd = start[0]*direction[0] + start[1]*direction[1] + start[2]*direction[2];
+    const PathEdge edges[] = {{(float)a, (float)(b-a)}, {(float)b, 0.f}};
+    const PathSegment path = path_segment(p, RayGeometry{pd, 0.f, 0.f}, edges, lower);
+    const std::vector<float> u(nodes, nodes + nq), wu(weights, weights + nq);
     const float st = std::hypot(dl[0], dl[1]);
     float table[3 * PROFILE_N];
     for (int i = 0; i < PROFILE_N; ++i) {
@@ -73,8 +80,8 @@ void run_segment(int mode, int ray, int seg, int lower, double a, double b,
         host_lane = transport.lane = lane;
         Kernel::RayState r{};
         r.y = y;
-        r.beta_p = p;
-        r.beta_d = d;
+        r.p = p;
+        r.d = d;
         // In a pair the even node contributes to component 0, the odd to component 1.
         // Both can then be read individually after the real shuffle and compensated sum.
         const bool upper = TransportPolicy::slim_rays && lane >= 16;
@@ -83,23 +90,23 @@ void run_segment(int mode, int ray, int seg, int lower, double a, double b,
         r.pu_r[1] = upper ? 1.f : 0.f;
         r.pu_r[2] = 1.f;
         if (nq <= 32 && lane < nq) {
-            r.gu_l = ds(nodes[lane]);
-            r.gw_l = ds(weights[lane]);
+            r.gu_l = u[lane];
+            r.gw_l = wu[lane];
         }
         if (w < FW && mode == 2) {
             for (int c = 0; c < NCOMP; ++c)
                 r.ray_ext[c] = k.ext[c * FW + w];
             r.ray_st_ext = k.st_ext[w];
         } else if (w < FW) {
-            r.sp_t = ds(a);
-            r.sp_b = beta_at_side(p, d, r.sp_t, ds((a + b) / 2), k.optics, w);
+            r.sp_t = path.start();
+            r.sp_b = beta_at(path, r.sp_t, k.optics, w);
         }
         for (int first = 0; first < nq; first += capacity) {
             const int end = std::min(nq, first + capacity);
             const int j = first + lane;
-            const auto batch_node = quadrature_node(j, nq, j < end, nodes, weights, r.gu_l, r.gw_l);
+            const auto batch_node = quadrature_node(j, nq, j < end, u.data(), wu.data(), r.gu_l, r.gw_l);
             if (j < end)
-                evaluate_point(batch[lane], p, d, basis, dl, st, ds(a), ds(b), lower,
+                evaluate_point(batch[lane], p, d, basis, dl, st, path,
                                batch_node.u, batch_node.w, heights, k.nh, angles, k.nc,
                                k.profile, nullptr, 0, nullptr, 0, false);
             __syncwarp();
@@ -108,8 +115,8 @@ void run_segment(int mode, int ray, int seg, int lower, double a, double b,
                 auto view = transport.sample_view(batch, &sample, first, owner.sample);
                 std::fill_n(r.lane_rad, 4, 0.f);
                 std::fill_n(r.lane_rc, 4, 0.f);
-                const auto node = quadrature_node(step, nq, true, nodes, weights, r.gu_l, r.gw_l);
-                transport.consume_sample(r, ray, seg, step, first, ds(a), ds(b), lower, node, owner, view);
+                const auto node = quadrature_node(step, nq, true, u.data(), wu.data(), r.gu_l, r.gw_l);
+                transport.consume_sample(r, ray, seg, step, first, path, node, owner, view);
                 if (owner.active && owner.wave == 0)
                     export_point(view.sample, geometry + (step + int(upper)) * 27);
                 if (!TransportPolicy::record && lane < FW) {

@@ -81,18 +81,29 @@ def prepare_geometry(s, geometry, reduced):
 
 
 def promote_bundle(bundle, xp):
-    """New device allocation with the exact host bytes and state-private sidecars."""
+    """Upload the transport representation and this state's prepared optical columns."""
+    from ..solve.ray_geometry import upload_geometry
+
     result = copy.copy(bundle)
     trace = vram_trace.current.get()
     label = (trace.item_name if trace else None) or 'geometry.main'
-    result.arrays = {}
-    for k, v in bundle.arrays.items():
-        with vram_trace.item(f'{label}.{k}'):
-            result.arrays[k] = xp.asarray(v)
+    upload_geometry(result, bundle.arrays, xp, label)
     for attr in ('density_columns', 'strato_columns'):
         if hasattr(bundle, attr):
             with vram_trace.item(f'{label}.{attr}'):
                 setattr(result, attr, {k: xp.asarray(v) for k, v in getattr(bundle, attr).items()})
+    return result
+
+
+def _transport_payload(bundle):
+    """Reuse immutable ray constants across spectral groups, keeping optical sidecars per group."""
+    from ..solve.ray_geometry import device_paths
+
+    if not hasattr(bundle, '_device_paths'):
+        bundle._device_paths = device_paths(bundle.arrays)
+    result = copy.copy(bundle)
+    result.arrays = dict(bundle.arrays, **bundle._device_paths)
+    del result._device_paths
     return result
 
 
@@ -513,6 +524,9 @@ def persistent_chunk(s, geometry, tables, a, name, emit, *, tol=None):
         observer = Solver(s, geometry, prepared=True, box_evaluate=capture)
         observer.boxes_fixed(np.empty(0, 'f4'))
         payload = device_payload(s, geometry)
+        if a.backend != 'numpy':
+            for key in ('bundle', 'ground_bundle'):
+                payload[key] = _transport_payload(payload[key])
         trace = vram_trace.current.get()
         if trace is not None:
             payload['vram_chunk'] = trace.chunk
@@ -696,6 +710,16 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
             from ..backends.device_profile import field_reserve_factors
 
             payload_bytes = sum(arrays)
+            # Prepared paths include the three device floats per ray. Original
+            # directions still cross the wire for host column reconstruction.
+            if backend == 'cupy':
+                directions = {}
+                for key in ('bundle', 'ground_bundle'):
+                    host = payload[key].arrays
+                    if 'ray_geometry' in host:
+                        d = host['dirs']
+                        directions[id(d)] = d.nbytes - 4 * d.size
+                payload_bytes -= sum(directions.values())
             requested, minimum = field_reserve_factors()
             # KSPLIT (default on CuPy, source_solver.ksplit_setting) sizes its columns, plans and aerosol buffer from free VRAM. With
             # several resident states it stays out of the other states' reservations (ksplit_room) and adds what it holds to

@@ -97,11 +97,11 @@ class FastTransport:
         """Match Transport::bind_shared, including padding before the aligned point arrays."""
         if self.role == 'warm':
             c32 = 4 * self.W if self.L == 32 else 0
-            floats = workspace(self.L) + 4 * self.W + 33 + 33 + c32 + 27
+            floats = workspace(self.L) + 4 * self.W + 33 + 33 + c32 + 15
             return self.W * 8 + 12 * 4 + warps * (floats * 4 + self.BATCH * 144) + 16 + 512
         if self.role == 'first':
             # FirstPoint, midpoint profiles and panel widths, phase, ray constants, frame.
-            per_warp = self.BATCH * 176 + (self.BATCH + 1) * 24 + (32 + 27 + 12) * 4
+            per_warp = self.BATCH * 176 + (self.BATCH + 1) * 24 + (32 + 15 + 12) * 4
             return self.W * 8 + 16 + warps * per_warp
         return 0
 

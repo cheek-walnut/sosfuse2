@@ -36,7 +36,7 @@ def test_native_fourier_and_views(tmp_path, waves, strato, combined, order):
         '#include <math.h>\n'
         + STUB
         + SYNTAX_STUB_EXTRA
-        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { double shared[50000]; }\n'
+        + '\nDim blockIdx{},threadIdx{},blockDim{};extern "C" { float4 shared_vectors[25000]; }\n'
         + f'#include "{paths.KERNEL_CU}"\n'
         + r'''
 extern "C" void contract(const float *y, const float *coeff, int live_a, int live_s,

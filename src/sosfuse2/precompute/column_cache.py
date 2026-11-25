@@ -35,7 +35,9 @@ def cache_key(kernel, bundle, c, kind):
     names = ('starts', 'dirs', 'cell_off') + (('end_col',) if kind == 'density' else ())
     for name in names:
         if name not in hashes:
-            hashes[name] = array_hash(kernel.host(bundle.arrays[name]))
+            original = getattr(bundle, 'host_coordinates', {})
+            value = original[name] if name in original else kernel.host(bundle.arrays[name])
+            hashes[name] = array_hash(value)
     optics = c['density_optics'] if kind == 'density' else None
     files = (
         PKG / ('atmosphere/density.py' if optics is not None else 'atmosphere/stratosphere.py'),

@@ -71,14 +71,6 @@ typedef unsigned char uint8_t;
 #if defined(SINV) && defined(SLIM) && defined(STRATO) && FW == 15
 #define SLIM_PRELOAD
 #endif
-// Phase-0 first light: point() and the Simpson
-// nodes take the segment ends and quadrature nodes as DS computed once (segment) or held per lane
-// (nodes, nq<=32) instead of converting the same doubles every step; the DS values equal ds() of
-// them, so results are unchanged. Warm kernels do the same: the ray's p/d DS cache, segment-end DS
-// and lane-held node DS feed the batched point()/point_m2 and the Simpson prefix.
-#if !K_FIRST || K_PHASE == 0
-#define PATH_DS
-#endif
 // Transported SH order: 16, 24 or 32 (sh_layout.kernel_source defines it below 32). The warp width,
 // the m=32 cosine table entry and the single-scattering Mie expansion stay at 32 for every order.
 #ifndef SH_L
@@ -95,7 +87,7 @@ typedef unsigned char uint8_t;
 #define NMOM (4 + K)
 // Per-warp Y row: first-light GROUND_FUSED borrows it for 162 floats (sh_layout.workspace).
 #define YPAD (K > 162 ? K : 162)
-#define PI 3.14159265358979323846
+#define PI 3.14159265358979323846f
 // Smallest normal float (FLT_MIN). Traces below it are excluded from log-space moments; NaN fails
 // >= as well. The trace itself compares the same under FTZ, but subnormal terms inside it do not:
 // CuPy always builds with -ftz=true, so numpy_reference.py runs transport under flush_to_zero() to
@@ -220,13 +212,7 @@ __constant__ LMTable LM = LMTable();
 // Opt-in spectral tiles: local buffers use TW; global arrays keep FW.
 #define TW FW
 #define GW(w) w
-// PATH_DS kernels (phase-0 first light, warm) reuse exact two-word ray coordinates.
-#ifdef PATH_DS
-#define RAY_CONST_F 27
-#else
 #define RAY_CONST_F 15
-#endif
-// ---- Double-single arithmetic ----
 
 // Compile-time capabilities; inactive fields remain valid arguments without changing
 // the layout of the shared point records.
@@ -248,59 +234,6 @@ struct ProfilePolicy {
 #endif
 };
 
-struct DS {
-    float h, l;
-};
-__device__ DS ds(double x) {
-    float h = (float)x;
-    return {h, (float)(x - (double)h)};
-}
-__device__ DS ds(DS x) {
-    return x;
-}
-__device__ DS dn(DS a) {
-    return {-a.h, -a.l};
-}
-__device__ DS da(DS a, DS b) {
-    float s = a.h + b.h, v = s - a.h;
-    float e = ((a.h - (s - v)) + (b.h - v)) + (a.l + b.l), h = s + e;
-    return {h, e - (h - s)};
-}
-__device__ DS dx(DS a, DS b) {
-    return da(a, dn(b));
-}
-__device__ DS dm(DS a, DS b) {
-    float p = a.h * b.h, e = fmaf(a.h, b.h, -p);
-    e = (e + a.h * b.l) + a.l * b.h;
-    float h = p + e;
-    return {h, e - (h - p)};
-}
-__device__ DS dr(DS a) {
-    float h = sqrtf(fmaxf(a.h, 0.f));
-    DS e = dx(a, dm({h, 0}, {h, 0}));
-    float l = (e.h + e.l) / fmaxf(2 * h, 1e-30f);
-    return da({h, 0}, {l, 0});
-}
-__device__ DS ddiv(DS a, DS b) {
-    float h = a.h / b.h;
-    DS e = dx(a, dm({h, 0}, b));
-    float lo = (e.h + e.l) / b.h;
-    return da({h, 0}, {lo, 0});
-}
-__device__ float dq(DS a, DS b) {
-    DS x = ddiv(a, b);
-    return x.h + x.l;
-}
-__device__ float dv(DS a) {
-    return a.h + a.l;
-}
-// FTZ: a solar-boundary DS value as an FTZ FP32 build
-// computes it, on every build: components and sum below FLT_MIN count as 0; NaN passes
-// (fabsf(NaN)<TRACE_MIN is false).
-__device__ float ftz_dv(DS a) {
-    float h = fabsf(a.h) < TRACE_MIN ? 0.f : a.h, l = fabsf(a.l) < TRACE_MIN ? 0.f : a.l, v = h + l;
-    return fabsf(v) < TRACE_MIN ? 0.f : v;
-}
 __device__ float clip(float x, float lo, float hi) {
     return fminf(hi, fmaxf(lo, x));
 }
@@ -352,16 +285,11 @@ __device__ __forceinline__ bool outside_support(float h, bool air) {
 __device__ __forceinline__ float support_value(float h, float value, bool air) {
     return outside_support(h, air) ? 0.f : value;
 }
-// Round a boundary sample toward the segment interior, within one FP32 ULP.
-__device__ __forceinline__ float support_height(float h, float inside_h) {
+// The original shell intersections fix the side even if a computed altitude crosses it.
+__device__ __forceinline__ float support_height(float h, bool above) {
     if (!support_extended())
         return h;
-    for (int k = 0; k < 2; ++k) {
-        const float end = support_end(k == 1);
-        if (h >= nextafterf(end, end - 1.f) && h <= nextafterf(end, end + 1.f))
-            h = inside_h > end ? nextafterf(end, end + 1.f) : end;
-    }
-    return h;
+    return above ? fmaxf(h, nextafterf(LOWER_END_KM, TOP_KM)) : fminf(h, LOWER_END_KM);
 }
 __device__ __forceinline__ float profile_coordinate(float h) {
     float x = clip(h, 0.f, TOP_KM) * PROFILE_INV;
@@ -438,6 +366,16 @@ __device__ void kah(float &t, float &c, float v) {
 #error E_TROPO_MIE_UNSUPPORTED_GROUND_PATH: the LUT_ONLY unit has no ground path
 #endif
 #else
+// Neumaier summation preserves small terms when the new term dominates the partial.
+struct ProjectionSum {
+    float sum, error;
+    __device__ void add(float v) {
+        const float next = sum + v;
+        error += fabsf(sum) >= fabsf(v) ? (sum - next) + v : (v - next) + sum;
+        sum = next;
+    }
+    __device__ float value() const { return sum + error; }
+};
 struct PointData {
     float T[16], cm[33], sw[4], prof[NCOMP], h, ds, cs;
     float mu, exd, eyd, sc[NCOMP];
@@ -498,50 +436,22 @@ __device__ __forceinline__ void copy_point(Record &s, const Point &q, bool first
             s.st_sc = q.st_sc;
     }
 }
-__device__ void sh_basis(double mu, int lane, float *y, const double *aa, const double *bb,
-                         const double *dd) {
-    mu = fmin(1., fmax(-1., mu));
-    double st = sqrt(fmax(0., 1 - mu * mu));
+__device__ void sh_basis(float mu, float st, int lane, float *y, const float *aa, const float *bb,
+                         const float *dd) {
+    mu = clip(mu, -1.f, 1.f);
     for (int m = lane; m <= SH_L; m += 32) {
-        double diag = 1 / sqrt(4 * PI);
+        float diag = 1 / sqrtf(4 * PI);
         for (int j = 1; j <= m; j++)
             diag = (diag * dd[j]) * st;
-        double mult = m ? sqrt(2.) : 1., z0 = diag;
+        float mult = m ? sqrtf(2.f) : 1.f, z0 = diag;
         y[ix(m, m)] = (float)(mult * z0);
         if (m < SH_L) {
-            double z1 = (sqrt(2. * m + 3) * mu) * z0;
+            float z1 = (sqrtf(2.f * m + 3) * mu) * z0;
             y[ix(m + 1, m)] = (float)(mult * z1);
             for (int l = m + 2; l <= SH_L; l++) {
                 int k = ix(l, m);
-                double z2 = (aa[k] * mu) * z1 - bb[k] * z0;
+                float z2 = (aa[k] * mu) * z1 - bb[k] * z0;
                 y[k] = (float)(mult * z2);
-                z0 = z1;
-                z1 = z2;
-            }
-        }
-    }
-}
-// sos_vprod_y evaluates sh_basis's recurrence with double-single FMA products.
-// aa2/bb2/dd2 hold the high and low words of aa/bb/dd. Keeping both words avoids
-// the precision loss of a single-word recurrence near |mu|=1.
-__device__ void sh_basis_ds(double mu, int lane, float *y, const float2 *aa2, const float2 *bb2,
-                            const float2 *dd2) {
-    mu = fmin(1., fmax(-1., mu));
-    const DS u = ds(mu), st = ds(sqrt(fmax(0., 1 - mu * mu)));
-    for (int m = lane; m <= SH_L; m += 32) {
-        DS diag = ds(1 / sqrt(4 * PI));
-        for (int j = 1; j <= m; j++)
-            diag = dm(dm(diag, DS{dd2[j].x, dd2[j].y}), st);
-        const DS mult = m ? ds(sqrt(2.)) : DS{1.f, 0.f};
-        DS z0 = diag;
-        y[ix(m, m)] = dv(dm(mult, z0));
-        if (m < SH_L) {
-            DS z1 = dm(dm(ds(sqrt(2. * m + 3)), u), z0);
-            y[ix(m + 1, m)] = dv(dm(mult, z1));
-            for (int l = m + 2; l <= SH_L; l++) {
-                int k = ix(l, m);
-                DS z2 = dx(dm(dm(DS{aa2[k].x, aa2[k].y}, u), z1), dm(DS{bb2[k].x, bb2[k].y}, z0));
-                y[k] = dv(dm(mult, z2));
                 z0 = z1;
                 z1 = z2;
             }
@@ -551,7 +461,7 @@ __device__ void sh_basis_ds(double mu, int lane, float *y, const float2 *aa2, co
 // The profile is evaluated by one function, profile_at, for
 // the quadrature nodes (point()) and the Simpson optical-depth prefix (segment ends, panel
 // midpoints); numpy_reference.py profile_at, extinction_profile, SimpsonPrefix use the same
-// operations. Path coordinates, panel widths and midpoints are DS, like point().
+// profiles. Panel widths and midpoints are computed within the segment.
 // ---- Profile evaluation and optical-depth integration ----
 
 struct ProfileParams {
@@ -567,26 +477,58 @@ struct ExtinctionParams {
     const float *ext;
     const float *st_ext = nullptr;
 };
-// Path coordinate of a GL node (u^2 map toward the lower end), DS.
-__device__ __forceinline__ DS path_t(DS ad, DS bd, DS length, DS u, DS v, bool lower) {
-    return lower ? da(ad, dm(length, dm(u, u))) : dx(bd, dm(length, dm(v, v)));
-}
-template <class Scalar>
-__device__ __forceinline__ DS node_t(Scalar a, Scalar b, bool lower, Scalar gu) {
-    DS ad = ds(a), bd = ds(b), u = ds(gu);
-    return path_t(ad, bd, dx(bd, ad), u, lower ? u : dx({1, 0}, u), lower);
-}
-// DS position q = p + t d, q*q and the radius |q|.
-template <class Coord>
-__device__ __forceinline__ DS path_q(const Coord *p, const Coord *d, DS t, DS *q, DS *q2) {
-    for (int k = 0; k < 3; k++) {
-        q[k] = da(ds(p[k]), dm(t, ds(d[k])));
-        q2[k] = dm(q[k], q[k]);
+// Geometry is in km. The origin row is [x, y, z, height, radius].
+struct RayGeometry {
+    float pd, shadow_begin, shadow_end;
+};
+struct PathEdge {
+    float t, signed_length;
+};
+struct PathSegment {
+    float anchor, length, h0, r0;
+    RayGeometry ray;
+    bool lower, above;
+
+    // Signed fraction from the lower end, increasing along the ray in both orientations.
+    __device__ float start() const { return lower ? 0.f : -1.f; }
+    __device__ float end() const { return lower ? 1.f : 0.f; }
+    __device__ float node(float u) const {
+        const float v = lower ? u : 1.f - u;
+        return lower ? v * v : -(v * v);
     }
-    return dr(da(da(q2[0], q2[1]), q2[2]));
+    __device__ float distance(float x) const { return fmaf(length, x, anchor); }
+    __device__ float width(float a, float b) const { return length * (b - a); }
+    __device__ float height(float x) const {
+        const float t = distance(x);
+        const float diff = t * (2.f * ray.pd + t);
+        const float r = sqrtf(fmaf(r0, r0, diff));
+        return support_height(clip(h0 + diff / (r + r0), 0.f, TOP_KM), above);
+    }
+    __device__ bool lit(float x) const {
+        // Subtract the segment anchor first to resolve nodes very close to a shadow crossing.
+        const float offset = length * x;
+        return !(offset > ray.shadow_begin - anchor && offset < ray.shadow_end - anchor);
+    }
+};
+__device__ __forceinline__ PathSegment path_segment(const float *p, RayGeometry ray,
+                                                     const PathEdge *edge, bool lower) {
+    return {edge[lower ? 0 : 1].t, fabsf(edge->signed_length), p[3], p[4], ray,
+            lower, edge->signed_length < 0.f};
 }
-__device__ __forceinline__ float path_h(DS rr) {
-    return clip(dv(dx(rr, {6371, 0})), 0, TOP_KM);
+struct PathPoint {
+    float x, h, rho, z, cx, sx;
+};
+__device__ __forceinline__ PathPoint path_point(const float *p, const float *d,
+                                                const PathSegment &path, float u) {
+    const float x = path.node(u), t = path.distance(x);
+    const float qx = fmaf(t, d[0], p[0]), qy = fmaf(t, d[1], p[1]);
+    const float rho = hypotf(qx, qy);
+    return {x, path.height(x), rho, fmaf(t, d[2], p[2]),
+            rho > 1e-12f ? qx / rho : 1.f, rho > 1e-12f ? qy / rho : 0.f};
+}
+__device__ __forceinline__ float solar_coordinate(float h, float z) {
+    const float tangent_distance = sqrtf(h * (12742.f + h));
+    return sqrtf(clip((z + tangent_distance) / ((6371.f + h) + tangent_distance), 0.f, 1.f));
 }
 // Fixed separable components: air, tropospheric aerosol, O3, NO2, O4; stratosphere is separate.
 __device__ __forceinline__ void profile_at(float h, const ProfileParams &profile, float *prof,
@@ -647,70 +589,33 @@ __device__ __forceinline__ float extinction_at(const float *prof, float st_prof,
         b += st_prof * optics.st_ext[gw];
     return b;
 }
-template <class Coord>
-__device__ __forceinline__ float beta_at(const Coord *p, const Coord *d, DS t,
+__device__ __forceinline__ float beta_at(const PathSegment &path, float x,
                                          const ExtinctionParams &optics, int gw) {
-    DS q[3], q2[3];
     float pr[NCOMP], pst;
-    profile_at(path_h(path_q(p, d, t, q, q2)), optics.profile, pr, pst);
+    profile_at(path.height(x), optics.profile, pr, pst);
     return extinction_at(pr, pst, optics, gw);
 }
-// At a support boundary, use the one-sided value belonging to this segment.
-template <class Coord>
-__device__ __forceinline__ float beta_at_side(const Coord *p, const Coord *d, DS t, DS inside,
-                                              const ExtinctionParams &optics, int gw) {
-    if (!support_extended())
-        return beta_at(p, d, t, optics, gw);
-    DS q[3], q2[3];
-    const float h = path_h(path_q(p, d, t, q, q2));
-    const float ih = path_h(path_q(p, d, inside, q, q2));
-    const float side_h = support_height(h, ih);
-    float pr[NCOMP], pst;
-    profile_at(side_h, optics.profile, pr, pst);
-    return extinction_at(pr, pst, optics, gw);
-}
-// Simpson on the panel [t0,t1] with end extinctions b0,b1: (t1-t0)/6 (b0 + 4 beta(mid) + b1), mid =
-// (t0+t1)/2 (exact DS halving).
-template <class Coord>
-__device__ __forceinline__ float simpson_piece(const Coord *p, const Coord *d, DS t0, DS t1,
-                                               float b0, float b1, const ExtinctionParams &optics,
-                                               int gw) {
-    DS tm = da(t0, t1);
-    tm.h *= .5f;
-    tm.l *= .5f;
-    const float bm = beta_at(p, d, tm, optics, gw);
-    return (dv(dx(t1, t0)) / 6.f) * ((b0 + b1) + 4.f * bm);
+__device__ __forceinline__ float simpson_piece(const PathSegment &path, float x0, float x1,
+                                              float b0, float b1, const ExtinctionParams &optics,
+                                              int gw) {
+    const float bm = beta_at(path, (x0 + x1) * .5f, optics, gw);
+    return (path.width(x0, x1) / 6.f) * ((b0 + b1) + 4.f * bm);
 }
 // ---- Quadrature point geometry ----
 
 #define POINT_INLINE __noinline__
-// Coord/Scalar = double (every caller but phase-0 first light) or DS: first light passes the ray's
-// DS p/d and the segment and node DS values, so the per-step ds() conversions (FP64 adds, the
-// remaining first-light FP64 work) are not redone. pf(d[k]) is (float)d[k] = ds(d[k]).h either way;
-// the values are identical.
-__device__ __forceinline__ float pf(double x) {
-    return (float)x;
-}
-__device__ __forceinline__ float pf(DS x) {
-    return x.h;
-}
-template <class Coord, class Scalar, class Record>
+template <class Record>
 __device__ POINT_INLINE void
-point(Record &s, const Coord *p, const Coord *d, const float *B, const float *dl, float st,
-      Scalar a, Scalar b, bool lower, Scalar gu, Scalar gw, const float *hgrid, int nh,
+point(Record &s, const float *p, const float *d, const float *B, const float *dl, float st,
+      const PathSegment &path, float gu, float gw, const float *hgrid, int nh,
       const float *chi, int nc, ProfileParams profile, const float *sun_h, int nsh,
       const float *sun_col, int nsx, bool first, const float *st_sun_col = nullptr) {
-    DS ad = ds(a), bd = ds(b), length = dx(bd, ad), u = ds(gu), wu = ds(gw),
-       v = lower ? u : dx({1, 0}, u);
-    DS t = path_t(ad, bd, length, u, v, lower);
-    s.ds = dv(dm(dm(length, v), wu)) * 2.f;
-    DS q[3], q2[3];
-    DS rr = path_q(p, d, t, q, q2), xy = dr(da(q2[0], q2[1]));
-    s.h = path_h(rr);
-    float rho = dv(xy);
-    float cx = rho > 1e-12f ? dq(q[0], xy) : 1.f, sx = rho > 1e-12f ? dq(q[1], xy) : 0.f;
-    s.cs = clip(dq(q[2], rr), -1, 1);
-    float angle = atan2f(rho, dv(q[2]));
+    const PathPoint pt = path_point(p, d, path, gu);
+    const float sh = pt.h, rho = pt.rho, cx = pt.cx, sx = pt.sx;
+    s.h = sh;
+    s.ds = (2.f * path.length) * ((path.lower ? gu : 1.f - gu) * gw);
+    s.cs = clip(pt.z / (6371.f + sh), -1.f, 1.f);
+    float angle = atan2f(rho, pt.z);
     int ir = search(hgrid, nh, s.h), j = search(chi, nc, angle);
     s.ir = ir;
     float ah = clip((s.h - hgrid[ir]) / (hgrid[ir + 1] - hgrid[ir]), 0, 1),
@@ -721,7 +626,7 @@ point(Record &s, const Coord *p, const Coord *d, const float *B, const float *dl
           kk[9];
     for (int k = 0; k < 3; k++)
         for (int col = 0; col < 3; col++) {
-            dot[col] += pf(d[k]) * Q[3 * k + col];
+            dot[col] += d[k] * Q[3 * k + col];
             for (int row = 0; row < 3; row++)
                 A[3 * row + col] += B[3 * k + row] * Q[3 * k + col];
         }
@@ -736,7 +641,7 @@ point(Record &s, const Coord *p, const Coord *d, const float *B, const float *dl
         s.T[4 * u2 + 2] = kk[3 * i + 2] * kk[3 * z + 2];
         s.T[4 * u2 + 3] = kk[3 * i] * kk[3 * z + 2] + kk[3 * i + 2] * kk[3 * z];
     }
-    float cp = st > 1e-12f ? clip((pf(d[0]) * cx + pf(d[1]) * sx) / st, -1, 1) : 1.f;
+    float cp = st > 1e-12f ? clip((d[0] * cx + d[1] * sx) / st, -1, 1) : 1.f;
     s.cm[0] = 1;
     s.cm[1] = cp;
     for (int m = 2; m <= 32; m++)
@@ -759,18 +664,8 @@ point(Record &s, const Coord *p, const Coord *d, const float *B, const float *dl
         s.mu = dot[2];
         s.exd = dot[0];
         s.eyd = dot[1];
-        DS height = dx(rr, {6371, 0});
-        if (ftz_dv(height) <= 0.f)
-            height = {0, 0};
-        DS rad = da({6371, 0}, height);
-        DS mg = dn(dr(ddiv(dm(height, da({2.f * 6371.f, 0}, height)), dm(rad, rad))));
-        DS delta = dx(ddiv(q[2], rr), mg);
-        if (ftz_dv(delta) == 0.f)
-            delta = {0, 0};
-        s.lit = dv(delta) >= 0;
-        if (!s.lit)
-            delta = {0, 0};
-        float x = clip(dv(dr(ddiv(delta, dx({1, 0}, mg)))), 0, 1);
+        s.lit = path.lit(pt.x);
+        float x = s.lit ? solar_coordinate(sh, pt.z) : 0.f;
         int ih = search(sun_h, nsh, s.h);
         float ar = (s.h - sun_h[ih]) / (sun_h[ih + 1] - sun_h[ih]);
         float f = x * (nsx - 1);
@@ -803,22 +698,15 @@ struct __align__(16) WarmPoint {
 };
 static_assert(sizeof(WarmPoint) == 144, "E_WARMPOINT_LAYOUT");
 
-template <class Coord, class Scalar>
-__device__ POINT_INLINE DS point_warm(WarmPoint &s, const Coord *p, const Coord *d, const float *B,
-                                      const float *dl, float st, Scalar a, Scalar b, bool lower,
-                                      Scalar gu, Scalar gw, const float *hgrid, int nh,
+__device__ POINT_INLINE float point_warm(WarmPoint &s, const float *p, const float *d, const float *B,
+                                      const float *dl, float st, const PathSegment &path,
+                                      float gu, float gw, const float *hgrid, int nh,
                                       const float *chi, int nc, ProfileParams profile) {
-    DS ad = ds(a), bd = ds(b), length = dx(bd, ad), u = ds(gu), wu = ds(gw),
-       v = lower ? u : dx({1, 0}, u);
-    DS t = path_t(ad, bd, length, u, v, lower);
-    s.ds = dv(dm(dm(length, v), wu)) * 2.f;
-    DS q[3], q2[3];
-    DS rr = path_q(p, d, t, q, q2), xy = dr(da(q2[0], q2[1]));
-    const float sh = path_h(rr);
+    const PathPoint pt = path_point(p, d, path, gu);
+    const float sh = pt.h, rho = pt.rho, cx = pt.cx, sx = pt.sx;
     s.h = sh;
-    float rho = dv(xy);
-    float cx = rho > 1e-12f ? dq(q[0], xy) : 1.f, sx = rho > 1e-12f ? dq(q[1], xy) : 0.f;
-    float angle = atan2f(rho, dv(q[2]));
+    s.ds = (2.f * path.length) * ((path.lower ? gu : 1.f - gu) * gw);
+    float angle = atan2f(rho, pt.z);
     int ir = search(hgrid, nh, sh), j = search(chi, nc, angle);
     s.ir = ir;
     float ah = clip((sh - hgrid[ir]) / (hgrid[ir + 1] - hgrid[ir]), 0, 1),
@@ -831,7 +719,7 @@ __device__ POINT_INLINE DS point_warm(WarmPoint &s, const Coord *p, const Coord 
     for (int k = 0; k < 3; k++)
 #pragma unroll
         for (int col = 0; col < 3; col++) {
-            dot[col] += pf(d[k]) * Q[3 * k + col];
+            dot[col] += d[k] * Q[3 * k + col];
 #pragma unroll
             for (int row = 0; row < 3; row++)
                 A[3 * row + col] += B[3 * k + row] * Q[3 * k + col];
@@ -850,7 +738,7 @@ __device__ POINT_INLINE DS point_warm(WarmPoint &s, const Coord *p, const Coord 
         s.T[4 * u2 + 2] = kk[3 * i + 2] * kk[3 * z + 2];
         s.T[4 * u2 + 3] = kk[3 * i] * kk[3 * z + 2] + kk[3 * i + 2] * kk[3 * z];
     }
-    s.cp = st > 1e-12f ? clip((pf(d[0]) * cx + pf(d[1]) * sx) / st, -1, 1) : 1.f;
+    s.cp = st > 1e-12f ? clip((d[0] * cx + d[1] * sx) / st, -1, 1) : 1.f;
     s.sw[0] = (1.f - ah) * (1.f - ac);
     s.sw[1] = (1.f - ah) * ac;
     s.sw[2] = ah * (1.f - ac);
@@ -861,7 +749,7 @@ __device__ POINT_INLINE DS point_warm(WarmPoint &s, const Coord *p, const Coord 
     s.cell[3] = s.cell[2] + 1;
     float pst_unused;
     profile_at(sh, profile, s.prof, pst_unused);
-    return t;
+    return pt.x;
 }
 
 // Compact batched sample for the chunked-VPROD fast slim consumer (128 B, 16-byte aligned).
@@ -874,26 +762,18 @@ struct __align__(16) SlimPoint {
 };
 static_assert(sizeof(SlimPoint) == 128, "E_SLIMPOINT_LAYOUT");
 
-template <class Coord, class Scalar>
-__device__ POINT_INLINE DS point_slim(SlimPoint &s, const Coord *p, const Coord *d, const float *B,
-                                      const float *dl, Scalar a, Scalar b, bool lower, Scalar gu,
-                                      Scalar gw, const float *hgrid, int nh, const float *chi,
+__device__ POINT_INLINE float point_slim(SlimPoint &s, const float *p, const float *d, const float *B,
+                                      const float *dl, const PathSegment &path, float gu, float gw, const float *hgrid, int nh, const float *chi,
                                       int nc, ProfileParams profile, float st, float *phi_knots, int lane) {
-    DS ad = ds(a), bd = ds(b), length = dx(bd, ad), u = ds(gu), wu = ds(gw),
-       v = lower ? u : dx({1, 0}, u);
-    DS t = path_t(ad, bd, length, u, v, lower);
-    s.ds = dv(dm(dm(length, v), wu)) * 2.f;
-    DS q[3], q2[3];
-    DS rr = path_q(p, d, t, q, q2), xy = dr(da(q2[0], q2[1]));
-    const float sh = path_h(rr);
+    const PathPoint pt = path_point(p, d, path, gu);
+    const float sh = pt.h, rho = pt.rho, cx = pt.cx, sx = pt.sx;
     s.h = sh;
-    float rho = dv(xy);
-    float cx = rho > 1e-12f ? dq(q[0], xy) : 1.f, sx = rho > 1e-12f ? dq(q[1], xy) : 0.f;
+    s.ds = (2.f * path.length) * ((path.lower ? gu : 1.f - gu) * gw);
 #ifdef SH_ANGLE_BINS
-    const float cp = st > 1e-12f ? clip((pf(d[0]) * cx + pf(d[1]) * sx) / st, -1.f, 1.f) : 1.f;
+    const float cp = st > 1e-12f ? clip((d[0] * cx + d[1] * sx) / st, -1.f, 1.f) : 1.f;
     phi_knots[lane] = acosf(cp) * (SH_ANGLE_BINS / (float)PI);
 #endif
-    float angle = atan2f(rho, dv(q[2]));
+    float angle = atan2f(rho, pt.z);
     int ir = search(hgrid, nh, sh), j = search(chi, nc, angle);
     s.ir = ir;
     float ah = clip((sh - hgrid[ir]) / (hgrid[ir + 1] - hgrid[ir]), 0, 1),
@@ -906,7 +786,7 @@ __device__ POINT_INLINE DS point_slim(SlimPoint &s, const Coord *p, const Coord 
     for (int k = 0; k < 3; k++)
 #pragma unroll
         for (int col = 0; col < 3; col++) {
-            dot[col] += pf(d[k]) * Q[3 * k + col];
+            dot[col] += d[k] * Q[3 * k + col];
 #pragma unroll
             for (int row = 0; row < 3; row++)
                 A[3 * row + col] += B[3 * k + row] * Q[3 * k + col];
@@ -935,7 +815,7 @@ __device__ POINT_INLINE DS point_slim(SlimPoint &s, const Coord *p, const Coord 
     s.cell[3] = s.cell[2] + 1;
     float pst_unused;
     profile_at(sh, profile, s.prof, pst_unused);
-    return t;
+    return pt.x;
 }
 
 // Compact batched sample for !STRATO first-light phase 0 (176 B, 16-byte aligned, no dead cm[33]).
@@ -948,23 +828,16 @@ struct __align__(16) FirstPoint {
 };
 static_assert(sizeof(FirstPoint) == 176, "E_FIRSTPOINT_LAYOUT");
 
-template <class Coord, class Scalar>
-__device__ POINT_INLINE DS point_first(FirstPoint &s, const Coord *p, const Coord *d,
-                                       const float *B, const float *dl, Scalar a, Scalar b,
-                                       bool lower, Scalar gu, Scalar gw, const float *hgrid, int nh,
+__device__ POINT_INLINE float point_first(FirstPoint &s, const float *p, const float *d,
+                                       const float *B, const float *dl, const PathSegment &path,
+                                       float gu, float gw, const float *hgrid, int nh,
                                        const float *chi, int nc, ProfileParams profile,
                                        const float *sun_h, int nsh, const float *sun_col, int nsx) {
-    DS ad = ds(a), bd = ds(b), length = dx(bd, ad), u = ds(gu), wu = ds(gw),
-       v = lower ? u : dx({1, 0}, u);
-    DS t = path_t(ad, bd, length, u, v, lower);
-    s.ds = dv(dm(dm(length, v), wu)) * 2.f;
-    DS q[3], q2[3];
-    DS rr = path_q(p, d, t, q, q2), xy = dr(da(q2[0], q2[1]));
-    const float sh = path_h(rr);
+    const PathPoint pt = path_point(p, d, path, gu);
+    const float sh = pt.h, rho = pt.rho, cx = pt.cx, sx = pt.sx;
     s.h = sh;
-    float rho = dv(xy);
-    float cx = rho > 1e-12f ? dq(q[0], xy) : 1.f, sx = rho > 1e-12f ? dq(q[1], xy) : 0.f;
-    float angle = atan2f(rho, dv(q[2]));
+    s.ds = (2.f * path.length) * ((path.lower ? gu : 1.f - gu) * gw);
+    float angle = atan2f(rho, pt.z);
     int ir = search(hgrid, nh, sh), j = search(chi, nc, angle);
     s.ir = ir;
     float ah = clip((sh - hgrid[ir]) / (hgrid[ir + 1] - hgrid[ir]), 0, 1),
@@ -977,7 +850,7 @@ __device__ POINT_INLINE DS point_first(FirstPoint &s, const Coord *p, const Coor
     for (int k = 0; k < 3; k++)
 #pragma unroll
         for (int col = 0; col < 3; col++) {
-            dot[col] += pf(d[k]) * Q[3 * k + col];
+            dot[col] += d[k] * Q[3 * k + col];
 #pragma unroll
             for (int row = 0; row < 3; row++)
                 A[3 * row + col] += B[3 * k + row] * Q[3 * k + col];
@@ -1009,18 +882,8 @@ __device__ POINT_INLINE DS point_first(FirstPoint &s, const Coord *p, const Coor
     s.mu = dot[2];
     s.exd = dot[0];
     s.eyd = dot[1];
-    DS height = dx(rr, {6371, 0});
-    if (ftz_dv(height) <= 0.f)
-        height = {0, 0};
-    DS rad = da({6371, 0}, height);
-    DS mg = dn(dr(ddiv(dm(height, da({2.f * 6371.f, 0}, height)), dm(rad, rad))));
-    DS delta = dx(ddiv(q[2], rr), mg);
-    if (ftz_dv(delta) == 0.f)
-        delta = {0, 0};
-    s.lit = dv(delta) >= 0;
-    if (!s.lit)
-        delta = {0, 0};
-    float x = clip(dv(dr(ddiv(delta, dx({1, 0}, mg)))), 0, 1);
+    s.lit = path.lit(pt.x);
+    float x = s.lit ? solar_coordinate(sh, pt.z) : 0.f;
     int ih = search(sun_h, nsh, sh);
     float ar = (sh - sun_h[ih]) / (sun_h[ih + 1] - sun_h[ih]);
     float f = x * (nsx - 1);
@@ -1038,7 +901,7 @@ __device__ POINT_INLINE DS point_first(FirstPoint &s, const Coord *p, const Coor
         col += w11 * sun_col[i11 + k];
         s.sc[k] = col;
     }
-    return t;
+    return pt.x;
 }
 // Tabulate the original mirrored ground quadrature for a smooth HG phase.
 // Evaluate the ghost knots directly, including the reflection at the poles.
@@ -1119,24 +982,14 @@ struct __align__(16) PointM2 {
     float h, ds;
 };
 static_assert(sizeof(PointM2) == 112, "E_POINTM2_LAYOUT");
-// Coord/Scalar as point(): PATH_DS passes the ray's DS p/d, the segment-end DS and the lane's node
-// DS.
-template <class Coord, class Scalar>
-__device__ POINT_INLINE void point_m2(PointM2 &s, const Coord *p, const Coord *d, const float *B,
-                                      const float *dl, Scalar a, Scalar b, bool lower, Scalar gu,
-                                      Scalar gw, const float *hgrid, int nh, const float *chi,
+__device__ POINT_INLINE void point_m2(PointM2 &s, const float *p, const float *d, const float *B,
+                                      const float *dl, const PathSegment &path, float gu, float gw, const float *hgrid, int nh, const float *chi,
                                       int nc) {
-    DS ad = ds(a), bd = ds(b), length = dx(bd, ad), u = ds(gu), wu = ds(gw),
-       v = lower ? u : dx({1, 0}, u);
-    DS t = path_t(ad, bd, length, u, v, lower);
-    s.ds = dv(dm(dm(length, v), wu)) * 2.f;
-    DS q[3], q2[3];
-    DS rr = path_q(p, d, t, q, q2), xy = dr(da(q2[0], q2[1]));
-    const float sh = path_h(rr);
+    const PathPoint pt = path_point(p, d, path, gu);
+    const float sh = pt.h, rho = pt.rho, cx = pt.cx, sx = pt.sx;
     s.h = sh;
-    float rho = dv(xy);
-    float cx = rho > 1e-12f ? dq(q[0], xy) : 1.f, sx = rho > 1e-12f ? dq(q[1], xy) : 0.f;
-    float angle = atan2f(rho, dv(q[2]));
+    s.ds = (2.f * path.length) * ((path.lower ? gu : 1.f - gu) * gw);
+    float angle = atan2f(rho, pt.z);
     int ir = search(hgrid, nh, sh), j = search(chi, nc, angle);
     s.ir = ir;
     float ah = clip((sh - hgrid[ir]) / (hgrid[ir + 1] - hgrid[ir]), 0, 1),
@@ -1147,7 +1000,7 @@ __device__ POINT_INLINE void point_m2(PointM2 &s, const Coord *p, const Coord *d
           kk[9];
     for (int k = 0; k < 3; k++)
         for (int col = 0; col < 3; col++) {
-            dot[col] += pf(d[k]) * Q[3 * k + col];
+            dot[col] += d[k] * Q[3 * k + col];
             for (int row = 0; row < 3; row++)
                 A[3 * row + col] += B[3 * k + row] * Q[3 * k + col];
         }
@@ -1224,7 +1077,6 @@ struct TransportPolicy : ProfilePolicy {
     static constexpr bool fast_first = false;
 #endif
     static constexpr bool warm = !K_FIRST;
-    static constexpr bool path_ds = warm || K_PHASE == 0;
     static constexpr bool batched_points = (strato || fast_warm) && warm;
     static constexpr bool thin_layers = (strato || fast_warm) && FW == 15 && warm;
     static constexpr bool reduce_scatter = (strato || fast_warm) && FW == 15;
@@ -1248,51 +1100,28 @@ struct TransportPolicy : ProfilePolicy {
 };
 
 // Each lane owns one cached GL node when the quadrature fits in a warp.
-#ifdef PATH_DS
-using PathScalar = DS;
-__device__ __forceinline__ PathScalar path_scalar(double x) {
-    return ds(x);
-}
-#else
-using PathScalar = double;
-__device__ __forceinline__ PathScalar path_scalar(double x) {
-    return x;
-}
-#endif
 struct NodeWeights {
-    PathScalar u, w;
+    float u, w;
 };
 __device__ __forceinline__ NodeWeights quadrature_node(int node, int nq, bool active,
-                                                       const double *gu, const double *gw,
-                                                       DS cached_u, DS cached_w) {
-#ifdef PATH_DS
-    // All lanes must call this before diverging on active.
-    if (nq <= 32) {
-        return {{__shfl_sync(0xffffffffu, cached_u.h, node),
-                 __shfl_sync(0xffffffffu, cached_u.l, node)},
-                {__shfl_sync(0xffffffffu, cached_w.h, node),
-                 __shfl_sync(0xffffffffu, cached_w.l, node)}};
-    }
-    if (active)
-        return {ds(gu[node]), ds(gw[node])};
-#else
-    if (active)
-        return {gu[node], gw[node]};
-#endif
-    return {};
+                                                       const float *gu, const float *gw,
+                                                       float cached_u, float cached_w) {
+    if (nq <= 32)
+        return {__shfl_sync(0xffffffffu, cached_u, node), __shfl_sync(0xffffffffu, cached_w, node)};
+    return active ? NodeWeights{gu[node], gw[node]} : NodeWeights{};
 }
 
 // Dispatch depends on the record type, without conditional argument lists.
-template <class Coord, class Scalar, class Record>
+template <class Record>
 __device__ __forceinline__ void
-evaluate_point(Record &s, const Coord *p, const Coord *d, const float *B, const float *dl, float st,
-               Scalar a, Scalar b, bool lower, Scalar u, Scalar w, const float *h, int nh,
+evaluate_point(Record &s, const float *p, const float *d, const float *B, const float *dl, float st,
+               const PathSegment &path, float u, float w, const float *h, int nh,
                const float *chi, int nc, const ProfileParams &profile, const float *sun_h, int nsh,
                const float *sun_col, int nsx, bool first, const float *st_sun_col = nullptr) {
     if constexpr (TransportPolicy::slim_rays && TransportPolicy::batched_points)
-        point_m2(s, p, d, B, dl, a, b, lower, u, w, h, nh, chi, nc);
+        point_m2(s, p, d, B, dl, path, u, w, h, nh, chi, nc);
     else
-        point(s, p, d, B, dl, st, a, b, lower, u, w, h, nh, chi, nc, profile, sun_h, nsh, sun_col,
+        point(s, p, d, B, dl, st, path, u, w, h, nh, chi, nc, profile, sun_h, nsh, sun_col,
               nsx, first, st_sun_col);
 }
 
@@ -1831,22 +1660,23 @@ struct TransportInputs {
     int phase_arg = 0;
     int boundary_arg = 0;
     const int64_t *cell_off = nullptr;
-    const double *starts = nullptr;
-    const double *targets = nullptr;
-    const double *dirs = nullptr;
+    const float *starts = nullptr;
+    const float *targets = nullptr;
+    const float *dirs = nullptr;
     const float *weights = nullptr;
     const uint32_t *edge_off = nullptr;
-    const double *edges = nullptr;
+    const PathEdge *edges = nullptr;
+    const RayGeometry *ray_geometry = nullptr;
     const uint16_t *lower = nullptr;
     const int32_t *end_j = nullptr;
     const float *end_f = nullptr;
     const float *end_col = nullptr;
     const uint8_t *hits = nullptr;
-    const double *gu = nullptr;
-    const double *gw = nullptr;
-    const double *aa = nullptr;
-    const double *bb = nullptr;
-    const double *dd = nullptr;
+    const float *gu = nullptr;
+    const float *gw = nullptr;
+    const float *aa = nullptr;
+    const float *bb = nullptr;
+    const float *dd = nullptr;
     const float *h = nullptr;
     const float *chi = nullptr;
     const float *hr = nullptr;
@@ -1862,11 +1692,12 @@ struct TransportInputs {
     float height = 0;
     float aerosol_g = 0;
     float mix = 0;
-    double albedo = 0;
+    float albedo = 0;
     const float *src = nullptr;
-    const double *boundary = nullptr;
-    double *moments = nullptr;
-    double *flux = nullptr;
+    const float *boundary = nullptr;
+    float *moments = nullptr;
+    float *moment_error = nullptr;
+    float *flux = nullptr;
     float *query = nullptr;
     float *slim_aero = nullptr;
     int2 *vp_records = nullptr;
@@ -1885,8 +1716,8 @@ struct TransportInputs {
     int profile_mask = 0;
     float air_surface = 0;
     const int *cell_order = nullptr;
-    double *split_scratch = nullptr;
-    double *split_flux = nullptr;
+    float *split_scratch = nullptr;
+    ProjectionSum *split_flux = nullptr;
     int *split_count = nullptr;
 #ifdef EXP_SECTION_CLOCKS
     unsigned long long *section_clocks = nullptr;
@@ -2138,22 +1969,20 @@ template <class Record> struct Transport : TransportInputs {
     }
     // Per-thread ray state. Shared pointers refer to this warp's fixed slices;
     // Fourier cache and compensated sums live until the ray is complete.
-    using PathCoord = typename SelectType<TransportPolicy::path_ds, DS, const double>::type;
     struct RayState {
-        const double *p, *target, *d;
+        const float *p, *target, *d;
         const float *B;
         float *y, *rad, *rc, *cd, *dl, *pu, *se, *direct;
-        PathCoord *beta_p, *beta_d;
         float global_st, pu_r[4];
         float lane_rad[4] = {}, lane_rc[4] = {}, lane_val[4], lane_log, lane_wg, lane_am;
         float ray_ext[NCOMP] = {}, ray_st_ext = 0.f;
         float cache[4][TW] = {}, scache[4][TW];
         int tags[4] = {-1, -1, -1, -1};
         float tau_lane = 0.f, tc_lane = 0.f;
-        DS sp_t = {0.f, 0.f};
+        float sp_t = 0.f;
         float sp_b = 0.f, sp_acc = 0.f;
         float sunphase, strato_sunphase = 0.f;
-        DS gu_l = {0.f, 0.f}, gw_l = {0.f, 0.f};
+        float gu_l = 0.f, gw_l = 0.f;
         float lane_mp[NCOMP] = {}, lane_dt = 0.f;
     };
     struct SampleScratch {
@@ -2165,8 +1994,8 @@ template <class Record> struct Transport : TransportInputs {
 
     // A complete warp traces one ray. Scratch belongs to this warp until the
     // caller's warp/block barrier; shared radiance is published before return.
-    __device__ __forceinline__ void trace_ray(int cell, int64_t ray, const double *p,
-                                              const double *target, const float *B, float *y,
+    __device__ __forceinline__ void trace_ray(int cell, int64_t ray, const float *p,
+                                              const float *target, const float *B, float *y,
                                               float *rad, float *rc, float *cd) {
         RayState r;
         r.p = p;
@@ -2178,32 +2007,15 @@ template <class Record> struct Transport : TransportInputs {
         r.cd = cd;
 
         r.d = dirs + 3 * ray;
-        // global_st, dl[3], pu[4], se[3], direct[4]; PATH_DS adds p/d as six DS values.
+        // global_st, dl[3], pu[4], se[3], direct[4].
         r.dl = ray_constants + 1;
         r.pu = ray_constants + 4;
         r.se = ray_constants + 8;
         r.direct = ray_constants + 11;
-        if constexpr (TransportPolicy::path_ds) {
-            r.beta_p = (DS *)(ray_constants + 15);
-            r.beta_d = r.beta_p + 3;
-        } else {
-            r.beta_p = r.p;
-            r.beta_d = r.d;
-        }
-
         if (lane == 0) {
-            ray_constants[0] = (float)sqrt(fmax(0., 1. - r.d[2] * r.d[2]));
-            if constexpr (TransportPolicy::path_ds) {
-                // Same conversion as path_q, once per ray; the existing syncwarp publishes both
-                // words.
-                for (int k = 0; k < 3; k++) {
-                    r.beta_p[k] = ds(r.p[k]);
-                    r.beta_d[k] = ds(r.d[k]);
-                }
-            }
-
+            ray_constants[0] = hypotf(r.d[0], r.d[1]);
             for (int j = 0; j < 3; j++) {
-                double x = 0;
+                float x = 0;
                 for (int k = 0; k < 3; k++)
                     x += r.target[3 * k + j] * r.d[k];
                 r.dl[j] = (float)x;
@@ -2231,16 +2043,14 @@ template <class Record> struct Transport : TransportInputs {
         SECTION_BEGIN()
         if constexpr ((!TransportPolicy::split_rays || !K_FIRST) && !TransportPolicy::slim_rays &&
                       !(TransportPolicy::ground_fused && K_PHASE == 2)) {
-            sh_basis(
-                r.d[2], lane, r.y, aa, bb,
-                dd); // SLIM_RAYS: y only feeds the projection (sos_slim_proj reads the chunk y)
+            sh_basis(r.d[2], r.global_st, lane, r.y, aa, bb, dd);
         }
         SECTION_END(2)
         if (lane == 0) {
 #ifndef FL_SPLIT_ON
 
-            double st = sqrt(fmax(0., 1. - r.d[2] * r.d[2]));
-            float cp = st > 1e-12 ? (float)(r.d[0] / st) : 1.f;
+            const float st = r.global_st;
+            float cp = st > 1e-12f ? (float)(r.d[0] / st) : 1.f;
             cp = clip(cp, -1, 1);
 
             r.cd[0] = 1;
@@ -2268,21 +2078,19 @@ template <class Record> struct Transport : TransportInputs {
             }
         }
 
-        // Simpson prefix state of lane w<TW (numpy_reference.py SimpsonPrefix): panel start (DS
-        // t, extinction) and the segment sum.
+        // Simpson prefix state of lane w<TW (numpy_reference.py SimpsonPrefix): panel start
+        // (local coordinate, extinction) and the segment sum.
 
         if constexpr (first)
-            r.sunphase = hg((float)r.d[2], aerosol_g);
+            r.sunphase = hg(r.d[2], aerosol_g);
 
         if constexpr (TransportPolicy::strato)
             if (first && lane < TW)
-                r.strato_sunphase = mie_phase((float)r.d[2], GW(lane), st_chi);
+                r.strato_sunphase = mie_phase(r.d[2], GW(lane), st_chi);
 
-        if constexpr (TransportPolicy::path_ds) {
-            if (lane < nq && nq <= 32) {
-                r.gu_l = ds(gu[lane]);
-                r.gw_l = ds(gw[lane]);
-            }
+        if (lane < nq && nq <= 32) {
+            r.gu_l = gu[lane];
+            r.gw_l = gw[lane];
         }
         integrate_segments(r, ray);
         if constexpr (TransportPolicy::warm) {
@@ -2329,7 +2137,7 @@ template <class Record> struct Transport : TransportInputs {
             float sun = s.lit ? expf(-od) : 0.f, ga = s.c32[0][w];
             float phase_value = r.sunphase;
             if constexpr (TransportPolicy::tropo_mie)
-                phase_value = tropo_phase((float)r.d[2], GW(w), asca + FW);
+                phase_value = tropo_phase(r.d[2], GW(w), asca + FW);
             float beam = (s.prof[1] * asca[GW(w)]) * (sun * phase_value + ga),
                   ray = (sun * s.prof[0]) * ext[GW(w)];
             for (int k = 0; k < 4; k++)
@@ -2650,7 +2458,7 @@ template <class Record> struct Transport : TransportInputs {
     template <class View>
     __device__ __forceinline__ void attenuate_sample(RayState &r, SampleScratch &scratch,
                                                      int64_t ray, uint32_t seg, int step, int step0,
-                                                     PathScalar seg_a, PathScalar seg_b, bool low,
+                                                     const PathSegment &path,
                                                      const NodeWeights &node,
                                                      const SampleLane &ownership, const View &view) {
         const float sample_ds = view.sample.ds;
@@ -2708,14 +2516,10 @@ template <class Record> struct Transport : TransportInputs {
                     float pst = 0.f;
                     if constexpr (TransportPolicy::strato)
                         pst = s.st_prof;
-                    DS tk;
-                    if constexpr (TransportPolicy::path_ds)
-                        tk = node_t(seg_a, seg_b, low, node.u);
-                    else
-                        tk = node_t(seg_a, seg_b, low, path_scalar(gu[step]));
+                    const float tk = path.node(node.u);
                     const float bk = extinction_at(s.prof, pst, optics, GW(w));
                     r.sp_acc +=
-                        simpson_piece(r.beta_p, r.beta_d, r.sp_t, tk, r.sp_b, bk, optics, GW(w));
+                        simpson_piece(path, r.sp_t, tk, r.sp_b, bk, optics, GW(w));
                     r.sp_t = tk;
                     r.sp_b = bk;
                 }
@@ -2788,14 +2592,13 @@ template <class Record> struct Transport : TransportInputs {
     }
     template <class View>
     __device__ __forceinline__ void consume_sample(RayState &r, int64_t ray, uint32_t seg, int step,
-                                                   int step0, PathScalar seg_a, PathScalar seg_b,
-                                                   bool low, const NodeWeights &node,
+                                                   int step0, const PathSegment &path, const NodeWeights &node,
                                                    const SampleLane &ownership, const View &view) {
         SampleScratch scratch;
         if constexpr (TransportPolicy::fast_warm) {
             initialize_source(r, ownership);
             shade_corners(r, scratch, ray, seg, step, ownership, view);
-            attenuate_sample(r, scratch, ray, seg, step, step0, seg_a, seg_b, low, node, ownership,
+            attenuate_sample(r, scratch, ray, seg, step, step0, path, node, ownership,
                              view);
         } else {
         Record &s = samples[warp];
@@ -2819,7 +2622,7 @@ template <class Record> struct Transport : TransportInputs {
         SECTION_END(3)
         SECTION_SYNC(__syncwarp());
         SECTION_BEGIN()
-        attenuate_sample(r, scratch, ray, seg, step, step0, seg_a, seg_b, low, node, ownership,
+        attenuate_sample(r, scratch, ray, seg, step, step0, path, node, ownership,
                          view);
         SECTION_END(4)
         if constexpr (!TransportPolicy::warm) {
@@ -2839,27 +2642,20 @@ template <class Record> struct Transport : TransportInputs {
     // Fourier caches persist across segments. Batch tails keep the same GL order.
     __device__ __forceinline__ void integrate_segments(RayState &r, int64_t ray) {
         for (uint32_t seg = edge_off[ray]; seg + 1 < edge_off[ray + 1]; seg++) {
-            double a = edges[seg], b = edges[seg + 1];
-            if (b - a <= 1e-8)
+            float length = fabsf(edges[seg].signed_length);
+            if (length <= 1e-8f)
                 continue;
             bool low = (lower[ray] >> (seg - edge_off[ray])) & 1;
-            const PathScalar seg_a = path_scalar(a), seg_b = path_scalar(b);
+            const PathSegment path = path_segment(r.p, ray_geometry[ray], edges + seg, low);
             // Simpson prefix: beta(a) is evaluated anew for every segment (never carried over a
             // skipped b-a<=1e-8 segment).
-            r.sp_t = ds(seg_a);
-            const DS seg_inside = ds((a + b) * .5);
+            r.sp_t = path.start();
             r.sp_acc = 0.f;
             float seg_be = 0.f;
             if constexpr (TransportPolicy::fast_warm) {
                 float end_p[NCOMP] = {};
                 if (lane < 2) {
-                    DS q[3], q2[3];
-                    const DS te = lane == 0 ? ds(seg_a) : ds(seg_b);
-                    float sh = path_h(path_q(r.beta_p, r.beta_d, te, q, q2));
-                    if (support_extended()) {
-                        const float ih = path_h(path_q(r.beta_p, r.beta_d, seg_inside, q, q2));
-                        sh = support_height(sh, ih);
-                    }
+                    const float sh = path.height(lane == 0 ? path.start() : path.end());
                     float pst_unused;
                     profile_at(sh, profile, end_p, pst_unused);
                 }
@@ -2874,7 +2670,7 @@ template <class Record> struct Transport : TransportInputs {
                     seg_be = extinction_at(pb, 0.f, optics, GW(lane));
                 }
             } else if (lane < TW && !PROD_ON && sinv_mode != 2) {
-                r.sp_b = beta_at_side(r.beta_p, r.beta_d, r.sp_t, seg_inside, optics, GW(lane));
+                r.sp_b = beta_at(path, r.sp_t, optics, GW(lane));
             }
             constexpr int capacity =
                 TransportPolicy::batched_points ? TransportPolicy::batch_size : 1;
@@ -2884,37 +2680,31 @@ template <class Record> struct Transport : TransportInputs {
                     __syncwarp();  // every lane has finished reading the previous batch of pts
                     const NodeWeights node =
                         quadrature_node(step0 + lane, nq, lane < nb, gu, gw, r.gu_l, r.gw_l);
-                    DS tk = {0.f, 0.f};
+                    float tk = 0.f;
                     if (lane < nb)
-                        tk = point_warm(pts[lane], r.beta_p, r.beta_d, r.B, r.dl, r.global_st,
-                                        seg_a, seg_b, low, node.u, node.w, h, nh, chi, nc, profile);
+                        tk = point_warm(pts[lane], r.p, r.d, r.B, r.dl, r.global_st,
+                                        path, node.u, node.w, h, nh, chi, nc, profile);
                     const bool is_last = (step0 + nb == nq);
-                    DS prev_t;
-                    prev_t.h = __shfl_up_sync(0xffffffffu, tk.h, 1);
-                    prev_t.l = __shfl_up_sync(0xffffffffu, tk.l, 1);
+                    float prev_t = __shfl_up_sync(0xffffffffu, tk, 1);
                     if (lane == 0)
                         prev_t = r.sp_t;
-                    DS curr_t = tk;
+                    float curr_t = tk;
                     if (is_last && lane == nb)
-                        curr_t = ds(seg_b);
+                        curr_t = path.end();
                     const int n_panels = nb + (is_last ? 1 : 0);
                     if (lane < n_panels) {
-                        DS tm = da(prev_t, curr_t);
-                        tm.h *= .5f;
-                        tm.l *= .5f;
-                        DS q[3], q2[3];
+                        const float tm = (prev_t + curr_t) * .5f;
                         float pst_unused;
-                        profile_at(path_h(path_q(r.beta_p, r.beta_d, tm, q, q2)), profile,
+                        profile_at(path.height(tm), profile,
                                    r.lane_mp, pst_unused);
-                        r.lane_dt = dv(dx(curr_t, prev_t)) / 6.f;
+                        r.lane_dt = path.width(prev_t, curr_t) / 6.f;
                     }
-                    r.sp_t.h = __shfl_sync(0xffffffffu, tk.h, nb - 1);
-                    r.sp_t.l = __shfl_sync(0xffffffffu, tk.l, nb - 1);
+                    r.sp_t = __shfl_sync(0xffffffffu, tk, nb - 1);
                     __syncwarp();
                     for (int step = step0; step < step0 + nb; step++) {
                         const SampleLane ownership(lane, step, step0 + nb);
                         auto view = sample_view(pts, nullptr, step0, ownership.sample);
-                        consume_sample(r, ray, seg, step, step0, seg_a, seg_b, low, node, ownership,
+                        consume_sample(r, ray, seg, step, step0, path, node, ownership,
                                        view);
                     }
                     if (is_last) {
@@ -2935,8 +2725,7 @@ template <class Record> struct Transport : TransportInputs {
                     const NodeWeights node =
                         quadrature_node(step0 + lane, nq, lane < nb, gu, gw, r.gu_l, r.gw_l);
                     if (lane < nb)
-                        evaluate_point(pts[lane], r.beta_p, r.beta_d, r.B, r.dl, r.global_st, seg_a,
-                                       seg_b, low, node.u, node.w, h, nh, chi, nc, profile, sun_h,
+                        evaluate_point(pts[lane], r.p, r.d, r.B, r.dl, r.global_st, path, node.u, node.w, h, nh, chi, nc, profile, sun_h,
                                        nsh, sun_col, nsx, first, st_sun_col);
                     __syncwarp();
                 }
@@ -2945,16 +2734,16 @@ template <class Record> struct Transport : TransportInputs {
                     const SampleLane ownership(lane, step, step0 + nb);
                     auto view = sample_view(pts, samples + warp, step0, ownership.sample);
                     const NodeWeights node = quadrature_node(
-                        step, nq, TransportPolicy::path_ds || lane == 0, gu, gw, r.gu_l, r.gw_l);
+                        step, nq, true, gu, gw, r.gu_l, r.gw_l);
                     if constexpr (!TransportPolicy::batched_points) {
                         if (lane == 0)
-                            evaluate_point(samples[warp], r.beta_p, r.beta_d, r.B, r.dl,
-                                           r.global_st, seg_a, seg_b, low, node.u, node.w, h, nh,
+                            evaluate_point(samples[warp], r.p, r.d, r.B, r.dl,
+                                           r.global_st, path, node.u, node.w, h, nh,
                                            chi, nc, profile, sun_h, nsh, sun_col, nsx, first,
                                            st_sun_col);
                     }
                     SECTION_END(0)
-                    consume_sample(r, ray, seg, step, step0, seg_a, seg_b, low, node, ownership,
+                    consume_sample(r, ray, seg, step, step0, path, node, ownership,
                                    view);
                 }
                 }
@@ -2963,22 +2752,22 @@ template <class Record> struct Transport : TransportInputs {
             // numpy_reference.py SimpsonPrefix.finish.
             if constexpr (!TransportPolicy::fast_warm) {
                 if (lane < TW && !PROD_ON && sinv_mode != 2) {
-                    const DS te = ds(seg_b);
+                    const float te = path.end();
                     const float be =
-                        beta_at_side(r.beta_p, r.beta_d, te, seg_inside, optics, GW(lane));
+                        beta_at(path, te, optics, GW(lane));
                     r.sp_acc +=
-                        simpson_piece(r.beta_p, r.beta_d, r.sp_t, te, r.sp_b, be, optics, GW(lane));
+                        simpson_piece(path, r.sp_t, te, r.sp_b, be, optics, GW(lane));
                     kah(r.tau_lane, r.tc_lane, r.sp_acc);
                 }
             }
         }
     }
 
-    // Shared offsets are the host workspace contract. The views only name those
-    // slices; no storage, row stride, alignment or block ownership changes.
+    // Accumulator and correction planes share the chunk-local indexing of the output.
     struct SharedViews {
         int nm;
-        double *acc, *ground;
+        float *acc, *error;
+        ProjectionSum *ground;
         float *Y, *rads, *err, *cosdest;
     };
     __device__ __forceinline__ bool select_cell(int &cell, int &part) const {
@@ -3026,20 +2815,25 @@ template <class Record> struct Transport : TransportInputs {
             }
         }
     }
-    __device__ __forceinline__ SharedViews bind_shared(int cell, int part, double *shared) {
+    __device__ __forceinline__ SharedViews bind_shared(int cell, int part, float *shared) {
         SharedViews memory;
         memory.nm = phase == 0 ? NMOM * TW : 0;
         if constexpr (TransportPolicy::global_accum) {
-            if constexpr (TransportPolicy::split_cells)
-                memory.acc = part == 0
-                                 ? moments + (int64_t)cell * memory.nm
-                                 : split_scratch + ((int64_t)(part - 1) * cells + cell) * memory.nm;
-            else
-                memory.acc = moments + (int64_t)cell * memory.nm;
-            memory.ground = shared;
+            const int64_t base = (int64_t)cell * memory.nm;
+            memory.acc = moments + base;
+            memory.error = moment_error + base;
+            if constexpr (TransportPolicy::split_cells) {
+                if (part > 0) {
+                    const int64_t stride = (int64_t)cells * memory.nm;
+                    memory.acc = split_scratch + 2 * (part - 1) * stride + base;
+                    memory.error = memory.acc + stride;
+                }
+            }
+            memory.ground = (ProjectionSum *)shared;
         } else {
             memory.acc = shared;
-            memory.ground = memory.acc + memory.nm;
+            memory.error = shared + memory.nm;
+            memory.ground = (ProjectionSum *)(memory.error + memory.nm);
         }
         memory.Y = (float *)(memory.ground + TW);
         memory.rads = memory.Y + nwarps * YPAD;
@@ -3111,7 +2905,7 @@ template <class Record> struct Transport : TransportInputs {
             // Empty cells have no completing ray; their own block publishes zeros.
             if constexpr (!TransportPolicy::slim_rays) {
                 if (cell_off[cell] == cell_off[cell + 1]) {
-                    double zero = 0.;
+                    float zero = 0.f;
                     for (int k = tid; k < memory.nm; k += blockDim.x)
                         memory.acc[k] = zero;
                     for (int w = tid; w < TW; w += blockDim.x)
@@ -3119,17 +2913,12 @@ template <class Record> struct Transport : TransportInputs {
                 }
             }
         } else {
-            if constexpr (TransportPolicy::global_accum) {
-                for (int k = tid; k < memory.nm + TW; k += blockDim.x) {
-                    if (k < memory.nm)
-                        memory.acc[k] = 0.;
-                    else
-                        memory.ground[k - memory.nm] = 0.;
-                }
-            } else {
-                for (int k = tid; k < memory.nm + TW; k += blockDim.x)
-                    memory.acc[k] = 0.;
+            for (int k = tid; k < memory.nm; k += blockDim.x) {
+                memory.acc[k] = 0.f;
+                memory.error[k] = 0.f;
             }
+            for (int w = tid; w < TW; w += blockDim.x)
+                memory.ground[w] = {};
             SECTION_SYNC(__syncthreads());
         }
     }
@@ -3158,23 +2947,25 @@ template <class Record> struct Transport : TransportInputs {
             return slot;
     }
     // The last published ray owns projection. Fences precede reads of other
-    // warps' radiance; moments retain cell-ray order and FP64 accumulation.
+    // warps' radiance; moments retain cell-ray order and compensated accumulation.
     __device__ __forceinline__ void project_completed_cell(int cell, int64_t ray_lo, int64_t cb,
                                                            int64_t ce, const SharedViews &memory,
-                                                           const double *target, float *y,
+                                                           const float *target, float *y,
                                                            float *cd) {
 
         // Last ray of this cell: project rays cb..ce-1 in order (== original
         // round-then-warp order).
         __threadfence();
-        double *mrow = moments + (int64_t)cell * memory.nm, gsum = 0.;
+        float *mrow = moments + (int64_t)cell * memory.nm;
+        float *error = moment_error + (int64_t)cell * memory.nm;
+        ProjectionSum gsum{};
 #pragma unroll 1
         for (int64_t r = cb; r < ce; r++) {
-            const double *drow = dirs + 3 * r;
-            sh_basis(drow[2], lane, y, aa, bb, dd);
+            const float *drow = dirs + 3 * r;
+            const float st = hypotf(drow[0], drow[1]);
+            sh_basis(drow[2], st, lane, y, aa, bb, dd);
             if (lane == 0) {
-                double st = sqrt(fmax(0., 1. - drow[2] * drow[2]));
-                float cp = st > 1e-12 ? (float)(drow[0] / st) : 1.f;
+                float cp = st > 1e-12f ? (float)(drow[0] / st) : 1.f;
                 cp = clip(cp, -1, 1);
                 cd[0] = 1;
                 cd[1] = cp;
@@ -3197,26 +2988,27 @@ template <class Record> struct Transport : TransportInputs {
                         (__ldcg(rr + 4 * w) + __ldcg(rr + 4 * w + 1)) + __ldcg(rr + 4 * w + 2);
                     v = (tr * wt) * (y[sk] * cd[m]);
                 }
-                double a = r == cb ? 0. : mrow[k];
-                a += (double)v;
-                mrow[k] = a;
+                ProjectionSum a = r == cb ? ProjectionSum{} : ProjectionSum{mrow[k], error[k]};
+                a.add(v);
+                error[k] = a.error;
+                mrow[k] = r + 1 == ce ? a.value() : a.sum;
             }
             if (lane < TW) {
                 int w = lane;
-                double dlz = 0;
+                float dlz = 0;
                 for (int k = 0; k < 3; k++)
                     dlz += target[3 * k + 2] * drow[k];
                 float tr = (__ldcg(rr + 4 * w) + __ldcg(rr + 4 * w + 1)) + __ldcg(rr + 4 * w + 2),
                       wg = weights[r] * fmaxf(0.f, (float)dlz);
-                gsum += (double)(tr * wg);
+                gsum.add(tr * wg);
             }
             __syncwarp();
         }
         if (lane < TW)
-            flux[cell * FW + GW(lane)] = gsum * (albedo / PI);
+            flux[cell * FW + GW(lane)] = gsum.value() * (albedo / PI);
     }
     __device__ __forceinline__ void publish_ray(int cell, int64_t ray, int64_t ray_lo,
-                                                const SharedViews &memory, const double *target,
+                                                const SharedViews &memory, const float *target,
                                                 float *y, float *rad, float *cd) {
         __syncwarp();
         for (int k = lane; k < 4 * TW; k += 32)
@@ -3245,22 +3037,16 @@ template <class Record> struct Transport : TransportInputs {
         return lo;
     }
     __device__ __forceinline__ void trace_fast_first_ray(int cell, int64_t ray, int64_t ray_lo) {
-        const double *p = starts + 3 * cell, *target = targets + 9 * cell, *d = dirs + 3 * ray;
+        const float *p = starts + 5 * (int64_t)cell, *target = targets + 9 * cell, *d = dirs + 3 * ray;
         float *dl = ray_constants + 1;
         float *pu = ray_constants + 4;
         float *se = ray_constants + 8;
         float *direct = ray_constants + 11;
-        DS *beta_p = (DS *)(ray_constants + 15);
-        DS *beta_d = beta_p + 3;
         if (lane == 0) {
-            for (int k = 0; k < 3; ++k) {
-                beta_p[k] = ds(p[k]);
-                beta_d[k] = ds(d[k]);
-            }
             for (int k = 0; k < 9; ++k)
-                fB[k] = (float)target[k];
+                fB[k] = target[k];
             for (int j = 0; j < 3; ++j) {
-                double x = 0.;
+                float x = 0.f;
                 for (int k = 0; k < 3; ++k)
                     x += target[3 * k + j] * d[k];
                 dl[j] = (float)x;
@@ -3280,7 +3066,7 @@ template <class Record> struct Transport : TransportInputs {
         __syncwarp();
         const float pu_r[4] = {pu[0], pu[1], pu[2], pu[3]};
         const float dir_r[4] = {direct[0], direct[1], direct[2], direct[3]};
-        const float sunphase = hg((float)d[2], aerosol_g);
+        const float sunphase = hg(d[2], aerosol_g);
         float ray_ext[NCOMP] = {};
         float ray_asca = 0.f;
         float phase_value = sunphase;
@@ -3290,30 +3076,24 @@ template <class Record> struct Transport : TransportInputs {
                 ray_ext[k] = ext[k * FW + GW(lane)];
             ray_asca = asca[GW(lane)];
             if constexpr (TransportPolicy::tropo_mie)
-                phase_value = tropo_phase((float)d[2], GW(lane), asca + FW);
+                phase_value = tropo_phase(d[2], GW(lane), asca + FW);
         }
-        const DS gu_l = (lane < nq && nq <= 32) ? ds(gu[lane]) : DS{0.f, 0.f};
-        const DS gw_l = (lane < nq && nq <= 32) ? ds(gw[lane]) : DS{0.f, 0.f};
+        const float gu_l = (lane < nq && nq <= 32) ? gu[lane] : 0.f;
+        const float gw_l = (lane < nq && nq <= 32) ? gw[lane] : 0.f;
         float lane_rad[4] = {}, lane_rc[4] = {};
         float tau_lane = 0.f, tc_lane = 0.f;
         const uint32_t sb = edge_off[ray], se_idx = edge_off[ray + 1];
         for (uint32_t seg = sb; seg + 1 < se_idx; ++seg) {
-            const double a = edges[seg], b = edges[seg + 1];
-            if (b - a <= 1e-8)
+            const float length = fabsf(edges[seg].signed_length);
+            if (length <= 1e-8f)
                 continue;
             const bool low = (lower[ray] >> (seg - sb)) & 1;
-            const DS seg_a = ds(a), seg_b = ds(b), seg_inside = ds((a + b) * 0.5);
-            DS sp_t = seg_a;
+            const PathSegment path = path_segment(p, ray_geometry[ray], edges + seg, low);
+            float sp_t = path.start();
             float sp_acc = 0.f, sp_b = 0.f, seg_be = 0.f;
             float end_p[NCOMP] = {};
             if (lane < 2) {
-                DS qv[3], q2[3];
-                const DS te = lane == 0 ? seg_a : seg_b;
-                float sh = path_h(path_q(beta_p, beta_d, te, qv, q2));
-                if (support_extended()) {
-                    const float ih = path_h(path_q(beta_p, beta_d, seg_inside, qv, q2));
-                    sh = support_height(sh, ih);
-                }
+                const float sh = path.height(lane == 0 ? path.start() : path.end());
                 float pst_unused;
                 profile_at(sh, profile, end_p, pst_unused);
             }
@@ -3339,35 +3119,29 @@ template <class Record> struct Transport : TransportInputs {
                 const bool is_last = (step0 + nb == nq);
                 const NodeWeights node =
                     quadrature_node(step0 + lane, nq, lane < nb, gu, gw, gu_l, gw_l);
-                DS tk = {0.f, 0.f};
+                float tk = 0.f;
                 if (lane < nb)
-                    tk = point_first(fpts[lane], beta_p, beta_d, fB, dl, seg_a, seg_b, low, node.u,
+                    tk = point_first(fpts[lane], p, d, fB, dl, path, node.u,
                                      node.w, h, nh, chi, nc, profile, sun_h, nsh, sun_col, nsx);
-                DS prev_t;
-                prev_t.h = __shfl_up_sync(0xffffffffu, tk.h, 1);
-                prev_t.l = __shfl_up_sync(0xffffffffu, tk.l, 1);
+                float prev_t = __shfl_up_sync(0xffffffffu, tk, 1);
                 if (lane == 0)
                     prev_t = sp_t;
-                DS curr_t = tk;
+                float curr_t = tk;
                 if (is_last && lane == nb)
-                    curr_t = seg_b;
+                    curr_t = path.end();
                 const int n_panels = nb + (is_last ? 1 : 0);
                 if (lane < n_panels) {
-                    DS tm = da(prev_t, curr_t);
-                    tm.h *= .5f;
-                    tm.l *= .5f;
-                    DS qv[3], q2[3];
+                    const float tm = (prev_t + curr_t) * .5f;
                     float mp_tmp[NCOMP], pst_unused;
-                    profile_at(path_h(path_q(beta_p, beta_d, tm, qv, q2)), profile, mp_tmp,
+                    profile_at(path.height(tm), profile, mp_tmp,
                                pst_unused);
                     float *row = fmp + lane * (NCOMP + 1);
 #pragma unroll
                     for (int k = 0; k < NCOMP; ++k)
                         row[k] = mp_tmp[k];
-                    row[NCOMP] = dv(dx(curr_t, prev_t)) / 6.f;
+                    row[NCOMP] = path.width(prev_t, curr_t) / 6.f;
                 }
-                sp_t.h = __shfl_sync(0xffffffffu, tk.h, nb - 1);
-                sp_t.l = __shfl_sync(0xffffffffu, tk.l, nb - 1);
+                sp_t = __shfl_sync(0xffffffffu, tk, nb - 1);
                 __syncwarp();
                 for (int bi = 0; bi < nb; ++bi) {
                     const FirstPoint &pt = fpts[bi];
@@ -3526,10 +3300,10 @@ template <class Record> struct Transport : TransportInputs {
             if constexpr (TransportPolicy::fast_first) {
                 trace_fast_first_ray(cell, ray, ray_lo);
             } else {
-                const double *p = starts + 3 * cell, *target = targets + 9 * cell;
+                const float *p = starts + 5 * (int64_t)cell, *target = targets + 9 * cell;
                 float B[9];
                 for (int k = 0; k < 9; ++k)
-                    B[k] = (float)target[k];
+                    B[k] = target[k];
                 float *y = memory.Y + warp * YPAD, *rad = memory.rads + warp * 4 * TW;
                 float *rc = memory.err + warp * 4 * TW, *cd = memory.cosdest + warp * 33;
                 trace_ray(cell, ray, p, target, B, y, rad, rc, cd);
@@ -3537,20 +3311,15 @@ template <class Record> struct Transport : TransportInputs {
             }
         }
     }
-    // Consume one complete round in warp order. Warm moments keep an FP32
-    // partial followed by one FP64 add; first light keeps per-term FP64 adds.
+    // Consume one complete round in warp order.
     __device__ __forceinline__ void accumulate_round(int64_t round, int64_t end, int64_t window,
                                                      const SharedViews &memory,
-                                                     const double *target) {
+                                                     const float *target) {
 
         SECTION_BEGIN()
         for (int k = tid; k < memory.nm; k += blockDim.x) {
             int moment = k / TW, w = k % TW;
-            double acc_k = 0.;
-            if constexpr (TransportPolicy::global_accum)
-                acc_k = memory.acc[k];
-            double &acc_slot = TransportPolicy::global_accum ? acc_k : memory.acc[k];
-            float acc_part = 0.f;
+            ProjectionSum acc{memory.acc[k], memory.error[k]};
             for (int wp = 0; wp < nwarps; wp++)
                 if (round + wp < end) {
                     float *rr = memory.rads + wp * 4 * TW;
@@ -3563,45 +3332,38 @@ template <class Record> struct Transport : TransportInputs {
                         float tr = (rr[4 * w] + rr[4 * w + 1]) + rr[4 * w + 2];
                         v = (tr * wt) * (memory.Y[wp * YPAD + sk] * memory.cosdest[wp * 33 + m]);
                     }
-                    if constexpr (TransportPolicy::warm)
-                        acc_part += v;
-                    else
-                        acc_slot += (double)v;
+                    acc.add(v);
                 }
-            if constexpr (!K_FIRST) {
-                acc_slot += (double)acc_part;
-            }
-            if constexpr (TransportPolicy::global_accum) {
-                memory.acc[k] = acc_k;
-            }
+            memory.acc[k] = acc.sum;
+            memory.error[k] = acc.error;
         }
         for (int w = tid; w < TW; w += blockDim.x)
             for (int wp = 0; wp < nwarps; wp++)
                 if (round + wp < end) {
                     int64_t rridx = ordered_ray(round + wp, window);
-                    const double *d = dirs + 3 * rridx;
-                    double dlz = 0;
+                    const float *d = dirs + 3 * rridx;
+                    float dlz = 0;
                     for (int k = 0; k < 3; k++)
                         dlz += target[3 * k + 2] * d[k];
                     float *rr = memory.rads + wp * 4 * TW,
                           tr = (rr[4 * w] + rr[4 * w + 1]) + rr[4 * w + 2],
                           wt = weights[rridx] * fmaxf(0.f, (float)dlz);
-                    memory.ground[w] += (double)(tr * wt);
+                    memory.ground[w].add(tr * wt);
                 }
         SECTION_END(5)
     }
     __device__ __forceinline__ void trace_cell_rays(int cell, int part, const SharedViews &memory) {
-        const double *p = starts + 3 * cell, *target = targets + 9 * cell;
+        const float *p = starts + 5 * (int64_t)cell, *target = targets + 9 * cell;
         const float *B_ptr;
         float B_local[9];
         if constexpr (TransportPolicy::fast_warm) {
             if (tid < 9)
-                cell_B[tid] = (float)target[tid];
+                cell_B[tid] = target[tid];
             __syncthreads();
             B_ptr = cell_B;
         } else {
             for (int k = 0; k < 9; ++k)
-                B_local[k] = (float)target[k];
+                B_local[k] = target[k];
             B_ptr = B_local;
         }
         int64_t begin = cell_off[cell], end = cell_off[cell + 1];
@@ -3643,10 +3405,10 @@ template <class Record> struct Transport : TransportInputs {
     }
     __device__ __forceinline__ void finish_cell(int cell, int split_part,
                                                 const SharedViews &memory) {
-        if constexpr (!TransportPolicy::global_accum) {
+        if constexpr (!TransportPolicy::split_cells && !TransportPolicy::split_rays) {
             if (phase == 0 && !NOOUT_ON)
                 for (int k = tid; k < memory.nm; k += blockDim.x)
-                    moments[(int64_t)cell * memory.nm + k] = memory.acc[k];
+                    moments[(int64_t)cell * memory.nm + k] = memory.acc[k] + memory.error[k];
         }
         if constexpr (!TransportPolicy::split_rays) {
 
@@ -3664,25 +3426,32 @@ template <class Record> struct Transport : TransportInputs {
                     if (split_last) {
                         __threadfence();
                         for (int w = tid; w < TW; w += blockDim.x) {
-                            double g = __ldcg(split_flux + (int64_t)cell * TW + w);
-                            for (int q = 1; q < SPLIT_S; q++)
-                                g += __ldcg(split_flux + ((int64_t)q * cells + cell) * TW + w);
-                            flux[cell * FW + GW(w)] = g * (albedo / PI);
+                            ProjectionSum g{};
+                            for (int q = 0; q < SPLIT_S; q++) {
+                                const auto *v = split_flux + ((int64_t)q * cells + cell) * TW + w;
+                                g.add(__ldcg(&v->sum));
+                                g.add(__ldcg(&v->error));
+                            }
+                            flux[cell * FW + GW(w)] = g.value() * (albedo / PI);
                         }
                         if (phase == 0)
                             for (int k = tid; k < memory.nm; k += blockDim.x) {
-                                double v = __ldcg(moments + (int64_t)cell * memory.nm + k);
-                                for (int q = 1; q < SPLIT_S; q++)
-                                    v += __ldcg(split_scratch +
-                                                ((int64_t)(q - 1) * cells + cell) * memory.nm + k);
-                                moments[(int64_t)cell * memory.nm + k] = v;
+                                const int64_t idx = (int64_t)cell * memory.nm + k;
+                                const int64_t stride = (int64_t)cells * memory.nm;
+                                ProjectionSum v{__ldcg(moments + idx), __ldcg(moment_error + idx)};
+                                for (int q = 1; q < SPLIT_S; q++) {
+                                    const float *row = split_scratch + 2 * (q - 1) * stride + idx;
+                                    v.add(__ldcg(row));
+                                    v.add(__ldcg(row + stride));
+                                }
+                                moments[idx] = v.value();
                             }
                     }
                 }
             } else {
                 if (phase != 2 && !NOOUT_ON)
                     for (int w = tid; w < TW; w += blockDim.x)
-                        flux[cell * FW + GW(w)] = memory.ground[w] * (albedo / PI);
+                        flux[cell * FW + GW(w)] = memory.ground[w].value() * (albedo / PI);
             }
         }
     }
@@ -3710,8 +3479,8 @@ template <class Record> struct Transport : TransportInputs {
         if (lane == 0)
             total_begin = clock64();
 #endif
-        extern __shared__ double shared[];
-        const SharedViews memory = bind_shared(cell, split_part, shared);
+        extern __shared__ float4 shared_vectors[];
+        const SharedViews memory = bind_shared(cell, split_part, (float *)shared_vectors);
         initialize_outputs(cell, memory);
         if constexpr (TransportPolicy::split_rays)
             trace_queued_rays(memory);
@@ -3731,15 +3500,15 @@ template <class Record> struct Transport : TransportInputs {
 
 extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
     int cells, int nh, int nc, int nq, int nsh, int nsx, int first_arg, int phase_arg,
-    int boundary_arg, const int64_t *cell_off, const double *starts, const double *targets,
-    const double *dirs, const float *weights, const uint32_t *edge_off, const double *edges,
+    int boundary_arg, const int64_t *cell_off, const float *starts, const float *targets,
+    const float *dirs, const float *weights, const uint32_t *edge_off, const PathEdge *edges,
     const uint16_t *lower, const int32_t *end_j, const float *end_f, const float *end_col,
-    const uint8_t *hits, const double *gu, const double *gw, const double *aa, const double *bb,
-    const double *dd, const float *h, const float *chi, const float *hr, const float *ha,
+    const uint8_t *hits, const float *gu, const float *gw, const float *aa, const float *bb,
+    const float *dd, const float *h, const float *chi, const float *hr, const float *ha,
     const float *ext, const float *asca, const float *sun_h, const float *sun_col, const float *gm,
     const int64_t *goff, const float *gdir, const float *gval, float height, float aerosol_g,
-    float mix, double albedo, const float *src, const double *boundary, double *moments,
-    double *flux,
+    float mix, float albedo, const float *src, const float *boundary, float *moments,
+    float *flux,
     float *query
 #ifdef SINV
     // Explicit allocation pointers are part of the launch ABI.
@@ -3754,13 +3523,14 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
     const float *st_sun_col, const float *st_end_col, float st_center, float st_sigma, float st_norm
 #endif
     ,
-    const float *profile_table, int profile_mask, float air_surface
+    const float *profile_table, int profile_mask, float air_surface, float *moment_error,
+    const RayGeometry *ray_geometry
 #ifdef LPT_ACTIVE
     ,
     const int *cell_order
 #ifdef SPLIT_ACTIVE
     ,
-    double *split_scratch, double *split_flux,
+    float *split_scratch, ProjectionSum *split_flux,
     int *split_count
 #endif
 #endif
@@ -3787,6 +3557,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
     transport.weights = weights;
     transport.edge_off = edge_off;
     transport.edges = edges;
+    transport.ray_geometry = ray_geometry;
     transport.lower = lower;
     transport.end_j = end_j;
     transport.end_f = end_f;
@@ -3816,6 +3587,7 @@ extern "C" __global__ void SOS_LAUNCH_BOUNDS sos_fused(
     transport.src = src;
     transport.boundary = boundary;
     transport.moments = moments;
+    transport.moment_error = moment_error;
     transport.flux = flux;
     transport.query = query;
 #ifdef SINV
@@ -3881,16 +3653,16 @@ projection_radiance(int tid, int count, int64_t begin, int64_t ray_base, const f
 
 #if defined(FL_SPLIT_ON) && defined(LAUNCH_RAY_LIMIT)
 // Batch eight rays: every warp builds one basis row, all threads load weighted radiance,
-// and each output uses an FP32 batch partial followed by one FP64 addition. No atomics.
+// and each output combines the FP32 batch partials with Neumaier summation. No atomics.
 #define FLP_THREADS 256
 #define FLP_RAYS 8
 #define FLP_WAVES ((TW + 1) / 2)
 #define FLP_MOMENTS ((NMOM + 127) / 128)
 extern "C" __global__ void __launch_bounds__(FLP_THREADS)
-    fl_project(int cells, long long ray_lo, const int64_t *cell_off, const double *targets,
-               const double *dirs, const float *weights, const double *aa, const double *bb,
-               const double *dd, const float *ray_rads, double albedo, double *moments,
-               double *flux) {
+    fl_project(int cells, long long ray_lo, const int64_t *cell_off, const float *targets,
+               const float *dirs, const float *weights, const float *aa, const float *bb,
+               const float *dd, const float *ray_rads, float albedo, float *moments,
+               float *flux) {
     const int cell = blockIdx.x;
     if (cell >= cells)
         return;
@@ -3899,23 +3671,23 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS)
     __shared__ float y[FLP_RAYS][K], cd[FLP_RAYS][33];
     __shared__ float rad[FLP_RAYS][6 * TW], wg[FLP_RAYS];
     const int64_t cb = cell_off[cell], ce = cell_off[cell + 1];
-    const double *target = targets + 9 * cell;
-    double acc[FLP_MOMENTS][FLP_WAVES] = {}, gsum = 0.;
+    const float *target = targets + 9 * cell;
+    ProjectionSum acc[FLP_MOMENTS][FLP_WAVES] = {}, gsum{};
 #pragma unroll 1
     for (int64_t rb = cb; rb < ce; rb += FLP_RAYS) {
         const int nr = (int)min((int64_t)FLP_RAYS, ce - rb);
         if (warp < nr) {
-            const double *d = dirs + 3 * (rb + warp);
-            sh_basis(d[2], lane, y[warp], aa, bb, dd);
+            const float *d = dirs + 3 * (rb + warp);
+            const float st = hypotf(d[0], d[1]);
+            sh_basis(d[2], st, lane, y[warp], aa, bb, dd);
             if (lane == 0) {
-                double st = sqrt(fmax(0., 1. - d[2] * d[2]));
-                float cp = st > 1e-12 ? (float)(d[0] / st) : 1.f;
+                float cp = st > 1e-12f ? (float)(d[0] / st) : 1.f;
                 cp = clip(cp, -1, 1);
                 cd[warp][0] = 1;
                 cd[warp][1] = cp;
                 for (int m = 2; m <= 32; m++)
                     cd[warp][m] = (2.f * cp) * cd[warp][m - 1] - cd[warp][m - 2];
-                double dlz = 0;
+                float dlz = 0;
                 for (int k = 0; k < 3; k++)
                     dlz += target[3 * k + 2] * d[k];
                 wg[warp] = weights[rb + warp] * fmaxf(0.f, (float)dlz);
@@ -3942,14 +3714,14 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS)
                 }
 #pragma unroll
                 for (int q = 0; q < FLP_WAVES; q++)
-                    acc[j][q] += (double)part[q];
+                    acc[j][q].add(part[q]);
             }
         }
         if (tid < TW) {
             float part = 0.f;
             for (int r = 0; r < nr; r++)
                 part += rad[r][5 * TW + tid];
-            gsum += (double)part;
+            gsum.add(part);
         }
         __syncthreads();
     }
@@ -3959,10 +3731,10 @@ extern "C" __global__ void __launch_bounds__(FLP_THREADS)
 #pragma unroll
             for (int q = 0; q < FLP_WAVES; q++)
                 if (wbase + q < TW)
-                    moments[(int64_t)cell * nm + (mo + j * 128) * TW + wbase + q] = acc[j][q];
+                    moments[(int64_t)cell * nm + (mo + j * 128) * TW + wbase + q] = acc[j][q].value();
         }
     if (tid < TW)
-        flux[cell * FW + GW(tid)] = gsum * (albedo / PI);
+        flux[cell * FW + GW(tid)] = gsum.value() * (albedo / PI);
 }
 
 #endif
@@ -4013,14 +3785,14 @@ __device__ __forceinline__ void vp_fill(float *vy, const float *yb, const int *v
     }
 }
 extern "C" __global__ void __launch_bounds__(128)
-    sos_vprod_y(int nray, const double *dirs, const float2 *aa2, const float2 *bb2,
-                const float2 *dd2, float *yout) {
+    sos_vprod_y(int nray, const float *dirs, const float *aa, const float *bb,
+                const float *dd, float *yout) {
     const int lane = threadIdx.x & 31,
               t = (int)blockIdx.x * ((int)blockDim.x >> 5) + ((int)threadIdx.x >> 5);
     if (t >= nray)
         return;
-    const double *d = dirs + 3 * (int64_t)t;
-    sh_basis_ds(d[2], lane, yout + (int64_t)t * K, aa2, bb2, dd2);
+    const float *d = dirs + 3 * (int64_t)t;
+    sh_basis(d[2], hypotf(d[0], d[1]), lane, yout + (int64_t)t * K, aa, bb, dd);
 }
 #endif
 
@@ -4182,9 +3954,9 @@ extern "C" __global__ void __launch_bounds__(128)
 // Build point-to-cell records per chunk and integrate the Simpson prefix in the ray consumer.
 extern "C" __global__ void __launch_bounds__(FAST_THREADS)
     vp_c0cp_chunk(int cells, int nh, int nc, int nq, long long r0, int nray, long long base,
-                  const int64_t *cell_off, const double *starts, const double *dirs,
-                  const uint32_t *edge_off, const double *edges, const uint16_t *lower,
-                  const double *gu, const float *h, const float *chi, const float *hr,
+                  const int64_t *cell_off, const float *starts, const float *dirs,
+                  const uint32_t *edge_off, const PathEdge *edges, const uint16_t *lower, const RayGeometry *ray_geometry,
+                  const float *gu, const float *h, const float *chi, const float *hr,
                   const float *ha, int2 *c0cp) {
     const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
     const int q = (int)blockIdx.x * (FAST_THREADS / 32) + warp;
@@ -4220,47 +3992,27 @@ extern "C" __global__ void __launch_bounds__(FAST_THREADS)
         cell = lo;
     }
     cell = __shfl_sync(0xffffffffu, cell, 0);
-    __shared__ float sh_ray[FAST_THREADS / 32][13];
-    if (lane == 0) {
-        const double *p = starts + 3 * cell;
-        const double *d = dirs + 3 * ray;
-        DS *sp = (DS *)sh_ray[warp];
-        for (int k = 0; k < 3; ++k) {
-            sp[k] = ds(p[k]);
-            sp[3 + k] = ds(d[k]);
-        }
-        sh_ray[warp][12] = (float)sqrt(fmax(0., 1. - d[2] * d[2]));
-    }
-    __syncwarp();
-    const DS *sp = (const DS *)sh_ray[warp];
-    const DS bp[3] = {sp[0], sp[1], sp[2]};
-    const DS bd[3] = {sp[3], sp[4], sp[5]};
-    const float st = sh_ray[warp][12];
-    const DS gu_l = (lane < nq && nq <= 32) ? ds(gu[lane]) : DS{0.f, 0.f};
+    const float *p = starts + 5 * (int64_t)cell, *d = dirs + 3 * ray;
+    const float st = hypotf(d[0], d[1]);
+    const float gu_l = (lane < nq && nq <= 32) ? gu[lane] : 0.f;
     const uint32_t sb = edge_off[ray], se = edge_off[ray + 1];
     for (uint32_t seg = sb; seg + 1 < se; ++seg) {
-        const double a = edges[seg], b = edges[seg + 1];
+        const float length = fabsf(edges[seg].signed_length);
         const int64_t slot0 = (int64_t)(seg - ray) * nq - base;
-        if (b - a <= 1e-8) {
+        if (length <= 1e-8f) {
             for (int step = lane; step < nq; step += 32)
                 c0cp[slot0 + step] = make_int2(-1, 0);
             continue;
         }
         const bool low = (lower[ray] >> (seg - sb)) & 1;
-        const DS ad = ds(a), bd_s = ds(b), length = dx(bd_s, ad);
+        const PathSegment path = path_segment(p, ray_geometry[ray], edges + seg, low);
         for (int step0 = 0; step0 < nq; step0 += 32) {
             const int step = step0 + lane;
             if (step < nq) {
-                const DS u = (nq <= 32) ? gu_l : ds(gu[step]);
-                const DS v = low ? u : dx({1.f, 0.f}, u);
-                const DS t = path_t(ad, bd_s, length, u, v, low);
-                DS qv[3], q2[3];
-                const DS rr = path_q(bp, bd, t, qv, q2), xy = dr(da(q2[0], q2[1]));
-                const float sh = path_h(rr);
-                const float rho = dv(xy);
-                const float cx = rho > 1e-12f ? dq(qv[0], xy) : 1.f;
-                const float sx = rho > 1e-12f ? dq(qv[1], xy) : 0.f;
-                const float angle = atan2f(rho, dv(qv[2]));
+                const float u = (nq <= 32) ? gu_l : gu[step];
+                const PathPoint pt = path_point(p, d, path, u);
+                const float sh = pt.h, cx = pt.cx, sx = pt.sx;
+                const float angle = atan2f(pt.rho, pt.z);
                 const int ir = search(h, nh, sh), j = search(chi, nc, angle);
                 const bool any_live =
                     !outside_support(sh, false) &&
@@ -4271,7 +4023,7 @@ extern "C" __global__ void __launch_bounds__(FAST_THREADS)
                     c0cp[slot0 + step] = make_int2(-1, 0);
                 } else {
                     const float cp =
-                        st > 1e-12f ? clip((pf(bd[0]) * cx + pf(bd[1]) * sx) / st, -1.f, 1.f) : 1.f;
+                        st > 1e-12f ? clip((d[0] * cx + d[1] * sx) / st, -1.f, 1.f) : 1.f;
                     c0cp[slot0 + step] = make_int2(ir * nc + j, __float_as_int(cp));
                 }
             }
@@ -4458,13 +4210,13 @@ __device__ __forceinline__ float sh_spline_at(const float *const *pages, int cel
 #define FS_BATCH FAST_BATCH
 extern "C" __global__ void __launch_bounds__(FAST_THREADS)
     sos_fast_slim(int cells, int nh, int nc, int nq, long long r0, int q0, int q1,
-                  long long slim_base, const int64_t *cell_off, const double *starts,
-                  const double *targets, const double *dirs, const uint32_t *edge_off,
-                  const double *edges, const uint16_t *lower, const int32_t *end_j,
-                  const float *end_f, const float *end_col, const uint8_t *hits, const double *gu,
-                  const double *gw, const float *h, const float *chi, const float *hr,
+                  long long slim_base, const int64_t *cell_off, const float *starts,
+                  const float *targets, const float *dirs, const uint32_t *edge_off,
+                  const PathEdge *edges, const uint16_t *lower, const RayGeometry *ray_geometry, const int32_t *end_j,
+                  const float *end_f, const float *end_col, const uint8_t *hits, const float *gu,
+                  const float *gw, const float *h, const float *chi, const float *hr,
                   const float *ha, const float *ext, const float *sun_h, int nsh, float height,
-                  float mix, const float *src, const double *boundary, const float *slim_aero,
+                  float mix, const float *src, const float *boundary, const float *slim_aero,
                   const float *profile_table, int profile_mask, float air_surface,
                   float *ray_rads) {
     const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
@@ -4506,9 +4258,9 @@ extern "C" __global__ void __launch_bounds__(FAST_THREADS)
 #ifdef SH_ANGLE_BINS
     __shared__ float sh_phi[FS_WARPS][FS_BATCH];
     float *phi_knots = sh_phi[warp];
-    const double dz = dirs[3 * ray + 2];
-    const float st = (float)sqrt(fmax(0., 1. - dz * dz));
-    const ShSpline theta((float)(acos(fmin(1., fmax(-1., dz))) * (SH_ANGLE_BINS / PI)));
+    const float dz = dirs[3 * ray + 2];
+    const float st = hypotf(dirs[3 * ray], dirs[3 * ray + 1]);
+    const ShSpline theta((float)(atan2f(st, dz) * (SH_ANGLE_BINS / PI)));
 #else
     float *phi_knots = nullptr;
     const float st = 0.f;
@@ -4516,24 +4268,17 @@ extern "C" __global__ void __launch_bounds__(FAST_THREADS)
     __shared__ SlimPoint sh_pts[FS_WARPS][FS_BATCH];
     __shared__ float sh_mp[FS_WARPS][FS_BATCH + 1][NCOMP + 1];
     __shared__ float sh_B[FS_WARPS][9];
-    __shared__ float sh_rc[FS_WARPS][20];
+    __shared__ float sh_rc[FS_WARPS][7];
     float *B = sh_B[warp];
     float *dl = sh_rc[warp];
     float *pu = sh_rc[warp] + 3;
-    DS *beta_p = (DS *)(sh_rc[warp] + 8);
-    DS *beta_d = beta_p + 3;
+    const float *p = starts + 5 * (int64_t)cell, *d = dirs + 3 * ray;
     if (lane == 0) {
-        const double *p = starts + 3 * cell;
-        const double *target = targets + 9 * cell;
-        const double *d = dirs + 3 * ray;
-        for (int k = 0; k < 3; ++k) {
-            beta_p[k] = ds(p[k]);
-            beta_d[k] = ds(d[k]);
-        }
+        const float *target = targets + 9 * cell;
         for (int k = 0; k < 9; ++k)
-            B[k] = (float)target[k];
+            B[k] = target[k];
         for (int j = 0; j < 3; ++j) {
-            double x = 0.;
+            float x = 0.f;
             for (int k = 0; k < 3; ++k)
                 x += target[3 * k + j] * d[k];
             dl[j] = (float)x;
@@ -4552,28 +4297,22 @@ extern "C" __global__ void __launch_bounds__(FAST_THREADS)
         for (int k = 0; k < NCOMP; ++k)
             ray_ext[k] = ext[k * FW + w];
     }
-    const DS gu_l = (lane < nq && nq <= 32) ? ds(gu[lane]) : DS{0.f, 0.f};
-    const DS gw_l = (lane < nq && nq <= 32) ? ds(gw[lane]) : DS{0.f, 0.f};
+    const float gu_l = (lane < nq && nq <= 32) ? gu[lane] : 0.f;
+    const float gw_l = (lane < nq && nq <= 32) ? gw[lane] : 0.f;
     float lane_rad[4] = {}, lane_rc[4] = {};
     float tau_lane = 0.f, tc_lane = 0.f;
     const uint32_t sb = edge_off[ray], se = edge_off[ray + 1];
     for (uint32_t seg = sb; slim_aero && seg + 1 < se; ++seg) {
-        const double a = edges[seg], b = edges[seg + 1];
-        if (b - a <= 1e-8)
+        const float length = fabsf(edges[seg].signed_length);
+        if (length <= 1e-8f)
             continue;
         const bool low = (lower[ray] >> (seg - sb)) & 1;
-        const DS seg_a = ds(a), seg_b = ds(b), seg_inside = ds((a + b) * 0.5);
-        DS sp_t = seg_a;
+        const PathSegment path = path_segment(p, ray_geometry[ray], edges + seg, low);
+        float sp_t = path.start();
         float sp_acc = 0.f, sp_b = 0.f, seg_be = 0.f;
         float end_p[NCOMP] = {};
         if (lane < 2) {
-            DS qv[3], q2[3];
-            const DS te = lane == 0 ? seg_a : seg_b;
-            float sh = path_h(path_q(beta_p, beta_d, te, qv, q2));
-            if (support_extended()) {
-                const float ih = path_h(path_q(beta_p, beta_d, seg_inside, qv, q2));
-                sh = support_height(sh, ih);
-            }
+            const float sh = path.height(lane == 0 ? path.start() : path.end());
             float pst_unused;
             profile_at(sh, profile, end_p, pst_unused);
         }
@@ -4600,33 +4339,27 @@ extern "C" __global__ void __launch_bounds__(FAST_THREADS)
             const bool is_last = (step0 + nb == nq);
             const NodeWeights node =
                 quadrature_node(step0 + lane, nq, lane < nb, gu, gw, gu_l, gw_l);
-            DS tk = {0.f, 0.f};
+            float tk = 0.f;
             if (lane < nb)
-                tk = point_slim(sh_pts[warp][lane], beta_p, beta_d, B, dl, seg_a, seg_b, low,
+                tk = point_slim(sh_pts[warp][lane], p, d, B, dl, path,
                                 node.u, node.w, h, nh, chi, nc, profile, st, phi_knots, lane);
-            DS prev_t;
-            prev_t.h = __shfl_up_sync(0xffffffffu, tk.h, 1);
-            prev_t.l = __shfl_up_sync(0xffffffffu, tk.l, 1);
+            float prev_t = __shfl_up_sync(0xffffffffu, tk, 1);
             if (lane == 0)
                 prev_t = sp_t;
-            DS curr_t = tk;
+            float curr_t = tk;
             if (is_last && lane == nb)
-                curr_t = seg_b;
+                curr_t = path.end();
             const int n_panels = nb + (is_last ? 1 : 0);
             if (lane < n_panels) {
-                DS tm = da(prev_t, curr_t);
-                tm.h *= .5f;
-                tm.l *= .5f;
-                DS qv[3], q2[3];
+                const float tm = (prev_t + curr_t) * .5f;
                 float mp_tmp[NCOMP], pst_unused;
-                profile_at(path_h(path_q(beta_p, beta_d, tm, qv, q2)), profile, mp_tmp, pst_unused);
+                profile_at(path.height(tm), profile, mp_tmp, pst_unused);
 #pragma unroll
                 for (int k = 0; k < NCOMP; ++k)
                     sh_mp[warp][lane][k] = mp_tmp[k];
-                sh_mp[warp][lane][NCOMP] = dv(dx(curr_t, prev_t)) / 6.f;
+                sh_mp[warp][lane][NCOMP] = path.width(prev_t, curr_t) / 6.f;
             }
-            sp_t.h = __shfl_sync(0xffffffffu, tk.h, nb - 1);
-            sp_t.l = __shfl_sync(0xffffffffu, tk.l, nb - 1);
+            sp_t = __shfl_sync(0xffffffffu, tk, nb - 1);
             __syncwarp();
             for (int bi = 0; bi < nb; bi += 2) {
                 const bool has_odd = (bi + 1 < nb);
@@ -4782,7 +4515,7 @@ extern "C" __global__ void __launch_bounds__(FAST_THREADS)
 // A 64-moment x wavelength register tile over 32 contiguous rays. Each thread owns half
 // the wavelengths of one moment and reuses y*cd across them. The producer's ray sort is
 // irrelevant to storage (ray_rads and yb are indexed by original ray); projection uses
-// original ray order, FP32 batch partials, and deterministic FP64 batch/part combination.
+// original ray order, FP32 batch partials, and compensated accumulation across batches and parts.
 #ifdef SPLIT_ACTIVE
 #define SP_PARTS SPLIT_S
 #else
@@ -4798,9 +4531,9 @@ extern "C" __global__ void __launch_bounds__(FAST_THREADS)
 #define SP_WAVES ((TW + 1) / 2)
 extern "C" __global__ void __launch_bounds__(SP_THREADS)
     sos_slim_proj(int cells, int nw, long long ray_base, const int64_t *cell_off,
-                  const double *targets, const double *dirs, const float *weights,
-                  const uint32_t *edge_off, const float *yb, const float *ray_rads, double albedo,
-                  double *moments, double *flux) {
+                  const float *targets, const float *dirs, const float *weights,
+                  const uint32_t *edge_off, const float *yb, const float *ray_rads, float albedo,
+                  float *moments, float *flux) {
     __shared__ float y[SP_RAYS][SP_MOMENTS + 1], cd[SP_RAYS][33];
     __shared__ float rad[SP_RAYS][6 * TW], wg[SP_RAYS];
     const int cell = blockIdx.x;
@@ -4812,25 +4545,25 @@ extern "C" __global__ void __launch_bounds__(SP_THREADS)
     const int moment = mb + mi, wbase = (tid / SP_MOMENTS) * SP_WAVES, nm = (4 + K) * TW;
     const bool isM = moment < 4 + K, isF = moment == 4 + K;
     const int sk = moment - 4, m = (isM && moment >= 4) ? LM.m[sk] : 0;
-    const double *target = targets + 9 * cell;
+    const float *target = targets + 9 * cell;
     const int64_t cb = cell_off[cell], ce = cell_off[cell + 1];
-    double total[SP_WAVES] = {};
+    ProjectionSum total[SP_WAVES] = {};
     for (int part = 0; part < SP_PARTS; part++) {
         const int64_t begin = cb + (ce - cb) * part / SP_PARTS,
                       end = cb + (ce - cb) * (part + 1) / SP_PARTS;
-        double acc[SP_WAVES] = {};
+        ProjectionSum acc[SP_WAVES] = {};
         for (int64_t rb = begin; rb < end; rb += SP_RAYS) {
             const int nr = (int)min((int64_t)SP_RAYS, end - rb);
             if (tid < nr) {
-                const double *d = dirs + 3 * (rb + tid);
-                double st = sqrt(fmax(0., 1. - d[2] * d[2]));
-                float cp = st > 1e-12 ? (float)(d[0] / st) : 1.f;
+                const float *d = dirs + 3 * (rb + tid);
+                float st = hypotf(d[0], d[1]);
+                float cp = st > 1e-12f ? (float)(d[0] / st) : 1.f;
                 cp = clip(cp, -1, 1);
                 cd[tid][0] = 1;
                 cd[tid][1] = cp;
                 for (int mm = 2; mm < 33; mm++)
                     cd[tid][mm] = (2.f * cp) * cd[tid][mm - 1] - cd[tid][mm - 2];
-                double dlz = 0;
+                float dlz = 0;
                 for (int k = 0; k < 3; k++)
                     dlz += target[3 * k + 2] * d[k];
                 wg[tid] = weights[rb + tid] * fmaxf(0.f, (float)dlz);
@@ -4859,20 +4592,22 @@ extern "C" __global__ void __launch_bounds__(SP_THREADS)
                 }
 #pragma unroll
             for (int q = 0; q < SP_WAVES; q++)
-                acc[q] += (double)sum[q];
+                acc[q].add(sum[q]);
             __syncthreads();
         }
 #pragma unroll
-        for (int q = 0; q < SP_WAVES; q++)
-            total[q] += acc[q];
+        for (int q = 0; q < SP_WAVES; q++) {
+            total[q].add(acc[q].sum);
+            total[q].add(acc[q].error);
+        }
     }
 #pragma unroll
     for (int q = 0; q < SP_WAVES; q++)
         if (wbase + q < TW) {
             if (isM)
-                moments[(int64_t)cell * nm + moment * TW + wbase + q] = total[q];
+                moments[(int64_t)cell * nm + moment * TW + wbase + q] = total[q].value();
             else if (isF)
-                flux[cell * FW + GW(wbase + q)] = total[q] * (albedo / PI);
+                flux[cell * FW + GW(wbase + q)] = total[q].value() * (albedo / PI);
         }
 }
 #endif

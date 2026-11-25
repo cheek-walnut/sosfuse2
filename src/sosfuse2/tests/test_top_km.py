@@ -110,17 +110,15 @@ def test_kernel_and_cpu_clip_and_interpolation(tmp_path):
         from sosfuse2.tests.test_tropo_mie import SYNTAX_STUB_EXTRA
         from sosfuse2.tests.test_strato_precision import extract_function
         src = paths.KERNEL_CU.read_text()
-        ds = src[src.index('struct DS {'):src.index('__device__ DS dm(')]
-        dv = extract_function(src, 'dv') + '\n'
         clip = extract_function(src, 'clip') + '\n'
         start = src.index('#ifndef PROFILE_N')
         profile = src[start:src.index('\n}\n', src.index('float profile_value(', start)) + 3]
-        path_h = extract_function(src, 'path_h') + '\n'
+        path = src[src.index('struct RayGeometry {'):src.index('struct PathPoint {')]
         cpp = Path(sys.argv[1]) / 'profile.cpp'
         cpp.write_text('#include <algorithm>\n#include <cmath>\n#define __device__\n#define __forceinline__ inline\n'
-                       'using std::min; using std::fminf; using std::fmaxf;\n' + ds + dv + clip + profile + path_h
+                       'using std::min; using std::fminf; using std::fmaxf;\n' + clip + profile + path
                        + 'extern "C" float pv(float h,const float*t,int k){return profile_value(h,t,k);}\n'
-                       + 'extern "C" float ph(float h){return path_h(ds(6371.0+(double)h));}\n')
+                       + 'extern "C" float ph(float h){PathSegment path{0,1,h,6371.f+h,{},true,h>80.f};return path.height(0);}\n')
         stub = Path(sys.argv[1]) / 'cuda_stub.h'
         stub.write_text(STUB + SYNTAX_STUB_EXTRA + 'float __expf(float);float __sinf(float);float __cosf(float);\n')
         link = '-dynamiclib' if platform.system() == 'Darwin' else '-shared'

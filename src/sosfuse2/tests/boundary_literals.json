@@ -139,7 +139,8 @@
     "\"PROFILE_N, PROFILE_INV, PROFILE_LAST and TOP_KM must be defined together (PROFILE_LAST = PROFILE_N - 2)\"": 1,
     "return TOP_KM > LOWER_END_KM;": 1,
     "float x = clip(h, 0.f, TOP_KM) * PROFILE_INV;": 1,
-    "return clip(dv(dx(rr, {6371, 0})), 0, TOP_KM);": 1
+    "return above ? fmaxf(h, nextafterf(LOWER_END_KM, TOP_KM)) : fminf(h, LOWER_END_KM);": 1,
+    "return support_height(clip(h0 + diff / (r + r0), 0.f, TOP_KM), above);": 1
   },
   "atmosphere/upper_air.py": {
     "or not np.array_equal(z, 80. + np.arange(961) * .125)": 1,
@@ -150,5 +151,9 @@
     "z = np.arange(961, dtype='f8') * .125 + 80.": 1,
     "normalization='n_eff(z) / n_eff(80 km)', n_tot_80_m3=float(total[0]),": 1,
     "f_at_km={str(h): float(f[int((h - 80) / .125)]) for h in (100, 120, 200)},": 1
+  },
+  "solve/ray_geometry.py": {
+    "from ..foundation.top import NORMALIZATION_TOP_KM": 1,
+    "shell_offset = (h0 - NORMALIZATION_TOP_KM) * (radius + R + NORMALIZATION_TOP_KM)": 1
   }
 }

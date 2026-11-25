@@ -1,6 +1,7 @@
 """D1 host serialization/partition checks; not CUDA execution or emulation."""
 
 import numpy as np
+from sosfuse2.rays.shell_segments import R
 from sosfuse2.solve.ray_geometry import create, TransientGeometry, ResidentGeometry, Bundle, subset
 
 from sosfuse2.checks.numerical_checks import within_tol
@@ -26,18 +27,24 @@ def checks(output):
     resident = ResidentGeometry(s, scope, output / 'cache')
     resident.prepare()
     a = resident.bundle.arrays
+    # The device copy is the FP32 transport form: origins [x, y, z, height, radius] and edges [t, signed
+    # length]. The original FP64 coordinates stay on the host for column reconstruction.
+    host = resident.bundle.host_coordinates
     okay = True
     bad = []
     ray = 0
     for cell, g in enumerate(groups):
         n = len(g['d'])
+        radius = np.linalg.norm(g['p'][0])
         lo = int(a['cell_off'][cell])
         hi = int(a['cell_off'][cell + 1])
         cell_ok = (
             lo == ray
             and hi - lo == n
-            and within_tol(a['starts'][cell], g['p'][0])
-            and within_tol(a['targets'][cell], g['target'][0])
+            and within_tol(host['starts'][cell], g['p'][0].astype(host['starts'].dtype))
+            and within_tol(a['starts'][cell][:3], g['p'][0].astype(a['starts'].dtype))
+            and within_tol(a['starts'][cell][3:], np.array([radius - R, radius], a['starts'].dtype))
+            and within_tol(a['targets'][cell], g['target'][0].astype(a['targets'].dtype))
         )
         for name, source in (
             ('dirs', 'd'),
@@ -58,7 +65,9 @@ def checks(output):
             for v in original[1:]:
                 if v != expected[-1]:
                     expected.append(v)
-            cell_ok &= within_tol(knots, np.asarray(expected))
+            expected = np.asarray(expected)
+            cell_ok &= within_tol(knots[:, 0], expected.astype(knots.dtype))
+            cell_ok &= within_tol(abs(knots[:, 1]), np.append(np.diff(expected), 0).astype(knots.dtype))
         if not cell_ok:
             bad.append(cell)
         okay &= cell_ok

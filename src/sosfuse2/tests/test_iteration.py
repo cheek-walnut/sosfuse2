@@ -113,7 +113,7 @@ def test_host_history_matches_device_with_mixed_convergence(monkeypatch):
     assert len(history) > 5
     assert all(row['source_relative'][0] == 0 for row in history[2:])
     active_updates = sum(row['converged'].count(False) for row in history)
-    expected_pair = [(shape[:2], np.dtype('f4')), ((shape[0] * shape[1] + 42,), np.dtype('f8'))]
+    expected_pair = [(shape[:2], np.dtype('f4')), ((shape[0] * shape[1] + 42,), np.dtype('f4'))]
     assert not device_saved
     assert host_saved == expected_pair * active_updates
 

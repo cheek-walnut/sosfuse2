@@ -226,13 +226,13 @@ def occupancy_tests():
                         warps_upper_bound=8 * predicted,
                     )
                 )
-    assert Kernel(block_size=256, flags=C2 + ('STRATO',)).shared_bytes(15, 0) == 74008
-    assert Kernel(block_size=256, flags=C2 + ('STRATO',)).shared_bytes(15, 1) == 74008
+    assert Kernel(block_size=256, flags=C2 + ('STRATO',)).shared_bytes(15, 0) == 73624
+    assert Kernel(block_size=256, flags=C2 + ('STRATO',)).shared_bytes(15, 1) == 73624
     return dict(
         pass_=True,
         shared_comparisons=checks,
         block256_limit=101376,
-        remaining_C3_STRATO_bytes=101376 - 74008,
+        remaining_C3_STRATO_bytes=101376 - 73624,
         resources=rows,
         scope='Analytic limits only. Register counts assumed; 256-register/warp allocation, 1KiB/block runtime shared reserve assumed. Use CUDA occupancy API on each target.',
     )
