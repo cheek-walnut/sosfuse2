@@ -422,6 +422,12 @@ class TransientGeometry:
                 self.stats['compact_bytes'] = max(self.stats['compact_bytes'], bundle.bytes)
             moment, flux, _ = s.kernel.launch(bundle, s, field, first, phase, boundary, timed)
             return moment, flux
+        from ..backends import mlx_backend
+
+        if mlx_backend.enabled():
+            result = mlx_backend.evaluate(self, s, field, first, phase, ground_only, boundary)
+            if result is not None:
+                return result
         moments = np.zeros((count, 4 + s.kernel.K, s.W), 'f8')
         flux = np.empty((count, s.W), 'f8')
         for i in range(count):
