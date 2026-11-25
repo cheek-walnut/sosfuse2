@@ -41,8 +41,19 @@ def mode_name(first, phase, ground_only):
     return 'first' if first else 'ground' if (phase == 1 or ground_only) else 'warm'
 
 
+def require_mlx():
+    """SOSFUSE2_MLX=1 asks for the MLX transport explicitly, so a missing package is an error, not a silent fallback."""
+    try:
+        import mlx.core  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            f'E_MLX_UNAVAILABLE: {ENV}=1 needs the mlx package (Apple silicon); install it or unset {ENV}'
+        ) from exc
+
+
 def evaluate(geometry, s, field, first=False, phase=0, ground_only=False, boundary=None):
     """(moments, flux) from the MLX implementation, or None to fall back to the NumPy reference."""
+    require_mlx()
     from . import mlx_ops
 
     result = mlx_ops.evaluate(geometry, s, field, first, phase, ground_only, boundary)
