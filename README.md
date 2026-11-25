@@ -120,9 +120,12 @@ references across refactors and other hardware; they do not measure physical acc
   measure physical error.
 - We have not compared the colours with measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026).
 - A stored source does not record the content of an optics table outside the package (`stratosphere.optics_table` or
-  `troposphere_phase.optics_table`), only its path. `outputs/radiance_table` and `jobs/tables_from_sources` therefore accept a stored source after that
-  file has changed under the same path, and the signature of `tables_from_sources` does not change either. `run_state`
-  and `--extra-elevations` hash the file and stop. Give a changed table a new path, or solve the source again.
+  `troposphere_phase.optics_table`), only its path. `outputs/radiance_table` and `jobs/tables_from_sources` therefore
+  accept a stored source after that file has changed under the same path, and the signature of `tables_from_sources`
+  does not change either. `run_state` and `--extra-elevations` hash the file and stop. Give a changed table a new path,
+  or solve the source again.
+- The MLX transport is experimental and covers one configuration (see *Experimental MLX transport*); its tables are
+  checked against the NumPy reference, not separately validated against measurements or other codes.
 
 ## Install
 
@@ -150,6 +153,27 @@ while a persistent pipeline service and the reference tests each use a run-speci
 `SOSFUSE2_COMPILE_CACHE=<dir>` redirects all of them to that directory, and
 `python -B -m sosfuse2.jobs.precompile --jobs 8` fills that cache before a queue starts. The angular and direct
 warm-transport kernels can still compile on their first use.
+
+### Experimental MLX transport (Apple silicon)
+
+With `SOSFUSE2_MLX=1` and the `numpy` backend, the transport (first scattering, the ground term and the warm
+iterations) runs on the GPU of an Apple silicon Mac through [MLX](https://github.com/ml-explore/mlx). Install it in
+the same virtual environment with `pip install mlx`; with the variable set and no `mlx` package, a run stops with
+`E_MLX_UNAVAILABLE`. Without the variable nothing changes.
+
+The MLX code covers one configuration: no stratospheric layer, no extended upper domain, a black surface (albedo 0)
+and a Henyey-Greenstein troposphere without a Mie table. Any other configuration runs on the NumPy reference path,
+call by call, at NumPy speed. Three limits follow from the current entry points:
+
+- On macOS, `run_state` accepts only `--backend numpy --reduced`, so the command line reaches the reduced grid only.
+- None of the bundled states in `assets/states_v2.json` is in the covered configuration (every one has the
+  stratospheric layer enabled and a nonzero albedo). Give your own states file with `--states`.
+- The full grid with MLX is reachable only from Python: build the solver with `jobs/run_state.py::create_configured`
+  and solve through `solve/ray_geometry.py::TransientGeometry`. The full-grid path of `run_state` uses the resident
+  host geometry, which does not call MLX.
+
+MLX runs and NumPy runs of the same state currently carry the same output signature; keep them in separate
+`--work-root` folders.
 
 ## Quick start
 

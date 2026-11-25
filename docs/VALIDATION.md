@@ -934,6 +934,22 @@ gives a table equal to the one from the command typed in full. The one numeric c
 backend, for a nonzero albedo with a column method other than `gl24`; we did not rerun comparisons made with NumPy
 runs.
 
+## MLX transport against the NumPy reference (1.9.0, experimental)
+
+The MLX transport is compared with the NumPy reference of the same release, in the configuration it covers (no
+stratospheric layer, black surface, Henyey-Greenstein troposphere). These checks bound the difference between the two
+implementations of the same model; they say nothing about physical accuracy.
+
+| check | grid and input | result |
+|---|---|---|
+| fixed applies, check fixture FX-N | reduced grid, 45 wavelengths, four source applies from zero | radiance max relative difference 9.3e-5 against the NumPy golden, source relative L2 at most 5.0e-7 |
+| fixed applies, product directions | FX-N cells with 12 × 16 directions and 12 path nodes, first 15 wavelengths, three aerosol settings | radiance max relative difference 1.5e-5 to 2.5e-5 |
+| one transport pass on the full grid | 3,300 cells, 2.4e8 path samples, first 15 wavelengths, a source field from the solver's own first iterations | moments of 49 evenly spread cells plus 49 drawn at random: relative L2 at most 7.6e-7 (first scattering) and 1.3e-6 (warm), each divided by the largest value at the same solar angle and wavelength |
+| a full solve through `run_state` | reduced grid, FX-N with the stratospheric layer disabled, AOD 0.02, 45 wavelengths | same Anderson evaluation counts as NumPy (10, 6, 5); table max difference 3.2e-6 of each solar elevation's maximum (−3° to −12°); cos-weighted relative RMS of Y 1.4e-6 and Δu′v′ p95 4.2e-7 on the 4 × 6 view grid |
+
+The tolerance for every comparison is the release rule, rtol 1e-3. The MLX transport is in FP32; differences of a few
+1e-6 are rounding and accumulation order.
+
 ## Open checks
 
 - Engine colours against measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026). We compared only
