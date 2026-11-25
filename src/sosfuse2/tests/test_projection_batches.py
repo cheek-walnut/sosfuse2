@@ -20,6 +20,8 @@ except ImportError:
 def function(source, name):
     if name == 'sh_basis':
         start = source.index('__device__ void ' + name)
+    elif name == 'sh_basis_fast':
+        start = source.index('__device__ __forceinline__ void ' + name)
     elif name == 'projection_radiance':
         declaration = source.index('projection_radiance(')
         start = source.rindex('template <int Threads, int Rays>', 0, declaration)
@@ -56,6 +58,7 @@ __device__ float clip(float x,float a,float b){{return fminf(b,fmaxf(a,x));}}
         + source[source.index('struct ProjectionSum {'):source.index('struct PointData {')]
         + lm
         + function(source, 'sh_basis')
+        + function(source, 'sh_basis_fast')  # fl_project builds its basis rows with the fast helper
     )
     code = (
         header
