@@ -93,8 +93,9 @@ heights, 109 `χ` nodes, Legendre degree 24, tolerance 2e-4) on a test state for
 that both CUDA cases ran.
 
 The `gpu` extra brings the CUDA libraries that CuPy loads at run time: NVRTC, the runtime, cuBLAS, cuSOLVER, cuSPARSE and
-nvJitLink. Install the extra rather than CuPy alone; the Anderson step forms its products on the GPU when its history fits there (otherwise on
-the host) and solves the small regularized Gram system in FP64 on the host. The fixtures (`checks/gate_data/fixtures.json`) and baselines (`checks/gate_data/baselines/`) ship with the package. `--bless`
+nvJitLink. Install the extra rather than CuPy alone; the Anderson step forms its products on the GPU or on the host, depending on where the
+history is kept, the configuration, the deterministic mode and free memory, and solves the small regularized Gram system
+in FP64 on the host. The fixtures (`checks/gate_data/fixtures.json`) and baselines (`checks/gate_data/baselines/`) ship with the package. `--bless`
 moves no fixed reference; it records the SHA, difference, GPU toolchain and configuration key, and verdict. Only `--bless`, `--bless-numpy` and
 `--record-baselines` modify the package's own `checks/gate_data/baselines/`, and they need a writable checkout, stopping with
 `E_GATE_CONFIG` on a read-only install. Every other run writes its execution records, `manifest.json`, `BASELINE_LOG.md`

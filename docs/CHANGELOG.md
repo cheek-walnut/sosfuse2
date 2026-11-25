@@ -7,7 +7,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 
 Transport
 
-- Outside split launches, warm phase 0 and 1 at spherical-harmonic degree 16, 24 and 32 run in bounded, record-free
+- Outside the KSPLIT transport, warm phase 0 and 1 at spherical-harmonic degree 16, 24 and 32 run in bounded, record-free
   chunks. Each cell's warm
   source is evaluated once on a periodic angular grid (a cubic B-spline direction table) and the quadrature points read
   it by interpolation instead of contracting every coefficient. When the table does not fit in memory, or with
@@ -19,9 +19,9 @@ Transport
   heights where the tropospheric aerosol or the stratospheric layer is active.
 - First-light phase 0 evaluates batches of points in parallel and reads a tabulated Henyey-Greenstein ground
   quadrature where it applies.
-- The visitor plan, the device memory estimate and the launch split follow one work model. One cell above the
+- The visitor plan, the device memory estimate and the division of cells into launches follow one work model. One cell above the
   pre-launch work cap stops with `E_LAUNCH_BUDGET`.
-- In the warm phase with 15 wavelengths per launch, thin layers (aerosol or stratospheric density at most 1e-7 of the
+- In the warm phase of the stratospheric and fast warm kernels with 15 wavelengths per launch, thin layers (aerosol or stratospheric density at most 1e-7 of the
   Rayleigh density) are skipped consistently on grids of up to 128 heights.
 - On a 10 GB GPU, a 200 km, degree-24 state without the stratosphere solves about 13 times faster than with 1.8.0 and a
   stratospheric state about 4.5 times faster (`docs/PERFORMANCE.md`).

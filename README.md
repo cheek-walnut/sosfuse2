@@ -126,9 +126,10 @@ references across refactors and other hardware; they do not measure physical acc
   or solve the source again.
 - The MLX transport is experimental and covers one configuration (see *Experimental MLX transport*); its tables are
   checked against the NumPy reference, not separately validated against measurements or other codes.
-- When a warm launch cannot use the angular direction table (for example when the table does not fit in free memory,
-  or with `SOSFUSE2_DETERMINISTIC=1`), the transport contracts the coefficients directly or uses the fused kernel. Both
-  are slower than the table path, and a solve that falls back to the fused kernel can take many times longer.
+- On CUDA, a warm launch that cannot use the angular direction table (for example when the table does not fit in free
+  memory, or with `SOSFUSE2_DETERMINISTIC=1`) contracts the coefficients directly or uses the fused kernel. A solve that
+  falls back to the fused kernel can take many times longer. A cell above the pre-launch work cap of direct contraction
+  stops with `E_LAUNCH_BUDGET` instead of falling back.
 
 ## Install
 

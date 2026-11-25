@@ -937,8 +937,9 @@ runs.
 ## MLX transport against the NumPy reference (1.9.0, experimental)
 
 The MLX transport is compared with the NumPy reference in the configuration it covers (no stratospheric layer, no
-extended upper domain, black surface, Henyey-Greenstein troposphere): the fixed applies of FX-N against the recorded
-NumPy golden of the check fixtures, the other rows against a NumPy run of the same release. These checks bound the difference between the two
+extended upper domain, black surface, Henyey-Greenstein troposphere): the fixed applies and the full-grid pass against
+NumPy references recorded earlier from the same model (the check-fixture golden and saved NumPy runs), the full solve
+through `run_state` against a NumPy run of the same release. These checks bound the difference between the two
 implementations of the same model; they say nothing about physical accuracy.
 
 | check | grid and input | result |
