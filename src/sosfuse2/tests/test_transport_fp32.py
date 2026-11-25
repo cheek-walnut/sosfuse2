@@ -197,6 +197,8 @@ def test_prepared_path_batches_preserve_ray_order(monkeypatch):
     parallel = device_paths(row)
     for key in serial:
         np.testing.assert_allclose(parallel[key], serial[key], rtol=1e-5, atol=0)
+    for paths in (serial, parallel):  # segment starts are copied from the prepared edges, not computed
+        np.testing.assert_array_equal(paths['edges'][:, 0], row['edges'].astype('f4'))
     np.testing.assert_array_equal(parallel['ray_geometry'][-3:, 0], [6371, 6571, 6571])
     np.testing.assert_array_equal(parallel['edges'][-9:, 1], [80, -120, 0, -80, -120, 0, -80, -120, 0])
 

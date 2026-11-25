@@ -156,8 +156,8 @@ warm-transport kernels can still compile on their first use.
 
 ### Experimental MLX transport (Apple silicon)
 
-With `SOSFUSE2_MLX=1` and the `numpy` backend, the transport (first scattering, the ground term and the warm
-iterations) runs on the GPU of an Apple silicon Mac through [MLX](https://github.com/ml-explore/mlx). Install it in
+With `SOSFUSE2_MLX=1` and the `numpy` backend, the transport (first scattering and the warm iterations; the
+ground term is zero for the black surface it covers) runs on the GPU of an Apple silicon Mac through [MLX](https://github.com/ml-explore/mlx). Install it in
 the same virtual environment with `pip install mlx`; with the variable set and no `mlx` package, a run stops with
 `E_MLX_UNAVAILABLE`. Without the variable nothing changes.
 
@@ -165,7 +165,8 @@ The MLX code covers one configuration: no stratospheric layer, no extended upper
 and a Henyey-Greenstein troposphere without a Mie table. Any other configuration runs on the NumPy reference path,
 call by call, at NumPy speed. Three limits follow from the current entry points:
 
-- On macOS, `run_state` accepts only `--backend numpy --reduced`, so the command line reaches the reduced grid only.
+- On macOS, `run_state` runs only with the `numpy` backend on the reduced grid (which `--backend auto` and an omitted
+  `--reduced` also resolve to), so the command line reaches the reduced grid only.
 - None of the bundled states in `assets/states_v2.json` is in the covered configuration (every one has the
   stratospheric layer enabled and a nonzero albedo). Give your own states file with `--states`.
 - On the full grid, only the transport passes (first scattering and warm iterations) through
@@ -283,10 +284,10 @@ the repeat check compares runs of one build with each other.
 | G-F | full-grid fixed table, solved cold and then warm (needs the research checkout) | rtol 1e-3 |
 
 Accumulation order, lane mapping, record layout and the transport path may change between versions and are judged
-against these fixed references and tolerances. Set `SOSFUSE2_DETERMINISTIC=1` when studies require bit-stable repeats of a run on the same GPU:
+against these fixed references and tolerances. Set `SOSFUSE2_DETERMINISTIC=1` when studies require bit-stable repeats of a run on the same CUDA GPU:
 it fixes the accumulation order and turns off the angular direction table, the tabulated first-light ground phase and
 the GPU arithmetic for Anderson history staged in host memory, so the transport contracts the coefficients directly or
-uses the fused kernel. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and reference manifest.
+uses the fused kernel. The experimental MLX transport does not read this variable and makes no such promise. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and reference manifest.
 
 ## Tests and checks
 
@@ -321,7 +322,6 @@ Configurations verified for 1.9.0:
 | platform | Python | backend | what was run |
 |---|---|---|---|
 | Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split`: `gate --all` exit 0 (G-R radiance of the five fixtures within 3.1e-5 and tables within 6.4e-6 of the recorded values, the fixed CUDA comparison, G-P and G-A, the five G-T pairs and G-PS passed, G-H max relative difference 1.3e-6); G-F against the fixed reference table: max relative difference 8.1e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0; the upper-air CUDA check against NumPy: max relative difference 1.9e-5. With `SOSFUSE2_DETERMINISTIC=1`, `gate --stage --runs 2` gave equal output hashes for the five fixtures. The CUDA test modules (projection batches, kernel occupancy, persistent pipeline) passed. On the same 10 GB GPU, the reproduction command of `docs/PERFORMANCE.md` for `clear_34` completed from an empty work root and warm |
-| macOS arm64 | 3.14 | NumPy | wheel in a fresh virtual environment, all test modules except the persistent-service and r17 port modules, in file order and in two random orders: 1272 passed, 99 skipped, 0 failed in each of the three runs |
 | macOS arm64, Apple silicon GPU (16 GB) | 3.12 | NumPy + MLX 0.32.4 (`SOSFUSE2_MLX=1`) | `run_state --backend numpy --reduced` on the check fixture state FX-N (`checks/gate_data/fixtures.json`) with the stratospheric layer disabled (its reduced-solve AOD 0.02, black surface, 45 wavelengths in three chunks): every transport call on MLX (first 3, ground 21, warm 21, none on NumPy), Anderson evaluations per chunk 10/6/5 as with NumPy, table against the NumPy run of the same tree: max difference 3.2e-6 of each solar elevation's maximum, 2.6e-5 relative over all elements; on an otherwise idle machine, two runs each with two threads: about 39–41 s against 79–80 s with NumPy (transport passes 0.1–0.2 s against 41 s; the observer queries, on NumPy in both, about 20 s). Fixed applies of the check fixture FX-N against the NumPy golden: radiance max relative difference 9.3e-5 (rtol 1e-3). `tests/test_mlx_*.py`: 17 passed |
 
 Configurations verified for 1.8.0:

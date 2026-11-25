@@ -7,21 +7,22 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 
 Transport
 
-- Warm phase 0 and 1 at spherical-harmonic degree 16, 24 and 32 run in bounded, record-free chunks. Each cell's warm
+- Outside split launches, warm phase 0 and 1 at spherical-harmonic degree 16, 24 and 32 run in bounded, record-free
+  chunks. Each cell's warm
   source is evaluated once on a periodic angular grid (a cubic B-spline direction table) and the quadrature points read
   it by interpolation instead of contracting every coefficient. When the table does not fit in memory, or with
   `SOSFUSE2_DETERMINISTIC=1`, the transport contracts the coefficients directly or uses the fused kernel. The choice is
   made per launch from ray density, table cost, determinism and free memory, and a resource failure restarts the pass
   on the next path.
-- Stratospheric states use the same path: the combined coefficients carry the stratospheric component, the
+- Stratospheric states with 15 wavelengths per launch use the same path: the combined coefficients carry the stratospheric component, the
   stratospheric extinction enters the Simpson nodes, midpoints and segment ends, and direction tables are built only for
   heights where the tropospheric aerosol or the stratospheric layer is active.
 - First-light phase 0 evaluates batches of points in parallel and reads a tabulated Henyey-Greenstein ground
   quadrature where it applies.
 - The visitor plan, the device memory estimate and the launch split follow one work model. One cell above the
   pre-launch work cap stops with `E_LAUNCH_BUDGET`.
-- Thin layers (aerosol or stratospheric density at most 1e-7 of the Rayleigh density) are skipped consistently on grids
-  of up to 128 heights.
+- In the warm phase with 15 wavelengths per launch, thin layers (aerosol or stratospheric density at most 1e-7 of the
+  Rayleigh density) are skipped consistently on grids of up to 128 heights.
 - On a 10 GB GPU, a 200 km, degree-24 state without the stratosphere solves about 13 times faster than with 1.8.0 and a
   stratospheric state about 4.5 times faster (`docs/PERFORMANCE.md`).
 
@@ -32,7 +33,9 @@ Precision
   sums are compensated.
 - The Anderson history, its products and the mixing are FP32; the regularized Gram system of at most four rows is
   solved in FP64 on the host.
-- Approximate exponential and logarithm operations in the warm kernel are used only with `SOSFUSE2_FASTMATH=1`.
+- Approximate exponential and logarithm operations in the warm kernel are used only when FASTMATH is on:
+  `SOSFUSE2_FASTMATH=1`, or unset under a device profile whose defaults include it (the `cuda` profile does).
+  `SOSFUSE2_FASTMATH=0` keeps the standard operations.
 - Tables of the checked states agree with 1.8.0 within about 1e-6 of each solar elevation's maximum. Without
   `SOSFUSE2_DETERMINISTIC=1`, repeated runs and releases are compared numerically (`rtol=1e-3` for tables); they are not
   promised to be equal byte for byte.
