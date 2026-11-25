@@ -156,7 +156,7 @@ def test_configured_numpy_transport_matches_mask(tmp_path, monkeypatch, L, strat
         assert np.all(abs(combined - x) <= 1e-5 * abs(x))
 
 
-@pytest.mark.parametrize('nh', [3, 33, 44, 65])
+@pytest.mark.parametrize('nh', [3, 33, 44, 65, 71, 128, 129])
 def test_combine_species_masks_and_source_preservation(nh):
     from sosfuse2.backends.sh_layout import combined_coefficients, combined_aux
 
@@ -170,7 +170,7 @@ def test_combine_species_masks_and_source_preservation(nh):
     hs = ha[::-1].copy()
     c = dict(ha=ha, hr=np.ones(nh, 'f4'), strato_density=hs, chi=np.zeros(2))
     got = combined_coefficients(src, c, 16, skip_thin=True)
-    expected = np.repeat((ha * (ha > tau) + 2 * hs * (hs > tau)) if nh <= 64 else ha + 2 * hs, 2)
+    expected = np.repeat((ha * (ha > tau) + 2 * hs * (hs > tau)) if nh <= 128 else ha + 2 * hs, 2)
     assert np.array_equal(got[:, :, 0], np.broadcast_to(expected[:, None], (2 * nh, K)))
     aux = combined_aux(src, c, 16, skip_thin=True)
     assert aux.shape == (2 * nh, 1, padded(16), 2)

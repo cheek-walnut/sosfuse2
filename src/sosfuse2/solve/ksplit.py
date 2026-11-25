@@ -25,7 +25,7 @@ KSPLIT_BLOCK = 128  # split kernels only (168 registers: 12 warps/SM at 128 vs 8
 # SOSFUSE2_KSPLIT=2: PROD is replaced by kernel.cu sos_vprod (visitor-stream producer, same module and
 # options as PROD). Plan per fixed chunk (aerosol cap, once per state): records (slot = (point-base)*4+corner) stable-sorted by
 # source cell (one uint64 sort of cell<<32|slot), visitors = runs of one (cell, ray), blocks = <= VPROD_VISITORS visitors of one cell.
-VPROD_VISITORS = 256
+VPROD_VISITORS = vram_budget.PLAN_VISITORS
 VPROD_ORDER = (
     64,
     4,
@@ -37,8 +37,16 @@ VPROD_SENTINEL = 0xFFFFFFFF  # SOSFUSE2_KSPLIT_VERIFY: unwritten aerosol words b
 VPROD_VERIFY_STAGE = 16 << 20  # floats per device compare piece (64 MB)
 VPROD_VERIFY_WINDOW = 512 << 20  # bytes of aerosol words per verify window (pinned host snapshot; cells are not split)
 VPROD_COUNT_BLOCKS = 1024  # counting-sort blocks per plan (segment >= 4096 records; vprod_build_plan)
-VPROD_COUNT_SHARED = 48 << 10  # its per-block cell counters (4 B/cell) must fit the default dynamic shared limit
+VPROD_COUNT_SHARED = vram_budget.COUNT_SHARED_BYTES  # shared cell counters (4 B/cell)
 VPROD_PLAN_SRC = r'''
+// Test a bounded contiguous span. Treat both signs of zero as zero, and
+// every other FP32 bit pattern (including subnormals and NaNs) as nonzero.
+extern "C" __global__ void vp_source_nonzero(int n, const float *source, int *found) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    const bool live = i < n && (__float_as_uint(source[i]) & 0x7fffffffu);
+    if (__syncthreads_or(live) && threadIdx.x == 0)
+        atomicOr(found, 1);
+}
 extern "C" __global__ void vp_keys(long long nrec,const int*c0cp,int nc,unsigned long long*key){
  const long long i=(long long)blockIdx.x*blockDim.x+threadIdx.x;if(i>=nrec)return;
  const int c=c0cp[2*(i>>2)],k=(int)(i&3);
@@ -118,7 +126,7 @@ extern "C" __global__ void vp_blocks(int ncell,const long long*cstart,const long
  const int c=blockIdx.x*blockDim.x+threadIdx.x;if(c>=ncell)return;
  const long long vs=cstart[c],ve=cstart[c+1];
  for(long long t=bstart[c];t<bstart[c+1];t++){const long long v0=vs+(t-bstart[c])*vb,v1=v0+vb<ve?v0+vb:ve;
-  blk[3*t]=c;blk[3*t+1]=(int)v0;blk[3*t+2]=(int)v1;work[t]=(long long)(vis_rbeg[v1]-vis_rbeg[v0])+4*(v1-v0);}}
+  blk[3*t]=c;blk[3*t+1]=(int)v0;blk[3*t+2]=(int)v1;if(work)work[t]=(long long)(vis_rbeg[v1]-vis_rbeg[v0])+4*(v1-v0);}}
 '''
 
 
@@ -745,7 +753,7 @@ class KsplitMixin:
             return kb['plans'][ci], True
         return self.vprod_build_plan(kb, ci, bundle, c0cp, nh, nc), False
 
-    def vprod_build_plan(self, kb, ci, bundle, c0cp, nh, nc):
+    def vprod_build_plan(self, kb, ci, bundle, c0cp, nh, nc, *, count_blocks=VPROD_COUNT_BLOCKS, measure_blocks=True):
         """Records stable-sorted by source cell (slot order within a cell), visitors = runs of one (cell, ray), blocks of
         <= VPROD_VISITORS visitors of one cell. The y rows are not part of the plan (vprod_launch computes them per chunk)."""
         xp = self.xp
@@ -766,8 +774,7 @@ class KsplitMixin:
         cell = xp.empty(max(nrec, 1), 'i4')
         rstart = None
         if nrec and 4 * ncell <= VPROD_COUNT_SHARED:
-            seg = -(-max(4096, -(-n // VPROD_COUNT_BLOCKS)) // 128) * 128
-            nb = -(-n // seg)  # 128 records = vp_scatter's 4 tiles
+            seg, nb = vram_budget.count_segments(n, count_blocks)
             err = xp.zeros(1, 'i4')
             counts = xp.empty(ncell * nb, 'i4')
             args = (np.int64(n), c0cp, np.int32(nc), np.int32(ncell), np.int32(seg), np.int32(nb))
@@ -817,7 +824,7 @@ class KsplitMixin:
         bstart = xp.concatenate([xp.zeros(1, xp.int64), xp.cumsum(nb)])
         nblk = int(bstart[-1])
         blk = xp.empty(max(3 * nblk, 3), 'i4')
-        work = xp.zeros(max(nblk, 1), xp.int64)
+        work = xp.zeros(max(nblk, 1), xp.int64) if measure_blocks else np.uint64(0)
         mod.get_function('vp_blocks')(
             g(ncell), (T,), (np.int32(ncell), cstart, bstart, np.int32(VPROD_VISITORS), vis_rbeg, blk, work)
         )
@@ -833,9 +840,10 @@ class KsplitMixin:
                 ((ih // th) * ((nc + tc - 1) // tc) + ic // tc) * (th * tc) + (ih % th) * tc + ic % tc, kind='stable'
             )
             blk = xp.ascontiguousarray(b3[order]).reshape(-1)
-            work = work[order]
+            if measure_blocks:
+                work = work[order]
             del b3, cb, ih, ic, order
-        bcum = np.r_[0.0, np.cumsum(np.asarray(self.host(work[:nblk]), 'f8'))]
+        bcum = np.r_[0.0, np.cumsum(np.asarray(self.host(work[:nblk]), 'f8'))] if measure_blocks else None
         del work, cstart, bstart, nb
         plan = dict(
             slot=slot,

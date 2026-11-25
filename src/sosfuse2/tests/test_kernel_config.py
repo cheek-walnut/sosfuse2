@@ -25,21 +25,27 @@ def test_section_clocks_force_unsplit_and_preserve_production(monkeypatch):
     assert resolve_config(flags, role='lut', W=1).flags == ('LUT_ONLY', 'STRATO')
 
 
-def test_paired_sidecar_occupies_exactly_one_argument(tmp_path, monkeypatch):
+@pytest.mark.parametrize('instrumented', [False, True])
+def test_paired_sidecar_occupies_exactly_one_argument(tmp_path, monkeypatch, instrumented):
     from sosfuse2.tests.test_section_clocks_adversarial import A, launch_fixture, run_launch
 
     monkeypatch.setenv('SOSFUSE2_KSPLIT', '0')
     monkeypatch.delenv('SOSFUSE2_KSPLIT_VERIFY', raising=False)
     monkeypatch.delenv('SOSFUSE2_GROUND_SH_L', raising=False)
     monkeypatch.setenv('SOSFUSE2_DEVICE_PROFILE', 'mac')
-    fixture = launch_fixture(flags=A + ('SH_AUX_PAIR',))
+    fixture = launch_fixture(flags=A + ('SH_AUX_PAIR',) + (('EXP_SECTION_CLOCKS',) if instrumented else ()))
     run_launch(fixture, tmp_path)
     args = fixture[2].calls[0][2]
-    assert len(args) == 52  # base + paired sidecar + profile pointer/mask/surface + cell order
+    assert len(args) == 52 + (1 if instrumented else 3)  # clock buffer or split reduction
     assert int(args[48]) == 0 and int(args[49]) == 0  # absent density: NULL and analytic mask
     assert float(args[50]) == 1.0  # analytic air surface normalization
-    assert args[47].shape == (5, 8, 576, 2)
-    np.testing.assert_array_equal(args[47][:, :, :561, 0], fixture[-1][:, 10:, ::2].transpose(0, 2, 1))
+    if instrumented:
+        assert args[47].shape == (5, 8, 576, 2)
+        np.testing.assert_array_equal(args[47][:, :, :561, 0], fixture[-1][:, 10:, ::2].transpose(0, 2, 1))
+    else:
+        assert args[47].shape == (5, 561, 16)
+        np.testing.assert_array_equal(args[47][:, :, :15], fixture[-1][:, 10:])
+        assert not args[47][:, :, -1].any()
 
 
 def test_instrumented_precompile_does_not_schedule_split_kernels(tmp_path, monkeypatch):

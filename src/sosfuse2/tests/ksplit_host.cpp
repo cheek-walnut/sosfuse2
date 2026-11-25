@@ -105,11 +105,11 @@ void run_segment(int mode, int ray, int seg, int lower, double a, double b,
             __syncwarp();
             for (int step = first; step < end; step += TransportPolicy::sample_stride) {
                 const SampleLane owner(lane, step, end);
-                auto view = transport.sample_view(batch, sample, first, owner.sample);
+                auto view = transport.sample_view(batch, &sample, first, owner.sample);
                 std::fill_n(r.lane_rad, 4, 0.f);
                 std::fill_n(r.lane_rc, 4, 0.f);
                 const auto node = quadrature_node(step, nq, true, nodes, weights, r.gu_l, r.gw_l);
-                transport.consume_sample(r, ray, seg, step, ds(a), ds(b), lower, node, owner, view);
+                transport.consume_sample(r, ray, seg, step, first, ds(a), ds(b), lower, node, owner, view);
                 if (owner.active && owner.wave == 0)
                     export_point(view.sample, geometry + (step + int(upper)) * 27);
                 if (!TransportPolicy::record && lane < FW) {

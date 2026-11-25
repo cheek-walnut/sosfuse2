@@ -3,6 +3,7 @@
 import math
 import os
 import time
+import warnings
 
 import numpy as np
 
@@ -12,6 +13,29 @@ from ..backends.arithmetic import F
 from ..backends.sh_layout import source_size
 from ..foundation.timers import TIMERS, stage
 from ..foundation import top
+
+
+def _use_gpu_history(host_history, on_device, deterministic, strato, order, waves, features, free):
+    # Stage one wavelength's residual ring and FP64 mixing vectors. Preserve
+    # the pre-existing stratospheric dispatch; new orders apply to clear transport.
+    supported = (order in (16, 24, 32) and waves in (1, 15)) if not strato else (order, waves) == (24, 15)
+    return host_history and on_device and supported and not deterministic and 64 * features + (32 << 20) < free
+
+
+def _history_row(xp, shape, dtype, pin):
+    if pin:
+        # The persistent worker solves several spectral groups. Own these large
+        # pages directly so dropping the history releases them to the OS.
+        cuda = xp.cuda
+        try:
+            nbytes = math.prod(shape) * np.dtype(dtype).itemsize
+            pointer = cuda.PinnedMemoryPointer(cuda.PinnedMemory(nbytes), 0)
+            return np.ndarray(shape, dtype=dtype, buffer=pointer)
+        except (MemoryError, xp.cuda.runtime.CUDARuntimeError) as exc:
+            if not isinstance(exc, MemoryError) and exc.status != 2:  # cudaErrorMemoryAllocation
+                raise
+            warnings.warn(f'Pinned Anderson allocation failed ({exc}), using pageable host memory', RuntimeWarning)
+    return np.empty(shape, dtype=dtype)
 
 
 class Solver:
@@ -213,6 +237,21 @@ class Solver:
             x = xp.zeros((s.geo.ns, source_size(s), s.W), 'f4')
         gs = [[] for _ in range(s.W)]
         fs = [[] for _ in range(s.W)]
+        grams = [np.empty((0, 0), 'f8') for _ in range(s.W)] if host_history else None
+        mix_buf = np.empty((s.geo.ns, source_size(s)), 'f8') if host_history else None
+        tmp_buf = np.empty((s.geo.ns, source_size(s)), 'f8') if host_history else None
+        if host_history and xp is not np:
+            shape = (s.geo.ns, source_size(s))
+            src_pin = _history_row(xp, shape, np.float32, True)
+            mix_f4 = _history_row(xp, shape, np.float32, True)
+            res_pin = None
+        else:
+            src_pin = None
+            mix_f4 = np.empty((s.geo.ns, source_size(s)), 'f4') if host_history else None
+            res_pin = None
+        fs_mat = [None for _ in range(s.W)] if host_history else None
+        ring_len = [0 for _ in range(s.W)] if host_history else None
+        ring_head = [0 for _ in range(s.W)] if host_history else None
         done = np.zeros(s.W, bool)
         history = []
         started = time.perf_counter()
@@ -269,44 +308,137 @@ class Solver:
             anderson_start = time.perf_counter()
             with vram_trace.item('source.candidate'):
                 nxt = g.copy()  # the Anderson time is recorded below as stage 'anderson'
+            on_device = host_history and xp is not np
+            features = x.shape[0] * x.shape[1] + stop_new[:, :, 0].size
+            pin_history = 12 * x.nbytes <= (2 << 30)
+            strato = getattr(s, 'strato', None) is not None
+            gpu_history_math = _use_gpu_history(
+                host_history, on_device, getattr(self.kernel, 'deterministic', False), strato,
+                getattr(self.kernel, 'L', None), s.W, features, self.kernel.ksplit_memory() if on_device else 0,
+            ) and (not strato or pin_history)
             for w in range(s.W):
                 if done[w]:
                     continue
-                norm = xp.linalg.norm(g[:, :, w], axis=1)
+                gw = g[:, :, w]
+                norm = xp.linalg.norm(gw, axis=1)
                 scale = xp.maximum(norm, norm.max() * 1e-8)
                 with vram_trace.item('anderson.feature'):
-                    feature = ((g[:, :, w] - x[:, :, w]) / scale[:, None]).astype('f8').ravel()
+                    feature = ((gw - x[:, :, w]) / scale[:, None]).astype('f8').ravel()
                 obs = xp.asarray(
                     ((stop_new[:, :, w] - stop_old[:, :, w]) / np.maximum(abs(stop_new[:, :, w]), 1e-20)).ravel()
                     * math.sqrt(len(feature) / (stop_new.shape[0] * stop_new.shape[1]))
                 )
                 with vram_trace.item('anderson.source_history'):
-                    source = g[:, :, w].copy()
+                    source = gw.copy()
                 with vram_trace.item('anderson.residual_history'):
                     residual = xp.concatenate([feature, obs])
-                gs[w].append(self.kernel.host(source) if host_history else source)
-                fs[w].append(self.kernel.host(residual) if host_history else residual)
-                del source, residual
-                if len(fs[w]) > 4:
-                    gs[w].pop(0)
-                    fs[w].pop(0)
-                if len(fs[w]) > 1:
-                    # Stage one wavelength at a time. Gram and mixing arithmetic stay on the solve backend.
-                    with vram_trace.item('anderson.stack'):
-                        f = xp.asarray(history_xp.stack(fs[w], 1))
-                    gram = f.T @ f
-                    gram += xp.eye(len(gram)) * max(float(self.kernel.host(xp.trace(gram))) * 1e-10, 1e-30)
-                    self.kernel.memory()
-                    if host_history:
-                        del f
-                    try:
-                        alpha = xp.linalg.solve(gram, xp.ones(len(gram)))
-                        alpha /= alpha.sum()
-                        ah = self.kernel.host(alpha)
-                        if np.isfinite(ah).all() and max(abs(ah)) < 8:
-                            nxt[:, :, w] = sum(c * xp.asarray(q) for c, q in zip(alpha, gs[w]))
-                    except np.linalg.LinAlgError:
-                        pass
+                if host_history:
+                    diag = float(self.kernel.host(xp.dot(residual, residual)))
+                    nfeat = int(residual.size)
+                    cur_len = ring_len[w]
+                    if fs_mat[w] is None:
+                        fs_mat[w] = _history_row(xp, (4, nfeat), 'f8', gpu_history_math and pin_history)
+                    if cur_len < 4:
+                        slot = cur_len
+                        gs[w].append(_history_row(xp, source.shape, source.dtype, gpu_history_math and pin_history))
+                        order_prev = list(range(cur_len))
+                        ring_len[w] = cur_len + 1
+                    else:
+                        slot = ring_head[w]
+                        ring_head[w] = (slot + 1) & 3
+                        grams[w] = grams[w][1:, 1:]
+                        order_prev = [(slot + 1 + j) & 3 for j in range(3)]
+                    order_new = order_prev + [slot]
+                    res_view = fs_mat[w][slot]
+                    if gpu_history_math:
+                        # Write directly into the host ring. The blocking residual
+                        # copy completes both transfers before the slot is read.
+                        pinned = isinstance(gs[w][slot].base, xp.cuda.PinnedMemoryPointer)
+                        source.get(out=gs[w][slot], blocking=not pinned)
+                        residual.get(out=res_view)
+                    elif xp is not np:
+                        if res_pin is None or res_pin.size != nfeat:
+                            res_pin = _history_row(xp, (nfeat,), np.float64, True)
+                        source.get(out=src_pin)
+                        residual.get(out=res_pin)
+                        np.copyto(gs[w][slot], src_pin)
+                        np.copyto(res_view, res_pin)
+                    else:
+                        np.copyto(gs[w][slot], self.kernel.host(source))
+                        np.copyto(res_view, self.kernel.host(residual))
+                    del source
+                    m = len(order_prev)
+                    if m:
+                        previous = fs_mat[w][:cur_len]
+                        if gpu_history_math:
+                            try:
+                                products = self.kernel.host(xp.asarray(previous) @ residual)
+                            except MemoryError as exc:
+                                warnings.warn(f'Anderson Gram fallback ({exc})', RuntimeWarning)
+                                gpu_history_math = False
+                        if not gpu_history_math:
+                            products = previous @ res_view
+                        col = products[order_prev]
+                        G = np.empty((m + 1, m + 1), dtype='f8')
+                        G[:m, :m] = grams[w]
+                        G[:m, m] = col
+                        G[m, :m] = col
+                        G[m, m] = diag
+                    else:
+                        G = np.array([[diag]], dtype='f8')
+                    del residual
+                    grams[w] = G
+                    if len(order_new) > 1:
+                        gram = G.copy()
+                        gram[np.diag_indices_from(gram)] += max(float(np.trace(gram)) * 1e-10, 1e-30)
+                        self.kernel.memory()
+                        try:
+                            ah = np.linalg.solve(gram, np.ones(len(gram), dtype='f8'))
+                            ah /= ah.sum()
+                            if np.isfinite(ah).all() and max(abs(ah)) < 8:
+                                if gpu_history_math:
+                                    mixed = None
+                                    try:
+                                        mixed = xp.multiply(xp.asarray(gs[w][order_new[0]]), ah[0], dtype=xp.float64)
+                                        for c_val, s_idx in zip(ah[1:], order_new[1:]):
+                                            mixed += xp.multiply(xp.asarray(gs[w][s_idx]), c_val, dtype=xp.float64)
+                                        nxt[:, :, w] = mixed
+                                        continue
+                                    except MemoryError as exc:
+                                        warnings.warn(f'Anderson mixing fallback ({exc})', RuntimeWarning)
+                                        gpu_history_math = False
+                                    finally:
+                                        del mixed
+                                np.multiply(gs[w][order_new[0]], ah[0], out=mix_buf)
+                                for c_val, s_idx in zip(ah[1:], order_new[1:]):
+                                    np.multiply(gs[w][s_idx], c_val, out=tmp_buf)
+                                    mix_buf += tmp_buf
+                                np.copyto(mix_f4, mix_buf, casting='unsafe')
+                                nxt[:, :, w] = xp.asarray(mix_f4)
+                        except np.linalg.LinAlgError:
+                            pass
+                else:
+                    gs[w].append(source)
+                    fs[w].append(residual)
+                    del source, residual
+                    if len(fs[w]) > 4:
+                        gs[w].pop(0)
+                        fs[w].pop(0)
+                    if len(fs[w]) > 1:
+                        # Stage one wavelength at a time. Gram and mixing arithmetic stay on the solve backend.
+                        with vram_trace.item('anderson.stack'):
+                            f = xp.asarray(history_xp.stack(fs[w], 1))
+                        gram = f.T @ f
+                        gram += xp.eye(len(gram)) * max(float(self.kernel.host(xp.trace(gram))) * 1e-10, 1e-30)
+                        self.kernel.memory()
+                        try:
+                            alpha = xp.linalg.solve(gram, xp.ones(len(gram)))
+                            alpha /= alpha.sum()
+                            ah = self.kernel.host(alpha)
+                            if np.isfinite(ah).all() and max(abs(ah)) < 8:
+                                nxt[:, :, w] = sum(c * xp.asarray(q) for c, q in zip(alpha, gs[w]))
+                        except np.linalg.LinAlgError:
+                            pass
             # A converged wavelength is frozen exactly as the accepted active mask.
             with vram_trace.item('source.iterate'):
                 x = xp.where(xp.asarray(done)[None, None, :], g, nxt)

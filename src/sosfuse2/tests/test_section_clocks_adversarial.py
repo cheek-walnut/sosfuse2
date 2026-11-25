@@ -75,6 +75,7 @@ class FakeXP:
     ascontiguousarray = staticmethod(np.ascontiguousarray)
     transpose = staticmethod(np.transpose)
     diff = staticmethod(np.diff)
+    arange = staticmethod(np.arange)
     argsort = staticmethod(np.argsort)
     asnumpy = staticmethod(np.asarray)
 
@@ -94,11 +95,11 @@ class FakeRaw:
         moments, flux, query = args[44:47]
         phase = int(args[7])
         if phase == 0:
-            for c in range(grid[0]):
+            for c in range(int(args[0])):
                 moments[c] = 1000 + c0 + c
         else:
             moments.fill(0)
-        for c in range(grid[0]):
+        for c in range(int(args[0])):
             flux[c] = 2000 + c0 + c
         query.fill(3000)
         if self.clocks:
@@ -421,9 +422,12 @@ class LaunchAdversarial(unittest.TestCase):
             fixture[2].clocks = False
             _, off = run_launch(fixture, directory)
             self.assertEqual(off, [])
-            self.assertEqual(len(fixture[2].calls[-1][2]), len(fixture[2].calls[-2][2]) - 1)
-            self.assertEqual(fixture[2].calls[-1][2][47].dtype, np.dtype('f4'))  # paired SH sidecar
-            self.assertEqual(fixture[2].calls[-1][2][-1].dtype, np.dtype('i4'))  # cell-order tail
+            # The uninstrumented wide transport has three split-reduction buffers.
+            args = fixture[2].calls[-1][2]
+            self.assertEqual(len(args), len(fixture[2].calls[-2][2]) - 1 + 3)
+            self.assertFalse(any(isinstance(arg, np.ndarray) and arg.dtype == np.uint64 for arg in args))
+            self.assertEqual(fixture[2].calls[-1][2][47].dtype, np.dtype('f4'))  # SH sidecar
+            self.assertEqual(fixture[2].calls[-1][2][-1].dtype, np.dtype('i4'))  # split completion counters
             fixture[0].flags = tuple(sorted(A + (FLAG,)))
             fixture[2].clocks = True
             _, last = run_launch(fixture, directory)

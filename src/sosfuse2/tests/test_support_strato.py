@@ -47,9 +47,12 @@ def load_wrapper(path=None):
     module.__dict__.update(
         {
             name: getattr(layout, name)
-            for name in ('count', 'padded', 'workspace', 'source_size', 'kernel_source', 'combined_aux')
+            for name in ('count', 'padded', 'workspace', 'source_size', 'kernel_source', 'combined_aux', 'FastTransport')
         }
     )
+    from sosfuse2.solve.ground_sh import GRID_INTERVALS
+
+    module.__dict__['GRID_INTERVALS'] = GRID_INTERVALS
     module.__dict__.update(
         F=np.float32,
         TIMERS=types.SimpleNamespace(bind=lambda xp: None),
