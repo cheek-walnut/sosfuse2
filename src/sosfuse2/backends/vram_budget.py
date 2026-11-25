@@ -92,7 +92,7 @@ def transport_scratch(points, rays, cells, K, W, direct, flux_only):
     # and W*cell in the CUDA ABI; sample cells use signed int indices.
     if max(n + 256, rays + 256, cells + 256, cells * max(9, W)) > INT32_MAX:
         return None
-    ray_rows = max(1, rays) * (4 * W + (0 if flux_only and not direct else K)) * 4
+    ray_rows = max(1, rays) * (4 * W + (K if direct else 0)) * 4
     if not direct:
         return ray_rows
     nb = min(PLAN_COUNT_BLOCKS, -(-n // 4096))  # monotone upper bound on scatter segments

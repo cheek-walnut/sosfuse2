@@ -29,6 +29,7 @@ class FastTransport:
     role: str
     hg: bool = False
     stage_plane: bool = True
+    strato: bool = False
 
     BATCH = 12
     PAGE_CELLS = 128
@@ -45,12 +46,12 @@ class FastTransport:
     @classmethod
     def select(cls, L, cfg, first, phase, boundary=False, ray_limit=False, split=False):
         role = 'none'
-        if cfg.role == 'transport' and not cfg.strato and not split:
-            if not first and not cfg.split_warm:
+        if cfg.role == 'transport' and not split:
+            if not first and not cfg.split_warm and (not cfg.strato or (cfg.c3_fw15 and phase in (0, 1))):
                 role = 'warm'
-            elif first and phase == 0 and ray_limit and not boundary:
+            elif not cfg.strato and first and phase == 0 and ray_limit and not boundary:
                 role = 'first'
-        return cls(L, cfg.W, role, hg=role == 'first' and 'TROPO_MIE' not in cfg.flags)
+        return cls(L, cfg.W, role, hg=role == 'first' and 'TROPO_MIE' not in cfg.flags, strato=cfg.strato)
 
     @property
     def stride(self):
@@ -98,7 +99,8 @@ class FastTransport:
         if self.role == 'warm':
             c32 = 4 * self.W if self.L == 32 else 0
             floats = workspace(self.L) + 4 * self.W + 33 + 33 + c32 + 15
-            return self.W * 8 + 12 * 4 + warps * (floats * 4 + self.BATCH * 144) + 16 + 512
+            pt_bytes = 160 if self.strato else 144
+            return self.W * 8 + 12 * 4 + warps * (floats * 4 + self.BATCH * pt_bytes) + 16 + 512
         if self.role == 'first':
             # FirstPoint, midpoint profiles and panel widths, phase, ray constants, frame.
             per_warp = self.BATCH * 176 + (self.BATCH + 1) * 24 + (32 + 15 + 12) * 4
@@ -152,4 +154,19 @@ def combined_aux(src, c, L=32, xp=None, skip_thin=False):
     out[:, :, :K, 0] = xp.transpose(values[:, :, ::2], (0, 2, 1))
     if waves > 1:
         out[:, : waves // 2, :K, 1] = xp.transpose(values[:, :, 1::2], (0, 2, 1))
+    return out
+
+
+def combined_aux_waves(src, c, layout, xp=None, skip_thin=False):
+    """Combined FP32 [cell,mode,wave] padded to whole pairs for FastTransport."""
+    import numpy as np
+
+    xp = np if xp is None else xp
+    with vram_trace.item('sh.combine_scratch'):
+        values = combined_coefficients(src, c, layout.L, xp, skip_thin)
+    cells, K, waves = values.shape
+    out = xp.zeros((cells, K, layout.stride), 'f4')
+    out[:, :, :waves] = values
+    if not out.flags.c_contiguous:
+        raise RuntimeError('E_SH_AUX_WAVE_LAYOUT')
     return out

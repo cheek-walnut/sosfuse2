@@ -354,7 +354,10 @@ class Stage1Wiring(unittest.TestCase):
         s2 = ('--fmad=true', '--prec-div=false', '--prec-sqrt=false')
         grid = lambda k: (('PROFILE_N', k.profile_n), ('TOP_KM', 80.0), ('PROFILE_STEP', k.profile_step_km),
                           ('AIR_END_KM', 80.0), ('LOWER_END_KM', 80.0))
-        base = lambda k: (tuple(k.flags), 15, 15, 0, 0, 0, ('L', k.L), *grid(k))
+        base = lambda k: (
+            tuple(k.flags), 15, 15, 0, 0, 0, ('L', k.L), *grid(k),
+            ('-DFAST_WAVE_STRIDE=16', '-DFAST_BATCH=12', '-DFAST_WARM'),
+        )
         # split profile: the exact pre-r17 options and key.
         split = self.kernel('split')
         with patch.dict(os.environ, {}, clear=True):

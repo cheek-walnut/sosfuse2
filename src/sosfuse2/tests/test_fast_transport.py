@@ -62,11 +62,61 @@ def test_compiled_layout(order, width):
     assert first.defines() in k.kernel_key((), width, width, True, 0, False, ray_limit=True)
 
 
+def test_strato_compiled_layout():
+    compiler = testkit.require_tool('clang++')
+    for order in (16, 24, 32):
+        k = solver.Kernel(L=order, block_size=256, flags=('STRATO',))
+        cfg = k.config(15)
+        warm = FastTransport.select(order, cfg, False, 0)
+        assert warm.role == 'warm' and warm.strato
+        common = (
+            STUB + SYNTAX_STUB_EXTRA + '\nvoid sincosf(float, float*, float*);\n'
+            + kernel_source(order, combine=True)
+        )
+        for spec in (warm, replace(warm, role='angular'), replace(warm, role='direct'),
+                     replace(warm, role='direct', stage_plane=False)):
+            options = k.transport_options(spec, cfg.defines, (), False, 0, True)
+            checks = [f'K == {k.K}', 'TransportPolicy::fast_warm == 1', 'TransportPolicy::strato == 1',
+                      'TransportPolicy::combined_sh == 1']
+            if spec.role == 'warm':
+                size = k.shared_bytes(15, 0)
+                checks += [f'{size} == 8*FW+12*4+8*((YPAD+4*FW+66+(SH_L==32 ? 4*FW : 0)+RAY_CONST_F)*4'
+                           '+FAST_BATCH*sizeof(WarmPoint))+16+512']
+            check = '\n'.join(f'static_assert({c});' for c in checks)
+            result = subprocess.run([compiler, *options[:1], '-fsyntax-only', '-x', 'c++',
+                                     *(o for o in options if o.startswith('-D')), '-'],
+                                    input=common + '\n' + check, text=True, capture_output=True)
+            assert result.returncode == 0, result.stderr
+
+
+def test_slim_device_approximations_require_fastmath():
+    compiler = testkit.require_tool('clang++')
+    k = solver.Kernel(L=24, block_size=256, flags=('STRATO',))
+    cfg = k.config(15)
+    layout = replace(FastTransport.select(24, cfg, False, 0), role='angular')
+    for stage1 in ((), ('FASTMATH',)):
+        options = k.transport_options(layout, cfg.defines, stage1, False, 0, True)
+        source = subprocess.run(
+            [compiler, '-E', '-P', '-x', 'c++', '-D__CUDA_ARCH__=860',
+             *(o for o in options if o.startswith('-D')), '-'],
+            input=kernel_source(24, combine=True), text=True, capture_output=True, check=True,
+        ).stdout
+        assert 'sos_fast_slim(' in source
+        for intrinsic in ('ex2.approx.ftz.f32', '__log2f('):
+            assert (intrinsic in source) == ('FASTMATH' in stage1), intrinsic
+
+
 def test_role_and_ground_exclusions():
-    for flags in (('STRATO',), ('EXP_SECTION_CLOCKS',)):
-        cfg = resolve_config(flags)
-        assert FastTransport.select(32, cfg, False, 0).role == 'none'
-        assert FastTransport.select(32, cfg, True, 0, ray_limit=True).role == 'none'
+    cfg_clk = resolve_config(('EXP_SECTION_CLOCKS',))
+    assert FastTransport.select(32, cfg_clk, False, 0).role == 'none'
+    assert FastTransport.select(32, cfg_clk, True, 0, ray_limit=True).role == 'none'
+    cfg_st = resolve_config(('STRATO',), W=15)
+    assert FastTransport.select(24, cfg_st, False, 0).role == 'warm'
+    assert FastTransport.select(24, cfg_st, False, 1).role == 'warm'
+    assert FastTransport.select(24, cfg_st, False, 2).role == 'none'
+    assert FastTransport.select(24, cfg_st, False, 0, split=True).role == 'none'
+    assert FastTransport.select(24, cfg_st, True, 0, ray_limit=True).role == 'none'
+    assert FastTransport.select(24, resolve_config(('STRATO',), W=1), False, 0).role == 'none'
     cfg = resolve_config(())
     for phase in (0, 1, 2):
         assert FastTransport.select(16, cfg, False, phase).role == 'warm'
@@ -146,13 +196,15 @@ def test_runtime_choices():
     co, pc = np.arange(5, dtype='i8') * bins, np.arange(5, dtype='i8') * 5000
     bundle = SimpleNamespace(_fast_vprod_meta=(co, pc))
     launch = SimpleNamespace(c=dict(h=np.arange(2), chi=np.arange(2)), W=15, nr=int(co[-1]), mode='fixed',
-                             step=1, flux_only=False, xp=np, src=np.array([1.]))
+                             step=1, flux_only=False, xp=np, src=np.ones((4, 4, 15), 'f4'))
     for w in (1, 15):
         assert solver._use_fast_vprod(k, False, 0, w, False)
         assert not solver._use_fast_vprod(k, False, 2, w, False)
         assert not solver._use_fast_vprod(k, True, 0, w, False)
         assert not solver._use_fast_vprod(k, False, 0, w, True)
     assert solver._prepare_fast_transport(k, launch, bundle, 0, True) and launch.angular and not launch.zero_volume
+    nodes = bins + 3
+    assert launch.fast_resident_bytes == 4 * nodes * (4 * nodes * 16 + k.K + k.L + 1) + 4 * (8 + 4 + 4 * 16 * 4)
     # The loaded functions' actual local allocation is charged against the same live memory.
     launch.ks, launch.fast_vprod, launch.mode = False, True, 'fixed'
     k.fast_vprod_kernels = lambda *args: {'local_reserve_bytes': 1}
@@ -171,6 +223,7 @@ def test_runtime_choices():
     assert solver._prepare_fast_transport(k, launch, sparse, 0, True) and not launch.angular
     launch.src[:] = 0
     assert solver._prepare_fast_transport(k, launch, sparse, 0, True) and launch.zero_volume
+    assert launch.fast_resident_bytes == 0
     launch.src[:] = 1
     launch.nr = int(co[-1])
     cheap = SimpleNamespace(_fast_vprod_meta=(co, np.arange(5, dtype='i8')))
@@ -183,12 +236,38 @@ def test_runtime_choices():
     k.deterministic = False
     assert solver._prepare_fast_transport(k, launch, bundle, 0, False) and not launch.angular
     need = budget.transport_scratch(5000, bins, 4, count(32), 15, True, False)
-    k.ksplit_memory = lambda: (64 << 20) + need
+    k.ksplit_memory = lambda: (64 << 20) + need + 4 * 4 * 16 * 4
     assert solver._prepare_fast_transport(k, launch, bundle, 0, True) and not launch.angular
     k.ksplit_memory = lambda: 0
     assert not solver._prepare_fast_transport(k, launch, bundle, 0, True)
     k.backend = 'numpy'
     assert not solver._use_fast_vprod(k, False, 0, 1, False)
+
+
+def test_direct_packed_source_budget():
+    nh, nc, width = 71, 109, 15
+    cells = nh * nc
+    k = solver.Kernel(L=24, flags=('STRATO',))
+    k.device = lambda: ('test', dict(launch_target_seconds=2.5, launch_budget_seconds=30), '')
+    offsets = np.array([0, 1], 'i8')  # One destination still needs the full source grid.
+    bundle = SimpleNamespace(_fast_vprod_meta=(offsets, offsets))
+    launch = SimpleNamespace(c=dict(h=np.arange(nh), chi=np.arange(nc)), W=width,
+                             src=np.ones((cells, 4, width), 'f4'), nr=1, mode='fixed',
+                             step=1, flux_only=False, ks=False, fast_vprod=True)
+    packed = cells * 4 * 16 * 4
+    assert packed == 1_981_184
+    need = (64 << 20) + budget.transport_scratch(1, 1, cells, k.K, width, True, False) + packed
+    k.ksplit_memory = lambda: need - 1
+    assert not solver._prepare_fast_transport(k, launch, bundle, 0, False)
+    k.ksplit_memory = lambda: need
+    assert solver._prepare_fast_transport(k, launch, bundle, 0, False)
+    assert not launch.angular and launch.fast_resident_bytes == packed
+    k.fast_vprod_kernels = lambda *args: {'local_reserve_bytes': 1}
+    with pytest.raises(solver._FastResourceError, match='workspace'):
+        solver._select_transport_kernels(k, launch, bundle, False, 0, None, None)
+    k.ksplit_memory = lambda: need + 1
+    solver._select_transport_kernels(k, launch, bundle, False, 0, None, None)
+    assert launch.fast_chunks == [(0, 1)]
 
 
 def test_history_staging():

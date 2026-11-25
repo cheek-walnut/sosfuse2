@@ -529,8 +529,10 @@ def test_g_one_key_rule_and_profile_option(subtests, monkeypatch):
                 assert flagged == [f'-DPROFILE_N={n}']
                 assert all(option in raw.options for option in top.profile_kernel_defines(step))
                 base = (tuple(k.config(W).defines), W, W, 0, 0, 0, ('L', 16))
+                # STRATO W15 warm phase 0 takes the FastTransport layout: its defines join the one key.
+                fast = (('-DFAST_WAVE_STRIDE=16', '-DFAST_BATCH=12', '-DFAST_WARM'),) if W == 15 else ()
                 assert list(k.raw) == [base + (('PROFILE_N', n), ('TOP_KM', 80.0), ('PROFILE_STEP', step),
-                                             ('AIR_END_KM', 80.0), ('LOWER_END_KM', 80.0))]
+                                             ('AIR_END_KM', 80.0), ('LOWER_END_KM', 80.0)) + fast]
                 assert set(k.attributes) == {
                     f'{"+".join(k.config(W).defines) or "default"}:{W}_first0_phase0_boundary0_tile{W}'
                     + k.attribute_suffix(),
