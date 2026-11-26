@@ -50,8 +50,9 @@ pip install ".[gpu,test]"     # + CuPy (CUDA 12) and the NVIDIA runtime/NVRTC/cu
 
 Install the package, prepare the O₄ and density data once, and solve one reduced-resolution state on the NumPy backend.
 The solve takes about a minute on a laptop, and 57 s with two threads in the measured run. The two preparation commands
-write the prepared data into `SOSFUSE2_WORK_ROOT` (by default `$XDG_CACHE_HOME/sosfuse2` or `~/.cache/sosfuse2`), not
-into `./work`, so each is needed once per work root.
+write the prepared data into the asset cache `SOSFUSE2_WORK_ROOT` (by default `$XDG_CACHE_HOME/sosfuse2` or
+`~/.cache/sosfuse2`), not into `./work`, and every solve reads it whatever its `--work-root`. A solve also generates
+missing density data itself, on first use.
 
 ```sh
 pip install ".[test]"
@@ -80,10 +81,11 @@ radiance = t['radiance']  # W m^-2 sr^-1 nm^-1; axes: solar elevation, view elev
 print(t['solar_elevation_deg'], t['view_elevation_deg'], t['relative_azimuth_deg'], t['wavelength_nm'])
 ```
 
-Full-resolution tables require CUDA: `python -m sosfuse2 run_state --backend cupy --work-root ./work-cuda` solves
-`clear_34` on the full grid (in its own work root, because a folder that holds the reduced table stops a full-grid run
-with `E_OUTPUT_IDENTITY`), and `python -B -m sosfuse2.jobs.pipeline` with `--ids` or `--plan` runs the production queue
-with overlapping preparation.
+Full-resolution tables require CUDA and the `gpu` extra: `python -m sosfuse2 run_state --backend cupy --work-root
+./work-cuda` solves `clear_34` on the full grid. It uses its own work root because the signature in the NumPy run's
+`meta.json` records the backend and grid, and a different signature in the same output folder stops the run with
+`E_OUTPUT_IDENTITY`. `python -B -m sosfuse2.jobs.pipeline` with `--ids` or `--plan` runs the production queue with
+overlapping preparation.
 
 `docs/ENVIRONMENT.md` describes where files go, offline use and the bundled states (*Work root, prepared data and state
 files*), how `--backend auto` chooses, and the settings of production queues, device memory and host limits (*Production

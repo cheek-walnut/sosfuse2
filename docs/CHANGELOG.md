@@ -10,7 +10,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   tolerances of the numeric checks to `docs/CHECKS.md`, the work root, the prepared data, the production queue
   settings, the kernel compilation cache and the experimental MLX transport to `docs/ENVIRONMENT.md`, the module notes
   after the package layout to `docs/ARCHITECTURE.md`, and the full note on optics tables outside the package to
-  `docs/PROVENANCE_V3.md`. The upgrade notes on 1.2.3, 1.5.0 and 1.6.0 moved to the top of this file. Moved paragraphs keep their wording apart from links, cross-references and the changes listed below.
+  `docs/PROVENANCE_V3.md`. The upgrade notes on 1.2.3, 1.5.0 and 1.6.0 moved to the top of this file. Moved paragraphs keep their wording apart from links, cross-references and small clarifications.
 - **Quick start.** It shows how to read the table with NumPy, states what the reduced grid holds and where the
   preparation commands download to, and gives the command for one full-resolution state on CUDA. The density
   limitation names the keys and options of the three density choices.

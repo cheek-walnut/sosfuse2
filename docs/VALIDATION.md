@@ -941,7 +941,7 @@ For 1.9.1 we solved the engine side of Figures 1 and 2 again with the installed 
 
 Table 19. Engine version behind each comparison and what we reran for 1.9.0.
 
-For 1.7.0 we had repeated Figure 1 with new MYSTIC runs on the 1.7.0 input, using the installed package in `point` mode with NO₂ and O₄ in both inputs, and its `clear_34` table equalled the 1.6.1
+For 1.7.0 we had repeated Figure 1 with the installed package in `point` mode and new MYSTIC runs on the 1.7.0 input, with NO₂ and O₄ in both inputs, and its `clear_34` table equalled the 1.6.1
 table with a largest difference of 0. For 1.8.0 we reran none of these comparisons and reused the 1.7.0 record. The CUDA checks of 1.8.0 (G-P, G-T, G-A, G-H
 and the full-grid G-F table) give the same values as for 1.7.0, and the `clear_34` command of `docs/PERFORMANCE.md`
 gives a table equal to the one from the command typed in full. The one numeric change of 1.8.0 is in the NumPy

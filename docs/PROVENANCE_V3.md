@@ -19,8 +19,7 @@ no metadata). The comparisons of `code_hashes` are made where a job continues or
 (`E_OUTPUT_IDENTITY`, `E_EXTRA_SOURCE`, *Signature inputs*), and the rules below say how the keys of each format read.
 
 - When `contract == 'v3'`, `code_hashes` has the repository-relative keys in *Keys*. Such tables are read in place;
-  they are not re-baked or re-signed to v4 or v5. The *Keys* table maps their repository-relative keys to the
-  package-relative keys of later records, so a comparison can go by logical key.
+  they are not re-baked or re-signed to v4 or v5. For a manual comparison with later records, the *Keys* table matches v3 keys to later keys that name the same input; compare hash values only where both records hash the input the same way.
 - When `contract == 'v4'`, `code_hashes` uses package-relative keys, so a comparison goes by logical key rather
   than by file location.
 - When `contract == 'v5'` (`jobs/run_state.py` `CONTRACT_VERSION`), `code_hashes` uses package-relative keys that carry

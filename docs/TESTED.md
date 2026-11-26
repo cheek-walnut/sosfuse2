@@ -1,6 +1,6 @@
 # Tested configurations
 
-This file records where and how we verified releases, newest first. In the tables below, `gate --all`,
+This file records where and how we verified releases. The notes below cover documentation-only releases, and the tables run from newest to oldest. In the tables below, `gate --all`,
 `gate --stage` and `gate --gf` stand for the commands of *Tests and checks* in the README (tiers 2 and 3 of
 `docs/CHECKS.md`), and H and PS for G-H and G-PS. Persistent-queue tests and CI default to a `PERSISTENT_TEST_DEADLINE` of 2400 s.
 
