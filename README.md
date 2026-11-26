@@ -119,8 +119,9 @@ references across refactors and other hardware; they do not measure physical acc
   550 nm, background choices that do not track the observed stratospheric aerosol burden.
 - Tables store total radiance only: the solver tracks Rayleigh polarisation internally and treats aerosol scattering as
   depolarising, without writing Stokes parameters.
-- Numeric tolerances bound differences from fixed references of the same model, and the convergence sections of
-  `docs/VALIDATION.md` measure sensitivity to the grid and iteration settings; neither measures physical error.
+- Numeric tolerances bound differences from fixed references of the same model, and `docs/VALIDATION.md` measures how
+  tables change with finer grids, more path nodes, a higher Legendre order and a tighter iteration tolerance; neither
+  measures physical error.
 - We have not compared the colours with measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026).
 - A stored source does not record the content of an optics table outside the package (`stratosphere.optics_table` or
   `troposphere_phase.optics_table`), only its path. `outputs/radiance_table` and `jobs/tables_from_sources` therefore
@@ -145,7 +146,7 @@ pip install ".[gpu,test]"     # + CuPy (CUDA 12) and the NVIDIA runtime/NVRTC/cu
 ```
 
 The package requires Python ≥ 3.12, NumPy ≥ 2.0, Pillow, and `zstd` on `PATH`, which packs state outputs as
-`.tar.zst`; without it a run stops with `E_ZSTD_MISSING`. A C++ compiler is needed only by checks: `g++` or `clang++`
+`.tar.zst`; without it a run stops with `E_ZSTD_MISSING`. A C++ compiler is needed only by checks and tests: `g++` or `clang++`
 builds the CPU spherical-harmonics helper `backends/native/sh_cpu.cpp` once into the work root for the full CPU
 reference comparison of `checks/solver_diagnostics.py --validate-mac`, which stops with `E_COMPILER_MISSING` without
 one, and kernel syntax tests call `clang++` specifically.

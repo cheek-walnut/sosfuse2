@@ -103,10 +103,7 @@ measurements.
 
 The CUDA implementation centres on one fused kernel, `sos_fused` in `src/sosfuse2/backends/kernel.cu`, specialised into
 variants at NVRTC compile time, with helper kernels around it. When the effective mode is `KSPLIT=3`, the solve uses
-the following kernels during an evaluation. Outside the KSPLIT transport, eligible warm passes use the fast transport
-kernels instead: `sos_fast_slim` and `sos_slim_proj` with `sos_vprod_y`, `vp_c0cp_chunk` and `sos_vprod_direct`, or
-with `fl_project` and the angular direction table built by `sh_direction_table` (*Release 1.9.0 on GPU A*). First
-light can read a ground table built by `hg_direction_table`.
+the following kernels during an evaluation.
 
 | kernel | job | threads |
 |---|---|---|
@@ -115,6 +112,11 @@ light can read a ground table built by `hg_direction_table`.
 | `vp_scatter`, `sos_vprod_y`, `sos_vprod` | aerosol phase-function value of every sample point and corner, written as one `float4` per thread | plan built by CUB sort/scan |
 | `sos_fused` slimray (SLIM + SLIM_RAYS) | rebuilds attenuation from the column records and the path weight computed for each sample, reads the four corner source rows and the aerosol record, and accumulates the four Rayleigh tensor components and the aerosol Legendre moments | two ray steps per warp (half-warp `lane>>4`), wavelength `lane&15` (15 active lanes and one pad) |
 | `sos_slim_proj` | projects the accumulated radiance onto the source basis | 32-ray tiles of 64 moments |
+
+Outside the KSPLIT transport, eligible warm passes use the fast transport kernels instead: `sos_fast_slim` and
+`sos_slim_proj` with `sos_vprod_y`, `vp_c0cp_chunk` and `sos_vprod_direct`, or with `fl_project` and the angular
+direction table built by `sh_direction_table` (*Release 1.9.0 on GPU A*). First light can read a ground table built by
+`hg_direction_table`.
 
 There are no floating-point atomics (the only atomics are integer counters that hand out rays and mark finished cells),
 and the kernel accumulates in a fixed order in both modes, but the transport path is chosen per launch;

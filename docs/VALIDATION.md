@@ -33,7 +33,7 @@ against MYSTIC (1.9.0)* onwards, we ran the engine with `SOSFUSE2_DETERMINISTIC=
 fixed only the accumulation order. From 1.9.0 it also turns off the CUDA angular direction table, the tabulated first-light ground
 phase and the GPU arithmetic for Anderson history staged in host memory. The engine tables of Figures 1 and 2 come
 from 1.9.0, and those of the later comparison sections from earlier releases (*Versions behind the comparisons*). The
-1.9.0 MLX section compares two implementations of one release; the MLX transport does not read the setting.
+1.9.0 MLX section compares the 1.9.0 MLX transport with NumPy references; the MLX transport does not read the setting.
 
 ## Same-input comparison with MYSTIC (1.9.0)
 
