@@ -9,7 +9,7 @@ and functions named in `AGENTS.md` and in this document exist.
 
 A *state* is one set of atmosphere parameters: an entry of `assets/states_v2.json` (or `assets/states_v1.json`) with
 the aerosol, ozone, ground and stratosphere values of one sky. *Settings* (`jobs/run_state.py::settings_for`) fix the
-height and angle grids, the wavelengths and the solar elevations. The state, the settings and the code that ran are
+height and angle grids, the wavelengths and the solar elevations. The runner sets solar elevation separately via `solar_elevation_deg`, outside state definitions. The state, the settings and the code that ran are
 signed together into the `meta.json` next to the table (`docs/PROVENANCE_V3.md`).
 
 The output is one table per state, `table.npz`. Its array `radiance` has the axes (solar elevation, view elevation,
@@ -75,6 +75,19 @@ calls runs in `backends/numpy_reference.py::transport` on the NumPy path and in 
 `Kernel`, on the CUDA path. With `SOSFUSE2_MLX=1`, which needs the `mlx` package, `TransientGeometry.evaluate` in `solve/ray_geometry.py` hands the
 calls the experimental MLX modules support to `backends/mlx_backend.py` and keeps the others on NumPy. `jobs/run_state.py::run` wraps the three calls with the cache leases, the phase records, the
 signature and the output files; `jobs/pipeline.py` runs many such states.
+
+Each folder names its modules' main duty, though a few mix two.
+
+CPU solver functions live in importable modules: `rays/shell_segments.py`, `rays/incoming_quadrature.py`,
+`rays/incoming_rings.py`, `rays/zenith_interpolation.py`, `atmosphere/extinction.py`, `solve/engine_core.py`, and
+`outputs/preview_functions.py`. `outputs/pack_state.py` still loads `outputs/preview_functions.py` through its own
+loader. `solve/engine.py` builds a per-state `EngineContext` binding only the inputs each function reads, and `create()`
+returns `(solver, context, settings)`. Use context attributes such as `context.b` and `context.Solver`. Read-only
+indexing by the former scope-dict keys is deprecated and retained for one release. Separating optical coefficients from
+column and geometry producers keeps coefficient edits from invalidating geometry caches.
+`jobs/run_state.py::create_configured` and `atmosphere/tropo_profile.py::engine_hooks` supply the production grid,
+spectrum, sun geometry, deferred ground preparation, and two-layer aerosol profile to `create()` via keyword-only hooks
+without rewriting source text.
 
 ## 5. Topics that cross layers
 

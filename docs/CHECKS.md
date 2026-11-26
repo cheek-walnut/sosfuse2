@@ -4,6 +4,30 @@ G-P compares against the NumPy golden at `rtol=1e-3`. G-T checks the recorded an
 against the fixed radiance reference at `rtol=1e-3, atol=0` and compares cold and warm radiance and source arrays
 at `rtol=1e-5, atol=0` in both accumulation modes. The checks fall into three tiers according to what the machine has.
 
+## Tolerances of the numeric checks
+
+G-P, the fixed CUDA comparison, G-T, G-H and G-F compare results against fixed references at the stated tolerance. G-R records hash and numerical
+differences without blocking. G-A and the repeat check have no fixed reference: G-A compares two solves of one run, and
+the repeat check compares runs of one build with each other.
+
+| check | compares | tolerance |
+|---|---|---|
+| G-R | CUDA outputs vs the baseline of the matching toolchain and configuration, or the canonical baseline | none; differences recorded, not blocking |
+| G-P | CUDA kernel vs NumPy golden (fixed number of apply steps) | radiance rtol 1e-3 (plus `--atol`, default 0); final source relative L2 at most 1e-3 per wavelength |
+| CUDA | the fixture without a NumPy golden (nonzero albedo) vs its fixed CUDA baseline: radiance after the fixed apply steps and, when it was solved, the table | rtol 1e-3 (plus `--atol`, default 0) |
+| G-T | anchor radiances (`checks/gate_data/anchors.json`) | ratchet, recorded |
+| G-A | approximate fixture vs the exact fixture of the same run, which must pass its own check: radiance after the fixed apply steps and, when both were solved, the table | rtol 1e-3 (plus `--atol`, default 0); the approximate solve must converge in no more evaluations than the exact one |
+| G-H | reduced selftest vs its recorded values | per case |
+| G-PS | three persistent-service tests on the CUDA backend (parity, no state mixing, interleaving) | pass or fail |
+| repeat (`--stage`) | same build, fresh runs in separate folders (two by default); also runs G-H and G-PS | rtol 1e-5, max difference recorded |
+| G-F | full-grid fixed table, solved cold and then warm (needs the research checkout) | rtol 1e-3 |
+
+Accumulation order, lane mapping, record layout and the transport path may change between versions and are judged
+against these fixed references and tolerances. Set `SOSFUSE2_DETERMINISTIC=1` when studies require bit-stable repeats of a run on the same CUDA GPU:
+it fixes the accumulation order and turns off the angular direction table, the tabulated first-light ground phase and
+the GPU arithmetic for Anderson history staged in host memory, so the transport contracts the coefficients directly or
+uses the fused kernel. The experimental MLX transport does not read this variable and makes no such promise. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and reference manifest.
+
 ## 1. Any machine, no GPU, no upstream research checkout (public CI)
 
 ```sh
@@ -15,6 +39,10 @@ Tests that read inputs from the upstream research checkout skip at function or f
 CUDA-only modules (`test_C_registers`, the `gate` CUDA paths) skip as well, and 9 cases that depend on `strato_colors`, a
 research module that is not packaged, skip too. Setting `SOSFUSE2_SKY_SOS_ROOT` to a checkout that lacks a record is a failure rather than a
 skip.
+The suite uses a synthetic O₄ table in an
+isolated temporary root without downloading HITRAN data, while optional reproduction from original data
+(`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) skips when neither is set. Pass a module name to run one file, such as
+`python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2.tests.test_names`.
 The structure tests (`tests/test_layers.py`, `tests/test_names.py`, `tests/test_entry_points.py`,
 `tests/test_structure_imports.py`) run in this tier. `tests/test_docs_pointers.py` reads `AGENTS.md` and `docs/`, which
 the installed package does not contain, so it skips outside a source checkout and says so.
@@ -61,6 +89,11 @@ The tests of the long-running files carry the marker `heavy`; `HEAVY_FILES` in `
 of which took 20 s or longer in a serial run. `python -B -m pytest --pyargs sosfuse2 -m "not heavy"` runs the other files
 and finishes in a few minutes. The public CI runs that selection once in the `quick` job and starts the shards only when
 it passes; the shards run every test, with or without the marker.
+
+A C++ compiler is needed only by checks and tests: `g++` or `clang++`
+builds the CPU spherical-harmonics helper `backends/native/sh_cpu.cpp` once into the work root for the full CPU
+reference comparison of `checks/solver_diagnostics.py --validate-mac`, which stops with `E_COMPILER_MISSING` without
+one, and kernel syntax tests call `clang++` or `clang`.
 
 The kernel syntax and preprocess tests need a C++ compiler, `clang++` or `clang` on `PATH`: `test_ground_fused`,
 `test_sh_l`, `test_kernel_config`, `test_section_clocks_adversarial`, `test_profile_step`, the frozen kernel variant check in

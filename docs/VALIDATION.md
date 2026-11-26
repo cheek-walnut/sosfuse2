@@ -249,7 +249,7 @@ We test whether the new absorbers shift colour and luminance by the same amount 
 the same per-layer optical input and absorption optical depths. The comparison therefore covers how absorption travels
 through the spherical shell, slant paths, the Earth's shadow and multiple scattering, without testing the cross sections
 or profiles themselves. When `SOSFUSE2_BIRA_DIR` or `SOSFUSE2_HITRAN_CIA` supplies the original data files, the package
-tests compare the corresponding cross-section assets with them (README, *Tests and checks*).
+tests compare the corresponding cross-section assets with them (`docs/CHECKS.md`).
 
 Using the 1.1.0 development build with the new physics, we generated CUDA tables for two states with `spectral_mode`
 `point` at 30 wavelengths (367.8–822.2 nm) and a fixed 233 K ozone cross section. We did not use the default band mode
@@ -438,7 +438,8 @@ ratio at six pixels for `clear_37`, `clear_43`, `clear_62`, `clear_66`, `clear_6
 pixel of (a) and (b). Over the 96 cases, ratio minus 1 has mean +0.10 % and root mean square 0.63 %. At SZA 93°, all 48
 cases lie between −0.30 % and +0.77 %, 15 of 48 intervals exclude 1 and the 1.35° / 0.5° mean is +0.35 %; at SZA 96°,
 the largest difference is −3.32 % (`clear_68`, 60.75° / 179.5°, standard error 1.53 %) and 2 of 48 intervals exclude 1,
-against 2.4 expected by chance.
+against 2.4 expected by chance. At 93° the mean is +0.13 % and the root mean square 0.26 %; at 96° the root mean square of 0.85 % is comparable to the
+Monte Carlo error.
 
 At SZA 93°, mean MYSTIC luminance exceeds the engine's by 0.18 % to 0.35 % at the four pixels up to 20.25° elevation,
 and the interval excludes 0 in six of eight states at 1.35° / 0.5°. Averaged over the 48 SZA 93° cases, the
@@ -704,7 +705,7 @@ the Maryland and Paranal measurements from −6° to −12°, and 2.9 to 3.2 tim
 `usstd76`/`triangle`/`keep` gives 0.41 times the exp8 luminance, matching SASKTRAN2 at 0.39 to 0.41 for a similar
 profile change in a Rayleigh atmosphere where the two profiles do not have the exact same column. That agreement shows
 the sensitivity is not from the solver and supports the exponential density profile, which holds more air above 20 km
-(README, *Limitations*), as the main cause of the excess, though the comparison tests no other causes. With `usstd76`,
+(`docs/MODEL.md`, *Molecules*), as the main cause of the excess, though the comparison tests no other causes. With `usstd76`,
 Sacramento Peak stays at 1.2 to 1.6 and is already 1.56 at −3°. The sea-level ground below a mountain site is an
 untested candidate cause. Paranal also sits over a sea-level ground and lies below 1, but because the two values come
 from different sites and compare an all-sky median with the zenith, they do not isolate the ground's effect. Between

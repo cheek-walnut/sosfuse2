@@ -298,7 +298,7 @@ full-grid reference state, from 151.0 to 106.9 s (−29 %), or 53.5 s per solve.
 | Host: pinned allocation repeated per launch (about 11 s per state) | removed | fixed |
 | Host launch issue cost of the plan kernels. A pre-1.1.0 run rebuilt the plan per chunk, with 12,612 small launches per evaluation. The gaps after them were 73 % of a 21 % host gap. | A run that stored the plan used 828 launches per evaluation and had a 1.3 % gap of the same class. CUDA graph capture and persistent kernels were considered for the case that rebuilt the plan. | not pursued |
 | Host: a chunk switch in multi-chunk runs recomputed the stratospheric attach geometry every chunk (23.6–29.1 s), so the client CPU time of a state (103 s) exceeded its GPU time (55 s) and GPU utilisation of such runs on GPU B was 66 % | attach cache on and a process memo: 15.7 → 1.1 s per chunk on GPU A; the GPU B utilisation figure has not been re-measured since | fixed |
-| Port to Apple silicon (MLX) | an experimental backend in 1.9.0 for a subset of configurations (README) | experimental |
+| Port to Apple silicon (MLX) | an experimental backend in 1.9.0 for a subset of configurations (`docs/ENVIRONMENT.md`) | experimental |
 
 Two measurement traps shaped these numbers. First, a kernel that does more work per cycle lowers the boost clock on a
 power-capped card, so a change that shortens one kernel can lengthen the untouched ones by 1–2 s. We judge changes by

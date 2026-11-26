@@ -172,3 +172,11 @@ The research release v0.1.1 corresponds to public `sosfuse2` v1.0.0.
 When the seven solver modules moved into `src/sosfuse2/`, the production manifest included all seven and the
 `contract` field stayed at v4. Geometry, host and column caches acquired new key versions. The optics module
 contributed to table and baseline hashes only. That release could read old v4 tables but required fresh sources.
+
+## Optics tables outside the package
+
+A stored source does not record the content of an optics table outside the package (`stratosphere.optics_table` or
+`troposphere_phase.optics_table`), only its path. `outputs/radiance_table` and `jobs/tables_from_sources` therefore
+accept a stored source after that file has changed under the same path, and the signature of `tables_from_sources`
+does not change either. `run_state` and `--extra-elevations` hash the file and stop. Give a changed table a new path,
+or solve the source again.

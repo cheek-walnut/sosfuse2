@@ -94,7 +94,7 @@ below 80 km of the tabulated Rayleigh optical depths of the IPRT phase E atmosph
 2015), so the Rayleigh spectrum is the Bodhaine law anchored at that 450 nm value. With the same anchors, the λ⁻⁴ law of
 1.0.0 gave 0.1085 and 0.0993 at 550 nm for the two rows. The states in `states_v1.json` and `states_v2.json` carry no
 density block and take the second row. Below −6° solar elevation the exp8 configuration is 1.4 to 2.1 times too bright
-against the Maryland and Paranal measurements. The default still has site-dependent errors; README *Limitations*
+against the Maryland and Paranal measurements. The earlier default through 1.4.0, exp8/triangle/keep, holds more air above 20 km than the US Standard Atmosphere 1976 at the same column (1.2 times at 20 km, 1.7 times at 30 km). The default still has site-dependent errors; README *Limitations*
 and `docs/VALIDATION.md` Table 13 give the comparison. A state's density block and the density command-line options
 together must supply all three choices.
 
@@ -280,7 +280,7 @@ field.
 A NumPy reference implements the same transport with double-single arithmetic for the ray geometry and FP64 projection
 sums, and serves as the golden reference of the numeric checks. The CUDA transport uses FP32 ray geometry, spherical
 harmonics and compensated projection sums, with the ray and segment constants prepared in FP64 on the host. The
-README and `docs/CHECKS.md` describe the tolerances and checks. The solver definitions in `src/sosfuse2/rays/`, `src/sosfuse2/atmosphere/extinction.py` and
+`docs/CHECKS.md` describes the tolerances and checks. The solver definitions in `src/sosfuse2/rays/`, `src/sosfuse2/atmosphere/extinction.py` and
 `src/sosfuse2/solve/engine_core.py` define the grids, the quadrature and the physical constants, while
 `src/sosfuse2/atmosphere/rayleigh.py` and `src/sosfuse2/atmosphere/minor_absorbers.py` hold the Rayleigh and
 minor-absorber coefficients of 1.1.0.
@@ -428,7 +428,8 @@ of the 15 reference bands. A preview of a table with one wavelength is monochrom
 ## Processes not modelled
 
 - Absorbers other than ozone, NO₂ and O₄. There is no water vapour, no absorption by the O₂ molecule and no O₂–O₂
-  absorption in the A and B bands.
+  absorption in the A and B bands, which reach vertical optical depths of about 2.2e-3 (A) and 1.7e-4 (B)
+  in the reference profile.
 - Temperature dependence of the NO₂ and O₄ cross sections, NO₂ photochemistry and its change through twilight. The
   shape of the NO₂ profile is fixed, and only its column is a parameter.
 - Stokes output. Polarisation is carried internally but not written.

@@ -1,7 +1,20 @@
 # Changelog
 
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
-not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
+not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`. From 1.6.0, full-grid runs can extend above the default 80 km boundary. The main change to default output came in 1.5.0: a state without a `density` block now uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (README, *Limitations*). In 1.2.3 the bundled `states_v2.json` states began including the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option.
+
+## 1.9.2
+
+- **Shorter README.** The README now keeps installation, a first run, validation and limitations in brief, the test
+  tiers, the package layout and the licence. The tables of verified configurations moved to the new `docs/TESTED.md`, the
+  tolerances of the numeric checks to `docs/CHECKS.md`, the work root, the prepared data, the production queue
+  settings, the kernel compilation cache and the experimental MLX transport to `docs/ENVIRONMENT.md`, the module notes
+  after the package layout to `docs/ARCHITECTURE.md`, and the full note on optics tables outside the package to
+  `docs/PROVENANCE_V3.md`. The notes on changes to default output in 1.2.3, 1.5.0 and 1.6.0 moved to the top of this
+  file. The moved text is unchanged apart from its links.
+- **Quick start.** It shows how to read the table with NumPy and states what the reduced grid holds.
+- The 1.6.1 and 1.6.0 rows of the verified configurations name the excluded test module `test_r17_port`.
+- Apart from the version number, the package code is that of 1.9.0.
 
 ## 1.9.1
 

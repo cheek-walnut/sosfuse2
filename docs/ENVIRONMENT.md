@@ -3,7 +3,7 @@
 **No environment variable is needed to run the package, and `jobs/run_state.py` needs no argument.** Without arguments
 it solves the state `clear_34` under `./work`; `--backend auto`, the default, is `cupy` when `nvidia-smi` names a
 visible device, and `numpy` on a Mac, with a blank `CUDA_VISIBLE_DEVICES`, or on a machine with neither `nvidia-smi` nor
-CuPy; `numpy` solves the reduced grid. Three cases stop with `E_BACKEND_AUTO` instead of choosing: `nvidia-smi` without
+CuPy; `numpy` solves the reduced grid. The run prints the choice. Three cases stop with `E_BACKEND_AUTO` instead of choosing: `nvidia-smi` without
 an answering device, CuPy installed without `nvidia-smi` on `PATH`, and a device named by `nvidia-smi` without CuPy
 installed (the package without its `gpu` extra). A typed `--backend` is not replaced by this choice; `--geometry-only`
 prepares the geometry on NumPy whichever backend is named, and on macOS it also needs `--reduced`.
@@ -53,6 +53,24 @@ interpret switches in the same way.
 The *Use* column classifies each variable as **user** for settings a person sets, **tuning** for performance and memory
 choices, **diagnostic** for opt-in measurement hooks, **internal** for variables that one part of the package sets for
 another, or **optional** for research extras.
+
+## Work root, prepared data and state files
+
+Downloaded inputs, the CPU helper build, and the geometry cache outside a solve go to `SOSFUSE2_WORK_ROOT` (default
+`$XDG_CACHE_HOME/sosfuse2`). A solve (`run_state` or `pipeline`) writes tables, intermediates, and packs under
+`--work-root` in `out/<id>`, `tmp/<id>`, and `pack/`, and stores its geometry cache in `geometry_cache/` unless
+`--geometry-cache` sets another folder. The package directory is read-only data.
+
+The O₄ step downloads the HITRAN O₂–O₂ collision-induced absorption file into `SOSFUSE2_WORK_ROOT`, verifies the source
+SHA-256, and prints the generated table's SHA-256. Pass `--cia O2-O2_2024.cia` to build from a local copy, or set
+`SOSFUSE2_OFFLINE=1` to refuse the download. O₄ data are neither bundled (`THIRD_PARTY.md`) nor downloaded by a solve,
+so a missing or stale cache stops the run with `E_O4_ASSET_MISSING` or `E_O4_ASSET_STALE`.
+
+The default density configuration fetches two IPRT inputs on first use unless pre-fetched by the density preparation
+command. `SOSFUSE2_OFFLINE=1` refuses missing inputs with `E_IPRT_OFFLINE` (`THIRD_PARTY.md` §9). Set all three density
+options explicitly to `exp8`/`triangle`/`keep` to avoid the download.
+
+State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json`, holding 64 parameter sets over `aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo`, and `stratosphere_tau550`. It names as its parent `states_v1.json`, which holds the 40 first-generation states, so their ids also resolve from the default file. For a 200 km top with finer height and `χ` grids, Legendre degree 24, and a tighter tolerance, *Finer and taller grids together* in `docs/MODEL.md` lists the settings file, command, and stopping errors.
 
 ## Variables a person sets
 
@@ -191,6 +209,85 @@ With `SOSFUSE2_VRAM_TRACE=1` on CuPy, `vram_alloc` and `vram_free` record pool b
 `vram_oom` records the pool composition around a CuPy pool out-of-memory error. The top-level `vram_trace` in
 `meta.json` reports `max_resident_bytes` by allocation label and the composition at peak pool usage across
 spectral chunks, including smaller tracked blocks.
+
+## Production queues and checks
+
+Production queues and reference checks use these settings:
+
+- For research runs, `parameters.no2_du=0` disables NO₂ and `parameters.o4=false` disables O₄, with `o4` required as a
+  JSON boolean. With O₄ enabled and an external air profile, that file must declare `air_surface_number_density_m3`.
+- Legacy tables lacking a physics field remain readable. To reproduce their numbers, use the package revision recorded
+  in their provenance. `spectral_mode=legacy` selects the old spectral grid, not the old physics. Each run uses one of
+  three reference fixture sets: legacy, 1.1.0 absorber-validation, or the first public release baseline. Reusing a saved
+  source field for the same state requires matching resolved `optics_state` values, where an omitted amount and its
+  explicit default share the same signature.
+- On CUDA, the solver checks the minimum memory peak across a state's ground and source bundles before its first KSPLIT
+  allocation. When that peak exceeds the lone-state memory budget, the default falls back to `KSPLIT=0` for the whole
+  state, whereas a service state that fits alone may wait for memory held by other states. `SOSFUSE2_KSPLIT_FALLBACK=0`
+  (default in reference checks and benchmarks) raises `E_KSPLIT_MEMORY` instead, while `1` permits fallback. Any
+  fallback logs `WARNING KSPLIT fallback` to stderr, emits a `KSPLIT_FALLBACK` phase event, and records
+  `ksplit_effective` in table metadata. See [Device memory diagnostics](#device-memory-diagnostics)
+  for the reason, itemised estimates, and persistent admission records. Setting `SOSFUSE2_VRAM_TRACE=1` also records
+  CuPy memory-pool accounting (`vram_trace`) in `meta.json`.
+- Both runner and pipeline enforce a host-dependent per-process resident set size (RSS) limit, with `SOSFUSE2_RSS_GB`
+  setting both the default and ceiling for `--rss-gb`. [Host RSS limits](#host-rss-limits)
+  describes the host rule and how the pipeline handles concurrent processes.
+- `plan_queue` stops with `E_PLAN_CPU_BUDGET` when GPUs x workers per GPU x column workers exceed
+  `pipeline.cpu_budget()`. Because `jobs/pipeline.py` can still widen a state's column pool, this bounds only the
+  planned request rather than acting as a CPU quota. The plan also lists the `ground_aerosol01` host cache after
+  `ground`, with an unmeasured run-time cost.
+- While building a state, `tables_from_sources` holds the same `<out>/.worker.lock` used by `run_state`, skipping
+  worker-owned states while a worker starting concurrently stops with `E_OUTPUT_BUSY`.
+- Each pipeline invocation writes logs to its own `logs/<run>/` directory referenced from `pipeline_summary.json`,
+  preserving both cold and warm traces. Benchmark stage timers go to `timings-<run>.json`, named in `benchmark.json`.
+- CUDA state solves (`run_state` and the persistent service) and `checks/solver_diagnostics.py` cap the CuPy default
+  memory pool via `backends/device_profile.pool_limit_bytes(free)` at the
+  smaller of the memory available to the pool minus 1 GiB or `SOSFUSE2_POOL_LIMIT_GIB` in GiB, where the available
+  memory is the driver's free memory plus all bytes the pool already holds. Values truncating below one byte are
+  rejected, and a card with under 4 GiB of driver-free and reusable pool memory stops with
+  `E_VRAM_FREE: need at least 4 GiB free`. This cap replaces the
+  1.3.4 limit of min(20 GiB, free − 1 GiB), which rejected states needing over 20 GiB on every card with
+  `E_PERSISTENT_VRAM_ADMISSION`. Because concurrent pipeline processes on one GPU each size their pool from startup free
+  memory, set `SOSFUSE2_POOL_LIMIT_GIB` to partition the card. During admission, the persistent service requests field
+  reserve factor `SOSFUSE2_FIELD_RESERVE` (default 30) and lowers it to fit available memory when a lone state exceeds
+  capacity there but fits at `SOSFUSE2_FIELD_RESERVE_MIN`. A smaller reserve admits larger or more concurrent states,
+  but because admission is a reservation, setting it too low turns waits into solve-time out-of-memory errors. Neither
+  reserve variable enters any identity or alters numerics.
+- On CUDA, a warm launch that cannot use the angular direction table (for example when the table does not fit in free
+  memory, or with `SOSFUSE2_DETERMINISTIC=1`) contracts the coefficients directly or uses the fused kernel. A solve that
+  falls back to the fused kernel can take many times longer. A cell above the pre-launch work cap of direct contraction
+  stops with `E_LAUNCH_BUDGET` instead of falling back.
+
+## Kernel compilation cache
+
+On CUDA machines, NVRTC compiles kernels on first use. Without `SOSFUSE2_COMPILE_CACHE`, `jobs/run_state.py` stores
+compiled kernels in `nvrtc_cache_shared` in the parent of `--work-root` (`backends/compile_cache.py` `default_root`),
+while a persistent pipeline service and the reference tests each use a run-specific folder. Setting
+`SOSFUSE2_COMPILE_CACHE=<dir>` redirects all of them to that directory, and
+`python -B -m sosfuse2.jobs.precompile --jobs 8` fills that cache before a queue starts. The angular and direct
+warm-transport kernels can still compile on their first use.
+
+## Experimental MLX transport (Apple silicon)
+
+With `SOSFUSE2_MLX=1` and the `numpy` backend, the transport (first scattering and the warm iterations; the
+ground term is zero for the black surface it covers) runs on the GPU of an Apple silicon Mac through [MLX](https://github.com/ml-explore/mlx). Install it in
+the same virtual environment with `pip install mlx`; with the variable set and no `mlx` package, a run stops with
+`E_MLX_UNAVAILABLE`. Without the variable nothing changes.
+
+The MLX code covers one configuration: no stratospheric layer, no extended upper domain, a black surface (albedo 0)
+and a Henyey-Greenstein troposphere without a Mie table. Any other configuration runs on the NumPy reference path,
+call by call, at NumPy speed. Three limits follow from the current entry points:
+
+- On macOS, `run_state` runs only with the `numpy` backend on the reduced grid (which `--backend auto` and an omitted
+  `--reduced` also resolve to), so the command line reaches the reduced grid only.
+- None of the bundled states in `assets/states_v2.json` is in the covered configuration (every one has the
+  stratospheric layer enabled and a nonzero albedo). Give your own states file with `--states`.
+- On the full grid, only the transport passes (first scattering and warm iterations) through
+  `solve/ray_geometry.py::TransientGeometry` have been run with MLX, from Python; a whole full-grid table has not. The
+  full-grid path of `run_state` uses the resident host geometry, which does not call MLX.
+
+MLX runs and NumPy runs of the same state currently carry the same output signature; keep them in separate
+`--work-root` folders.
 
 ## Variables of the host that the package reads or sets
 
