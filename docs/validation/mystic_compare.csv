@@ -22,8 +22,8 @@
 #   tracing (mc_backward, mc_escape on, mc_vroom on), polarised (mc_polarisation), mc_std, observer 0.1 km above the ground,
 #   Lambert albedo 0.376, no refraction, point sun. Atmosphere: 80 km, 0.5 km shells plus the observer level, the Rayleigh
 #   scattering and the ozone, NO2 and O4 absorption optical depths per layer and the two aerosol layers taken from the
-#   engine's optical input for the same state, written with 1.7.0; 1.9.0 writes the same input files (aod550
-#   0.0551, Angstrom exponent 1.889, ssa 0.898, g 0.683, scale
+#   engine's optical input for the same state, written with 1.7.0; written from the 1.9.0 export, the input
+#   files are the same (aod550 0.0551, Angstrom exponent 1.889, ssa 0.898, g 0.683, scale
 #   height 1.0 km, ozone 224.75 DU, NO2 0.207 DU, stratospheric sulfate tau550 0.0037 as a Gaussian centred at 19 km with
 #   sigma 3 km); MYSTIC's own molecular absorption switched off (no_absorption mol, mol_modify NO2 0 DU,
 #   ck_lowtran_absorption O4 off); Rayleigh depolarisation 0.03; aerosol scattering given as P11 only, which MYSTIC treats
