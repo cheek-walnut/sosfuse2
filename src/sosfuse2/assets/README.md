@@ -10,9 +10,9 @@ The JSON assets are frozen inputs. Their digests are pinned or recorded by the c
 copies `wavelength_reference` from `spectra_fine.json`. The embedded provenance strings include historical path labels. They can be rewritten because registered numeric
 assets exclude them from their content identity (`content_identity.ASSET_NOTES`), and `content_identity.ASSET_SUPERSEDED` maps
 the byte digest of each earlier published file to that content identity. State files leave out only note keys and state
-labels, and the other files in the provenance record are hashed byte for byte, so an edit to one of them changes its
-content identity. The optical tables (`strato_*.json`, `tropo_*.json`) enter the record only for a state that uses
-them; `cie1931_5nm_local.json` and the two frozen kernel snapshots are not signature inputs.
+labels, and the other data files in the fixed provenance list are hashed byte for byte, so an edit to one of them changes its
+content identity. `run_state` also hashes the bytes of the optical tables (`strato_*.json`, `tropo_*.json`) for a state that
+uses them; `cie1931_5nm_local.json` and the two frozen kernel snapshots are not signature inputs.
 
 | file | what | origin | terms |
 |---|---|---|---|

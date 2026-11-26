@@ -18,7 +18,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   `docs/ARCHITECTURE.md`, `docs/CHECKS.md`, `docs/KNOWN_FAILURES.md`, `docs/PERFORMANCE.md`, `docs/VALIDATION.md`,
   `docs/PROVENANCE_V3.md`, `docs/WALKTHROUGH.md`, `docs/validation/mystic/README.md`, `src/sosfuse2/assets/README.md`,
   `THIRD_PARTY.md` and the 1.9.0 entry below now describe what the code does. Among the corrections: a C++ compiler is
-  needed only by the full CPU reference check, `--block-size` goes to the kernel without being exported, the
+  needed only by the full CPU reference check and by tests, `--block-size` goes to the kernel without being exported, the
   persistent-queue tests skip on a socket path that is too long, the MLX modules are listed in the backend layer, and
   Table 8 names the 1.2.3 tables it comes from.
 - Apart from the version number, the package code is that of 1.9.0.

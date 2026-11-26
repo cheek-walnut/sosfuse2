@@ -46,7 +46,7 @@ repository-relative source directory in the upstream checkout.
 | `<source>/kernel.cu` | `sosfuse2/backends/kernel.cu` | |
 | `<source>/assets/<data>` (when the block used it) | `sosfuse2/assets/<data>` for `DATA_ASSETS`, always | v3 hashed the fine spectral assets only when the spectral block used them |
 | `<source>/assets/usstd76_profile.json` | `sosfuse2/assets/usstd76_profile.json` — a logical key (`density.ASSET_KEY`) | the file is generated into the work root on first use (IPRT inputs, pinned sha256); hashed when the state's density configuration reads the asset, which includes the default `usstd76`/`usstd76`/`usstd` |
-| `<source>/assets/strato_*.json`, `tropo_*.json` (state dependent) | `sosfuse2/assets/...` (state dependent); a table outside the package is `external/stratosphere/<file name>` or `external/troposphere/<file name>` | `stratosphere.path_label`, `tropo_mie.path_label` |
+| `<source>/assets/strato_*.json`, `tropo_*.json` (state dependent) | `sosfuse2/assets/...` (state dependent); `run_state` keys a table outside the package as `external/stratosphere/<file name>` or `external/troposphere/<file name>` | `stratosphere.path_label`, `tropo_mie.path_label` |
 | `assets/spectra_fine.json` (spectral block `asset` label) | unchanged `assets/spectra_fine.json` | the label is part of the block signature; kept for block compatibility. The same file is also `sosfuse2/assets/spectra_fine.json` in the fixed list |
 | upstream geometry helper | removed | not an engine input |
 

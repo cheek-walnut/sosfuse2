@@ -29,7 +29,8 @@ Rayleigh atmosphere against SASKTRAN2. Two further sections compare with measure
 purple-light timing. Before the open checks, two final numerical sections examine the SZA and height grids and measure
 band-approximation error against the engine's `point` tables. Every same-input MYSTIC comparison ran at single
 wavelengths and never in the default band mode. For Figure 1 and the CUDA runs of all sections from *Bundled states
-against MYSTIC (1.9.0)* onwards, we ran the engine with `SOSFUSE2_DETERMINISTIC=1`, which is off by default. In the earlier releases used here it
+against MYSTIC (1.9.0)* onwards, we ran the engine with `SOSFUSE2_DETERMINISTIC=1`, which is off by default, except for the one
+repeat in that section that turns it off. In the earlier releases used here it
 fixed only the accumulation order. From 1.9.0 it also turns off the CUDA angular direction table, the tabulated first-light ground
 phase and the GPU arithmetic for Anderson history staged in host memory. The engine tables of Figures 1 and 2 come
 from 1.9.0, and those of the later comparison sections from earlier releases (*Versions behind the comparisons*). The
@@ -371,7 +372,7 @@ interpolated NO₂ between the 220 K and 294 K data of Vandaele et al. (1998) an
 holding temperatures outside each table at its endpoint. Per-layer temperatures shift u′ by −2.3e-5 to −4.8e-5, v′ by
 −5.1e-5 to −8.0e-5 and Y by −0.004 % to −0.026 %. Their 95 % upper bounds are 1.8e-4 for |Δu′v′| (0.61 of the tolerance)
 and 0.040 % for |ΔY| (0.33 of the tolerance), keeping fixed temperatures within tolerance at these pixels. Because the
-294 K source data end at 666.6 nm, NO₂ remained at 220 K above it; the bundled NO₂ asset holds only the 220 K cross
+294 K data used in this run end at 666.6 nm, NO₂ remained at 220 K above it; the bundled NO₂ asset holds only the 220 K cross
 sections. An estimate of that omitted part, which is not a
 bound, gives at most 0.028 % in Y.
 

@@ -113,9 +113,10 @@ the following kernels during an evaluation.
 | `sos_fused` slimray (SLIM + SLIM_RAYS) | rebuilds attenuation from the column records and the path weight computed for each sample, reads the four corner source rows and the aerosol record, and accumulates the four Rayleigh tensor components and the aerosol Legendre moments | two ray steps per warp (half-warp `lane>>4`), wavelength `lane&15` (15 active lanes and one pad) |
 | `sos_slim_proj` | projects the accumulated radiance onto the source basis | 32-ray tiles of 64 moments |
 
-Outside the KSPLIT transport, eligible warm passes use the fast transport kernels instead: `sos_fast_slim` and
-`sos_slim_proj` with `sos_vprod_y`, `vp_c0cp_chunk` and `sos_vprod_direct`, or with `fl_project` and the angular
-direction table built by `sh_direction_table` (*Release 1.9.0 on GPU A*). First light can read a ground table built by
+Outside the KSPLIT transport, eligible warm passes use the fast transport kernels instead, all with `sos_fast_slim`.
+The direct path computes the phase values with `sos_vprod_y`, `vp_c0cp_chunk` and `sos_vprod_direct` and projects with
+`sos_slim_proj`; the angular path reads a direction table built by `sh_direction_table` and projects phase 0 with
+`fl_project` (*Release 1.9.0 on GPU A*). First light can read a ground table built by
 `hg_direction_table`.
 
 There are no floating-point atomics (the only atomics are integer counters that hand out rays and mark finished cells),
@@ -322,11 +323,12 @@ python -B -m sosfuse2.jobs.run_state --id clear_34 --backend cupy --work-root ./
 ```
 
 The state id is bundled in `assets/states_v2.json`; other ids from that file work the same way. The device profile is
-chosen from the GPU name; to use the launch settings of the measurements above on another card, add
-`--device-profile split`.
+chosen from the GPU name; add `--device-profile split` to select the profile of the
+measurements above on another card; launch-related environment variables still override its settings.
 `meta.json` under `work/out/<id>/` records `elapsed_seconds`, `source_seconds`, `query_seconds` and, under
-`kernel.launch.by_kind`, the launch count and GPU seconds, measured with CUDA events, of each kind of launch that is
-timed. Launches are timed when the device profile sets a launch time limit, as both CUDA profiles do by default. The
+`kernel.launch.by_kind`, the launch count and GPU seconds, measured with CUDA events, of each kind of timed launch or
+launch group in the last wavelength chunk. Launches are timed when the device profile sets a launch time limit, as
+both CUDA profiles do by default, or when the launch size adapts. The
 tolerance checks of `docs/CHECKS.md` tier 2 run the same kernels on the reduced fixtures. For profiling, run the same
 command under `nsys` for the timeline and under `ncu --target-processes all` with one metric group per run.
 Use `ksplit_effective` in `meta.json` to identify the path used in a run. With `KSPLIT=3`, look for `sos_fused`

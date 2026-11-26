@@ -6,7 +6,7 @@ tropospheric aerosol layer, a stratospheric sulfate layer enabled in the bundled
 and O₄, and a Lambertian ground. One solve covers every solar elevation of a table, by default +6° to −18°. The package
 ships a NumPy reference implementation, an optional CUDA kernel compiled at run time through CuPy and NVRTC, numeric
 checks against fixed references within tolerances, and a provenance record that labels each table written by
-`run_state` and `tables_from_sources` with a SHA-256 signature of its state, its settings and the hashes of its
+`run_state` and `tables_from_sources` with a SHA-256 signature of its inputs and the hashes of its
 producing code and data.
 
 ## Start here
@@ -107,8 +107,9 @@ references across refactors and other hardware; they do not measure physical acc
   Real columns vary by location, season and time of day, and the model omits photochemistry. In MYSTIC runs at ten
   twilight pixels, replacing the fixed 220 K (NO₂) and 233 K (ozone) cross sections with per-layer temperatures shifted
   colour by at most 1.8e-4 in u′v′ and Y by at most 0.04 % (95 % bounds).
-- O₄ uses fixed, temperature-independent 293/287 K cross sections over approximately 297–654 nm (within the 360–840 nm
-  fine spectral grid of the bundled assets) and the square of the active air density, and we have not tested what the missing temperature
+- O₄ uses fixed, temperature-independent 293/287 K cross sections, whose source data span approximately 297–654 nm (on
+  the 360–840 nm fine spectral grid of the bundled assets the table is zero above that range), and the square of the
+  active air density, and we have not tested what the missing temperature
   dependence of O₄ does. We exclude O₂ A- and B-band CIA—which reach vertical optical depths of about 2.2e-3 (A) and
   1.7e-4 (B) in the reference profile—monomer O₂ lines and water vapour.
 - Rayleigh scattering follows Bodhaine et al. (1999) with vacuum wavelength conversion and the existing 450 nm air
@@ -146,10 +147,10 @@ pip install ".[gpu,test]"     # + CuPy (CUDA 12) and the NVIDIA runtime/NVRTC/cu
 ```
 
 The package requires Python ≥ 3.12, NumPy ≥ 2.0, Pillow, and `zstd` on `PATH`, which packs state outputs as
-`.tar.zst`; without it a run stops with `E_ZSTD_MISSING`. A C++ compiler is needed only by checks and tests: `g++` or `clang++`
+`.tar.zst`; without it a state solve stops with `E_ZSTD_MISSING`. A C++ compiler is needed only by checks and tests: `g++` or `clang++`
 builds the CPU spherical-harmonics helper `backends/native/sh_cpu.cpp` once into the work root for the full CPU
 reference comparison of `checks/solver_diagnostics.py --validate-mac`, which stops with `E_COMPILER_MISSING` without
-one, and kernel syntax tests call `clang++` specifically.
+one, and kernel syntax tests call `clang++` or `clang` (`docs/CHECKS.md`).
 
 Downloaded inputs, the CPU helper build, and the geometry cache outside a solve go to `SOSFUSE2_WORK_ROOT` (default
 `$XDG_CACHE_HOME/sosfuse2`). A solve (`run_state` or `pipeline`) writes tables, intermediates, and packs under
@@ -263,7 +264,8 @@ Production queues and reference checks use these settings:
   worker-owned states while a worker starting concurrently stops with `E_OUTPUT_BUSY`.
 - Each pipeline invocation writes logs to its own `logs/<run>/` directory referenced from `pipeline_summary.json`,
   preserving both cold and warm traces. Benchmark stage timers go to `timings-<run>.json`, named in `benchmark.json`.
-- Each CUDA entry point caps the CuPy default memory pool via `backends/device_profile.pool_limit_bytes(free)` at the
+- CUDA state solves (`run_state` and the persistent service) and `checks/solver_diagnostics.py` cap the CuPy default
+  memory pool via `backends/device_profile.pool_limit_bytes(free)` at the
   smaller of the memory available to the pool minus 1 GiB or `SOSFUSE2_POOL_LIMIT_GIB` in GiB, where the available
   memory is the driver's free memory plus all bytes the pool already holds. Values truncating below one byte are
   rejected, and a card with under 4 GiB of driver-free and reusable pool memory stops with
@@ -286,7 +288,7 @@ the repeat check compares runs of one build with each other.
 |---|---|---|
 | G-R | CUDA outputs vs the baseline of the matching toolchain and configuration, or the canonical baseline | none; differences recorded, not blocking |
 | G-P | CUDA kernel vs NumPy golden (fixed number of apply steps) | radiance rtol 1e-3 (plus `--atol`, default 0); final source relative L2 at most 1e-3 per wavelength |
-| CUDA | the fixture without a NumPy golden (nonzero albedo) vs its fixed CUDA baseline: radiance after the fixed apply steps and the solved table | rtol 1e-3 (plus `--atol`, default 0) |
+| CUDA | the fixture without a NumPy golden (nonzero albedo) vs its fixed CUDA baseline: radiance after the fixed apply steps and, when it was solved, the table | rtol 1e-3 (plus `--atol`, default 0) |
 | G-T | anchor radiances (`checks/gate_data/anchors.json`) | ratchet, recorded |
 | G-A | approximate fixture vs the exact fixture of the same run, which must pass its own check: radiance after the fixed apply steps and, when both were solved, the table | rtol 1e-3 (plus `--atol`, default 0); the approximate solve must converge in no more evaluations than the exact one |
 | G-H | reduced selftest vs its recorded values | per case |

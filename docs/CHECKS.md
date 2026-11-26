@@ -43,11 +43,13 @@ bundled states. To reproduce the earlier off state, pass an explicit state file 
 there is no `--stratosphere off` option.
 
 On macOS, the persistent queue (`pipeline --persistent`, `test_r17_port`, `test_pipeline_persistent`) listens on a Unix
-socket under the run's temporary root, and macOS limits that path, terminator included, to 104 bytes. Keep `TMPDIR` and
-`SOSFUSE2_TEST_SCRATCH` short; the default `/var/folders/...` is fine. With a longer path, `pipeline --persistent` stops
+socket under the run's temporary root, and macOS limits that path, terminator included, to 104 bytes. Keep `TMPDIR`
+short; the default `/var/folders/...` is fine (`SOSFUSE2_TEST_SCRATCH` sets a separate folder for test outputs). With a longer path, `pipeline --persistent` stops
 with `E_PERSISTENT_SERVICE_START`, and the tests that open the socket measure the path first and skip with
-`E_SOCKET_PATH_TOO_LONG`. Five `test_pipeline_persistent` cases share one 4-state NumPy reduced queue and a sixth solves
-one state; each waits `PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, for its queue to finish.
+`E_SOCKET_PATH_TOO_LONG`. The five cases of the `test_pipeline_persistent` test class share a 4-state non-persistent baseline queue and a 2-state
+persistent queue run once for the class, some cases start further queues, and a separate test solves one state. Each
+queue waits up to `PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, on NumPy unless `PERSISTENT_TEST_BACKEND` names
+another backend.
 The public CI also sets `PERSISTENT_TEST_DEADLINE=2400`, and the CUDA G-PS check of tier 2 runs three of those cases with 900 s.
 The public CI splits this run into four shards for each platform and Python version and runs the test files of a shard
 side by side, one file per worker (`pytest-xdist` with `--dist loadfile`, one worker per CPU), because most files keep a
@@ -99,7 +101,7 @@ history is kept, the configuration, the deterministic mode and free memory, and 
 in FP64 on the host. The fixtures (`checks/gate_data/fixtures.json`) and baselines (`checks/gate_data/baselines/`) ship with the package. `--bless`
 moves no fixed reference; it records the SHA, difference, GPU toolchain and configuration key, and verdict. Only `--bless`, `--bless-numpy` and
 `--record-baselines` modify the package's own `checks/gate_data/baselines/`, and they need a writable checkout, stopping with
-`E_GATE_CONFIG` on a read-only install. Every run writes its report to `<out>/gate.json`. Any other run that writes an execution record, as a passing G-F
+`E_GATE_CONFIG` on a read-only install. Every top-level run writes its report to `<out>/gate.json`. Any other run that writes an execution record, as a passing G-F
 does with `manifest.json` and `BASELINE_LOG.md`, puts it under `<out>/records/` instead of the package. `gate.code_identity()` hashes the generated `usstd76` density asset and
 therefore needs the IPRT inputs, so the first run on a host downloads them over the network against the pinned sha256
 unless they are already in the work root.

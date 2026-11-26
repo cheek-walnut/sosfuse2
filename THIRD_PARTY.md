@@ -165,9 +165,10 @@ source file, its SHA-256 and the scaling applied.
 The source is LASP LISIRD, *TSIS-1 HSRS Version 2* (`hybrid_reference_spectrum_c2022-11-30_with_unc.nc`),
 https://lasp.colorado.edu/lisird/data/tsis1_hsrs . LASP publishes the HSRS files for open download and asks for citation;
 no licence text accompanies the file. The package distributes the 0.1 nm cell means rather than the original file. The
-generator read a LISIRD CSV extract of that file (355–845 nm), relabelled the spectrum to air wavelengths (Ciddor 1996),
-averaged it into 0.1 nm cells on the air axis and scaled it to the TSIS-1 TIM total solar irradiance, as `sources.solar`
-records.
+generator read a LISIRD CSV extract of that file (355–845 nm), converted it to air wavelengths (Ciddor 1996), scaling
+the irradiance per wavelength by dλ_vac/dλ_air, and averaged it into 0.1 nm cells on the air axis. `sources.solar`
+records these steps and, from the file summary, the HSRS scaling of all wavelengths by 0.999061 to the TSIS-1 TIM total
+solar irradiance.
 
 References: Coddington, O. M., et al. (2021). *The TSIS-1 Hybrid Solar Reference Spectrum.* Geophysical Research Letters,
 48, e2020GL091709. Coddington, O. M., et al. (2023). *Version 2 of the TSIS-1 Hybrid Solar Reference Spectrum and

@@ -72,7 +72,7 @@ state + settings
 In each iteration, `Solver.solve` calls `Solver.apply` for ground reflection and one scattering update; the first call
 runs `Solver.initialize` for first scattering. The transport inside those
 calls runs in `backends/numpy_reference.py::transport` on the NumPy path and in `backends/kernel.cu`, launched through
-`Kernel`, on the CUDA path. With `SOSFUSE2_MLX=1`, `TransientGeometry.evaluate` in `solve/ray_geometry.py` hands the
+`Kernel`, on the CUDA path. With `SOSFUSE2_MLX=1`, which needs the `mlx` package, `TransientGeometry.evaluate` in `solve/ray_geometry.py` hands the
 calls the experimental MLX modules support to `backends/mlx_backend.py` and keeps the others on NumPy. `jobs/run_state.py::run` wraps the three calls with the cache leases, the phase records, the
 signature and the output files; `jobs/pipeline.py` runs many such states.
 
