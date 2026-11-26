@@ -6,7 +6,8 @@ The default engine configuration is A0.
 
 ## Requirements
 
-Use Python with NumPy and sosfuse2 1.5.0 or 1.5.1 installed (the two releases have the same engine code).
+Use Python with NumPy and sosfuse2 1.9.0 or 1.9.1 installed (the two releases have the same engine code; the recorded
+tables come from 1.9.0).
 The scripts are in the repository and the source distribution under `docs/validation/mystic`; the wheel does not
 contain them.
 Building libRadtran 2.0.6 requires Debian or Ubuntu on x86_64, a compiler, network access and package installation

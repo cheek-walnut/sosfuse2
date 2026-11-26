@@ -3,6 +3,18 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`.
 
+## 1.9.1
+
+- **MYSTIC figures from 1.9.0.** The engine side of Figures 1 and 2 in `docs/VALIDATION.md`, with
+  `docs/validation/mystic_compare.csv` and `docs/validation/mystic_states.csv`, now comes from 1.9.0. The MYSTIC runs
+  are those of the earlier records, because 1.9.0 writes the same MYSTIC input files. The 1.9.0 engine values differ
+  from the earlier ones by at most 5.6e-7 relative in Figure 1 and 2.0e-6 in Figure 2. Tables 1 and 2 keep their values,
+  and four values of Table 7 and the 96-case mean move by one unit in the last printed digit.
+- **Versions behind the comparisons** records what we solved again for 1.9.0, including the `clear_34` command of
+  `docs/PERFORMANCE.md` against its 1.6.1 table, and *Reproducing the figures and the records* explains how the 1.9.0
+  tables were read against the recorded MYSTIC input.
+- The package code is that of 1.9.0.
+
 ## 1.9.0
 
 Transport

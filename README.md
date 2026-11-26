@@ -29,7 +29,7 @@ states began including the stratospheric sulfate layer, and the CLI has no `--st
 ![Engine and MYSTIC radiance and ratios for eight bundled states at solar zenith angles 93 and 96
 degrees](docs/validation/mystic_states.png)
 
-Engine radiance from 1.2.3 using `usstd76`/`usstd76`/`usstd` (the 1.5.0 default density configuration) and MYSTIC Monte
+Engine radiance from 1.9.0 using `usstd76`/`usstd76`/`usstd` (the 1.5.0 default density configuration) and MYSTIC Monte
 Carlo radiance on the same optical input for eight bundled states at solar zenith angles 93° and 96°: (a) L/E₀ of
 `clear_87` at the sun-side pixel 20.25° / 0.5°, (b) the MYSTIC / engine ratio for the eight states and their mean, and
 (c) the luminance ratio at six pixels with 95 % intervals over 16 seeds. Across all 96 cases, the ratio minus 1 has
@@ -52,8 +52,9 @@ open question about the main kernel.
 
 ## Validation
 
-Using the same optical input at 30 single wavelengths, we compared 1.2.3 tables of eight bundled states against MYSTIC
-(libRadtran 2.0.6) at six pixels and solar zenith angles 93° and 96°. These tables use the three US Standard Atmosphere
+Using the same optical input at 30 single wavelengths, we compared 1.9.0 tables of eight bundled states against MYSTIC
+(libRadtran 2.0.6) at six pixels and solar zenith angles 93° and 96°. The MYSTIC runs come from the 1.2.3 comparison,
+whose input files 1.9.0 writes unchanged; at these pixels the 1.9.0 radiance equals the 1.2.3 radiance within 2.0e-6. These tables use the three US Standard Atmosphere
 options from *Limitations* (`density_profile: usstd76`, `ozone_profile: usstd76`, `rayleigh_column: usstd`) and the
 bundled stratospheric layer centred at 21 km with τ550 0.002–0.006. Because both codes share the input, the comparison
 tests transport rather than input physics. At 93°, luminance agrees with MYSTIC within 0.8 % (−0.30 % to +0.77 %) across
@@ -64,8 +65,9 @@ of the size seen at 93° would go unresolved. The MYSTIC build reproduces the 12
 benchmark of Korkin et al. (2020) to 0.27 %.
 
 Two further MYSTIC comparisons use states with a stratospheric layer centred at 19 km, with τ550 0.0037 in the first
-state and 0.0022 in the second. The first covers one state, one direction and three solar elevations, and for 1.7.0 we
-repeated it using the installed package in `point` mode with NO₂ and O₄ in both inputs. The codes agree within 1.7 %
+state and 0.0022 in the second. The first covers one state, one direction and three solar elevations. For 1.7.0 we
+repeated it using the installed package in `point` mode with NO₂ and O₄ in both inputs, and the 1.9.0 engine values
+differ from the 1.7.0 ones by at most 5.6e-7 relative. The codes agree within 1.7 %
 per wavelength at 93° and 96°, where the MYSTIC standard error is below 1 %. At 99°, ratios span 0.966–1.068, consistent
 with the 2.0–2.5 % MYSTIC error, and the largest difference is 2.66 standard errors. Colour differences are
 |Δu′| ≤ 0.0013 and |Δv′| ≤ 0.0010, at most 1.7 standard errors. For 1.1.0, paired MYSTIC runs on the engine's input
@@ -320,6 +322,10 @@ table cover its changed default v2 states.
 
 1.3.3 and 1.3.4 also change documentation only and share the 1.3.2 code, with no tests or reference comparisons repeated
 beyond the CI run.
+
+1.9.1 changes documentation only. Its code is that of 1.9.0, so the 1.9.0 rows apply to it. For 1.9.1 we solved the
+engine side of the two MYSTIC figures and the `clear_34` command again with 1.9.0 (*Versions behind the comparisons* in
+`docs/VALIDATION.md`).
 
 Configurations verified for 1.9.0:
 
