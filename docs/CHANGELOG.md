@@ -12,7 +12,9 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   after the package layout to `docs/ARCHITECTURE.md`, and the full note on optics tables outside the package to
   `docs/PROVENANCE_V3.md`. The notes on changes to default output in 1.2.3, 1.5.0 and 1.6.0 moved to the top of this
   file. The moved text is unchanged apart from its links.
-- **Quick start.** It shows how to read the table with NumPy and states what the reduced grid holds.
+- **Quick start.** It shows how to read the table with NumPy, states what the reduced grid holds and where the
+  preparation commands download to, and gives the command for one full-resolution state on CUDA. The density
+  limitation names the keys and options of the three density choices.
 - The 1.6.1 and 1.6.0 rows of the verified configurations name the excluded test module `test_r17_port`.
 - Apart from the version number, the package code is that of 1.9.0.
 

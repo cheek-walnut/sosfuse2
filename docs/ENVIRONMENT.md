@@ -70,7 +70,7 @@ The default density configuration fetches two IPRT inputs on first use unless pr
 command. `SOSFUSE2_OFFLINE=1` refuses missing inputs with `E_IPRT_OFFLINE` (`THIRD_PARTY.md` §9). Set all three density
 options explicitly to `exp8`/`triangle`/`keep` to avoid the download.
 
-State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json`, holding 64 parameter sets over `aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo`, and `stratosphere_tau550`. It names as its parent `states_v1.json`, which holds the 40 first-generation states, so their ids also resolve from the default file. For a 200 km top with finer height and `χ` grids, Legendre degree 24, and a tighter tolerance, *Finer and taller grids together* in `docs/MODEL.md` lists the settings file, command, and stopping errors.
+State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json`, holding 64 parameter sets over `aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo`, and `stratosphere_tau550`. It names as its parent `states_v1.json`, which holds the 40 first-generation states, so their ids also resolve from the default file. All 64 states in `states_v2.json` mark the stratospheric layer `enabled` so it stays on when `--stratosphere` is omitted, whereas `states_v1.json` marks it `unsupported` so it stays off unless `--stratosphere on` is passed. For a 200 km top with finer height and `χ` grids, Legendre degree 24, and a tighter tolerance, *Finer and taller grids together* in `docs/MODEL.md` lists the settings file, command, and stopping errors.
 
 ## Variables a person sets
 
