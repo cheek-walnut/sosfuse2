@@ -5,8 +5,8 @@ convergence on a height and angle grid with Anderson mixing, the solver models p
 tropospheric aerosol layer, a stratospheric sulfate layer enabled in the bundled v2 states, absorption by ozone, NO₂
 and O₄, and a Lambertian ground. One solve covers every solar elevation of a table, by default +6° to −18°. The package
 ships a NumPy reference implementation, an optional CUDA kernel compiled at run time through CuPy and NVRTC, numeric
-checks against fixed references within tolerances, and a provenance record that signs the tables written by
-`run_state` and `tables_from_sources` with hashes of its
+checks against fixed references within tolerances, and a provenance record that labels each table written by
+`run_state` and `tables_from_sources` with a SHA-256 signature of its state, its settings and the hashes of its
 producing code and data.
 
 ## Start here
@@ -84,7 +84,7 @@ night-sky floor of V = 21.61 mag arcsec⁻² give 0.72 to 0.89 times the fit for
 `clear_92` over −5° to −12°, with neither bundled state fitted to the site. Down to −12°, shifting the floor by
 ±0.20 mag moves the ratio by less than 5 %. From −13° to −15°, the floor is 31 % to 77 % of the fit and its 0.20 mag
 uncertainty moves the ratio by 7 % to 17 %, so the floor assumption sets the result. In IPRT spherical test case E1 at
-solar zenith angles 93° and 96°, the default quadrature misses our error limits, which we attribute to the case's
+solar zenith angles 93° and 96°, the default quadrature of 1.2.3 misses our error limits, which we attribute to the case's
 layered profile. The numeric checks in `docs/CHECKS.md` show that changes keep tables within tolerance of fixed
 references across refactors and other hardware; they do not measure physical accuracy.
 
@@ -101,14 +101,14 @@ references across refactors and other hardware; they do not measure physical acc
   elevations, approximated by u′ extrema along one line of sight: `density_profile: exp8`, `ozone_profile: usstd76`,
   `rayleigh_column: usstd` with stratospheric τ550 0.006 gives 1.6 to 2.1 times the Maryland and Paranal measurements;
   `density_profile: usstd76`, `ozone_profile: usstd76`, `rayleigh_column: usstd` with τ550 0.0037 gives 0.65 to 1.04
-  times. Specify all three options in a state's `density` block when choosing a configuration, because partial blocks
-  or partial CLI choices stop with `E_DENSITY_PARTIAL`.
+  times. Specify all three options when choosing a configuration: the CLI choices are merged over the state's
+  `density` block, and a result that lacks any of the three stops with `E_DENSITY_PARTIAL`.
 - NO₂ uses a fixed AFGL profile shape, 220 K cross sections, and a default column of 0.207 DU (`parameters.no2_du`).
   Real columns vary by location, season and time of day, and the model omits photochemistry. In MYSTIC runs at ten
   twilight pixels, replacing the fixed 220 K (NO₂) and 233 K (ozone) cross sections with per-layer temperatures shifted
   colour by at most 1.8e-4 in u′v′ and Y by at most 0.04 % (95 % bounds).
-- O₄ uses fixed, temperature-independent 293/287 K cross sections over approximately 297–654 nm (within the engine's
-  360–840 nm grid) and the square of the active air density, and we have not tested what the missing temperature
+- O₄ uses fixed, temperature-independent 293/287 K cross sections over approximately 297–654 nm (within the 360–840 nm
+  fine spectral grid of the bundled assets) and the square of the active air density, and we have not tested what the missing temperature
   dependence of O₄ does. We exclude O₂ A- and B-band CIA—which reach vertical optical depths of about 2.2e-3 (A) and
   1.7e-4 (B) in the reference profile—monomer O₂ lines and water vapour.
 - Rayleigh scattering follows Bodhaine et al. (1999) with vacuum wavelength conversion and the existing 450 nm air
@@ -119,8 +119,8 @@ references across refactors and other hardware; they do not measure physical acc
   550 nm, background choices that do not track the observed stratospheric aerosol burden.
 - Tables store total radiance only: the solver tracks Rayleigh polarisation internally and treats aerosol scattering as
   depolarising, without writing Stokes parameters.
-- Numeric tolerances bound discretisation and iteration error against fixed references of the same model; they do not
-  measure physical error.
+- Numeric tolerances bound differences from fixed references of the same model, and the convergence sections of
+  `docs/VALIDATION.md` measure sensitivity to the grid and iteration settings; neither measures physical error.
 - We have not compared the colours with measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026).
 - A stored source does not record the content of an optics table outside the package (`stratosphere.optics_table` or
   `troposphere_phase.optics_table`), only its path. `outputs/radiance_table` and `jobs/tables_from_sources` therefore
@@ -144,10 +144,11 @@ pip install ".[test]"         # + pytest
 pip install ".[gpu,test]"     # + CuPy (CUDA 12) and the NVIDIA runtime/NVRTC/cuBLAS wheels
 ```
 
-The package requires Python ≥ 3.12, NumPy ≥ 2.0, Pillow, and two programs on `PATH`. Either `g++` or `clang++` builds
-the CPU spherical-harmonics helper `backends/native/sh_cpu.cpp` once into the work root, while kernel syntax tests call
-`clang++` specifically. `zstd` packs state outputs as `.tar.zst`. Missing a compiler or `zstd` stops the run with
-`E_COMPILER_MISSING` or `E_ZSTD_MISSING`, respectively.
+The package requires Python ≥ 3.12, NumPy ≥ 2.0, Pillow, and `zstd` on `PATH`, which packs state outputs as
+`.tar.zst`; without it a run stops with `E_ZSTD_MISSING`. A C++ compiler is needed only by checks: `g++` or `clang++`
+builds the CPU spherical-harmonics helper `backends/native/sh_cpu.cpp` once into the work root for the full CPU
+reference comparison of `checks/solver_diagnostics.py --validate-mac`, which stops with `E_COMPILER_MISSING` without
+one, and kernel syntax tests call `clang++` specifically.
 
 Downloaded inputs, the CPU helper build, and the geometry cache outside a solve go to `SOSFUSE2_WORK_ROOT` (default
 `$XDG_CACHE_HOME/sosfuse2`). A solve (`run_state` or `pipeline`) writes tables, intermediates, and packs under
@@ -222,8 +223,8 @@ command. `SOSFUSE2_OFFLINE=1` refuses missing inputs with `E_IPRT_OFFLINE` (`THI
 options explicitly to `exp8`/`triangle`/`keep` to avoid the download.
 
 State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json`, holding 64 parameter sets over
-`aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo`, and `stratosphere_tau550`, while
-`states_v1.json` holds the 40 first-generation states. All 64 states in `states_v2.json` mark the stratospheric layer
+`aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo`, and `stratosphere_tau550`. It names as its
+parent `states_v1.json`, which holds the 40 first-generation states, so their ids also resolve from the default file. All 64 states in `states_v2.json` mark the stratospheric layer
 `enabled` so it stays on when `--stratosphere` is omitted, whereas `states_v1.json` marks it `unsupported` so it stays
 off unless `--stratosphere on` is passed. The runner sets solar elevation separately via `solar_elevation_deg`, outside
 state definitions. Full-resolution tables require CUDA (`--backend cupy`), and `python -B -m sosfuse2.jobs.pipeline`
@@ -262,8 +263,10 @@ Production queues and reference checks use these settings:
 - Each pipeline invocation writes logs to its own `logs/<run>/` directory referenced from `pipeline_summary.json`,
   preserving both cold and warm traces. Benchmark stage timers go to `timings-<run>.json`, named in `benchmark.json`.
 - Each CUDA entry point caps the CuPy default memory pool via `backends/device_profile.pool_limit_bytes(free)` at the
-  smaller of free device memory minus 1 GiB or `SOSFUSE2_POOL_LIMIT_GIB` in GiB. Values truncating below one byte are
-  rejected, and cards with under 4 GiB free stop with `E_VRAM_FREE: need at least 4 GiB free`. This cap replaces the
+  smaller of the memory available to the pool minus 1 GiB or `SOSFUSE2_POOL_LIMIT_GIB` in GiB, where the available
+  memory is the driver's free memory plus all bytes the pool already holds. Values truncating below one byte are
+  rejected, and a card with under 4 GiB of driver-free and reusable pool memory stops with
+  `E_VRAM_FREE: need at least 4 GiB free`. This cap replaces the
   1.3.4 limit of min(20 GiB, free − 1 GiB), which rejected states needing over 20 GiB on every card with
   `E_PERSISTENT_VRAM_ADMISSION`. Because concurrent pipeline processes on one GPU each size their pool from startup free
   memory, set `SOSFUSE2_POOL_LIMIT_GIB` to partition the card. During admission, the persistent service requests field
@@ -281,8 +284,8 @@ the repeat check compares runs of one build with each other.
 | check | compares | tolerance |
 |---|---|---|
 | G-R | CUDA outputs vs the baseline of the matching toolchain and configuration, or the canonical baseline | none; differences recorded, not blocking |
-| G-P | CUDA kernel vs NumPy golden (fixed number of apply steps) | rtol 1e-3 |
-| CUDA | the fixture without a NumPy golden (nonzero albedo) vs its fixed CUDA baseline: radiance after the fixed apply steps and the solved table | rtol 1e-3 |
+| G-P | CUDA kernel vs NumPy golden (fixed number of apply steps) | radiance rtol 1e-3 (plus `--atol`, default 0); final source relative L2 at most 1e-3 per wavelength |
+| CUDA | the fixture without a NumPy golden (nonzero albedo) vs its fixed CUDA baseline: radiance after the fixed apply steps and the solved table | rtol 1e-3 (plus `--atol`, default 0) |
 | G-T | anchor radiances (`checks/gate_data/anchors.json`) | ratchet, recorded |
 | G-A | approximate fixture vs the exact fixture of the same run, which must pass its own check: radiance after the fixed apply steps and, when both were solved, the table | rtol 1e-3 (plus `--atol`, default 0); the approximate solve must converge in no more evaluations than the exact one |
 | G-H | reduced selftest vs its recorded values | per case |
@@ -452,7 +455,7 @@ src/sosfuse2/
   atmosphere/     a state and a wavelength to densities and optical coefficients
   rays/           spherical ray segments, incoming-direction quadrature, columns
   precompute/     reusable CPU arrays and their caches
-  backends/       one transport evaluation: numpy_reference.py, kernel.cu, native/sh_cpu.cpp, configs/
+  backends/       one transport evaluation: numpy_reference.py, kernel.cu, native/sh_cpu.cpp, mlx_*.py (experimental), configs/
   solve/          per-state solver objects and the source iteration (source_solver.py, source_iteration.py, engine.py, ksplit.py)
   outputs/        radiance tables, previews, packs
   jobs/           state runner, production queue, planner, cache store, walkthrough

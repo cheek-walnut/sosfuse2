@@ -32,7 +32,7 @@ A module may import only from its own layer and from the layers listed in the `M
 | `atmosphere` | turn a state and a wavelength into densities and optical coefficients | `components`, `density`, `upper_air`, `spectral`, `ozone_temperature`, `minor_absorbers`, `rayleigh`, `air_wavelength`, `tropo_profile`, `tropo_mie`, `stratosphere`, `extinction` | foundation |
 | `rays` | spherical ray segments, quadrature points for incoming directions and column amounts | `shell_segments`, `incoming_quadrature`, `incoming_rings`, `zenith_interpolation`, `ray_columns`, `column_table` | foundation, atmosphere |
 | `precompute` | reusable CPU-prepared arrays and their caches | `host_cache`, `column_cache`, `column_parallel`, `sun_parallel`, `ground_parallel`, `endpoint_contract` | foundation through rays |
-| `backends` | one transport evaluation (NumPy, CUDA, native), arithmetic, spherical-harmonic (SH) layout, compile rules | `numpy_reference`, `arithmetic`, `sh_layout`, `flags`, `flags_env`, `device_profile`, `compile_cache`, `vram_budget`, `vram_trace`, `kernel.cu`, `native/`, `configs/` | foundation through precompute |
+| `backends` | one transport evaluation (NumPy, CUDA, native, experimental MLX), arithmetic, spherical-harmonic (SH) layout, compile rules | `numpy_reference`, `arithmetic`, `sh_layout`, `flags`, `flags_env`, `device_profile`, `compile_cache`, `vram_budget`, `vram_trace`, `mlx_backend`, `mlx_ops`, `mlx_transport`, `mlx_warm`, `mlx_warm_kernels`, `kernel.cu`, `native/`, `configs/` | foundation through precompute |
 | `solve` | build the per-state solver objects and iterate the source field | `engine`, `engine_core`, `ray_geometry`, `ray_geometry_cpu`, `ray_geometry_parallel`, `source_solver`, `source_iteration`, `ksplit`, `ksplit_tolerance`, `ground_sh`, `strato_sh_aux` | foundation through backends |
 | `outputs` | turn the converged field into a table, previews and a pack | `radiance_table`, `quantized_table`, `pack_state`, `preview_functions` | foundation through solve |
 | `jobs` | run one state or many, with caches, queues and records | `run_state`, `pipeline`, `pipeline_execution`, `plan_queue`, `tables_from_sources`, `precompile`, `cache_store`, `walkthrough` | foundation through outputs |
@@ -72,7 +72,8 @@ state + settings
 In each iteration, `Solver.solve` calls `Solver.apply` for ground reflection and one scattering update; the first call
 runs `Solver.initialize` for first scattering. The transport inside those
 calls runs in `backends/numpy_reference.py::transport` on the NumPy path and in `backends/kernel.cu`, launched through
-`Kernel`, on the CUDA path. `jobs/run_state.py::run` wraps the three calls with the cache leases, the phase records, the
+`Kernel`, on the CUDA path. With `SOSFUSE2_MLX=1`, `TransientGeometry.evaluate` in `solve/ray_geometry.py` hands the
+calls the experimental MLX modules support to `backends/mlx_backend.py` and keeps the others on NumPy. `jobs/run_state.py::run` wraps the three calls with the cache leases, the phase records, the
 signature and the output files; `jobs/pipeline.py` runs many such states.
 
 ## 5. Topics that cross layers

@@ -28,11 +28,12 @@ sections test parts of the deep-twilight problem down to −18°: second-order s
 Rayleigh atmosphere against SASKTRAN2. Two further sections compare with measured twilight-sky brightness and
 purple-light timing. Before the open checks, two final numerical sections examine the SZA and height grids and measure
 band-approximation error against the engine's `point` tables. Every same-input MYSTIC comparison ran at single
-wavelengths and never in the default band mode. For Figure 1 and all sections from *Bundled states against MYSTIC
-(1.9.0)* onwards, we ran the engine with `SOSFUSE2_DETERMINISTIC=1`, which is off by default. In the earlier releases used here it
+wavelengths and never in the default band mode. For Figure 1 and the CUDA runs of all sections from *Bundled states
+against MYSTIC (1.9.0)* onwards, we ran the engine with `SOSFUSE2_DETERMINISTIC=1`, which is off by default. In the earlier releases used here it
 fixed only the accumulation order. From 1.9.0 it also turns off the CUDA angular direction table, the tabulated first-light ground
 phase and the GPU arithmetic for Anderson history staged in host memory. The engine tables of Figures 1 and 2 come
-from 1.9.0, those of the later sections from earlier releases (*Versions behind the comparisons*).
+from 1.9.0, and those of the later comparison sections from earlier releases (*Versions behind the comparisons*). The
+1.9.0 MLX section compares two implementations of one release; the MLX transport does not read the setting.
 
 ## Same-input comparison with MYSTIC (1.9.0)
 
@@ -370,7 +371,8 @@ interpolated NO₂ between the 220 K and 294 K data of Vandaele et al. (1998) an
 holding temperatures outside each table at its endpoint. Per-layer temperatures shift u′ by −2.3e-5 to −4.8e-5, v′ by
 −5.1e-5 to −8.0e-5 and Y by −0.004 % to −0.026 %. Their 95 % upper bounds are 1.8e-4 for |Δu′v′| (0.61 of the tolerance)
 and 0.040 % for |ΔY| (0.33 of the tolerance), keeping fixed temperatures within tolerance at these pixels. Because the
-NO₂ asset lacks 294 K data above 666.6 nm, NO₂ remained at 220 K there. An estimate of that omitted part, which is not a
+294 K source data end at 666.6 nm, NO₂ remained at 220 K above it; the bundled NO₂ asset holds only the 220 K cross
+sections. An estimate of that omitted part, which is not a
 bound, gives at most 0.028 % in Y.
 
 **Rayleigh depolarisation.** The phase function uses a constant depolarisation factor of 0.03, whereas Bodhaine et al.'s
@@ -476,8 +478,9 @@ them from 12 to 48 gives nearly the same shift against 12 nodes, with Y RMS at m
 In `clear_43`, the state with the largest change, moving from 24 to 48 nodes shifts no pixel by more than 0.009 % at
 solar elevations −3°, −6° and −12°.
 
-Table 8 lists the changes from raising each setting across the eight states of the previous section, using its `point`
-set-up with the three US Standard Atmosphere options. Each metric uses the unweighted mean over 30 wavelengths of the
+Table 8 lists the changes from raising each setting across the eight states of the previous section, from the 1.2.3
+engine tables made for the earlier record of that comparison, in its `point` set-up with the three US Standard
+Atmosphere options. Each metric uses the unweighted mean over 30 wavelengths of the
 relative radiance change at every pixel with positive radiance. Each entry is the maximum over the eight states, and
 different states supply different entries.
 
@@ -1014,8 +1017,8 @@ The tolerance for every comparison is the release rule, rtol 1e-3. The MLX trans
   at SZA 93° and 96°.
 - Wavelength dependence of Rayleigh depolarisation under multiple scattering. We have only the single-scattering
   estimate.
-- Temperature dependence of O₄ cross sections, which the model omits, and of NO₂ above 666.6 nm, where the asset has
-  only 220 K data. We measured neither.
+- Temperature dependence of O₄ cross sections, which the model omits, and of NO₂ above 666.6 nm, where the 294 K source
+  data of the sensitivity run end. We measured neither.
 - Atmospheric refraction. Neither code models refraction, and this MYSTIC build could not combine refraction with a
   reflecting surface, so we did not measure its effect.
 

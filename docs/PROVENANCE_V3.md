@@ -46,7 +46,7 @@ repository-relative source directory in the upstream checkout.
 | `<source>/kernel.cu` | `sosfuse2/backends/kernel.cu` | |
 | `<source>/assets/<data>` (when the block used it) | `sosfuse2/assets/<data>` for `DATA_ASSETS`, always | v3 hashed the fine spectral assets only when the spectral block used them |
 | `<source>/assets/usstd76_profile.json` | `sosfuse2/assets/usstd76_profile.json` — a logical key (`density.ASSET_KEY`) | the file is generated into the work root on first use (IPRT inputs, pinned sha256); hashed when the state's density configuration reads the asset, which includes the default `usstd76`/`usstd76`/`usstd` |
-| `<source>/assets/strato_*.json`, `tropo_*.json` (state dependent) | `sosfuse2/assets/...` (state dependent) | `stratosphere.path_label`, `tropo_mie.path_label` |
+| `<source>/assets/strato_*.json`, `tropo_*.json` (state dependent) | `sosfuse2/assets/...` (state dependent); a table outside the package is `external/stratosphere/<file name>` or `external/troposphere/<file name>` | `stratosphere.path_label`, `tropo_mie.path_label` |
 | `assets/spectra_fine.json` (spectral block `asset` label) | unchanged `assets/spectra_fine.json` | the label is part of the block signature; kept for block compatibility. The same file is also `sosfuse2/assets/spectra_fine.json` in the fixed list |
 | upstream geometry helper | removed | not an engine input |
 
@@ -78,7 +78,7 @@ relative between arm64 and x86_64. The expressions, physical constants, inputs a
 changed is the arithmetic implementation, the derived asset's values (≤ 4.7e-15 relative for air, ≤ 1.2e-15 for ozone) and
 its hash. These differences lie nine orders of magnitude below the 1e-6 tolerance that was used for
 prepared quantities when the asset was replaced. v3 tables record `ozone_profile.asset_sha256 = a7ccf7b1…` in their resolved spectral block and v4
-tables record `05dfeb6e…`; readers compare asset hashes within the same `contract` version only.
+tables record `05dfeb6e…`; the spectral-block checks treat both as the same asset (*Superseded asset digests*).
 
 ## Signature inputs (v4 and v5)
 

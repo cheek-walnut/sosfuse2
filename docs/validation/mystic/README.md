@@ -62,7 +62,8 @@ The full configuration contains 46,080 MYSTIC runs.
 The recorded total `uvspec` CPU time was 359,883 seconds; elapsed time depends on the available parallelism.
 A nonpositive output is retried with the reserved alternate seed, and the manifest records retry reasons.
 The comparison refuses an incomplete MYSTIC manifest unless `--allow-partial` is supplied.
-A partial comparison is marked `PARTIAL` and cannot produce the published-format CSV.
+A comparison over an incomplete manifest, or one that lacks a requested extra engine setting, is marked `PARTIAL`.
+The published-format CSV needs the complete MYSTIC manifest and the complete A0 comparison.
 
 For distributed execution, prepare identical inputs once, copy that prepared working directory into a separate
 directory per shard, and run one scheduler per working directory.
@@ -81,7 +82,8 @@ Use `$MERGED` as the working directory for baking, engine extraction, comparison
 Passing `--arms A0,A1,A2` enables the additional engine settings for baking, extraction and comparison;
 `--arms-file` names another file of engine settings in the format of `arms.json`. Extraction accepts only the bundled
 definitions of `path_n` and `L` (A0 12 and 16, A1 24 and 16, A2 12 and 24) and stops with `E_ARM_DEFINITION` on any
-other pair after the bake, so such a file may change other settings only.
+other pair after the bake. Preparation and extraction also require Anderson tolerance 0.001, the 80 km top and ground
+convolution order 24, so such a file may change only the remaining settings.
 
 ## Small run
 

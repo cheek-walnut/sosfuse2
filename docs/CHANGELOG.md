@@ -14,14 +14,21 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 - **Versions behind the comparisons** records what we solved again for 1.9.0, including the `clear_34` command of
   `docs/PERFORMANCE.md` against its 1.6.1 table, and *Reproducing the figures and the records* explains how the 1.9.0
   tables were read against the recorded MYSTIC input.
+- **Documentation checked against the 1.9.0 code.** The README, `docs/MODEL.md`, `docs/ENVIRONMENT.md`,
+  `docs/ARCHITECTURE.md`, `docs/CHECKS.md`, `docs/KNOWN_FAILURES.md`, `docs/PERFORMANCE.md`, `docs/VALIDATION.md`,
+  `docs/PROVENANCE_V3.md`, `docs/WALKTHROUGH.md`, `docs/validation/mystic/README.md`, `src/sosfuse2/assets/README.md`,
+  `THIRD_PARTY.md` and the 1.9.0 entry below now describe what the code does. Among the corrections: a C++ compiler is
+  needed only by the full CPU reference check, `--block-size` goes to the kernel without being exported, the
+  persistent-queue tests skip on a socket path that is too long, the MLX modules are listed in the backend layer, and
+  Table 8 names the 1.2.3 tables it comes from.
 - Apart from the version number, the package code is that of 1.9.0.
 
 ## 1.9.0
 
 Transport
 
-- Outside the KSPLIT transport, warm phase 0 and 1 at spherical-harmonic degree 16, 24 and 32 run in bounded, record-free
-  chunks. Each cell's warm
+- Outside the KSPLIT transport and without the `EXP_SECTION_CLOCKS` or `WARM_RAYSPLIT` kernel flags, warm phase 0 and 1
+  at spherical-harmonic degree 16, 24 and 32 run in bounded, record-free chunks. Each cell's warm
   source is evaluated once on a periodic angular grid (a cubic B-spline direction table) and the quadrature points read
   it by interpolation instead of contracting every coefficient. When the table does not fit in memory, or with
   `SOSFUSE2_DETERMINISTIC=1`, the transport contracts the coefficients directly or uses the fused kernel. The choice is

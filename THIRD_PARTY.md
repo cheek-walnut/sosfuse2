@@ -164,9 +164,10 @@ source file, its SHA-256 and the scaling applied.
 
 The source is LASP LISIRD, *TSIS-1 HSRS Version 2* (`hybrid_reference_spectrum_c2022-11-30_with_unc.nc`),
 https://lasp.colorado.edu/lisird/data/tsis1_hsrs . LASP publishes the HSRS files for open download and asks for citation;
-no licence text accompanies the file. The package distributes the 0.1 nm cell means rather than the original file. We averaged the
-spectrum onto a 0.1 nm grid, converted it to air wavelengths (Ciddor 1996) and scaled it to the TSIS-1 TIM total solar
-irradiance as described in the file.
+no licence text accompanies the file. The package distributes the 0.1 nm cell means rather than the original file. The
+generator read a LISIRD CSV extract of that file (355–845 nm), relabelled the spectrum to air wavelengths (Ciddor 1996),
+averaged it into 0.1 nm cells on the air axis and scaled it to the TSIS-1 TIM total solar irradiance, as `sources.solar`
+records.
 
 References: Coddington, O. M., et al. (2021). *The TSIS-1 Hybrid Solar Reference Spectrum.* Geophysical Research Letters,
 48, e2020GL091709. Coddington, O. M., et al. (2023). *Version 2 of the TSIS-1 Hybrid Solar Reference Spectrum and
@@ -223,8 +224,8 @@ from Bates (1984) and Schwerdtfeger & Nagle (2019), then divides by the effectiv
 
 ## 9. Not bundled: IPRT ozone profile shape
 
-The first time a state uses a density configuration other than `exp8`/`triangle`/`keep` (which includes the default
-`usstd76`/`usstd76`/`usstd`), `asset_tools/iprt.py` and `asset_tools/generate_density_profile.py` download two
+The first time a state without an external profile (`density.external_profile`) uses a density configuration other
+than `exp8`/`triangle`/`keep` (which includes the default `usstd76`/`usstd76`/`usstd`), `asset_tools/iprt.py` and `asset_tools/generate_density_profile.py` download two
 files, `tau_rayleigh_450nm_usstd.dat` and `tau_absorption_320nm_usstd.dat`, from the phase E page
 (`intercomparisons:phase_e`) of the IPRT (International Polarized Radiative Transfer) intercomparison pages hosted by
 libRadtran (https://www.libradtran.org/), verify their SHA-256 and derive the `usstd76` density asset in the user's work

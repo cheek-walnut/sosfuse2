@@ -245,9 +245,10 @@ For a custom `radiance_table --out sky.npz`, the companion files are `sky.npz.fi
 
 ### Multiple scattering
 
-Higher orders are carried by a source field defined on the (height, `χ`) grid. In each cell the source is stored as the
-four Rayleigh tensor components plus Legendre-expansion coefficients of the aerosol scattering source, with a second set
-for the stratosphere if it is enabled. One application of the transport operator computes, for each cell, the radiance
+Higher orders are carried by a source field defined on the (height, `χ`) grid. In each cell the source is stored as ten
+Rayleigh slots, four tensor components and six spherical-harmonic coefficients, followed by the expansion coefficients
+of the aerosol scattering source, with a second set for the stratosphere if it is enabled. One application of the
+transport operator computes, for each cell, the radiance
 arriving from every incident direction by integrating the source field along that direction, with attenuation by all
 constituents and with the light reflected from the ground where the ray ends on it. The source is interpolated linearly
 in height and `χ` and then rescaled by `(G/A)^W`, where `G` and `A` are the weighted geometric and arithmetic means of the
@@ -346,8 +347,9 @@ SOSFUSE2_ANDERSON_HISTORY=host SOSFUSE2_GROUND_SH_L=24 python -B -m sosfuse2.job
 ```
 
 The two environment variables are separate from the settings file, and `docs/ENVIRONMENT.md` describes both.
-`SOSFUSE2_ANDERSON_HISTORY=host` keeps the Anderson history in host memory and copies one wavelength's history to the
-device at a time, so the solve holds less device memory, although the memory admission estimate does not change.
+`SOSFUSE2_ANDERSON_HISTORY=host` keeps the Anderson history in host memory and, in an eligible CUDA solve, copies one
+wavelength's history to the device at a time, so the solve holds less device memory, although the memory admission
+estimate does not change.
 `SOSFUSE2_GROUND_SH_L=24` sets the order of the ground convolution, which is off by default and changes the result only
 for a state with nonzero albedo.
 
@@ -397,9 +399,10 @@ The solver runs at the centre wavelength of each band. The solar spectral irradi
 sections are band means taken from a 0.1 nm grid, whereas the Rayleigh and aerosol coefficients and the Mie tables are
 evaluated at the band centre without averaging over the band.
 
-The solar spectrum is the TSIS-1 Hybrid Solar Reference Spectrum version 2 (Coddington et al. 2021, 2023), averaged to
-0.1 nm cells, multiplied by 0.999061 to match the total solar irradiance measured by TSIS-1 (the factor is recorded in
-`spectra_fine.json`), and relabelled from vacuum to standard-air wavelengths with the equations of Ciddor (1996). The
+The solar spectrum is the TSIS-1 Hybrid Solar Reference Spectrum version 2 (Coddington et al. 2021, 2023), relabelled
+from vacuum to standard-air wavelengths with the equations of Ciddor (1996), averaged to 0.1 nm cells on the air axis,
+and multiplied by 0.999061 to match the total solar irradiance measured by TSIS-1 (the factor is recorded in
+`spectra_fine.json`). The
 ozone data carry the same relabelling. No correction for the distance between the Earth and the Sun is applied. The older
 legacy grid has 15 bands of equal width, with solar irradiance and ozone cross section interpolated from the
 48-wavelength table of `assets/spectra.json`.
@@ -414,10 +417,12 @@ $$
 
 `E_i` is the band-mean solar irradiance used by the solver, and `K` is 683 lm W⁻¹ for X, Y and Z and 1700 lm W⁻¹ for S′.
 The integral is evaluated exactly for the observer function and the solar spectrum taken as piecewise linear between
-their nodes. The colour-matching functions are the CIE 1931 data (CIE 2019a), and V′ is the CIE 1951 scotopic function
+their nodes. For the legacy 15-band tables, `table_weights` keeps the weights those tables were made with: trapezoidal
+integration over the band edges and the integer wavelengths between them, with `E_i` interpolated at the band
+centre. The colour-matching functions are the CIE 1931 data (CIE 2019a), and V′ is the CIE 1951 scotopic function
 (CIE 2019b). The preview images written with each table (`preview_m03.png`, `preview_m06.png`) use a separate 15-band RGB
 weight set, interpolated to the band centres and scaled by each band's width (`bin_edges_nm`) over the 31.33 nm width
-of the 15 reference bands.
+of the 15 reference bands. A table with one wavelength gives a monochrome preview.
 
 ## Processes not modelled
 

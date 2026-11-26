@@ -21,7 +21,7 @@ the installed package does not contain, so it skips outside a source checkout an
 
 The test session fetches the two IPRT inputs into the work root, `SOSFUSE2_WORK_ROOT` or else
 `$XDG_CACHE_HOME/sosfuse2`, when they are not there yet, and the density asset is regenerated with platform-independent
-arithmetic (`density.ASSET_SHA256`). The download is retried 3 times if the server is unreachable (`E_IPRT_DOWNLOAD`). With
+arithmetic (`density.ASSET_SHA256`). The download makes up to three attempts if the server is unreachable (`E_IPRT_DOWNLOAD`). With
 `SOSFUSE2_OFFLINE=1`, or when the download fails, the session runs without the IPRT inputs. The tests that depend on the
 `usstd76` density asset, about 190 cases including every test that solves a state with the default density configuration,
 then skip, reporting `E_IPRT_OFFLINE` and the command that fetches the files,
@@ -43,10 +43,11 @@ bundled states. To reproduce the earlier off state, pass an explicit state file 
 there is no `--stratosphere off` option.
 
 On macOS, the persistent queue (`pipeline --persistent`, `test_r17_port`, `test_pipeline_persistent`) listens on a Unix
-socket under the run's temporary root, and macOS limits that path to 104 bytes. Keep `TMPDIR` and `SOSFUSE2_TEST_SCRATCH`
-short; the default `/var/folders/...` is fine, whereas a 108-byte `TMPDIR` failed with `E_PERSISTENT_SERVICE_START` in a
-fresh virtual environment outside the source tree. The six `test_pipeline_persistent` cases wait
-`PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, for a 4-state NumPy reduced queue to finish.
+socket under the run's temporary root, and macOS limits that path, terminator included, to 104 bytes. Keep `TMPDIR` and
+`SOSFUSE2_TEST_SCRATCH` short; the default `/var/folders/...` is fine. With a longer path, `pipeline --persistent` stops
+with `E_PERSISTENT_SERVICE_START`, and the tests that open the socket measure the path first and skip with
+`E_SOCKET_PATH_TOO_LONG`. Five `test_pipeline_persistent` cases share one 4-state NumPy reduced queue and a sixth solves
+one state; each waits `PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, for its queue to finish.
 The public CI also sets `PERSISTENT_TEST_DEADLINE=2400`, and the CUDA G-PS check of tier 2 runs three of those cases with 900 s.
 The public CI splits this run into four shards for each platform and Python version and runs the test files of a shard
 side by side, one file per worker (`pytest-xdist` with `--dist loadfile`, one worker per CPU), because most files keep a
@@ -98,8 +99,8 @@ history is kept, the configuration, the deterministic mode and free memory, and 
 in FP64 on the host. The fixtures (`checks/gate_data/fixtures.json`) and baselines (`checks/gate_data/baselines/`) ship with the package. `--bless`
 moves no fixed reference; it records the SHA, difference, GPU toolchain and configuration key, and verdict. Only `--bless`, `--bless-numpy` and
 `--record-baselines` modify the package's own `checks/gate_data/baselines/`, and they need a writable checkout, stopping with
-`E_GATE_CONFIG` on a read-only install. Every other run writes its execution records, `manifest.json`, `BASELINE_LOG.md`
-and `anchors.json`, under `<out>/records/`. `gate.code_identity()` hashes the generated `usstd76` density asset and
+`E_GATE_CONFIG` on a read-only install. Every run writes its report to `<out>/gate.json`. Any other run that writes an execution record, as a passing G-F
+does with `manifest.json` and `BASELINE_LOG.md`, puts it under `<out>/records/` instead of the package. `gate.code_identity()` hashes the generated `usstd76` density asset and
 therefore needs the IPRT inputs, so the first run on a host downloads them over the network against the pinned sha256
 unless they are already in the work root.
 

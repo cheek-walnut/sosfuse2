@@ -74,7 +74,7 @@ The driver (`jobs/walkthrough.py: run_example`) repeats the glue of `jobs/run_st
 | # | call | what came out |
 |---|---|---|
 | 1 | `jobs/run_state.py: create_configured`, then the cell fill | NumPy backend; 1 wavelength (550 nm); heights 0, 0.1, 8, 80 km; 10 solar zenith nodes (0, 60, 85, 90, 93, 96, 105, 110, 140, 180 deg); 40 cells; quadrature nmu 1, nphi 2, path_n 4; SH order L 16 (153 scalar coefficients); 982 rays in the cells |
-| 2 | `solve/source_iteration.py: Solver.solve` | source field shape (40, 163, 1) (cell, source slot, wavelength); 12 evaluations; tolerance 0.001; converged yes; last observer change 3.96e-04, last source change 2.27e-04 |
+| 2 | `solve/source_iteration.py: Solver.solve` | source field shape (40, 163, 1) (cell, source slot, wavelength); 12 evaluations; tolerance 0.001; converged yes; last observer change 3.96e-04, last source change 2.28e-04 |
 | 3 | `outputs/radiance_table.py: make_table` | table shape (2, 4, 6, 1) (solar elevation, view elevation, relative azimuth, wavelength); all values finite; minimum 1.284e-05, maximum 0.003163 W m^-2 sr^-1 nm^-1 |
 
 Radiance in the azimuth column nearest the sun (relative azimuth 15 deg), W m^-2 sr^-1 nm^-1. The evaluation count and these values are information only; the tests compare the table with `jobs/run_state.py` at rtol 1e-3.

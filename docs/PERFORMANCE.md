@@ -30,9 +30,10 @@ scattering (about 126 s) and the Anderson step now take most of the remaining so
 
 ## MLX transport on Apple silicon (1.9.0, experimental)
 
-Measured on one otherwise idle Apple silicon Mac with 16 GB of unified memory, in the covered configuration only:
-`run_state --backend numpy --reduced --threads 2` on the check fixture state FX-N with the stratospheric layer
-disabled (AOD 0.02, black surface, 45 wavelengths in three chunks, 21 Anderson evaluations), two runs of each.
+Measured on one otherwise idle Apple silicon Mac with 16 GB of unified memory, in the covered configuration only: a
+reduced NumPy `run_state` solve with two threads of the check fixture state FX-N, with its state and reduced-solve
+settings from `checks/gate_data/fixtures.json` and the stratospheric layer disabled (AOD 0.02, black surface, 45
+wavelengths in three chunks, 21 Anderson evaluations), run twice with `SOSFUSE2_MLX=1` and twice without.
 
 | what | MLX | NumPy |
 |---|---|---|
@@ -93,15 +94,19 @@ wavelength chunk, so each row is a single sample, and its grid is that launch's 
 
 One state solve is a fixed-point iteration over a source field on a (height, χ) grid of 3,300 cells, with 45
 wavelengths handled in groups of 15 (`FW=15`). Such a group is a chunk, called a bundle in some of the records,
-and the three chunks each converge separately in 7–8 transport evaluations.
+and the three chunks converge separately; in the `clear_34` run of *Reproducing* with 1.9.0 they took 8, 6 and 6
+evaluations.
 A transport evaluation integrates the source along 12 Gauss–Legendre directions per polar interval for every cell, so it
 walks about 2.4×10⁸ ray samples per chunk. With the pre-1.1.0 research kernel, one evaluation
 on the production grid took 1.6–1.7 s in the reported probe. Full-grid solves took 53–57 s of kernel time in those
 measurements.
 
-The CUDA implementation has one fused kernel, `sos_fused` in `src/sosfuse2/backends/kernel.cu`, specialised into variants at
-NVRTC compile time, and four helpers. When the effective mode is `KSPLIT=3`, the solve uses
-the following kernels during an evaluation.
+The CUDA implementation centres on one fused kernel, `sos_fused` in `src/sosfuse2/backends/kernel.cu`, specialised into
+variants at NVRTC compile time, with helper kernels around it. When the effective mode is `KSPLIT=3`, the solve uses
+the following kernels during an evaluation. Outside the KSPLIT transport, eligible warm passes use the fast transport
+kernels instead: `sos_fast_slim` and `sos_slim_proj` with `sos_vprod_y`, `vp_c0cp_chunk` and `sos_vprod_direct`, or
+with `fl_project` and the angular direction table built by `sh_direction_table` (*Release 1.9.0 on GPU A*). First
+light can read a ground table built by `hg_direction_table`.
 
 | kernel | job | threads |
 |---|---|---|
@@ -314,9 +319,12 @@ Prepare O₄ in the same asset cache following the [quick start](../README.md#qu
 python -B -m sosfuse2.jobs.run_state --id clear_34 --backend cupy --work-root ./work
 ```
 
-The state id is bundled in `assets/states_v2.json`; other ids from that file work the same way.
+The state id is bundled in `assets/states_v2.json`; other ids from that file work the same way. The device profile is
+chosen from the GPU name; to use the launch settings of the measurements above on another card, add
+`--device-profile split`.
 `meta.json` under `work/out/<id>/` records `elapsed_seconds`, `source_seconds`, `query_seconds` and, under
-`kernel.launch.by_kind`, the launch count and GPU seconds of every kernel variant, measured with CUDA events. The
+`kernel.launch.by_kind`, the launch count and GPU seconds, measured with CUDA events, of each kind of launch that is
+timed. Launches are timed when the device profile sets a launch time limit, as both CUDA profiles do by default. The
 tolerance checks of `docs/CHECKS.md` tier 2 run the same kernels on the reduced fixtures. For profiling, run the same
 command under `nsys` for the timeline and under `ncu --target-processes all` with one metric group per run.
 Use `ksplit_effective` in `meta.json` to identify the path used in a run. With `KSPLIT=3`, look for `sos_fused`
