@@ -1,6 +1,6 @@
 # Tested configurations
 
-This file records where and how we verified each release, newest first. In the tables below, `gate --all`,
+This file records where and how we verified releases, newest first. In the tables below, `gate --all`,
 `gate --stage` and `gate --gf` stand for the commands of *Tests and checks* in the README (tiers 2 and 3 of
 `docs/CHECKS.md`), and H and PS for G-H and G-PS. Persistent-queue tests and CI default to a `PERSISTENT_TEST_DEADLINE` of 2400 s.
 
@@ -12,11 +12,11 @@ to it. For 1.9.1 we solved the
 engine side of the two MYSTIC figures and the `clear_34` command again with 1.9.0 (*Versions behind the comparisons* in
 `docs/VALIDATION.md`).
 
+1.3.3 and 1.3.4 change documentation only and share the 1.3.2 code, with no tests or reference comparisons repeated
+beyond the CI run.
+
 1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply unchanged. The installed-sdist checks in the 1.2.3
 table cover its changed default v2 states.
-
-1.3.3 and 1.3.4 also change documentation only and share the 1.3.2 code, with no tests or reference comparisons repeated
-beyond the CI run.
 
 Configurations verified for 1.9.0:
 
@@ -66,7 +66,7 @@ Configurations verified for 1.5.0:
 | platform | Python | backend | what was run |
 |---|---|---|---|
 | Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment, device profile `split` selected with its 1.3.x name: `gate --all` exit 0, 78 nodes passed; G-F against the fixed reference from a different GPU: max relative difference 2.7e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0 |
-| macOS arm64 | 3.14 | NumPy | release tree in place (`PYTHONPATH=src`), offline, with the IPRT inputs and the prepared O₄ asset in the work root: 939 passed, 68 skipped, 3 xfailed, 0 failed; without the IPRT inputs: 751 passed, 256 skipped (188 of them `E_IPRT_OFFLINE`), 3 xfailed, 0 failed; the README quick start as written in a fresh virtual environment with an empty work root (O₄ and density preparation, reduced solve 57 s) |
+| macOS arm64 | 3.14 | NumPy | release tree in place (`PYTHONPATH=src`), offline, with the IPRT inputs and the prepared O₄ asset in the work root: 939 passed, 68 skipped, 3 xfailed, 0 failed; without the IPRT inputs: 751 passed, 256 skipped (188 of them `E_IPRT_OFFLINE`), 3 xfailed, 0 failed; the quick start of that release's README as written in a fresh virtual environment with an empty work root (O₄ and density preparation, reduced solve 57 s) |
 
 Configurations verified for 1.4.0:
 
@@ -119,7 +119,7 @@ Configurations verified for 1.1.1, a documentation-only release:
 | platform | Python | backend | what was run |
 |---|---|---|---|
 | Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | installed sdist: the full-grid G-F reference state baked through the production queue, table equal to the 1.1.0 fixed G-F table (max relative difference 0.0), same O₄ asset |
-| macOS arm64 | 3.14 | NumPy | installed sdist (a fresh virtual environment outside the source tree): 524 passed, 65 skipped, 5 xfailed, 0 failed; the README quick start as written (O₄ download 3 s, reduced solve 36 s) |
+| macOS arm64 | 3.14 | NumPy | installed sdist (a fresh virtual environment outside the source tree): 524 passed, 65 skipped, 5 xfailed, 0 failed; the quick start of that release's README as written (O₄ download 3 s, reduced solve 36 s) |
 
 Configurations verified for 1.1.0:
 

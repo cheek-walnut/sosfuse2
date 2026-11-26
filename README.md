@@ -50,8 +50,8 @@ pip install ".[gpu,test]"     # + CuPy (CUDA 12) and the NVIDIA runtime/NVRTC/cu
 
 Install the package, prepare the O₄ and density data once, and solve one reduced-resolution state on the NumPy backend.
 The solve takes about a minute on a laptop, and 57 s with two threads in the measured run. The two preparation commands
-download their inputs once into `SOSFUSE2_WORK_ROOT` (by default `$XDG_CACHE_HOME/sosfuse2` or `~/.cache/sosfuse2`), not
-into `./work`.
+write the prepared data into `SOSFUSE2_WORK_ROOT` (by default `$XDG_CACHE_HOME/sosfuse2` or `~/.cache/sosfuse2`), not
+into `./work`, so each is needed once per work root.
 
 ```sh
 pip install ".[test]"
@@ -63,14 +63,14 @@ python -m sosfuse2 run_state --backend numpy
 No argument of `run_state` is required. The last line is the short form of `python -B -m sosfuse2.jobs.run_state --id
 clear_34 --reduced --backend numpy --work-root ./work`: the state is `clear_34`, the work root is `./work`, and the
 NumPy backend always solves the reduced grid. The measured run added `--threads 2`, which sets the size of each
-preparation pool whose variable is unset or blank. O₄ data are neither bundled (`THIRD_PARTY.md`) nor downloaded by a solve, so a
-missing or stale cache stops the run with `E_O4_ASSET_MISSING` or `E_O4_ASSET_STALE`.
+preparation pool whose variable is unset or blank. O₄ data are neither bundled (`THIRD_PARTY.md`) nor downloaded by a
+solve, so a missing or stale cache stops the run with `E_O4_ASSET_MISSING` or `E_O4_ASSET_STALE`.
 
 The output table `table.npz` and its `meta.json` land in `./work/out/clear_34/`. `meta.json` records `contract: "v5"`,
 the state, backend, tolerance settings, `code_hashes` for a fixed list of production modules, solver sources, and data
-assets, and a `signature` over them. `docs/PROVENANCE_V3.md` defines this record. The reduced grid is a software check:
-its table holds 550 nm only, at solar elevations −3° and −6°, on 4 × 6 directions. The table is a NumPy archive (*The
-radiance table* in `docs/MODEL.md`):
+assets, and a `signature` over them. `docs/PROVENANCE_V3.md` defines this record. This reduced-grid table holds one
+wavelength (550 nm), solar elevations −3° and −6°, and 4 × 6 view directions; the reduced grid is a software check. The
+table is a NumPy archive (*The radiance table* in `docs/MODEL.md`):
 
 ```python
 import numpy as np
@@ -80,9 +80,10 @@ radiance = t['radiance']  # W m^-2 sr^-1 nm^-1; axes: solar elevation, view elev
 print(t['solar_elevation_deg'], t['view_elevation_deg'], t['relative_azimuth_deg'], t['wavelength_nm'])
 ```
 
-Full-resolution tables require CUDA: `python -m sosfuse2 run_state --backend cupy` solves `clear_34` on the full grid,
-and `python -B -m sosfuse2.jobs.pipeline` with `--ids` or `--plan` runs the production queue with overlapping
-preparation.
+Full-resolution tables require CUDA: `python -m sosfuse2 run_state --backend cupy --work-root ./work-cuda` solves
+`clear_34` on the full grid (in its own work root, because a folder that holds the reduced table stops a full-grid run
+with `E_OUTPUT_IDENTITY`), and `python -B -m sosfuse2.jobs.pipeline` with `--ids` or `--plan` runs the production queue
+with overlapping preparation.
 
 `docs/ENVIRONMENT.md` describes where files go, offline use and the bundled states (*Work root, prepared data and state
 files*), how `--backend auto` chooses, and the settings of production queues, device memory and host limits (*Production
@@ -205,7 +206,7 @@ only radiance tables. See `docs/REFERENCES.md` for full references.
 We publish this research code in the form we use it, releasing versions 1.0.0 to 1.2.3 together and versions from 1.3.0
 on one by one. `docs/CHANGELOG.md` lists releases since 1.2.0, gives the old-to-new module table for upgrades from 1.3.x
 after 1.4.0 moved modules into layer folders, and explains how to reproduce earlier output. `docs/TESTED.md` records
-where and how we verified each release.
+where and how we verified releases.
 
 We maintain sosfuse2 as part of ongoing research and read issues and pull requests, without a support commitment or
 release schedule. Physics changes such as an added absorber alter provenance hashes, so tables from different versions

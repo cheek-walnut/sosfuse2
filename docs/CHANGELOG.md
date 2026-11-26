@@ -1,7 +1,7 @@
 # Changelog
 
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
-not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`. From 1.6.0, full-grid runs can extend above the default 80 km boundary. The main change to default output came in 1.5.0: a state without a `density` block now uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (README, *Limitations*). In 1.2.3 the bundled `states_v2.json` states began including the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option.
+not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`. From 1.6.0, full-grid runs can extend above the default 80 km boundary. The main change to default output came in 1.5.0: a state without a `density` block, run without density options, now uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (README, *Limitations*). In 1.2.3 the bundled `states_v2.json` states began including the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option.
 
 ## 1.9.2
 
@@ -10,8 +10,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   tolerances of the numeric checks to `docs/CHECKS.md`, the work root, the prepared data, the production queue
   settings, the kernel compilation cache and the experimental MLX transport to `docs/ENVIRONMENT.md`, the module notes
   after the package layout to `docs/ARCHITECTURE.md`, and the full note on optics tables outside the package to
-  `docs/PROVENANCE_V3.md`. The notes on changes to default output in 1.2.3, 1.5.0 and 1.6.0 moved to the top of this
-  file. The moved text is unchanged apart from its links.
+  `docs/PROVENANCE_V3.md`. The upgrade notes on 1.2.3, 1.5.0 and 1.6.0 moved to the top of this file. Moved paragraphs keep their wording apart from links, cross-references and the changes listed below.
 - **Quick start.** It shows how to read the table with NumPy, states what the reduced grid holds and where the
   preparation commands download to, and gives the command for one full-resolution state on CUDA. The density
   limitation names the keys and options of the three density choices.

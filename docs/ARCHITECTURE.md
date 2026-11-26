@@ -76,12 +76,9 @@ calls runs in `backends/numpy_reference.py::transport` on the NumPy path and in 
 calls the experimental MLX modules support to `backends/mlx_backend.py` and keeps the others on NumPy. `jobs/run_state.py::run` wraps the three calls with the cache leases, the phase records, the
 signature and the output files; `jobs/pipeline.py` runs many such states.
 
-Each folder names its modules' main duty, though a few mix two.
-
 CPU solver functions live in importable modules: `rays/shell_segments.py`, `rays/incoming_quadrature.py`,
 `rays/incoming_rings.py`, `rays/zenith_interpolation.py`, `atmosphere/extinction.py`, `solve/engine_core.py`, and
-`outputs/preview_functions.py`. `outputs/pack_state.py` still loads `outputs/preview_functions.py` through its own
-loader. `solve/engine.py` builds a per-state `EngineContext` binding only the inputs each function reads, and `create()`
+`outputs/preview_functions.py`. `solve/engine.py` builds a per-state `EngineContext` binding only the inputs each function reads, and `create()`
 returns `(solver, context, settings)`. Use context attributes such as `context.b` and `context.Solver`. Read-only
 indexing by the former scope-dict keys is deprecated and retained for one release. Separating optical coefficients from
 column and geometry producers keeps coefficient edits from invalidating geometry caches.

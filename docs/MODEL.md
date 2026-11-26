@@ -428,8 +428,7 @@ of the 15 reference bands. A preview of a table with one wavelength is monochrom
 ## Processes not modelled
 
 - Absorbers other than ozone, NO₂ and O₄. There is no water vapour, no absorption by the O₂ molecule and no O₂–O₂
-  absorption in the A and B bands, which reach vertical optical depths of about 2.2e-3 (A) and 1.7e-4 (B)
-  in the reference profile.
+  absorption in the A and B bands; that absorption reaches vertical optical depths of about 2.2e-3 (A) and 1.7e-4 (B) in the reference profile.
 - Temperature dependence of the NO₂ and O₄ cross sections, NO₂ photochemistry and its change through twilight. The
   shape of the NO₂ profile is fixed, and only its column is a parameter.
 - Stokes output. Polarisation is carried internally but not written.

@@ -3,7 +3,7 @@
 **No environment variable is needed to run the package, and `jobs/run_state.py` needs no argument.** Without arguments
 it solves the state `clear_34` under `./work`; `--backend auto`, the default, is `cupy` when `nvidia-smi` names a
 visible device, and `numpy` on a Mac, with a blank `CUDA_VISIBLE_DEVICES`, or on a machine with neither `nvidia-smi` nor
-CuPy; `numpy` solves the reduced grid. The run prints the choice. Three cases stop with `E_BACKEND_AUTO` instead of choosing: `nvidia-smi` without
+CuPy; `numpy` solves the reduced grid. The run prints the choice on standard error. Three cases stop with `E_BACKEND_AUTO` instead of choosing: `nvidia-smi` without
 an answering device, CuPy installed without `nvidia-smi` on `PATH`, and a device named by `nvidia-smi` without CuPy
 installed (the package without its `gpu` extra). A typed `--backend` is not replaced by this choice; `--geometry-only`
 prepares the geometry on NumPy whichever backend is named, and on macOS it also needs `--reduced`.
@@ -61,13 +61,12 @@ Downloaded inputs, the CPU helper build, and the geometry cache outside a solve 
 `--work-root` in `out/<id>`, `tmp/<id>`, and `pack/`, and stores its geometry cache in `geometry_cache/` unless
 `--geometry-cache` sets another folder. The package directory is read-only data.
 
-The O₄ step downloads the HITRAN O₂–O₂ collision-induced absorption file into `SOSFUSE2_WORK_ROOT`, verifies the source
+The O₄ step (`python -m sosfuse2.asset_tools.prepare_minor_absorbers --download`) downloads the HITRAN O₂–O₂ collision-induced absorption file into `SOSFUSE2_WORK_ROOT`, verifies the source
 SHA-256, and prints the generated table's SHA-256. Pass `--cia O2-O2_2024.cia` to build from a local copy, or set
 `SOSFUSE2_OFFLINE=1` to refuse the download. O₄ data are neither bundled (`THIRD_PARTY.md`) nor downloaded by a solve,
 so a missing or stale cache stops the run with `E_O4_ASSET_MISSING` or `E_O4_ASSET_STALE`.
 
-The default density configuration fetches two IPRT inputs on first use unless pre-fetched by the density preparation
-command. `SOSFUSE2_OFFLINE=1` refuses missing inputs with `E_IPRT_OFFLINE` (`THIRD_PARTY.md` §9). Set all three density
+The default density configuration fetches two IPRT inputs on first use unless pre-fetched by the density preparation command, `python -m sosfuse2 generate_density_profile`. `SOSFUSE2_OFFLINE=1` refuses missing inputs with `E_IPRT_OFFLINE` (`THIRD_PARTY.md` §9). Set all three density
 options explicitly to `exp8`/`triangle`/`keep` to avoid the download.
 
 State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json`, holding 64 parameter sets over `aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo`, and `stratosphere_tau550`. It names as its parent `states_v1.json`, which holds the 40 first-generation states, so their ids also resolve from the default file. All 64 states in `states_v2.json` mark the stratospheric layer `enabled` so it stays on when `--stratosphere` is omitted, whereas `states_v1.json` marks it `unsupported` so it stays off unless `--stratosphere on` is passed. For a 200 km top with finer height and `χ` grids, Legendre degree 24, and a tighter tolerance, *Finer and taller grids together* in `docs/MODEL.md` lists the settings file, command, and stopping errors.
@@ -299,6 +298,11 @@ keyed folder under `SOSFUSE2_COMPILE_CACHE` or the caller's root; the runner's d
 `<work-root>/tmp/<state name>/cuda_driver_cache`. An explicit `--threads N` of `jobs/run_state.py` also sets each of the
 four preparation-pool variables that is unset or blank after trimming to N for that run; nonblank values take
 precedence, and the previous values are restored when the run ends.
+
+During a solve, `--geometry-only`, or `--extra-elevations`, `--threads N` sets any unset or blank preparation-pool
+variable (`SOSFUSE2_COLUMN_WORKERS`, `SOSFUSE2_SUN_WORKERS`, `SOSFUSE2_GROUND_WORKERS`, `SOSFUSE2_GEOMETRY_WORKERS`) to
+N while leaving nonblank values untouched. Without `--threads`, those variables stay unchanged and unset or blank values
+use all usable CPUs.
 
 ## Variables of the tests only
 

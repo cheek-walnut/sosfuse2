@@ -20,7 +20,7 @@ the repeat check compares runs of one build with each other.
 | G-H | reduced selftest vs its recorded values | per case |
 | G-PS | three persistent-service tests on the CUDA backend (parity, no state mixing, interleaving) | pass or fail |
 | repeat (`--stage`) | same build, fresh runs in separate folders (two by default); also runs G-H and G-PS | rtol 1e-5, max difference recorded |
-| G-F | full-grid fixed table, solved cold and then warm (needs the research checkout) | rtol 1e-3 |
+| G-F | full-grid fixed table, solved cold and then warm (needs the research checkout) | cold table vs the fixed table rtol 1e-3; cold vs warm radiance and source rtol 1e-5 (atol 0 for both) |
 
 Accumulation order, lane mapping, record layout and the transport path may change between versions and are judged
 against these fixed references and tolerances. Set `SOSFUSE2_DETERMINISTIC=1` when studies require bit-stable repeats of a run on the same CUDA GPU:
@@ -92,8 +92,7 @@ it passes; the shards run every test, with or without the marker.
 
 A C++ compiler is needed only by checks and tests: `g++` or `clang++`
 builds the CPU spherical-harmonics helper `backends/native/sh_cpu.cpp` once into the work root for the full CPU
-reference comparison of `checks/solver_diagnostics.py --validate-mac`, which stops with `E_COMPILER_MISSING` without
-one, and kernel syntax tests call `clang++` or `clang`.
+reference comparison of `checks/solver_diagnostics.py --validate-mac`, which stops with `E_COMPILER_MISSING` without one.
 
 The kernel syntax and preprocess tests need a C++ compiler, `clang++` or `clang` on `PATH`: `test_ground_fused`,
 `test_sh_l`, `test_kernel_config`, `test_section_clocks_adversarial`, `test_profile_step`, the frozen kernel variant check in
