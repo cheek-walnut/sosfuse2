@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw Figure 3 of docs/VALIDATION.md, paranal_twilight.png, from paranal_twilight.csv next to this file.
+"""Draw Figure 6 of docs/VALIDATION.md, paranal_twilight.png, from paranal_twilight.csv next to this file.
 
     uv run --no-project --with matplotlib --with numpy python docs/validation/plot_paranal_twilight.py
 

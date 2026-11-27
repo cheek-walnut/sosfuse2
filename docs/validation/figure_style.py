@@ -1,4 +1,5 @@
-"""Shared figure style of Figures 2 and 3 of docs/VALIDATION.md (plot_mystic_states.py, plot_paranal_twilight.py).
+"""Shared figure style of the figures of docs/VALIDATION.md and docs/MODEL.md drawn by plot_mystic_states.py,
+plot_paranal_twilight.py and plot_deep_twilight.py.
 
   - widths: one column 3.4 in, two columns 7.0 in; text at final size 7-9 pt
   - colours: Okabe-Ito (distinguishable under the common colour-vision deficiencies), assigned to entities in a fixed order

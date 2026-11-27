@@ -17,15 +17,17 @@ and `tables_from_sources` with a SHA-256 signature of its inputs and the hashes 
 5. `python -m sosfuse2 walkthrough` runs a small example through the three calls of steps 2–4. `docs/ARCHITECTURE.md`
    explains the layers, and `AGENTS.md` lists which files to open first for each task.
 
-![Engine and MYSTIC radiance and ratios for eight bundled states at solar zenith angles 93 and 96
-degrees](docs/validation/mystic_states.png)
+![Engine and MYSTIC radiance spectra and their ratio at solar zenith angles 93, 96, 99 and 102
+degrees](docs/validation/mystic_vs_engine.png)
 
-Engine radiance from 1.9.0 using `usstd76`/`usstd76`/`usstd` (the 1.5.0 default density configuration) and MYSTIC Monte
-Carlo radiance on the same optical input for eight bundled states at solar zenith angles 93° and 96° (solar elevations
-−3° and −6°): (a) L/E₀ of `clear_87` at the sun-side pixel 20.25° / 0.5°, (b) the MYSTIC / engine ratio for the eight
-states and their mean, and (c) the luminance ratio at six pixels with 95 % intervals over 16 seeds. Across all 96 cases,
-the ratio minus 1 has mean +0.10 % and root mean square 0.63 %. `docs/VALIDATION.md` gives details, and scripts in
-`docs/validation/mystic` repeat the comparison.
+Engine radiance from 1.9.0 and MYSTIC Monte Carlo radiance on the same optical input for one state at the sun-side
+pixel at 20.25° elevation and 0.5° relative azimuth, at solar zenith angles 93°, 96°, 99° and 102° (solar elevations −3° to −12°): radiance over solar irradiance, L/E₀, at 30
+wavelengths (top) and the MYSTIC / engine ratio with MYSTIC standard errors (bottom). The ratios span 0.966–1.068 up
+to SZA 99° and 0.884–1.098 at 102°, where each wavelength still carries a 4–6 % MYSTIC standard error; their inverse-variance mean
+at 102° is 1.0085 ± 0.0088. Beyond 102°, single MYSTIC runs return little or no signal, and `docs/VALIDATION.md` turns to
+a direct quadrature of second-order scattering and to SASKTRAN2. The eight-state comparison at 93° and 96° (mean ratio
+minus 1 of +0.10 %, root mean square 0.63 % over 96 cases) is Figure 3 of `docs/VALIDATION.md`, and scripts in
+`docs/validation/mystic` repeat it.
 
 ## Install
 

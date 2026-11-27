@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw Figure 2 of docs/VALIDATION.md, mystic_states.png, from mystic_states.csv next to this file.
+"""Draw Figure 3 of docs/VALIDATION.md, mystic_states.png, from mystic_states.csv next to this file.
 
     uv run --no-project --with matplotlib --with numpy python docs/validation/plot_mystic_states.py
 

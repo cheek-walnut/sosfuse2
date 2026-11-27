@@ -4,7 +4,7 @@
 # Columns
 #   run                     density_profile_only = density_profile usstd76, ozone_profile triangle, rayleigh_column keep
 #                           (the fourth column of Table 13); all_three_options = density_profile usstd76, ozone_profile
-#                           usstd76, rayleigh_column usstd (Figure 3)
+#                           usstd76, rayleigh_column usstd (Figure 6)
 #   state                   bundled state id (clear_89: aod550 0.020, albedo 0.61; clear_92: aod550 0.100, albedo 0.09)
 #   solar_elevation_deg     solar elevation at the observer, deg
 #   measured_cd_m2          Patat V fit S_V = 11.84 + 1.518 (z - 95) - 0.057 (z - 95)^2 mag arcsec^-2 (z = 90 - elevation),
@@ -16,7 +16,7 @@
 # The fit's RMS deviation from its data is 0.18 mag. The floor is the dark-time average sky brightness of Patat (2003),
 # corrected to the zenith, whose RMS deviation is 0.20 mag.
 #
-# Data of Figure 3 of docs/VALIDATION.md (paranal_twilight.png, plot_paranal_twilight.py). It is a record of research
+# Data of Figure 6 of docs/VALIDATION.md (paranal_twilight.png, plot_paranal_twilight.py). It is a record of research
 # runs and cannot be regenerated from this repository; do not edit by hand.
 # Provenance (sha256) of the research comparison records the rows were taken from
 #   density_profile_only  51e0ed52dae74989cc21844c1491b9ed8b7bf1ed00eb26c00c5c4c71fe2dbdd9

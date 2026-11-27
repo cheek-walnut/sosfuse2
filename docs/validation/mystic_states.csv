@@ -1,5 +1,5 @@
 # Engine and MYSTIC on the same optical input: eight bundled states, six sky pixels, solar zenith angles 93 and 96 degrees.
-# Data of Figure 2 of docs/VALIDATION.md (mystic_states.png, plot_mystic_states.py). It is the record of the runs described
+# Data of Figure 3 of docs/VALIDATION.md (mystic_states.png, plot_mystic_states.py). It is the record of the runs described
 # under Origin. The scripts in docs/validation/mystic rebuild it from the run records and can repeat the runs. Do not edit by hand.
 #
 # Rows (quantity)

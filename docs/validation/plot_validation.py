@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Draw the figures of docs/VALIDATION.md from docs/validation/mystic_compare.csv.
+"""Draw Figure 1 of docs/VALIDATION.md from docs/validation/mystic_compare.csv and mystic_compare_102.csv.
 
     uv run --no-project --with matplotlib --with numpy python docs/validation/plot_validation.py
 
-Reads the CSV next to this file and writes mystic_vs_engine.png into the same folder. The output carries no
+Reads the CSVs next to this file and writes mystic_vs_engine.png into the same folder. The output carries no
 date or software version, so repeated runs with one matplotlib version give identical bytes.
 """
 import csv
@@ -18,10 +18,12 @@ from matplotlib.lines import Line2D  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 CSV = HERE / "mystic_compare.csv"
+CSV_102 = HERE / "mystic_compare_102.csv"  # solar zenith angle 102, from separate MYSTIC runs
 OUT = HERE / "mystic_vs_engine.png"
 
 # Okabe-Ito colours (distinguishable under the common colour-vision deficiencies); markers differ as well.
-STYLE = {93.0: ("#0072B2", "o", -3.0), 96.0: ("#D55E00", "s", 0.0), 99.0: ("#009E73", "^", 3.0)}
+STYLE = {93.0: ("#0072B2", "o", -4.5), 96.0: ("#D55E00", "s", -1.5), 99.0: ("#009E73", "^", 1.5),
+         102.0: ("#CC79A7", "D", 4.5)}
 
 
 def load(path):
@@ -36,7 +38,8 @@ def load(path):
 
 
 def main():
-    d = load(CSV)
+    d, d102 = load(CSV), load(CSV_102)
+    d = {k: np.concatenate([d[k], d102[k]]) for k in d}
     plt.rcParams.update({
         "font.size": 10,
         "axes.spines.top": False,
@@ -58,18 +61,17 @@ def main():
                      color=colour, elinewidth=0.9, capsize=0)
 
     ax1.set_yscale("log")
-    ax1.set_ylim(6e-7, 4e-3)
+    ax1.set_ylim(2e-8, 6e-2)
     ax1.set_ylabel(r"radiance $L/E_0$ (sr$^{-1}$)")
     handles = [Line2D([], [], color=c, marker=mk, mfc="white", mec=c, mew=1.1, ms=4.5, lw=1.4, label=f"SZA {int(s)}°")
                for s, (c, mk, _) in STYLE.items()]
     handles += [Line2D([], [], color="0.3", lw=1.4, label="engine"),
                 Line2D([], [], color="0.3", linestyle="none", marker="o", mfc="white", mec="0.3", mew=1.1, ms=4.5,
                        label="MYSTIC")]
-    ax1.legend(handles=handles, loc="center right", bbox_to_anchor=(1.0, 0.34), ncol=2, frameon=False, handlelength=2.2,
-               columnspacing=1.6)
+    ax1.legend(handles=handles, loc="upper center", ncol=3, frameon=False, handlelength=2.2, columnspacing=1.6)
 
     ax2.axhline(1.0, color="0.15", lw=0.8)
-    ax2.set_ylim(0.90, 1.10)
+    ax2.set_ylim(0.82, 1.18)
     ax2.set_ylabel("MYSTIC / engine")
     ax2.set_xlabel("wavelength (nm)")
     ax2.set_xlim(350, 840)

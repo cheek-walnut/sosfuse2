@@ -3,16 +3,19 @@
 Comparison runs come from the upstream research repository. The first radiance comparison with MYSTIC (Figure 1),
 originally run with 1.0.0 physics and repeated with 1.7.0, with its engine side solved again with 1.9.0, uses one
 atmospheric state (state A) at one sun-side pixel (20.25° elevation, 0.5° relative azimuth) viewed from 0.1 km above the
-ground at solar zenith angles (SZA) of 93°, 96° and 99° (solar elevations −3°, −6° and −9°). State A combines
+ground at solar zenith angles (SZA) of 93°, 96° and 99° (solar elevations −3°, −6° and −9°), and from 1.9.3 also at
+102° (−12°) with separate MYSTIC runs. State A combines
 tropospheric aerosol (aod550 0.0551, Ångström exponent 1.889, single-scattering albedo 0.898, Henyey–Greenstein
 asymmetry parameter 0.683, scale height 1.0 km) with a 224.75 DU ozone column, a Gaussian stratospheric sulfate layer
 (centre 19 km, σ 3 km, τ550 0.0037) and a Lambert surface of albedo 0.376.
 
-![Engine and MYSTIC radiance spectra and their ratio at SZA 93, 96 and 99 degrees](validation/mystic_vs_engine.png)
+![Engine and MYSTIC radiance spectra and their ratio at SZA 93, 96, 99 and 102 degrees](validation/mystic_vs_engine.png)
 
-Figure 1. Top: radiance over solar irradiance, L/E₀, from the engine (lines) and MYSTIC (open markers), omitting MYSTIC
-relative standard errors (0.52 % to 2.46 %). Bottom: MYSTIC / engine ratio with MYSTIC standard-error bars, offset by
-±3 nm across the three SZA to prevent overlap. Data: `docs/validation/mystic_compare.csv`. Script:
+Figure 1. State A at the sun-side pixel (20.25° elevation, 0.5° relative azimuth). Top: radiance over solar irradiance,
+L/E₀, from the engine (lines) and MYSTIC (open markers), omitting MYSTIC
+relative standard errors (0.52 % to 2.46 % up to SZA 99, 4.2 % to 6.2 % at SZA 102). Bottom: MYSTIC / engine ratio with
+MYSTIC standard-error bars, offset by up to ±4.5 nm across the four SZA to prevent overlap. Data:
+`docs/validation/mystic_compare.csv` (SZA 93 to 99) and `docs/validation/mystic_compare_102.csv`. Script:
 `docs/validation/plot_validation.py`.
 
 Later sections extend beyond that pixel. In *Stratospheric aerosol input and zenith polarisation (Ugolnikov et al.)* we
@@ -23,8 +26,8 @@ MYSTIC's colour and luminance changes from NO₂ and O₄, and also report the a
 fail threshold. Neither state belongs to the 64 bundled states in `states_v2.json`, and both place the stratospheric
 layer at 19 km whereas the bundled states use 21 km. In *Bundled states against MYSTIC (1.9.0)* we compare tables of
 eight bundled states with MYSTIC radiances at six pixels for SZA 93° and 96°. Two numerical sections follow, covering
-convergence of two settings and IPRT test case E1. We make no comparison with MYSTIC below a solar elevation of −9°. Two
-sections test parts of the deep-twilight problem down to −18°: second-order scattering against direct quadrature, and a
+convergence of two settings and IPRT test case E1. We make no comparison with MYSTIC below a solar elevation of −12°,
+where single MYSTIC runs carry little signal (Figure 2). Two sections test parts of the deep-twilight problem down to −18°: second-order scattering against direct quadrature, and a
 Rayleigh atmosphere against SASKTRAN2. Two further sections compare with measured twilight-sky brightness and
 purple-light timing. Before the open checks, two final numerical sections examine the SZA and height grids and measure
 band-approximation error against the engine's `point` tables. Every same-input MYSTIC comparison ran at single
@@ -32,8 +35,9 @@ wavelengths and never in the default band mode. For Figure 1 and the CUDA runs o
 against MYSTIC (1.9.0)* onwards, we ran the engine with `SOSFUSE2_DETERMINISTIC=1`, which is off by default, except for the one
 repeat in that section that turns it off. In the earlier releases used here it
 fixed only the accumulation order. From 1.9.0 it also turns off the CUDA angular direction table, the tabulated first-light ground
-phase and the GPU arithmetic for Anderson history staged in host memory. The engine tables of Figures 1 and 2 come
-from 1.9.0, and those of the later comparison sections from earlier releases (*Versions behind the comparisons*). The
+phase and the GPU arithmetic for Anderson history staged in host memory. The engine tables of Figures 1 and 3 come
+from 1.9.0, those of Figures 4, 5 and 7 from 1.9.2, and those of the other comparison sections from earlier releases
+(*Versions behind the comparisons*). The
 1.9.0 MLX section compares the 1.9.0 MLX transport with NumPy references; the MLX transport does not read the setting.
 
 ## Same-input comparison with MYSTIC (1.9.0)
@@ -72,6 +76,12 @@ too noisy at SZA 99 and in 10 of 30 cells at SZA 96. A cell value is the photon-
 error (SE) from the photon-weighted combination of MYSTIC's `mc_std`, targeting a relative SE of 1 % at SZA 93 and 96
 and 2.5 % at SZA 99.
 
+For 1.9.3 we added SZA 102 (solar elevation −12°). Its MYSTIC input files were written in the same way from the same
+state, and the engine value is the −12° row of the same 1.9.0 table. Each of its 30 cells combines 46 differently seeded
+runs of 5,000,000 photons (1,380 runs, 6.9 × 10⁹ photons, 19.3 CPU-hours of `uvspec` time). Because a single run at
+this solar depression often collects only a few photon paths (Figure 2), each cell's SE is the larger of the combined
+`mc_std` and the scatter across its 46 runs. We set no SE target for it.
+
 Table 1 lists the MYSTIC / engine ratios, with blue and red denoting mean ratios below 450 nm and above 600 nm. The
 final column counts cells meeting the SE target, measuring MYSTIC precision rather than code agreement.
 
@@ -80,8 +90,9 @@ final column counts cells meeting the SE target, measuring MYSTIC precision rath
 | 93° | 0.9866 / 0.9979 / 1.0131 | 1.0002 / 0.9991 | 0.52–0.79 % | 30 of 30 (1 %) |
 | 96° | 0.9836 / 0.9998 / 1.0126 | 0.9992 / 1.0005 | 0.68–0.99 % | 30 of 30 (1 %) |
 | 99° | 0.9657 / 1.0009 / 1.0678 | 0.9990 / 1.0091 | 2.02–2.46 % | 30 of 30 (2.5 %) |
+| 102° | 0.8843 / 1.0155 / 1.0979 | 1.0003 / 1.0235 | 4.16–6.17 % | no target |
 
-Table 1. Radiance ratio MYSTIC / engine at the three solar zenith angles.
+Table 1. Radiance ratio MYSTIC / engine at the four solar zenith angles.
 
 For colour, we compute CIE 1976 u′ and v′ from the 30-wavelength spectrum using the point set-up's colour weights, which
 combine solar irradiance with CIE 1931 colour-matching functions over each bin. Defining Δ as MYSTIC minus engine, we
@@ -93,6 +104,7 @@ treating wavelengths as independent because each cell uses its own seeds.
 | 93° | 0.198197, 0.472516 | 0.198224, 0.472311 | +0.000027 ± 0.000180 | −0.000205 ± 0.000243 |
 | 96° | 0.184588, 0.442920 | 0.184600, 0.442590 | +0.000013 ± 0.000313 | −0.000331 ± 0.000485 |
 | 99° | 0.184929, 0.442375 | 0.186189, 0.441450 | +0.001261 ± 0.000742 | −0.000925 ± 0.001195 |
+| 102° | 0.180683, 0.431971 | 0.181640, 0.431693 | +0.000957 ± 0.001436 | −0.000278 ± 0.002758 |
 
 Table 2. Chromaticity of the sun-side pixel in both codes.
 
@@ -103,13 +115,32 @@ Every ratio at SZA 93 and 96 lies within 1.7 % of 1 with per-cell SE below 1 %, 
 same cell as in the 1.0.0 comparison. Across all 90 cells, four exceed 2 and none exceeds 3, against 4.1 and 0.24
 expected for independent normal deviates.
 
+At SZA 102 the ratios span 0.884–1.098 with 4.2–6.2 % SE, and their inverse-variance mean is 1.0085 ± 0.0088. Two of
+the 30 cells exceed 2 SE (largest 2.37 at 571.50 nm) and none exceeds 3, and both colour differences lie within 1 SE.
+Over all 120 cells, six exceed 2 and none exceeds 3, against 5.5 and 0.32 expected.
+
 The 2.5 % target at SZA 99 comes from the 1.0.0 comparison, where reaching 2 % was estimated at 6.05 extra CPU-hours
 against 3.64 for 2.5 %. With those photon counts, no SZA 99 cell meets 2 % and all 30 meet 2.5 %.
 
 These SEs reflect only MYSTIC Monte Carlo noise and exclude engine, layering and input uncertainty. Any error in shared
 inputs, such as the ozone cross section, Mie table, solar spectrum, colour-matching functions or Rayleigh optical-depth
-law, cancels in the ratio and goes undetected. This comparison covers one state and one pixel at three SZA, with no
-solar depression beyond 9°.
+law, cancels in the ratio and goes undetected. This comparison covers one state and one pixel at four SZA, with no
+solar depression beyond 12°.
+
+Below −12° we use other references because the signal of a single MYSTIC run fades. We ran two bundled states
+(`clear_43`, `clear_80`) at two pixels with 250,000 photons per run and the set-up of *Bundled states against MYSTIC
+(1.9.0)*. The median relative SE of one run grows from 6.7 % on the sun side and 10.5 % on the opposite side at SZA 96
+to 31–32 % at SZA 99 and 82–99 % at SZA 102. At SZA 105, 82 % of the runs on the sun side and 88 % on the opposite side return no radiance (Figure 2). For
+solar elevations from −6° to −18° we therefore compare the second-order term against a direct quadrature and a molecular
+atmosphere against SASKTRAN2.
+
+![Relative standard error of single MYSTIC runs and the share of runs without signal at SZA 96 to 105 degrees](validation/mystic_noise.png)
+
+Figure 2. Monte Carlo noise of single MYSTIC runs (250,000 photons, two seeds at each of 30 wavelengths) for `clear_43`
+and `clear_80`. (a) Relative standard error that MYSTIC reports for each run with a signal (dots) and the medians (lines)
+at the sun-side pixel (20.25° / 0.5°) and the opposite pixel (10.35° / 179.5°); 100 % means one contributing photon
+path. (b) Share of runs that returned no radiance. Data: `docs/validation/mystic_noise.csv`. Script:
+`docs/validation/plot_deep_twilight.py`.
 
 ## MYSTIC build check
 
@@ -151,26 +182,31 @@ multiple-scattering fall after −5°. Later studies link twilight-sky signals t
 effect growing with wavelength up to 35 km (Ugolnikov and Maslov 2018a) and depolarisation near 20 km (Ugolnikov and
 Maslov 2018b).
 
-The model reproduces two features. First, polarisation drops after SZA 95: at 555.8 nm, DoLP stays at 0.71–0.73 from
-SZA 90 to 95 and falls to 0.66 ± 0.01 at SZA 96, while values from SZA 97 onwards are too noisy to read (0.60 ± 0.06 at
-SZA 97). Second, aerosol reduces R-band polarisation near the solar elevations where measurements show day-to-day
-differences, appearing in the model as a dip and recovery. At 696.8 nm, DoLP is 0.776 at SZA 91, 0.725 at SZA 93,
-0.712 ± 0.003 at SZA 94, 0.755 ± 0.007 at SZA 95 and 0.695 at SZA 96. At 743.8 nm the dip is deeper, with 0.782 at
-SZA 91, 0.700 ± 0.003 at SZA 94 and 0.769 ± 0.007 at SZA 95. Because the measurements describe a day-dependent reduction
-rather than a dip, the model reproduces the reduction in this solar-elevation range without matching its shape.
+The calculation shows two features, the second only under its aerosol assumption. First, polarisation drops after
+SZA 95: at 555.8 nm, DoLP stays at 0.71–0.73 from SZA 90 to 95 and falls to 0.66 ± 0.01 at SZA 96, while values from
+SZA 97 onwards are too noisy to read (0.60 ± 0.06 at SZA 97). Second, with aerosol scattering treated as unpolarised,
+the stratospheric layer lowers R-band polarisation near the solar elevations where measurements show day-to-day
+differences, and the curve dips and recovers. At 696.8 nm, DoLP is 0.776 at SZA 91, 0.725 at SZA 93, 0.712 ± 0.003 at
+SZA 94, 0.755 ± 0.007 at SZA 95 and 0.695 at SZA 96. At 743.8 nm the dip is deeper, with 0.782 at SZA 91,
+0.700 ± 0.003 at SZA 94 and 0.769 ± 0.007 at SZA 95. The measurements describe a day-dependent reduction rather than a
+dip.
 
 To isolate the cause, we set the stratospheric aerosol column to zero while keeping everything else fixed and repeated
 the calculation for SZA 91–96 at 555.8, 696.8 and 743.8 nm. Without the layer, the dip and recovery vanish: at 743.8 nm,
 DoLP is 0.840, 0.861, 0.859, 0.849, 0.820 and 0.774 for SZA 91–96, peaking near SZA 92–93 before steadily decreasing.
 Layer depolarisation (DoLP with the layer minus without it) is −0.058, −0.086, −0.132, −0.149 and −0.051 at 743.8 nm for
-SZA 91–95, and at most −0.073 at 555.8 nm (SZA 93), about half the 743.8 nm peak. This stronger effect at longer
-wavelengths matches the measured direction.
+SZA 91–95, and at most −0.073 at 555.8 nm (SZA 93), about half the 743.8 nm peak. These depths, the recovery at SZA 95
+and the ratio between the two wavelengths all rest on the unpolarised-aerosol assumption (next paragraph).
 
 We made no quantitative comparison of absolute polarisation or dip depth because the published values appear only as
 figures and the observing sites, dates and aerosol loads differ from state A. As in the engine, aerosol scattering uses
-only P₁₁ and depolarises completely. We did not use a full Mie phase matrix or test what that assumption does to the dip
-depth. We have not inverted the stratospheric optical depth from measured polarisation with the relation of Ugolnikov
-and Maslov (2019) or compared it with the 0.0037 input.
+only P₁₁ and depolarises completely, so light scattered by the layer reaches the observer unpolarised. Mie theory for
+the layer's particles gives a single-scattering degree of polarisation −P₁₂/P₁₁ of 0.53 at 555.8 nm, 0.68 at 696.8 nm
+and 0.72 at 743.8 nm at a scattering angle of 93°, with the same sign as for Rayleigh scattering. For this particle size
+the depths above are therefore, to first order, upper limits in magnitude, and the recovery at SZA 95 and the ratio
+between wavelengths may not survive a calculation with the full phase matrix, which we did not run. We have not
+inverted the stratospheric optical depth from measured polarisation with the relation of Ugolnikov and Maslov (2019) or
+compared it with the 0.0037 input.
 
 ## Input physics added in 1.1.0
 
@@ -427,7 +463,7 @@ to +0.00045 in v′ at SZA 93° (median standard errors 0.00015 and 0.00025), an
 
 ![Engine and MYSTIC radiance and luminance ratios for eight bundled states at SZA 93 and 96 degrees](validation/mystic_states.png)
 
-Figure 2. Engine 1.9.0 (12 source nodes per path segment, Legendre order 16, `SOSFUSE2_GROUND_SH_L=24`) and MYSTIC
+Figure 3. Engine 1.9.0 (12 source nodes per path segment, Legendre order 16, `SOSFUSE2_GROUND_SH_L=24`) and MYSTIC
 (libRadtran 2.0.6) at 30 wavelengths from 368 to 822 nm for eight of 64 bundled states at SZA 93° and 96° (solar
 elevations −3° and −6°), with 16 seeds of 250,000 photons. (a) L/E₀ of `clear_87` (418 DU, largest ozone column) at
 sun-side pixel 20.25° / 0.5°, with engine lines and MYSTIC markers (standard errors at most 0.47 % at 93° and 2.8 % at
@@ -579,67 +615,90 @@ exported each constituent profile from the engine at 0.005 km spacing, and their
 relative 2.1e-6. They share no source grid, spherical-harmonic expansion, interpolation or path quadrature, and the
 reference evaluates the Henyey–Greenstein function in closed form where the engine expands it.
 
-We ran the installed 1.2.3 package on the production grid in default band mode at 553.875 nm and 448.125 nm on three
-states derived from `clear_33` with a black surface and the exp8 configuration (`exp8`/`triangle`/`keep`, the default
-through 1.4.0). State R removes aerosol and the stratospheric layer, leaving molecular scattering and gas absorption.
-State T keeps tropospheric aerosol (aod550 0.045, asymmetry parameter 0.738, single-scattering albedo 0.978) without the
-stratospheric layer. State S keeps both, with a stratospheric τ550 of 0.0052. We evaluated seven directions: 2°, 10°,
-30° and 89° elevation at the Sun's azimuth, 10° and 30° elevation opposite the Sun, and 10° elevation at 90° relative
-azimuth. We refined the reference in levels: in Table 10, "reference step" is the largest relative change between its
-last two levels, and the last column is the largest first-order difference among directions reached by the direct beam.
+We ran the installed 1.9.2 package, whose engine is unchanged in 1.9.3, on the default grid in default band mode at
+553.875 nm for three states derived from `clear_33` with a black surface and `usstd76`/`usstd76`/`usstd`. State R removes aerosol and
+the stratospheric layer, leaving molecular scattering and gas absorption. State T keeps tropospheric aerosol (aod550
+0.045, asymmetry parameter 0.738, single-scattering albedo 0.978) without the stratospheric layer. State S keeps both,
+with a stratospheric τ550 of 0.0052. We evaluated seven directions: 2°, 10°, 30° and 89° elevation at the Sun's
+azimuth, 10° and 30° elevation opposite the Sun, and 10° elevation at 90° relative azimuth. We refined the reference in
+levels: in Table 10, "reference step" is the largest relative change between its last two levels, and the last column
+is the largest first-order difference among directions reached by the direct beam.
 
-| state, band | solar elevation | engine / reference − 1 (%) | reference step (%) | first order, largest (%) |
+| state | solar elevation | engine / reference − 1 (%) | reference step (%) | first order, largest (%) |
 |---|---:|---|---:|---:|
-| R, 553.875 nm | −6° | −0.129 to +0.004 | 0.001 | 0.049 |
-| R, 553.875 nm | −9° | −0.119 to −0.035 | 0.001 | 0.028 |
-| R, 553.875 nm | −12° | −0.251 to −0.113 | 0.019 | 0.042 |
-| R, 553.875 nm | −15° | −0.601 to −0.197 | 0.381 | 0.006 |
-| R, 553.875 nm | −18° | −2.596 to −0.384 | 0.342 | no direction in the direct beam |
-| T, 553.875 nm | −6° | −0.157 to +0.167 | 0.008 | 0.050 |
-| T, 553.875 nm | −9° | −0.288 to +0.171 | 0.006 | 0.029 |
-| T, 553.875 nm | −12° | −0.446 to +0.085 | 0.117 | 0.042 |
-| R, 448.125 nm | −6° | −0.19 to −0.07 | 0.008 | 0.014 |
-| R, 448.125 nm | −9° | −0.26 to −0.09 | 0.002 | 0.011 |
-| R, 448.125 nm | −12° | −0.55 to −0.26 | 0.017 | 0.022 |
-| T, 448.125 nm | −6° | −0.08 to +0.02 | 0.033 | 0.015 |
-| T, 448.125 nm | −9° | −0.28 to −0.05 | 0.029 | 0.007 |
-| T, 448.125 nm | −12° | −0.62 to −0.31 | 0.283 | 0.023 |
-| S, 553.875 nm | −6° | −0.50 to −0.05 | 0.008 | 0.056 |
-| S, 553.875 nm | −9° | −0.67 to −0.16 | 0.003 | 0.031 |
-| S, 553.875 nm | −12° | −1.12 to −0.24 | 0.073 | 0.044 |
+| R | −6° | −0.109 to −0.003 | 0.002 | 0.014 |
+| R | −9° | −0.173 to −0.050 | 0.003 | 0.020 |
+| R | −12° | −0.347 to −0.162 | 0.007 | 0.022 |
+| R | −15° | −0.679 to −0.269 | 0.020 | 0.016 |
+| R | −18° | −2.415 to −0.390 | 0.011 | no direction in the direct beam |
+| T | −6° | −0.224 to +0.192 | 0.007 | 0.014 |
+| T | −9° | −0.340 to +0.142 | 0.005 | 0.022 |
+| T | −12° | −0.567 to +0.066 | 0.026 | 0.021 |
+| T | −15° | −0.918 to −0.291 | 0.136 | 0.017 |
+| T | −18° | −2.830 to −0.401 | 0.010 | no direction in the direct beam |
+| S | −6° | −0.774 to −0.129 | 0.007 | 0.015 |
+| S | −9° | −1.213 to −0.255 | 0.002 | 0.022 |
+| S | −12° | −1.725 to −0.340 | 0.020 | 0.023 |
+| S | −15° | −1.948 to −0.438 | 0.058 | 0.017 |
+| S | −18° | −2.814 to −0.621 | 0.013 | no direction in the direct beam |
 
-Table 10. Engine second-order radiance against direct quadrature, as ranges over the seven directions.
+Table 10. Engine second-order radiance at 553.875 nm against direct quadrature, as ranges over the seven directions.
 
-Down to −12°, second-order radiance agrees to 0.25 % for molecules alone at 553.875 nm, to 0.62 % with tropospheric
-aerosol and in the blue band, and to 1.12 % with the stratospheric layer, where differences peak at the Sun's azimuth.
-At −15° and −18° we refined the reference less far, leaving a last step of 0.34 % to 0.38 %, so those differences can be
-read to about ±0.4 %. The −2.596 % value at −18° comes from the darkest direction in the table, 10° elevation opposite
-the Sun. Excluding it narrows the −18° range to −1.19 % to −0.38 %. Almost all differences are negative and grow with
-solar depression.
+![Engine second-order radiance against the direct quadrature for seven directions in three states, SZA 96 to 108 degrees](validation/second_order.png)
 
-For state R at 553.875 nm, we varied one engine setting at a time. Table 11 shows the resulting shift in the
-seven-direction mean of engine / reference − 1 relative to the default setting, in percentage points.
+Figure 4. Engine second-order radiance against the direct quadrature, engine / reference − 1, for the seven directions
+in states R, T and S
+(553.875 nm, default grid). Grey band: largest last refinement step of the reference at each SZA. Data:
+`docs/validation/second_order_direct.csv` (grid `default`). Script: `docs/validation/plot_deep_twilight.py`.
+
+Down to −12°, second-order radiance agrees to 0.35 % for molecules alone, to 0.57 % with tropospheric aerosol and to
+1.73 % with the stratospheric layer. The last refinement step of the reference stays below 0.14 % at every solar
+elevation. The −2.4 % and −2.8 % values at −18° in states R and T come from the darkest direction, 10° elevation
+opposite the Sun; in state S the most negative direction lies on the Sun's side from −6° to −15°. Almost all
+differences are negative and grow with solar depression. The first-order term agrees to 0.023 % wherever the direct
+beam reaches the line of sight. In these states, second-order light makes up 62–82 % of the zenith radiance from −9° to
+−15° (*Scattering orders in twilight* in `docs/MODEL.md`), so this comparison covers most of the deep-twilight signal
+there but not third and higher orders.
+
+For state R we changed one discretisation setting at a time, and combined the grid refinements. Table 11 shows the resulting
+shift in the seven-direction mean of engine / reference − 1 relative to the default grid, in percentage points, and
+Figure 5 shows the mean and the most negative direction.
 
 | setting changed | −6° | −9° | −12° | −15° | −18° |
 |---|---:|---:|---:|---:|---:|
-| height grid, 44 nodes to 39 (coarser) | −0.023 | −0.043 | −0.090 | −0.199 | −0.530 |
-| grid in solar zenith angle, 0.5° to 0.25° | −0.010 | +0.004 | +0.054 | +0.128 | +0.271 |
-| source nodes per piece, 12 to 24 | −0.000 | −0.005 | −0.028 | −0.033 | −0.020 |
-| nodes per polar interval, 12 to 24 | −0.001 | +0.002 | −0.002 | +0.000 | +0.002 |
-| azimuth intervals, 16 to 32 | −0.000 | −0.000 | −0.000 | +0.000 | +0.000 |
+| height grid, 44 nodes to 39 (coarser) | −0.028 | −0.044 | −0.075 | −0.153 | −0.429 |
+| height grid, 44 nodes to 87 (finer) | +0.045 | +0.063 | +0.091 | +0.147 | +0.317 |
+| grid in solar zenith angle, 0.5° to 0.25° | −0.023 | +0.003 | +0.050 | +0.134 | +0.312 |
+| 87 heights and the 0.25° grid together | +0.022 | +0.066 | +0.141 | +0.281 | +0.629 |
+| both, and 24 source nodes per piece | +0.043 | +0.096 | +0.180 | +0.315 | +0.644 |
+| source nodes per piece, 12 to 24 | +0.022 | +0.030 | +0.039 | +0.034 | +0.015 |
+| nodes per polar interval, 12 to 24 | −0.000 | +0.000 | −0.000 | +0.000 | +0.001 |
+| azimuth intervals, 16 to 32 | +0.000 | −0.000 | −0.000 | +0.000 | +0.000 |
 
-Table 11. Shift in the mean second-order difference of state R when one discretisation setting changes, in percentage
-points.
+Table 11. Shift in the mean second-order difference of state R when discretisation settings change, in percentage
+points. The default mean is −0.062 %, −0.132 %, −0.244 %, −0.422 % and −0.940 % at −6°, −9°, −12°, −15° and −18°.
 
-The negative difference growing with solar depression responds to the height and solar-zenith-angle grids, whereas it
-does not respond to the angular quadrature. Because this version accepted no height grid finer than 44 nodes, we could
-not test a finer height grid. In state T, Legendre order accounts for part of the difference: at −12° the range is
-−0.446 % to +0.085 % at order 16, −0.329 % to −0.063 % at 24 and −0.335 % to −0.044 % at 32.
+![Second-order difference of state R for the default grid and finer or coarser grids](validation/second_order_grids.png)
+
+Figure 5. Second-order difference of state R at 553.875 nm against the direct quadrature for the default grid and for
+the changed height, solar-zenith-angle and quadrature settings of Table 11 (the curves of the polar and azimuth changes
+lie on the default curve): (a) mean over the seven directions, (b) the most negative direction. Data:
+`docs/validation/second_order_direct.csv`. Script: `docs/validation/plot_deep_twilight.py`.
+
+The negative difference that grows with solar depression responds to the height and solar-zenith-angle grids, whereas
+it does not respond to the angular quadrature. With 87 heights and the 0.25° grid together, the mean at −18° moves from
+−0.94 % to −0.31 % and the most negative direction from −2.4 % to −1.05 %.
+
+Before 1.9.3 this section reported runs of the installed 1.2.3 package with the exp8 configuration
+(`exp8`/`triangle`/`keep`, the default through 1.4.0) at 553.875 nm and 448.125 nm. Down to −12° they agreed to 0.25 %
+for molecules alone at 553.875 nm, to 0.62 % with tropospheric aerosol and in the blue band, and to 1.12 % with the
+stratospheric layer; at −15° and −18° that reference was refined less far, with a last step of 0.34–0.38 %. In state T
+at −12°, the range was −0.446 % to +0.085 % at Legendre order 16, −0.329 % to −0.063 % at 24 and −0.335 % to −0.044 %
+at 32.
 
 Second-order scattering is only one term of the solution: the comparison omits third and higher orders and iteration
-convergence error, and we did not measure whether the full-solution error has the same size. These runs cover two bands
-for states R and T, one for state S, no reflecting surface, and the exp8 configuration (`exp8`/`triangle`/`keep`, the
-default through 1.4.0) rather than `usstd76`.
+convergence error, and we did not measure whether the full-solution error has the same size. The 1.9.2 runs cover one
+band, no reflecting surface and the default 80 km top.
 
 ## Molecular atmosphere against SASKTRAN2 (solar elevation −9° to −18°)
 
@@ -753,7 +812,7 @@ ratio change when the floor is fainter (first value) or brighter (second value) 
 
 ![Paranal zenith twilight luminance and its ratio to the Patat et al. 2006 fit from -5 to -15 degrees](validation/paranal_twilight.png)
 
-Figure 3. ESO-Paranal zenith twilight from engine 1.2.3 in band mode (observer at 2.635 km above sea-level spherical
+Figure 6. ESO-Paranal zenith twilight from engine 1.2.3 in band mode (observer at 2.635 km above sea-level spherical
 ground) against the Patat et al. (2006) V-band fit for `clear_89` (aod550 0.020, albedo 0.61) and `clear_92`
 (aod550 0.100, albedo 0.09) with all three US Standard Atmosphere options. (a) Zenith luminance: black line shows the
 fit from −5° to −15° (grey band: 0.18 mag RMS deviation from data), and dotted line shows the uniform
@@ -797,9 +856,37 @@ Against the twilight brightness measurements in band mode at each site's altitud
 exponential state with τ550 0.006 gives 1.85, 2.14 and 2.12 times the Maryland luminance and 1.82, 1.61 and 1.56 times
 the Paranal luminance, whereas the three US Standard Atmosphere options give 0.97, 1.04 and 0.86 times Maryland and
 0.94, 0.79 and 0.65 times Paranal. Only the US Standard Atmosphere state is close to both Maryland and Paranal, while at
-Sacramento Peak it gives 1.79, 1.52 and 1.37 times the measured luminance. We did not compare event chromaticities with
-measured colours, and the comparison covers one state and one line of sight. With the three US Standard Atmosphere
+Sacramento Peak it gives 1.79, 1.52 and 1.37 times the measured luminance. With the three US Standard Atmosphere
 options, 1.2.3 repeats 1.1.1 to 2e-8 in u′ and v′.
+
+The timing comparison covers one state and one line of sight. A first comparison of chromaticities is a consistency
+check and not a validation, because no state was matched to a measurement site. For the sunward line of sight at 20°
+elevation we compared the five bundled clear states `clear_02`, `clear_25`, `clear_80`, `clear_37` and `clear_34` with
+six chromaticities read from the figures of Lee and Hernández-Andrés (2003), each at the solar elevation of the
+measurement (−1.3° to −4.5°). The engine is bluer and greener: the median difference, engine minus measurement, is
+−0.014 in u′ and −0.014 in v′, the median distance is 0.026, and the engine lies further above the Planckian locus (larger Duv) in 25 of the 30 pairs.
+For each measurement the nearest state is 0.003 to 0.026 away. The two early measurements, at −2.2° and −2.9°, are
+redder than every state (u′ 0.218 against at most 0.196, and 0.204 against at most 0.194). Three of the five states
+show a purple-light maximum of u′, at −3.8° to −4.1° with u′ 0.185 to 0.197 and v′ 0.436 to 0.465; the 31 measured
+maxima that we could read from Fig. 11 of the same paper have u′ 0.183 to 0.222 (mean 0.199) and v′ 0.431 to 0.476
+(mean 0.456). The figure readings carry an error of about 0.001, and the state tables were computed with releases
+1.6.0 to 1.9.2.
+
+Figure 7 shows how the stratospheric layer colours the sunward sky in the engine. In two runs that differ only in the
+layer (states S and T of *Second-order scattering against a direct quadrature*, solved in band mode with the 200 km top
+settings of *Finer and taller grids together* in `docs/MODEL.md`), the layer raises u′ on the Sun's side by up to 0.047 at 2° elevation (SZA 97), 0.035 at 10°
+(SZA 95) and 0.023 at 30° (SZA 94). Each peak falls where sunlight reaching the 21 km layer along that line of sight
+grazes the Earth between 10 km and the ground, so it moves to larger SZA as the view drops towards the horizon. These
+are engine values that describe the mechanism, not a comparison with measurements.
+
+![Difference in u' with and without the stratospheric layer on the Sun's side against solar zenith angle](validation/strato_layer_colour.png)
+
+Figure 7. u′ with the stratospheric layer (state S) minus u′ without it (state T), on the sun side at three view
+elevations (engine 1.9.2,
+200 km top, band mode; colour from the band values weighted by the colour-matching functions at the band centres, an
+approximation to the engine's colour integration). Shaded: solar zenith angles at which sunlight reaching the 21 km
+layer on that line of sight grazes the Earth between 10 km and 0 km. Data: `docs/validation/strato_layer_colour.csv`.
+Script: `docs/validation/plot_deep_twilight.py`.
 
 ## Grids in solar zenith angle and in height
 
@@ -926,20 +1013,24 @@ error, and the 8.8e-5 step from 1 nm to 0.5 nm is not an upper bound.
 
 ## Versions behind the comparisons
 
-For 1.9.1 we solved the engine side of Figures 1 and 2 again with the installed 1.9.0 package and compared the
+For 1.9.1 we solved the engine side of Figures 1 and 3 again with the installed 1.9.0 package and compared the
 `clear_34` command of `docs/PERFORMANCE.md` with its 1.6.1 table. We did not repeat the MYSTIC runs, because the
-1.9.0 optical export gives the same MYSTIC input files. The remaining sections report earlier versions.
+1.9.0 optical export gives the same MYSTIC input files. For 1.9.3 we added the MYSTIC runs at SZA 102 to Figure 1, with
+the engine value from the same 1.9.0 table, and solved the second-order comparison again with the installed 1.9.2
+package, whose engine is that of 1.9.0. The remaining sections report earlier versions.
 
-| section | engine of the record | rerun for 1.9.0 | relation to the previous record |
+| section | engine of the record | rerun for 1.9.0 or 1.9.3 | relation to the previous record |
 |---|---|---|---|
-| *Same-input comparison with MYSTIC (1.9.0)*, Figure 1 | 1.9.0 | engine | The MYSTIC runs are those of 1.7.0, and their 126 input files written from the 1.9.0 export are the same byte for byte. The 1.9.0 engine values differ from the 1.7.0 ones by at most 5.6e-7 relative, with the same numbers of source evaluations (7 and 5), all converged. |
+| *Same-input comparison with MYSTIC (1.9.0)*, Figure 1 | 1.9.0 | engine | The MYSTIC runs are those of 1.7.0, and their 126 input files written from the 1.9.0 export are the same byte for byte. The 1.9.0 engine values differ from the 1.7.0 ones by at most 5.6e-7 relative, with the same numbers of source evaluations (7 and 5), all converged. The SZA 102 runs are new in 1.9.3 and read the same 1.9.0 table. |
 | `clear_34` command of `docs/PERFORMANCE.md` | 1.6.1 | engine | Both runs started from an empty work root on one GPU with the same NumPy and CuPy versions. The 1.9.0 table equals the 1.6.1 table in every element within a relative tolerance of 1e-3, with a largest difference of 6.3e-6, and has the same axes, KSPLIT factor and numbers of source evaluations (8, 6 and 6), all converged. Of the recorded settings, only the memory figures recorded with the KSPLIT choice differ. |
 | *NO₂ and O₄ in 1.1.0: engine against MYSTIC on the same input* | 1.1.0 development build | no | The MYSTIC input written with 1.7.0 differs from the recorded one in at most four absorption optical depths per file, by at most 4.4e-16 relative, and the files of state A with both absorbers written from the 1.9.0 export equal the 1.7.0 ones. At the sun-side pixel of that state, the engine values of Figure 1 match the 1.1.0 values to 5.6e-7 relative at SZA 93, 96 and 99. We compared no other variant, state or pixel. |
-| *Bundled states against MYSTIC (1.9.0)*, Figure 2 | 1.9.0 | engine, three settings | The MYSTIC runs are those of 1.2.3, and the sha256 hashes of the 1,976 MYSTIC input files written from the 1.9.0 export match those recorded with the runs. Over the 96 cases the 1.9.0 engine radiance equals the 1.2.3 radiance within 2.0e-6 relative with 12 source nodes and order 16, 1.8e-6 with 24 source nodes or order 24. |
+| *Bundled states against MYSTIC (1.9.0)*, Figure 3 | 1.9.0 | engine, three settings | The MYSTIC runs are those of 1.2.3, and the sha256 hashes of the 1,976 MYSTIC input files written from the 1.9.0 export match those recorded with the runs. Over the 96 cases the 1.9.0 engine radiance equals the 1.2.3 radiance within 2.0e-6 relative with 12 source nodes and order 16, 1.8e-6 with 24 source nodes or order 24. |
+| *Second-order scattering against a direct quadrature*, Figures 4 and 5 | 1.9.2 | engine and reference | Replaces the 1.2.3 runs with the exp8 configuration, which the section summarises. The states now use `usstd76`/`usstd76`/`usstd`, so the two records differ in input as well as in engine version. |
+| *Timing of the purple light*, Figure 7 | 1.9.2 | engine | Figure 7 is new; the timing table and the chromaticity comparison use tables of 1.2.3 and of 1.6.0 to 1.9.2. |
 | *MYSTIC build check*, *Stratospheric aerosol input and zenith polarisation (Ugolnikov et al.)* | none, MYSTIC only | no | |
 | all other sections | earlier versions | no | |
 
-Table 19. Engine version behind each comparison and what we reran for 1.9.0.
+Table 19. Engine version behind each comparison and what we reran for 1.9.0 and 1.9.3.
 
 For 1.7.0 we had repeated Figure 1 with the installed package in `point` mode and new MYSTIC runs on the 1.7.0 input, with NO₂ and O₄ in both inputs, and its `clear_34` table equalled the 1.6.1
 table with a largest difference of 0. For 1.8.0 we reran none of these comparisons and reused the 1.7.0 record. The CUDA checks of 1.8.0 (G-P, G-T, G-A, G-H
@@ -968,8 +1059,14 @@ The tolerance for every comparison is the release rule, rtol 1e-3. The MLX trans
 
 ## Open checks
 
-- Engine colours against measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026). We compared only
-  purple-light timing for one state and one line of sight. A measured sky's NO₂ column is rarely known and varies by a
+- Engine colours against measured twilight colours (Lee and Hernández-Andrés 2003; Lee 2026). Beyond purple-light
+  timing we compared only six sunward chromaticities, using unmatched states (*Timing of the purple light*): the bundled
+  states are bluer and greener, and no state reaches the two early measurements. In a pair of runs that differ only in
+  the stratospheric sulfate layer (τ550 0.0052, black surface), the layer moves the sunward colour at −4° by +0.023 in u′
+  and +0.037 in v′, while the tropospheric aerosol of the same runs moves it by at most 0.006 at any solar elevation.
+  Our interpretation, not a measurement, is that the remaining colour difference depends mainly on the
+  state and optics of the stratospheric layer; ozone and ground albedo were not separated, and the layer does not
+  explain the early measurements (its shift at −2° is −0.001 in u′ and +0.007 in v′). A measured sky's NO₂ column is rarely known and varies by a
   factor of several, while NO₂ shifts v′ by +0.0035 to +0.0092 in the paired MYSTIC runs of Table 3. Because the 1.1.0
   default uses one 0.207 DU profile, any comparison must treat the column as unknown or take it from a measurement.
 - Remaining low-elevation difference from MYSTIC at SZA 93°. The 0.5° solar-zenith-angle grid explains part of the 0.18
@@ -1008,8 +1105,8 @@ The tolerance for every comparison is the release rule, rtol 1e-3. The MLX trans
   These runs share the default 80 km top (`docs/MODEL.md`) with the MYSTIC and SASKTRAN2 comparisons, and the README
   puts the Earth's shadow over the observer at about 79 km at 9° solar depression.
 - Quantitative polarisation comparison against measurements: absolute DoLP, dip depth and stratospheric optical-depth
-  inversion. Because MYSTIC computes the Stokes vector from the engine's input, such a comparison tests the input rather
-  than the engine.
+  inversion, and a MYSTIC run with the Mie phase matrix of the stratospheric layer in place of P₁₁ alone. Because MYSTIC
+  computes the Stokes vector from the engine's input, such a comparison tests the input rather than the engine.
 - Same-input comparison with MYSTIC in default band mode, and band-approximation error in other states. In `clear_80`,
   45-band tables at 233 K differ from 0.5 nm `point` tables by 0.021 % Y RMS and a 95th percentile of Δu′v′ of 3.35e-4,
   or 1.16 times 2.9e-4 (*Error of the band approximation*). We did not compare with MYSTIC on band-mean input, solve the
@@ -1026,13 +1123,13 @@ The tolerance for every comparison is the release rule, rtol 1e-3. The MLX trans
 
 ## Reproducing the figures and the records
 
-Rebuild Figure 1 from the CSV with
+Rebuild Figure 1 from the CSVs with
 
 ```sh
 uv run --no-project --with matplotlib --with numpy python docs/validation/plot_validation.py
 ```
 
-This script reads `docs/validation/mystic_compare.csv` and writes `docs/validation/mystic_vs_engine.png` beside it. The
+This script reads `docs/validation/mystic_compare.csv` and `docs/validation/mystic_compare_102.csv` and writes `docs/validation/mystic_vs_engine.png` beside it. The
 PNG omits dates and software versions, so repeated runs with one matplotlib version give identical bytes. The CSV header
 defines the columns and ratio, lists the MYSTIC settings and gives the sha256 of the source records.
 
@@ -1042,7 +1139,7 @@ not in this repository: the per-layer input and aerosol species library writers,
 script. The full MYSTIC set took 19,466 CPU-seconds of `uvspec` time. The Korkin check needs the same libRadtran build,
 the benchmark values of the paper and research scripts that are not distributed here, but no engine table.
 
-Rebuild Figures 2 and 3 with
+Rebuild Figures 3 and 6 with
 
 ```sh
 uv run --no-project --with matplotlib --with numpy python docs/validation/plot_mystic_states.py
@@ -1055,6 +1152,19 @@ or software version, so repeated runs with one matplotlib version give the same 
 radiances read from 1.9.0 engine tables. `paranal_twilight.csv`, whose header gives the fit, conversion, floor and
 columns, records runs with installed 1.2.3 and cannot be regenerated from this repository because it needs the two states' 1.2.3 band-mode engine tables solved on a CUDA machine
 and a comparison script not in this repository.
+
+Rebuild Figures 2, 4, 5 and 7, and Figures 1 to 3 of `docs/MODEL.md`, with
+
+```sh
+uv run --no-project --with matplotlib --with numpy python docs/validation/plot_deep_twilight.py
+```
+
+The script imports `figure_style.py` and reads `mystic_noise.csv`, `second_order_direct.csv`, `strato_layer_colour.csv`,
+`scattering_orders.csv` and `light_height.csv` next to it; each CSV header defines its columns and names the runs it
+records. These CSVs cannot be regenerated from this repository: the MYSTIC runs need the libRadtran build above, and the
+engine values come from the 1.9.2 package on a CUDA machine through research scripts not in this repository, which
+also hold the direct-quadrature code. `mystic_compare_102.csv` (Figure 1) records 1,380 MYSTIC runs on input written
+in the same way as that of `mystic_compare.csv`.
 
 The scripts in `docs/validation/mystic` produce `mystic_states.csv` with the installed package, and its `README.md`
 gives the commands, requirements and a small configuration. They export the shared optical input, build libRadtran
@@ -1084,7 +1194,7 @@ input from the engine's optical input, the paired-seed runner and the comparison
 anti-solar pixel direction 0.44 CPU-hours. The absolute 00 table, the phase-function estimate and the production-grid
 table summarise upstream results without a separate data file in this repository.
 
-Apart from the data for Figures 2 and 3, the sections from *Bundled states against MYSTIC (1.9.0)* to *Error of the band
+Apart from the data for Figures 3 to 7, the sections from *Bundled states against MYSTIC (1.9.0)* to *Error of the band
 approximation* summarise upstream results without separate repository data files. Regenerating them needs the same
 libRadtran build, a CUDA machine, the direct-quadrature code, SASKTRAN2, the stored SMART-G results for case E1, the
 published measurements, and research scripts not in this repository.

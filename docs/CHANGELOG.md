@@ -3,6 +3,48 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`. From 1.6.0, full-grid runs can extend above the default 80 km boundary. The main change to default output came in 1.5.0: a state without a `density` block, run without density options, now uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (README, *Limitations*). In 1.2.3 the bundled `states_v2.json` states began including the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option.
 
+## 1.9.3
+
+- **Checks that passed without comparing.** `gate --stage` stops with `E_GATE_SOLVE` when both solves fail or a sample
+  is empty, and in deterministic mode (`SOSFUSE2_DETERMINISTIC=1`) it also requires the two runs to give the same
+  outputs. Checking a CUDA-only fixed state with results of another backend stops with `E_GATE_CONFIG`.
+  `--bless` applies the fixed references to its second run too, and a pair of empty arrays no longer passes. The hash
+  of the check files now enters the identity of a staged run, so results staged with an earlier version cannot be used
+  with `--bless --staged`.
+- **Cache integrity.** Each aerosol column of the endpoint cache (`aerosol/<name>.f4`) has a `.f4.sha256` marker, and a
+  column whose length does not match its endpoints is refused. The cache store moves columns as checked pairs: a stored
+  pair that differs from the local one is reported as `E_CACHE_CONFLICT`, a push reads each column payload back at most
+  once, and a stored endpoint archive must name the requested key in its manifest. Large-grid preparation stops with
+  `E_VPROD_CELL_RANGE` on a record outside the cell range. The geometry, host, sun-column, query and stratospheric
+  attachment cache keys change, so the first run after upgrading prepares them again.
+- **Records and archives.** The `meta.json` inside a `pack` archive leaves out absolute paths, process IDs and the GPU
+  entry, and the archive's tar members carry no owner names or IDs; the loose `meta.json` beside the table keeps them.
+  A rerun marks the previous record incomplete before it replaces any file, and writes `source.npz` through a temporary
+  file.
+- **Options.** `--block-size` given alone is recorded in the signed settings (`settings.kernel`), and both table
+  commands restore it from the source. `--block-size` and `SOSFUSE2_BLOCK_SIZE` that disagree stop with
+  `E_KERNEL_BLOCK_SIZE` in every entry point. `precompile --cache` is no longer overridden by `SOSFUSE2_COMPILE_CACHE`,
+  and `--config NAME` refuses a name with a path separator. `tables_from_sources` treats a process as a running state
+  solve only when Python runs the solver as its script or `-m` module, including solves started without `--id` or
+  `--work-root`, so an editor or `git diff` naming the file no longer hides a state from the batch.
+- **Validation scripts.** The MYSTIC scripts in `docs/validation/mystic` stop with `E_ENGINE_MISSING` when a requested
+  engine result is missing (`--allow-partial` relaxes this), refuse to resume plans started with earlier scripts (their
+  results can still be collected), and check recomputed means and standard errors to 1e-6 relative.
+  `tests/test_tropo_mie.py --static` passes when both kernels preprocess and records token differences instead of
+  requiring identical tokens.
+- **Deep-twilight figures.** Figure 1 of `docs/VALIDATION.md`, now also the README figure, adds MYSTIC at solar zenith
+  angle 102° (Tables 1 and 2 gain a 102° row). New figures show the noise of single MYSTIC runs up to SZA 105° (Figure 2),
+  the second-order comparison against a direct quadrature with the engine side solved again using 1.9.2 and
+  `usstd76`/`usstd76`/`usstd`
+  (Figures 4 and 5, which replace the 1.2.3 values of Tables 10 and 11), and the colour of the stratospheric layer on the
+  sunward sky (Figure 7). The earlier Figures 2 and 3 are now Figures 3 and 6. `docs/MODEL.md` gains *Scattering orders
+  in twilight* with three figures. Each new or updated figure has its data in `docs/validation/` and is drawn by
+  `docs/validation/plot_deep_twilight.py` or `plot_validation.py`.
+- **Polarisation and colour.** The zenith-polarisation section now states that the depth of the dip, its recovery and the
+  ratio between wavelengths rest on treating aerosol scattering as unpolarising. The purple-light section adds a first
+  comparison of chromaticities with Lee and Hernández-Andrés (2003), and *Open checks* records our reading that the
+  remaining colour difference depends mainly on the stratospheric layer.
+
 ## 1.9.2
 
 - **Shorter README.** The README now keeps installation, a first run, validation and limitations in brief, the test

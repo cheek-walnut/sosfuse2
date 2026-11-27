@@ -275,6 +275,53 @@ Once the source field has converged, the observer radiance for every row of the 
 converged source and the single-scattering term along the lines of sight. All solar elevations share the same source
 field.
 
+### Scattering orders in twilight
+
+The observer radiance is the single-scattering term plus the line-of-sight integral of the converged source field.
+Applying the transport operator once to a zero source gives the field of first scattering events, and its
+line-of-sight integral is the second-order radiance; the remainder is third and higher orders. Figures 1 to 3 split the
+1.9.2 solution this way for three states derived from `clear_33` with a black surface and `usstd76`/`usstd76`/`usstd`:
+R (molecules only), T (plus tropospheric aerosol) and S (plus the stratospheric layer), solved in band mode with the
+200 km top settings of *Finer and taller grids together*. They are engine values that describe the solution, not an
+independent check; `docs/VALIDATION.md` compares the second-order term with a direct quadrature.
+
+![Shares of first, second and higher scattering orders against solar zenith angle for three states and three directions](validation/scattering_orders.png)
+
+Figure 1. Share of the 553.875 nm radiance from first, second, and third and higher orders against solar zenith angle
+(SZA) in states R, T and S, for the zenith and for 10° elevation on the sun side and the opposite side. Data: `docs/validation/scattering_orders.csv`.
+Script: `docs/validation/plot_deep_twilight.py`.
+
+At a solar zenith angle (SZA) of 90° single scattering supplies 71–86 % of the 553.875 nm radiance in these directions. It ends at the zenith between SZA 96
+and 99 and on the opposite side by SZA 96, as the Earth's shadow rises above most of the air along those lines of
+sight; on the sun side at 10° elevation it fades between SZA 102 and 105. Second-order light then makes up 62–82 % of the zenith
+radiance from SZA 99 to 105, and third and higher orders grow with depression to 29 % (R) and 49 % (S) of the zenith
+radiance at SZA 108 and to 56–74 % at 10° elevation opposite the Sun. Aerosol, and the stratospheric layer most of all,
+raise the share of higher orders.
+
+![Share of third and higher scattering orders over wavelength and solar zenith angle for three states and three directions](validation/scattering_orders_map.png)
+
+Figure 2. Share of third and higher orders over wavelength and solar zenith angle in states R, T and S, for the zenith
+and for 10° elevation on the sun side and the opposite side, with contours at 0.10, 0.25, 0.50 and
+0.75. Data: `docs/validation/scattering_orders.csv`. Script: `docs/validation/plot_deep_twilight.py`.
+
+Higher orders contribute more at short wavelengths, where Rayleigh scattering is stronger: at the zenith at SZA 105 they make
+up 54 % of the radiance of state R at 366 nm and 10 % at 824 nm. With the stratospheric layer, whose scattering depends
+less on wavelength, the share stays at 35–40 % at red wavelengths at SZA 105.
+
+Figure 3 shows where along the line of sight the light in state S is last scattered. At the zenith the mean altitude of
+the last scattering rises from 13 km at SZA 90 to 33 km at SZA 96, rising with the Earth's shadow, and falls to 15 km
+at SZA 99, when single scattering ends and the multiply scattered light from the lower atmosphere takes over. At 10°
+elevation on the sun side it reaches 43 km at SZA 99; on the opposite side it stays at 6–10 km from SZA 95 onwards.
+
+![Altitude of the last scattering along three lines of sight for solar zenith angles 90 to 108 degrees](validation/light_height.png)
+
+Figure 3. Altitude of the last scattering in state S at 553.875 nm, for the zenith and for 10° elevation on the sun
+side and the opposite side. (a)–(c) Cumulative share of the radiance last scattered below each altitude along the
+line of sight, for seven solar zenith angles. (d) Mean altitude of the last scattering for all orders (solid), single
+scattering (dotted) and higher orders (dashed), with the height of the Earth's shadow above the observer. Summed over the
+2 km bins, the contributions give the engine's table value within 7e-6 relative. Data: `docs/validation/light_height.csv`.
+Script: `docs/validation/plot_deep_twilight.py`.
+
 ### Reference implementation and solver modules
 
 A NumPy reference implements the same transport with double-single arithmetic for the ray geometry and FP64 projection
