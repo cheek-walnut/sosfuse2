@@ -111,7 +111,7 @@ def main():
     ap = argparse.ArgumentParser()
     add_paths(ap, arms=True)
     ap.add_argument('--arms', default='A0')
-    ap.add_argument('--allow-partial', action='store_true')
+    ap.add_argument('--allow-partial', action='store_true', help='allow incomplete MC input or missing engine arms')
     a = ap.parse_args()
     H = work_path(a.work)
     data = json.loads((H / 'out/optics.json').read_text())
@@ -155,6 +155,9 @@ def main():
             raise ValueError('E_ENGINE_CASE_SET')
         engines[arm] = e
         engine_sha[arm] = sha(path)
+    missing_arms = [arm for arm in requested if arm not in engines]
+    if missing_arms and not a.allow_partial:
+        raise ValueError('E_ENGINE_MISSING: ' + ', '.join(missing_arms))
     results = []
     long = []
     engine_rows = []
@@ -287,7 +290,7 @@ def main():
             results=results,
             engine_ratios=ratios,
             estimator=method,
-            missing_arms=[x for x in requested if x not in engines],
+            missing_arms=missing_arms,
             config_file=a.config.name,
             config_sha256=sha(a.config),
             status='PARTIAL'
@@ -295,7 +298,7 @@ def main():
             else 'WAITING_ENGINE'
             if not engines
             else 'PARTIAL'
-            if any(x not in engines for x in requested)
+            if missing_arms
             else 'JOINED',
         ),
     )

@@ -29,12 +29,14 @@ def cache_key(gpu_name, compiler, block_size=None):
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
 
 
-def configure(root, backend='cupy', block_size=None):
+def configure(root, backend='cupy', block_size=None, *, honor_env=True):
     """SOSFUSE2_COMPILE_CACHE=<dir> replaces the per-run root with a deployment-level one: a new
-    work root then reuses the NVRTC binaries of earlier runs with the same sources, flags and toolchain."""
+    work root then reuses the NVRTC binaries of earlier runs with the same sources, flags and toolchain.
+    With honor_env=False the caller has already resolved the root."""
     if backend != 'cupy':
         return None
-    root = os.environ.get('SOSFUSE2_COMPILE_CACHE', '').strip() or root
+    if honor_env:
+        root = os.environ.get('SOSFUSE2_COMPILE_CACHE', '').strip() or root
     import cupy
 
     props = cupy.cuda.runtime.getDeviceProperties(cupy.cuda.runtime.getDevice())

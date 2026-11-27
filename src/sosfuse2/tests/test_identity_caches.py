@@ -361,7 +361,10 @@ def test_geometry_prepare_publishes_process_specific_temp(tmp_path, monkeypatch)
 
     monkeypatch.setattr(ray_geometry.os, 'replace', record)
     instance.prepare()
-    assert moves == [(target.with_name(f'{target.name}.{os.getpid()}.tmp'), target)]
+    scratch = target.with_name(f'{target.name}.{os.getpid()}.tmp')
+    marker = target.with_suffix('.f4.sha256')
+    assert moves == [(scratch, target), (scratch.with_suffix('.sha256.tmp'), marker)]
+    assert marker.read_text().strip() == hashlib.sha256(target.read_bytes()).hexdigest()
     np.testing.assert_array_equal(np.fromfile(target, dtype='f4'), [2.0])
 
 

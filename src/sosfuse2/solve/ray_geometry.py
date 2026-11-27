@@ -972,29 +972,12 @@ class TwoLayerGeometry(ResidentGeometry):
     def prepare(self):
         if self.bundle is not None:
             return
+        from .ray_geometry_cpu import load_or_build_column
+
         host, records = self.host_arrays()
         height = self.s.kernel.height
-        path = self.column_path(height)
-        source = json.loads((self.cache / 'source_height.json').read_text())['height']
         started = time.perf_counter()
-        if path.exists():
-            with stage('aerosol_column_load'):
-                column = np.fromfile(path, 'f4')
-            how = 'cached'
-        elif tropo_profile.same_source(self.s, source, height):
-            column = np.array(host['end_col'][:, 1])
-            how = 'common layer (same height)'
-        else:
-            with stage('aerosol_column_compute'):
-                column = self.recompute_column(host, height)
-            how = 'computed'
-        if how != 'cached':
-            path.parent.mkdir(exist_ok=True)
-            tmp = path.with_name(f'{path.name}.{os.getpid()}.tmp')
-            column.tofile(tmp)
-            os.replace(tmp, path)
-        if column.shape != (len(host['dirs']),):
-            raise RuntimeError('E_AEROSOL_COLUMN: wrong length')
+        column, how, source = load_or_build_column(self, host)
         end_col = np.array(host['end_col'])
         end_col[:, 1] = column
         self.stats.update(

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Tropospheric Mie phase (tropo_mie.py, kernel.cu -DTROPO_MIE): CPU static/host checks and the split-profile GPU parity.
 
-  --static  clang++ -E -P token identity of the HG kernel for the production flag sets
+  --static  clang++ -E -P preprocessing of the HG kernel for the production flag sets
             (C3 + STRATO + PROFILE, with and without LAUNCH_RAY_LIMIT; the strato-off C2 set + PROFILE; the
-            strato_lut_build options) over every launched specialization; TROPO_MIE preprocesses without #error for
-            the same sets; the unsupported ground paths stop at their #error.
+            strato_lut_build options) over every launched specialization; token differences are recorded for diagnosis
+            and numerical parity is checked separately. TROPO_MIE preprocesses without #error for the same sets;
+            the unsupported ground paths stop at their #error.
   --host    optics table (normalization, LUT energy, LUT vs table, eigenvalue order) and the NumPy reference with a
             Mie table filled from hg() reproducing the HG reference; Kernel.setup of a Mie state.
   --gpu     CUDA vs NumPy reference with TROPO_MIE: strato off (C2 set) and on (C3 set),
@@ -12,17 +13,27 @@
 usage: python -B -m sosfuse2.tests.test_tropo_mie --static --host --out <dir>   |   ... --gpu --out <dir>
 """
 
-from sosfuse2.foundation import paths
-import argparse, copy, itertools, json, math, os, re, shutil, subprocess, sys, time
+import argparse
+import copy
+import itertools
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
 from pathlib import Path
+
+import numpy as np
+
+from sosfuse2.checks import testkit
+from sosfuse2.checks.numerical_checks import within_tol
+from sosfuse2.foundation import paths
 
 sys.dont_write_bytecode = True
 HERE = paths.PKG  # the package directory (kernel, configs, assets)
-import numpy as np
-from sosfuse2.checks import testkit
-
 ROOT = testkit.sky_sos_root()  # The HG-baseline comparison needs the research data root.
-from sosfuse2.checks.numerical_checks import within_tol
 
 
 def base_ref():
@@ -109,8 +120,8 @@ def static(out):
     for (name, flags), spec in itertools.product(sets.items(), SPECS):
         if name == 'C3_strato_raylimit' and spec != (1, 0, 0):
             continue
-        ra, a, ea = preprocess(base, flags, spec)
-        rb, b, eb = preprocess(new, flags, spec)
+        ra, a, _ = preprocess(base, flags, spec)
+        rb, b, _ = preprocess(new, flags, spec)
         hg_rows.append(
             dict(
                 set=name,
@@ -136,7 +147,13 @@ def static(out):
     ra, a, _ = preprocess(base, lut, None)
     rb, b, _ = preprocess(new, lut, None)
     hg_rows.append(
-        dict(set='strato_lut_build', spec=None, tokens_identical=ra == 0 and rb == 0 and tokens(a) == tokens(b))
+        {
+            'set': 'strato_lut_build',
+            'spec': None,
+            'base_rc': ra,
+            'new_rc': rb,
+            'tokens_identical': ra == 0 and rb == 0 and tokens(a) == tokens(b),
+        }
     )
     ground = tuple(f for f in C2OFF if f != 'LANE_GROUND') + ('PROFILE', 'TROPO_MIE')
     ground_rc, _, _ = preprocess(new, ground, (1, 2, 0))
@@ -144,7 +161,7 @@ def static(out):
     for flags, spec, want in (
         (lut + ('LUT_ONLY', 'TROPO_MIE'), None, 'E_TROPO_MIE_UNSUPPORTED_GROUND_PATH'),
         (
-            tuple(f for f in C3 if f != 'STRATO_MIE_LUT_FINE') + ('STRATO', 'PROFILE', 'TROPO_MIE'),
+            C3 + ('GF_ON', 'PROFILE', 'TROPO_MIE'),
             (1, 0, 0),
             'E_TROPO_MIE_GF_REQUIRES_STRATO_MIE_LUT_FINE',
         ),
@@ -185,7 +202,7 @@ def static(out):
             )
         )
     ok = (
-        all(r['tokens_identical'] for r in hg_rows)
+        all(r['base_rc'] == r['new_rc'] == 0 for r in hg_rows)
         and all(r['rc'] == 0 for r in mie_rows)
         and ground_rc == 0
         and all(e['pass_'] for e in errors)
@@ -409,7 +426,10 @@ def gpu(out, only=None):
         ('mie_strato_off_C2R', False, True, C2OFF_RAY),
         ('hg_strato_off_C2R', False, False, C2OFF_RAY),
     ]
-    if only:
+    if only is not None:
+        unknown = only - {c[0] for c in cases}
+        if unknown:
+            raise ValueError('E_GPU_CASE_UNKNOWN: ' + ', '.join(sorted(unknown)))
         cases = [c for c in cases if c[0] in only]
     names = {case[0] for case in cases}
     for name in names:
@@ -459,9 +479,29 @@ def gpu(out, only=None):
     return judge(rows)
 
 
+def require_gpu_stages(rows):
+    stages = {}
+    for r in rows:
+        name, first = r['case'], r.get('first')
+        seen = stages.setdefault(name, set())
+        if type(first) is not bool or first in seen:
+            raise ValueError(f'E_GPU_CASE_STAGES: {name} needs one row for each of first light and warm')
+        seen.add(first)
+    for name, seen in stages.items():
+        if seen != {True, False}:
+            raise ValueError(f'E_GPU_CASE_STAGES: {name} needs one row for each of first light and warm')
+
+
 def judge(rows):
     """A Mie case passes when its ray error is <= 2x the HG control's with the same first-light flag,
     and its moment L2 and ground flux errors are <= 1e-5. The ray bound accounts for the float32 error floor."""
+    metrics = ('ray_max_relative', 'moment_l2_relative', 'ground_flux_max_relative')
+    for r in rows:
+        for metric in metrics:
+            value = r.get(metric)
+            if type(value) not in (int, float) or not 0 <= value <= sys.float_info.max:
+                reason = f'E_GPU_CASE_METRIC: {r["case"]} first={r["first"]} invalid {metric}'
+                return {'pass_': False, 'reason': reason, 'worst': None, 'checks': [], 'cases': rows}
     hg = {(r['case'], r['first']): r for r in rows if r['case'].startswith('hg_')}
     checks = []
     for r in rows:
@@ -472,18 +512,17 @@ def judge(rows):
         if h is None:
             raise ValueError(f'E_GPU_CASE_CONTROL: {r["case"]} needs {twin} or hg_strato_on_C3')
         checks.append(
-            dict(
-                case=r['case'],
-                first=r['first'],
-                control=h['case'],
-                ray_ratio_to_hg=r['ray_max_relative'] / max(h['ray_max_relative'], 1e-30),
-                moment_l2=r['moment_l2_relative'],
-                ground=r['ground_flux_max_relative'],
-                pass_=math.isfinite(h['ray_max_relative'])
-                and r['ray_max_relative'] <= 2 * h['ray_max_relative']
+            {
+                'case': r['case'],
+                'first': r['first'],
+                'control': h['case'],
+                'ray_ratio_to_hg': r['ray_max_relative'] / max(h['ray_max_relative'], 1e-30),
+                'moment_l2': r['moment_l2_relative'],
+                'ground': r['ground_flux_max_relative'],
+                'pass_': r['ray_max_relative'] <= 2 * h['ray_max_relative']
                 and r['moment_l2_relative'] <= 1e-5
                 and r['ground_flux_max_relative'] <= 1e-5,
-            )
+            }
         )
     worst = max(
         (max(r['ray_max_relative'], r['moment_l2_relative'], r['ground_flux_max_relative']) for r in rows), default=None
@@ -518,9 +557,12 @@ def main():
     if a.gpu:
         rep['gpu'] = gpu(a.out, set(a.gpu_cases.split(',')) if a.gpu_cases else None)
     if a.recheck:
-        rep['gpu'] = judge(json.loads(a.recheck.read_text())['gpu']['cases'])
+        rows = json.loads(a.recheck.read_text())['gpu']['cases']
+        require_gpu_stages(rows)
+        rep['gpu'] = judge(rows)
         rep['gpu']['rechecked_from'] = str(a.recheck)
-    rep['pass_'] = bool(rep) and all(v.get('pass_') is True for v in rep.values())
+    performed = [result['pass_'] for result in rep.values() if result['pass_'] is not None]
+    rep['pass_'] = bool(performed) and all(performed)
     (a.out / 'tropo_mie_tests.json').write_text(json.dumps(rep, indent=1, default=str) + '\n')
     print(json.dumps({k: (v.get('pass_') if isinstance(v, dict) else v) for k, v in rep.items()}))
     print('TROPO_MIE TESTS', 'PASS' if rep['pass_'] else 'FAIL')
@@ -529,3 +571,88 @@ def main():
 
 if __name__ == '__main__':
     main()
+else:
+    import pytest
+
+
+@pytest.mark.parametrize('host_pass, exit_code', [(True, 0), (False, 1), (None, 1)])
+def test_skipped_checks_do_not_vote(tmp_path, monkeypatch, host_pass, exit_code):
+    argv = ['tropo_mie', '--out', str(tmp_path), '--static']
+    monkeypatch.setattr(sys.modules[__name__], 'static', lambda _: {'pass_': None})
+    if host_pass is not None:
+        argv.append('--host')
+        monkeypatch.setattr(sys.modules[__name__], 'host', lambda _: {'pass_': host_pass})
+    monkeypatch.setattr(sys, 'argv', argv)
+    with pytest.raises(SystemExit) as raised:
+        main()
+    assert raised.value.code == exit_code
+
+
+def test_gpu_rejects_unknown_case_before_starting(tmp_path, monkeypatch):
+    from sosfuse2.solve import ray_geometry
+
+    monkeypatch.setattr(ray_geometry, 'create', lambda *a, **kw: pytest.fail('solver started before case validation'))
+    with pytest.raises(ValueError, match='E_GPU_CASE_UNKNOWN.*typo'):
+        gpu(tmp_path, {'mie_strato_on_C3', 'hg_strato_on_C3', 'typo'})
+
+
+def parity_rows():
+    return [
+        {
+            'case': case, 'first': first, 'ray_max_relative': 1e-6,
+            'moment_l2_relative': 1e-6, 'ground_flux_max_relative': 1e-6,
+        }
+        for case in ('mie_strato_on_C3', 'hg_strato_on_C3')
+        for first in (True, False)
+    ]
+
+
+@pytest.mark.parametrize(
+    'index, metric, value',
+    [
+        (0, 'ray_max_relative', -1.0),
+        (0, 'moment_l2_relative', -1.0),
+        (0, 'ground_flux_max_relative', -1.0),
+        (2, 'moment_l2_relative', -1.0),
+        (2, 'ground_flux_max_relative', float('inf')),
+        (2, 'moment_l2_relative', float('nan')),
+    ],
+)
+def test_judge_rejects_invalid_metrics(index, metric, value):
+    rows = parity_rows()
+    assert judge(rows)['pass_']
+    rows[index][metric] = value
+    result = judge(rows)
+    assert result['pass_'] is False
+    assert result['reason'].startswith('E_GPU_CASE_METRIC')
+
+
+@pytest.mark.parametrize('missing', [(), (1,), (1, 3)])
+def test_recheck_requires_first_light_and_warm(tmp_path, monkeypatch, missing):
+    source = tmp_path / 'earlier.json'
+    rows = [row for index, row in enumerate(parity_rows()) if index not in missing]
+    source.write_text(json.dumps({'gpu': {'cases': rows}}))
+    monkeypatch.setattr(sys, 'argv', ['tropo_mie', '--out', str(tmp_path), '--recheck', str(source)])
+    if missing:
+        with pytest.raises(ValueError, match='E_GPU_CASE_STAGES'):
+            main()
+    else:
+        with pytest.raises(SystemExit) as raised:
+            main()
+        assert raised.value.code == 0
+
+
+@pytest.mark.parametrize('baseline_rc', [0, 1])
+def test_static_records_token_changes_and_checks_preprocessing(tmp_path, monkeypatch, baseline_rc):
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, 'ROOT', tmp_path)
+    monkeypatch.setattr(module, 'base_ref', lambda: 'baseline')
+    testkit.require_tool('clang++')
+    testkit.require_tool('git')
+    baseline = (HERE / 'backends/kernel.cu').read_text() + '\nint extra_baseline_token;\n'
+    if baseline_rc:
+        baseline += '#error baseline preprocessing failed\n'
+    monkeypatch.setattr(subprocess, 'check_output', lambda *a, **kw: baseline)
+    result = static(tmp_path)
+    assert not any(row['tokens_identical'] for row in result['hg_token_identity'])
+    assert result['pass_'] is (baseline_rc == 0)

@@ -699,6 +699,77 @@ def test_reused_all_lists_the_checks_it_does_not_run(home):
     assert rc == 0 and g['not_run'] == {'H': '--reuse', 'PS': '--reuse'} and 'H' not in g['gates']
 
 
+def test_reused_numpy_run_cannot_pass_a_cuda_only_fixture(home):
+    fixture = home / 'base/FX-A'
+    meta = json.loads((fixture / 'fixed.json').read_text())
+    gate.jdump(fixture / 'fixed.json', dict(meta, backend='numpy'))
+    (fixture / 'solve.json').unlink()
+
+    rc, report = run_gate(home, fixture.parent, '--fixtures', 'FX-A')
+    assert (rc, report['code']) == (2, 'E_GATE_CONFIG')
+    assert 'FX-A' in report['error'] and 'numpy' in report['error']
+
+
+@pytest.mark.parametrize('failure', ['failed-solve', 'missing-solve', 'table', 'source'])
+def test_stage_requires_solve_samples_from_both_runs(tmp_path, monkeypatch, failure):
+    def write_fixture(F, fx, d, *args):
+        rad, src, table = data(3)
+        write_run(d.parent, fx, rad, src, table)
+        if failure == 'failed-solve':
+            gate.jdump(d / 'solve.json', {'rc': 1, 'reason': 'E_TEST_SOLVE'})
+        elif failure == 'missing-solve':
+            (d / 'solve.json').unlink()
+        else:
+            arrays = {'table': table, 'source': src[-1]}
+            arrays[failure] = arrays[failure][:0]
+            np.savez(d / 'solve.npz', **arrays)
+
+    monkeypatch.setattr(gate, 'run_fixture', write_fixture)
+    rc = gate.main(['--stage', '--fixtures', 'FX-A', '--out', str(tmp_path), '--no-historical', '--no-persistent'])
+    report = json.loads((tmp_path / 'gate.json').read_text())
+    assert (rc, report['code']) == (2, 'E_GATE_SOLVE')
+    detail = {'failed-solve': 'E_TEST_SOLVE', 'missing-solve': 'solve.json'}.get(failure, failure)
+    assert 'run1/FX-A' in report['error'] and detail in report['error']
+
+
+@pytest.mark.parametrize('mode,delta,expected', [('1', 5e-6, 1), ('0', 5e-6, 0), ('1', 0.0, 0)])
+def test_stage_requires_matching_output_hashes_only_in_deterministic_mode(tmp_path, monkeypatch, mode, delta, expected):
+    def write_fixture(F, fx, d, *args):
+        rad, src, table = data(3)
+        if d.parent.name == 'run3':
+            rad *= 1 + delta
+        write_run(d.parent, fx, rad, src, table)
+
+    monkeypatch.setenv('SOSFUSE2_DETERMINISTIC', mode)
+    monkeypatch.setattr(gate, 'run_fixture', write_fixture)
+    rc = gate.main([
+        '--stage', '--fixtures', 'FX-A', '--out', str(tmp_path), '--runs', '3', '--no-historical', '--no-persistent',
+    ])
+    report = json.loads((tmp_path / 'gate.json').read_text())
+    first, last = report['determinism']['FX-A']
+    assert first['outputs_equal'] and last['outputs_equal'] == (delta == 0)
+    assert last['pass_']
+    assert (rc, report['code']) == (expected, 'E_GATE_DETERMINISM' if expected else None)
+
+
+def test_bless_checks_second_run_against_fixed_reference(home, monkeypatch):
+    def write_fixture(F, fx, d, *args):
+        rad, src, table = data(3)
+        delta = {'run1': 0.000996, 'run2': 0.001004}[d.parent.name]
+        write_run(d.parent, fx, rad * (1 + delta), src, table)
+
+    monkeypatch.setattr(gate, 'run_fixture', write_fixture)
+    before = gate.manifest()
+    out = home / 'bless'
+    rc = gate.main(['--bless', '--fixtures', 'FX-A', '--out', str(out)])
+    report = json.loads((out / 'gate.json').read_text())
+    assert report['determinism']['FX-A']['pass_']
+    assert (rc, report['code']) == (1, 'E_GATE_CROSS_TOL')
+    assert report['gates']['CUDA']['FX-A']['pass_']
+    assert not report['run2']['gates']['CUDA']['FX-A']['pass_']
+    assert gate.manifest() == before and not (gate.GATE / 'baselines/BASELINE_LOG.md').exists()
+
+
 def test_failed_solve_child_always_has_a_reason():
     tail = ['Traceback (most recent call last):', 'ImportError: libexample.so.1: cannot open shared object file', '']
     assert gate.child_reason(1, None, tail) == 'E_GATE_CHILD: rc 1: ImportError: libexample.so.1: cannot open shared object file'

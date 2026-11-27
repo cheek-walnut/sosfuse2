@@ -6,7 +6,7 @@ The default engine configuration is A0.
 
 ## Requirements
 
-Use Python with NumPy and sosfuse2 1.9.0, 1.9.1 or 1.9.2 installed (their code differs only in the version number; the
+Use Python with NumPy and sosfuse2 1.9.0 to 1.9.3 installed (their engines give the same tables; the
 recorded tables come from 1.9.0).
 The scripts are in the repository and the source distribution under `docs/validation/mystic`; the wheel does not
 contain them.

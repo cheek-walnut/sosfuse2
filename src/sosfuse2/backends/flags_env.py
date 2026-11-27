@@ -39,6 +39,8 @@ def _kernel_config(path):
 def load(name):
     from sosfuse2.backends.flags import RETIRED_FLAGS, resolve_config
 
+    if '/' in name or '\\' in name:
+        raise SystemExit(f'E_CONFIG_UNKNOWN: {name!r}: expected a kernel config name')
     path = HERE / f'{name}.json'
     if not path.is_file():
         raise SystemExit(f'E_CONFIG_UNKNOWN: {name!r}: no backends/configs/{name}.json')

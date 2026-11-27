@@ -3,7 +3,9 @@
 import argparse
 from types import SimpleNamespace
 
-from common import add_paths, configure_root, dump, package_identity, read, require_legacy_top, sha, work_path
+from common import (
+    add_paths, configure_root, dump, package_identity, read, require_legacy_top, require_observer, sha, work_path,
+)
 
 
 def main():
@@ -30,8 +32,10 @@ def main():
     if settings.get('anderson_tol', engine.ANDERSON_TOLERANCE) != 0.001:
         raise ValueError('E_TOLERANCE')
     require_legacy_top(settings)
+    require_observer(settings)
     dump(dest / 'settings.json', settings)
     cfg = engine.settings_for(SimpleNamespace(reduced=False, settings_json=dest / 'settings.json'))
+    require_observer(cfg)
     if cfg.get('kernel', {}).get('ground_sh', {}).get('order') != 24:
         raise ValueError('E_GROUND_SH')
     if engine.ANDERSON_TOLERANCE != 0.001:

@@ -12,7 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from common import HERE, add_paths, dump, sha, work_path
+from common import HERE, OBSERVER_KM, add_paths, dump, sha, work_path
 from inputs import text_input
 
 FIELDS = (
@@ -41,6 +41,9 @@ def shard_arg(value):
 
 
 def build_jobs(c, data, identity, lrt, smoke=False, shard=(1, 1)):
+    geometries = len(c['state_ids']) * len(c['pixels']) * len(c['sza_deg'])
+    if not 1 <= shard[0] <= shard[1] <= geometries:
+        raise ValueError(f'E_SHARD_COUNT: require 1 <= K <= N <= {geometries} for this configuration')
     jobs = []
     sm = c['smoke']
     row = 0
@@ -80,6 +83,8 @@ def build_jobs(c, data, identity, lrt, smoke=False, shard=(1, 1)):
                                 lrt=str(lrt),
                             )
                         )
+    if not jobs:
+        raise ValueError(f'E_SHARD_COUNT: shard {shard[0]}/{shard[1]} has no jobs')
     return jobs
 
 
@@ -97,18 +102,19 @@ def read_result(job):
     return result
 
 
-def one(job):
+def one(job, retry_failed=False):
     folder = folder_for(job)
     folder.mkdir(parents=True, exist_ok=True)
     old = read_result(job)
-    if old is not None:
+    if old is not None and (old['status'] != 'failed' or not retry_failed):
         return old
     reserve = folder / 'reservation.json'
     if reserve.exists() and json.loads(reserve.read_text())['identity'] != job['identity']:
         raise ValueError('E_RESUME_SHA ' + str(folder))
     dump(reserve, job)
     attempts = []
-    for index in range(2):
+    previous_attempts = len(old['attempts']) if old is not None else 0
+    for index in range(previous_attempts + 2):
         dest = folder / f'attempt_{index}'
         dest.mkdir(exist_ok=True)
         saved = dest / 'attempt.json'
@@ -117,7 +123,8 @@ def one(job):
             if result['identity'] != job['identity']:
                 raise ValueError('E_RESUME_SHA ' + str(saved))
         else:
-            rng = job['seed'] + 1000 * index
+            # Re-execute the same two streams after an execution failure.
+            rng = job['seed'] + 1000 * (index % 2)
             text = text_input(
                 DATA, job['sid'], job['pixel'], job['sza'], job['wi'], job['photons'], rng, Path(job['lrt']), work=H
             )
@@ -263,7 +270,7 @@ def _collect(plan, data, c):
     return manifest
 
 
-def schedule(jobs, data, workers, deadline):
+def schedule(jobs, data, workers, deadline, *, retry_failed=False):
     """At most workers outstanding; the deadline never cancels a running task."""
     iterator = iter(jobs)
     with concurrent.futures.ProcessPoolExecutor(
@@ -275,8 +282,9 @@ def schedule(jobs, data, workers, deadline):
                 job = next(iterator, None)
                 if job is None:
                     break
-                if read_result(job) is None:
-                    pending.add(pool.submit(one, job))
+                result = read_result(job)
+                if result is None or (retry_failed and result['status'] == 'failed'):
+                    pending.add(pool.submit(one, job, retry_failed))
             if not pending:
                 break
             done, pending = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
@@ -291,11 +299,13 @@ def main():
     ap.add_argument('--jobs', type=int, default=1)
     ap.add_argument('--lrt-dir', type=Path)
     ap.add_argument('--smoke', action='store_true')
-    ap.add_argument('--shard', type=shard_arg, default=(1, 1))
+    ap.add_argument('--shard', type=shard_arg, default=(1, 1), help='K/N, with N at most the number of geometries')
     ap.add_argument('--deadline-epoch', type=float)
-    ap.add_argument(
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument(
         '--write-partial', action='store_true', help='collect durable results using saved plan, without starting work'
     )
+    mode.add_argument('--retry-failed', action='store_true', help='retry failed jobs and keep their previous attempts')
     a = ap.parse_args()
     H = work_path(a.work)
     c = json.loads(a.config.read_text())
@@ -342,7 +352,7 @@ def main():
             assets=data['identity'],
             levels_km=data['levels_km'],
             earth_radius_km=6371,
-            observer_km=0.1,
+            observer_km=OBSERVER_KM,
             polarization='polarized Rayleigh, depolarizing aerosols',
             refraction=False,
             solar_disk='point',
@@ -364,7 +374,7 @@ def main():
         dump(pp, plan)
         collect(plan, data, c)
         try:
-            schedule(plan['jobs'], data, a.jobs, a.deadline_epoch)
+            schedule(plan['jobs'], data, a.jobs, a.deadline_epoch, retry_failed=a.retry_failed)
         finally:
             manifest = collect(plan, data, c)
     print('MYSTIC', group, json.dumps(manifest['counts']), flush=True)

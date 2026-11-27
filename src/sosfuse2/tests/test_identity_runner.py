@@ -486,3 +486,91 @@ def test_reduced_legacy_view_shape(tmp_path, state):
     restored = radiance_table.restored_settings(path, state, True, 'numpy')
     _, _, el, az = radiance_table.restored_axes(restored)
     assert [len(el), len(az)] == cfg['view_shape']
+
+
+def test_worker_provenance_names_the_running_install():
+    # The loose record keeps the full path so a run can be matched to its install; the archive strips it (pack_state).
+    solver = SimpleNamespace(
+        solve=lambda max_eval, tol: (None, {'tolerance': tol}), timings={},
+        kernel=SimpleNamespace(L=16, domain=SimpleNamespace(top_km=80)),
+    )
+    runner.solve_chunk(solver, 2, 1e-3)
+    worker = solver.timings['solve_worker']
+    assert Path(worker['file']).resolve() == paths.PKG / '__init__.py'
+
+
+def test_block_size_alone_is_signed(state, monkeypatch):
+    for name in ('SOSFUSE2_BLOCK_SIZE', 'SOSFUSE2_KERNEL_FLAGS', 'SOSFUSE2_GROUND_SH_L'):
+        monkeypatch.delenv(name, raising=False)
+    parser = runner.build_parser()
+    default_args = parser.parse_args(['--reduced'])
+    explicit_args = parser.parse_args(['--reduced', '--block-size', '256'])
+    default = runner.resolve_settings(runner.settings_for(default_args), state)
+    explicit = runner.resolve_settings(runner.settings_for(explicit_args), state)
+    assert 'kernel' not in default
+    assert explicit['kernel']['block_size'] == 256
+    monkeypatch.setenv('SOSFUSE2_BLOCK_SIZE', '256')
+    assert explicit == runner.resolve_settings(runner.settings_for(default_args), state)
+    assert runner.signed_contract(state, default, 'numpy', True, 'depolarizing')[0] != runner.signed_contract(
+        state, explicit, 'numpy', True, 'depolarizing'
+    )[0]
+
+
+@pytest.mark.parametrize('failure', ['source', 'table'])
+def test_interrupted_rerun_invalidates_meta_before_replacing_source(tmp_path, state, failure):
+    out, prepare = tmp_path / 'out', tmp_path / 'prepare'
+    out.mkdir()
+    prepare.mkdir()
+    meta = out / 'meta.json'
+    meta.write_text(json.dumps({'complete': True, 'signature': 'original'}))
+    source = prepare / 'source.npz'
+    source.write_bytes(b'old source')
+    job = SimpleNamespace(
+        prepare=prepare, out=out, meta_path=meta, s=SimpleNamespace(geo=SimpleNamespace(h=[0], chi=[0])),
+        moments=[], fields=[np.ones((1, 1, 1))], wl=np.array([550.]), state=state,
+        stats_all=[{'tolerance': 1e-3}], cfg={}, table=np.ones((1, 1, 1, 1)),
+        hs=np.array([-3.]), el=np.array([40.]), az=np.array([0.]),
+    )
+    a = SimpleNamespace(backend='numpy', polarization_model='depolarizing')
+
+    def save(target, **arrays):
+        if failure == 'source' or 'radiance' in arrays:
+            if hasattr(target, 'write'):
+                target.write(b'partial')
+            else:
+                Path(target).write_bytes(b'partial')
+            raise OSError('interrupted')
+        np.savez(target, **arrays)
+
+    with pytest.raises(OSError, match='interrupted'):
+        runner._write_run_arrays(job, SimpleNamespace(concatenate=np.concatenate, array=np.array, savez=save), a)
+    assert json.loads(meta.read_text()) == {'complete': False, 'signature': 'original'}
+    if failure == 'source':
+        assert source.read_bytes() == b'old source'
+    else:
+        with np.load(source) as result:
+            np.testing.assert_allclose(result['source'], job.fields[0], rtol=1e-3, atol=0)
+    assert list(prepare.iterdir()) == [source]
+
+
+def test_block_size_option_alone_restores_on_the_legacy_grid_and_odd_values_are_refused(tmp_path, state, monkeypatch):
+    """A source recorded with --block-size 256 alone restores from its settings even when it looks like the legacy
+    grid (L 32, default axes), whose rebuild would take the kernel of the environment; a recorded block size the runner
+    cannot record, or a kernel entry that is not an object, is E_SOURCE_CONTRACT."""
+    monkeypatch.delenv('SOSFUSE2_BLOCK_SIZE', raising=False)
+    monkeypatch.delenv('SOSFUSE2_KERNEL_FLAGS', raising=False)
+    cfg = runner.resolve_settings(runner.settings_for(SimpleNamespace(reduced=True, settings_json=None, block_size=256)),
+                                  state)
+    assert cfg['kernel']['block_size'] == 256
+    cfg['L'] = 32
+    path = tmp_path / 'source.npz'
+    solver = source(path, state, cfg, 'v5')
+    restored = radiance_table.restored_settings(path, state, True, 'numpy')
+    assert restored == cfg
+    assert radiance_table.load_source(path, solver, [550.0], settings=restored, backend='numpy').shape == (1, 571, 1)
+    for kernel in (dict(cfg['kernel'], block_size=64), 'bad', dict(cfg['kernel'], block_size=True)):
+        source(path, state, dict(cfg, kernel=kernel), 'v5')
+        with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
+            radiance_table.restored_settings(path, state, True, 'numpy')
+        with pytest.raises(ValueError, match='E_SOURCE_CONTRACT'):
+            radiance_table.load_source(path, solver, [550.0], settings=dict(cfg, kernel=kernel), backend='numpy')

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from common import add_paths, dump, sha, work_path
+from common import OBSERVER_KM, add_paths, dump, sha, work_path
 
 H = None
 
@@ -208,7 +208,7 @@ no_absorption mol
         return txt + 'rte_solver disort\nnumber_of_streams 16\nzout 0\noutput_user lambda edir\n'
     return (
         txt
-        + f'''zout 0.1
+        + f'''zout {OBSERVER_KM:g}
 umu {-math.sin(math.radians(p['elevation_deg'])):.17g}
 phi {p['azimuth_deg']:.17g}
 rte_solver mystic

@@ -12,6 +12,7 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_CONFIG = HERE / 'config.json'
 DEFAULT_ARMS = HERE / 'arms.json'
 DENSITY = {'density_profile': 'usstd76', 'ozone_profile': 'usstd76', 'rayleigh_column': 'usstd'}
+OBSERVER_KM = 0.1
 
 
 def sha(path):
@@ -80,3 +81,8 @@ def add_paths(parser, *, arms=False):
 def require_legacy_top(settings):
     if settings.get('top_km', 80) != 80:
         raise ValueError('E_MYSTIC_TOP: comparison requires an 80 km top')
+
+
+def require_observer(settings):
+    if settings.get('observer_km', OBSERVER_KM) != OBSERVER_KM:
+        raise ValueError(f'E_MYSTIC_OBSERVER: comparison requires observer_km={OBSERVER_KM:g}')

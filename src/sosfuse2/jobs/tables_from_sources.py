@@ -135,23 +135,68 @@ def output_complete(out, pack, source=None, state=None, args=None):
     return True
 
 
+def _python_program(args):
+    """(is module, program, index of its first argument) of a Python command line: the -m module or the script. None for
+    any other program and for -c, - or an interactive interpreter, so an editor or `git diff` naming a runner file is
+    not a worker (the .worker.lock taken in main() stays the guard for launches this does not recognise)."""
+    if not args or not re.fullmatch(r'python[0-9.]*[a-z]?', Path(args[0]).name):
+        return None
+    i = 1
+    while i < len(args):
+        arg = args[i]
+        if arg == '--check-hash-based-pycs':
+            i += 2
+        elif arg == '--':  # end of the interpreter options: the script follows
+            return (False, args[i + 1], i + 2) if i + 1 < len(args) else None
+        elif arg.startswith('--') or arg == '-':
+            return None
+        elif arg.startswith('-'):
+            for j, flag in enumerate(arg[1:], 2):
+                if flag in 'cmWX':  # options with a value: the rest of this argument or the next one
+                    value, after = (arg[j:], i + 1) if arg[j:] else (args[i + 1] if i + 1 < len(args) else None, i + 2)
+                    if flag == 'c' or value is None:
+                        return None
+                    if flag == 'm':
+                        return True, value, after
+                    i = after
+                    break
+            else:
+                i += 1
+        else:
+            return False, arg, i + 1
+    return None
+
+
 def live_workers():
-    """(work_root, id) pairs of running state scripts or modules (Linux /proc)."""
+    """(work_root, output name) pairs of running state scripts or modules (Linux /proc)."""
+    from .run_state import DEFAULT_ID, DEFAULT_WORK_ROOT
+
+    options = argparse.ArgumentParser(add_help=False, allow_abbrev=False, exit_on_error=False)
+    options.add_argument('--id', default=DEFAULT_ID)
+    options.add_argument('--out-name')
+    options.add_argument('--work-root', default=DEFAULT_WORK_ROOT)
+    script = re.compile(r'(?:^|/)(?:run_gpu_state(?:_v[23])?\.py|jobs/run_state\.py)$')
+    module = re.compile(r'sosfuse2\.(?:run_gpu_state_v3|jobs\.run_state)')
     owned = set()
     for proc in Path('/proc').glob('[0-9]*'):
         try:
-            args = (proc / 'cmdline').read_bytes().split(b'\0')
+            raw = (proc / 'cmdline').read_bytes()
         except OSError:
             continue
-        args = [x.decode(errors='replace') for x in args if x]
-        if not any(re.search(r'(run_gpu_state(_v[23])?\.py|sosfuse2\.run_gpu_state_v3|sosfuse2\.jobs\.run_state|(?:^|/)jobs/run_state\.py)$', x) for x in args):
+        # NUL-terminated arguments; an empty argument is kept, it can be the value of an option (-X '').
+        args = [x.decode(errors='replace') for x in raw.removesuffix(b'\0').split(b'\0')] if raw else []
+        program = _python_program(args)
+        if program is None or not (module.fullmatch(program[1]) if program[0] else script.search(program[1])):
             continue
         try:
-            ident = args[args.index('--id') + 1]
-            root = Path(args[args.index('--work-root') + 1]).resolve()
-        except (ValueError, IndexError):
+            parsed, _ = options.parse_known_args(args[program[2]:])
+            root = Path(parsed.work_root)
+            if not root.is_absolute():
+                root = (proc / 'cwd').resolve(strict=True) / root
+            root = root.resolve()
+        except (argparse.ArgumentError, OSError, ValueError):
             continue
-        owned.add((str(root), ident))
+        owned.add((str(root), parsed.out_name or parsed.id))
     return owned
 
 

@@ -105,6 +105,11 @@ def put(root, rel, data=b'x'):
     return p
 
 
+def checked_aerosol(root, rel, data):
+    put(root, rel, data)
+    put(root, rel + '.sha256', cs.hashlib.sha256(data).hexdigest())
+
+
 def npz(root, rel, **arrays):
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -152,9 +157,9 @@ def tree(root, height=1.2):
     put(root, f'geometry/{SIG}.lock', '')
     put(root, f'{e}/users/4242', 'v3\n')
     put(root, f'{e}/identity.json.4242.tmp', '{')
-    put(root, f'{e}/aerosol/H_0x1.3333333333333p+0.f4', b'\2' * 16)
+    checked_aerosol(root, f'{e}/aerosol/H_0x1.3333333333333p+0.f4', b'\2' * 16)
     put(root, f'{e}/aerosol/H_0x1.3333333333333p+0.f4.lock', '')
-    put(root, f'geometry/endpoints_{SIG2}/aerosol/H_0x1p+0.f4', b'\3' * 16)
+    checked_aerosol(root, f'geometry/endpoints_{SIG2}/aerosol/H_0x1p+0.f4', b'\3' * 16)
     body = b'PAYLOAD'
     put(root, f'{e}/host_cache/{HC}.hcache', json.dumps(dict(size=len(body))).encode() + b'\n' + body)
     put(root, f'{e}/host_cache/{HC}.lock', '')
@@ -178,6 +183,7 @@ def unit_files(e):
     """Local files of every complete unit of tree() (what a mirror holds after a full pull)."""
     return {f'{e}/{f}' for f in BASE} | {
         f'{e}/aerosol/H_0x1.3333333333333p+0.f4',
+        f'{e}/aerosol/H_0x1.3333333333333p+0.f4.sha256',
         f'{e}/host_cache/{HC}.hcache',
         SUN,
         f'attach/attach_geometry_{ATT}.npz',
@@ -214,12 +220,14 @@ def test_push_complete_units_one_object_per_geometry_key(tmp_path, store):
     assert [r[0] for r in m['files']][-1] == 'packed/complete.json' and {r[0] for r in m['files']} == set(BASE)
     with tarfile.open(store.remote / (e + '.tar')) as t:
         assert t.getnames() == ['MANIFEST.json'] + [r[0] for r in m['files']]
-    tar_call, single, markers = store.calls()
-    assert tar_call['files'] == [e + '.tar'] and set(markers['files']) == {
+    uploads = [call for call in store.calls() if call['argv'][-1] == str(store.remote)]
+    assert uploads[0]['files'] == [e + '.tar']
+    assert {f for call in uploads[2:] for f in call['files']} == {
         f'columns/{COL}.sha256',
         f'attach/attach_{GROUP}.done',
+        f'{e}/aerosol/H_0x1.3333333333333p+0.f4.sha256',
     }
-    assert all('--ignore-existing' in c['argv'] for c in (tar_call, single, markers))
+    assert all('--ignore-existing' in call['argv'] for call in uploads)
     assert {p: p.stat().st_mtime_ns for p in src.rglob('*')} == before and not (src / cs.STAGE).exists()
     assert cs.push(src)['files_sent'] == 0  # nothing new: nothing sent
 
@@ -358,11 +366,14 @@ def test_pull_publishes_under_the_pipeline_locks_and_two_pulls_race(tmp_path, st
         and content(race) == content(mirror)
     )
     assert not (race / cs.STAGE).exists()
-    # One geometry key by name (CLI order); a file the mirror already has is kept.
+    # One geometry key by name (CLI order); a complete column the mirror already has is kept.
     other = tmp_path / 'other'
     put(other, f'columns/{COL}.npy', 'LOCAL')
+    put(other, f'columns/{COL}.sha256', cs.hashlib.sha256(b'LOCAL').hexdigest())
     assert cs.main(['pull', '--keys', e, f'columns/{COL}', str(other)]) == 0
-    assert set(content(other)) == {f for f in unit_files(e) if f.startswith(e + '/')} | {f'columns/{COL}.npy'}
+    assert set(content(other)) == {f for f in unit_files(e) if f.startswith(e + '/')} | {
+        f'columns/{COL}.npy', f'columns/{COL}.sha256',
+    }
     assert (other / f'columns/{COL}.npy').read_text() == 'LOCAL' and cs.pull(other, keys=[e])['files'] == 0
 
 
@@ -450,16 +461,18 @@ def test_bake_run_cache_new_cap_disk_and_enospc(tmp_path, store, monkeypatch, br
     P.out.mkdir(parents=True)
     before = br.cache_snapshot(P)
     new_e = endpoints(cache, 'f' * 20)
-    put(cache, f'{new_e}/aerosol/H_0x1p+1.f4', b'\4' * 8)
+    checked_aerosol(cache, f'{new_e}/aerosol/H_0x1p+1.f4', b'\4' * 16)
     data = put(cache, f'columns/{"d" * 64}.npy', 'new column').read_bytes()
     put(cache, f'columns/{"d" * 64}.sha256', cs.hashlib.sha256(data).hexdigest())
-    put(cache, f'{e}/aerosol/H_0x1p+2.f4', b'\5' * 8)  # new column of an endpoints folder from the input
+    checked_aerosol(cache, f'{e}/aerosol/H_0x1p+2.f4', b'\5' * 16)  # new column of an endpoints folder from the input
     put(cache, f'columns/{"e" * 64}.npy', 'unpublished')  # no sidecar: never taken
     row = br.collect_cache_new(P, before)
     base = {f'{new_e}/{f}' for f in BASE}
     want = {
         f'{new_e}/aerosol/H_0x1p+1.f4',
+        f'{new_e}/aerosol/H_0x1p+1.f4.sha256',
         f'{e}/aerosol/H_0x1p+2.f4',
+        f'{e}/aerosol/H_0x1p+2.f4.sha256',
         f'columns/{"d" * 64}.npy',
         f'columns/{"d" * 64}.sha256',
     } | base
@@ -467,6 +480,7 @@ def test_bake_run_cache_new_cap_disk_and_enospc(tmp_path, store, monkeypatch, br
     pushed = cs.push(P.out / 'cache_new')  # the push from the host that retrieved the results
     assert files(store.remote) == {
         f'{new_e}/aerosol/H_0x1p+1.f4',
+        f'{new_e}/aerosol/H_0x1p+1.f4.sha256',
         f'columns/{"d" * 64}.npy',
         f'columns/{"d" * 64}.sha256',
         new_e + '.tar',
@@ -633,7 +647,7 @@ def test_push_keeps_an_aerosol_column_back_when_its_endpoints_tar_fails(tmp_path
         patch.setattr(cs, 'DISK_MARGIN', 1 << 62)
         row = cs.push(src)
     assert 'E_CACHE_DISK_LOW' in row['codes'] and column in row['orphans']
-    assert files(store.remote) == store_files(e) - {e + '.tar', column}  # units that need no endpoints still travel
+    assert files(store.remote) == store_files(e) - {e + '.tar', column, column + '.sha256'}
     assert row['units_sent'] + len(row['orphans']) + len(row['conflicts']) == row['units']
     assert cs.push(src)['codes'] == ['E_CACHE_ORPHAN'] and files(store.remote) == store_files(e)
 
@@ -662,3 +676,176 @@ def test_pull_reports_a_mirror_build_that_kept_only_its_marker(tmp_path, store):
     assert row['failed'] == {e: 'E_CACHE_LOCAL_PARTIAL', column: 'E_CACHE_ORPHAN'} and row['published'] == 0
     assert not (mirror / e / 'packed/layout.json').exists()  # reported, never replaced
     assert not (mirror / column).exists()  # and nothing new is put under a build that cannot be opened
+
+
+def test_remote_manifest_is_bound_to_the_requested_key(tmp_path, store):
+    root = tmp_path / 'cache'
+    actual = endpoints(root, SIG)
+    requested = f'geometry/endpoints_{SIG2}'
+    unit = cs.scan(root)[0][actual]
+    target = store.remote / (requested + '.tar')
+    target.parent.mkdir(parents=True)
+    cs.write_tar(root, unit, cs.manifest(root, unit), target)
+    with pytest.raises(cs.CacheStoreError, match='E_CACHE_MANIFEST'):
+        cs.remote_manifest(store.remote, requested)
+
+
+@pytest.mark.parametrize('prior', ['payload', 'marker', 'bad-pair'])
+def test_pull_rejects_partial_local_column_pairs(tmp_path, store, prior):
+    root = tmp_path / 'mirror'
+    key = f'columns/{COL}'
+    data, side = key + '.npy', key + '.sha256'
+    payload = b'complete remote column'
+    digest = cs.hashlib.sha256(payload).hexdigest()
+    put(store.remote, data, payload)
+    put(store.remote, side, digest)
+    if prior != 'marker':
+        put(root, data, b'local column')
+    if prior != 'payload':
+        put(root, side, digest)
+    before = content(root)
+    row = cs.pull(root, [key])
+    assert row['failed'] == {key: 'E_CACHE_LOCAL_PARTIAL'}
+    assert content(root) == before
+
+
+@pytest.mark.parametrize('race', ['payload', 'marker'])
+def test_push_reports_racing_column_objects(tmp_path, store, monkeypatch, race):
+    root = tmp_path / 'local'
+    key = f'columns/{COL}'
+    data, side = key + '.npy', key + '.sha256'
+    payload, other = b'local column', b'other column'
+    put(root, data, payload)
+    put(root, side, cs.hashlib.sha256(payload).hexdigest())
+    copy = cs.copy_files
+
+    def competing_copy(src, dst, rels, work):
+        rels = tuple(rels)
+        if Path(dst) == store.remote:
+            if race == 'payload' and data in rels:
+                put(store.remote, data, other)
+            if race == 'marker' and side in rels:
+                put(store.remote, side, cs.hashlib.sha256(other).hexdigest())
+        return copy(src, dst, rels, work)
+
+    monkeypatch.setattr(cs, 'copy_files', competing_copy)
+    row = cs.push(root)
+    assert row['codes'] == ['E_CACHE_CONFLICT']
+    assert row['units_sent'] == 0
+    if race == 'payload':
+        assert not (store.remote / side).exists()
+
+
+def test_mirror_rejects_aerosol_payload_with_wrong_ray_count(tmp_path, store):
+    root = tmp_path / 'mirror'
+    e = endpoints(root, SIG)
+    data = f'{e}/aerosol/profile.f4'
+    payload = np.ones(3, 'f4').tobytes()  # four rays in the endpoint layout
+    put(store.remote, data, payload)
+    put(store.remote, data + '.sha256', cs.hashlib.sha256(payload).hexdigest())
+    row = cs.pull(root, [data])
+    assert row['failed'] == {data: 'E_CACHE_STAGED_INCOMPLETE'}
+    assert not (root / data).exists()
+
+
+@pytest.mark.parametrize('damage', ['no-checksum', 'bad-checksum', 'bad-length'])
+def test_scan_excludes_incomplete_aerosol_columns(tmp_path, damage):
+    e = endpoints(tmp_path, SIG)
+    data = f'{e}/aerosol/profile.f4'
+    payload = np.ones(3 if damage == 'bad-length' else 4, 'f4').tobytes()
+    put(tmp_path, data, payload)
+    if damage != 'no-checksum':
+        digest = cs.hashlib.sha256(payload if damage == 'bad-length' else b'other').hexdigest()
+        put(tmp_path, data + '.sha256', digest)
+    assert data not in cs.scan(tmp_path)[0]
+
+
+def test_aerosol_column_push_with_endpoints_only_in_store(tmp_path, store):
+    """A root that holds only a new aerosol column of endpoints already stored as an archive (the layout of a
+    retrieved result folder) is accepted: its length is checked against the stored direction array."""
+    full = tmp_path / 'full'
+    e = tree(full)
+    cs.push(full)
+    assert (store.remote / (e + '.tar')).is_file()
+    part = tmp_path / 'part'
+    rays = json.loads((full / e / 'packed/layout.json').read_text())['rays']
+    assert (full / e / 'packed/dirs.bin').stat().st_size == cs.DIRS_PER_AEROSOL_BYTE * 4 * rays
+    name = f'{e}/aerosol/H_0x1p+2.f4'
+    checked_aerosol(part, name, b'\5' * (4 * rays))
+    row = cs.push(part)
+    assert row['codes'] == [] and row['conflicts'] == [], row
+    assert (store.remote / name).read_bytes() == b'\5' * (4 * rays)
+    short = tmp_path / 'short'
+    checked_aerosol(short, f'{e}/aerosol/H_0x1p+3.f4', b'\5' * (4 * rays - 4))
+    assert cs.push(short)['codes'] == ['E_CACHE_CONFLICT']
+
+
+def recorded_downloads(monkeypatch, store):
+    """Every file push() reads back from the store, in order (wraps copy_files)."""
+    seen = []
+    copy = cs.copy_files
+
+    def recording(src, dst, rels, work):
+        rels = list(rels)
+        if Path(src) == store.remote:
+            seen.extend(rels)
+        return copy(src, dst, rels, work)
+
+    monkeypatch.setattr(cs, 'copy_files', recording)
+    return seen
+
+
+def test_push_reads_each_column_payload_back_at_most_once(tmp_path, store, monkeypatch):
+    """A first push reads each new column payload back once (the winner check before its marker goes up) and never
+    again to confirm; a second push of the same root reads markers only, so a fill that pushes a shared mirror per
+    state does not download every stored column each time."""
+    src = tmp_path / 'cache'
+    e = tree(src)
+    aerosol = f'{e}/aerosol/H_0x1.3333333333333p+0.f4'
+    payloads = {aerosol, f'columns/{COL}.npy'}
+    seen = recorded_downloads(monkeypatch, store)
+    first = cs.push(src)
+    assert first['conflicts'] == [] and first['orphans'] == [f'geometry/endpoints_{SIG2}/aerosol/H_0x1p+0.f4'], first
+    assert sorted(f for f in seen if f in payloads) == sorted(payloads)
+    assert {f for f in seen if f.endswith(('.f4', '.npy'))} == payloads
+    seen.clear()
+    second = cs.push(src)
+    assert second['conflicts'] == [] and second['units_sent'] == 0, second
+    assert not [f for f in seen if f.endswith(('.f4', '.npy'))], seen
+    assert set(seen) == {aerosol + '.sha256', f'columns/{COL}.sha256'}
+
+
+def test_push_hashes_a_stored_payload_without_marker_once_then_adds_the_marker(tmp_path, store, monkeypatch):
+    """A column payload stored without its marker (an interrupted push) is read back and hashed once; only its marker
+    is uploaded and the recheck reads the marker alone. Other bytes under the same name stay a conflict."""
+    root = tmp_path / 'local'
+    key = f'columns/{COL}'
+    data, side = key + '.npy', key + '.sha256'
+    payload = b'local column'
+    put(root, data, payload)
+    put(root, side, cs.hashlib.sha256(payload).hexdigest())
+    put(store.remote, data, payload)
+    seen = recorded_downloads(monkeypatch, store)
+    row = cs.push(root)
+    assert row['codes'] == [] and row['units_sent'] == 1, row
+    assert seen == [data, side]
+    assert (store.remote / side).read_bytes() == (root / side).read_bytes()
+    other = tmp_path / 'other'
+    put(other, data, b'other bytes!')
+    put(other, side, cs.hashlib.sha256(b'other bytes!').hexdigest())
+    (store.remote / side).unlink()
+    assert cs.push(other)['codes'] == ['E_CACHE_CONFLICT']
+    assert not (store.remote / side).exists()
+
+
+def test_push_refuses_a_stored_column_payload_of_another_size(tmp_path, store):
+    root = tmp_path / 'local'
+    key = f'columns/{COL}'
+    payload = b'local column'
+    put(root, key + '.npy', payload)
+    put(root, key + '.sha256', cs.hashlib.sha256(payload).hexdigest())
+    put(store.remote, key + '.npy', payload + b'+')
+    put(store.remote, key + '.sha256', cs.hashlib.sha256(payload).hexdigest())
+    row = cs.push(root)
+    assert row['codes'] == ['E_CACHE_CONFLICT'], row
+    assert 'size' in row['conflicts'][0]['detail']

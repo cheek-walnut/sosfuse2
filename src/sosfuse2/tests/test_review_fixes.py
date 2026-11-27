@@ -15,14 +15,15 @@ import pytest
 from sosfuse2.foundation import content_identity, paths
 
 
-def test_empty_baseline_pair_is_not_a_pass(tmp_path):
+@pytest.mark.parametrize('values', [{}, {'value': np.empty((2, 0))}], ids=['no-keys', 'no-samples'])
+def test_empty_baseline_pair_is_not_a_pass(tmp_path, values):
     from sosfuse2.checks import stratosphere_checks
 
     current, baseline = tmp_path / 'current', tmp_path / 'baseline'
     for folder in (current, baseline):
         folder.mkdir()
         for name in ('selftest_values.npz', 'full_35_values.npz'):
-            np.savez(folder / name)
+            np.savez(folder / name, **values)
     report = stratosphere_checks.zero_bytes(current, baseline)
     assert report['pass_'] is False and [row['pass_'] for row in report['files'].values()] == [False, False]
     for folder in (current, baseline):
@@ -368,3 +369,45 @@ def test_record_cell_range_stops_the_sort_before_the_scatter_kernel():
     with pytest.raises(ValueError, match='E_VPROD_CELL_RANGE'):
         ksplit.KsplitMixin.vprod_build_plan(solver, kb, 0, None, np.zeros(8, 'i4'), 2, 2)
     assert launched == ['vp_count']
+
+
+def test_pool_source_hashes_cover_all_shared_worker_entry_points():
+    from sosfuse2.precompute import column_parallel
+
+    watched = column_parallel.source_hashes()
+    assert {
+        'rays/ray_columns.py', 'precompute/sun_parallel.py', 'precompute/ground_parallel.py',
+        'solve/ray_geometry_parallel.py',
+    } <= watched.keys()
+
+
+@pytest.mark.parametrize('offset', [0, 1])
+def test_large_record_sort_checks_last_non_sentinel_cell(offset):
+    from sosfuse2.solve import ksplit
+
+    class SplitReached(Exception):
+        pass
+
+    nh, nc = 129, 96
+    ncell = nh * nc
+    c0cp = np.array([-1, 0, ncell - nc - 2 + offset, 0], 'i4')
+
+    def get_function(name):
+        if name == 'vp_split':
+            raise SplitReached
+        assert name == 'vp_keys'
+
+        def keys(_grid, _block, args):
+            n, base, stride, out = args
+            for i in range(n):
+                cell = int(base[2 * (i // 4)])
+                cell = 0xffffffff if cell < 0 else cell + (0, 1, stride, stride + 1)[i % 4]
+                out[i] = (int(cell) << 32) | i
+
+        return keys
+
+    solver = types.SimpleNamespace(xp=np, vprod_plan_module=lambda: types.SimpleNamespace(get_function=get_function))
+    kb = {'chunks': [(0, 1)], 'pcum': [0, 2], 'co': [0, 1]}
+    expected = pytest.raises(ValueError, match='E_VPROD_CELL_RANGE') if offset else pytest.raises(SplitReached)
+    with expected:
+        ksplit.KsplitMixin.vprod_build_plan(solver, kb, 0, None, c0cp, nh, nc)

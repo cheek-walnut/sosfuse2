@@ -305,3 +305,15 @@ def test_pipeline_validate_with_only_ids(monkeypatch, tmp_path):
     a = pipeline.validate(pipeline.parser().parse_args(['--ids', 'clear_34', '--workers', '1']))
     assert (a.ids, a.backend, a.reduced) == (['clear_34'], 'numpy', True)
     assert a.work_root == (tmp_path / 'work').resolve()
+
+
+@pytest.mark.parametrize('separator', ['/', '\\'])
+def test_config_name_cannot_contain_path_separators(tmp_path, monkeypatch, separator):
+    folder = tmp_path / 'configs'
+    folder.mkdir()
+    name = f'..{separator}settings'
+    file = folder / (name + '.json') if separator == '\\' else tmp_path / 'settings.json'
+    file.write_text('{"kernel_flags": [], "block_size": 128}')
+    monkeypatch.setattr(flags_env, 'HERE', folder)
+    with pytest.raises(ValueError, match='E_CONFIG_UNKNOWN'):
+        flags_env.apply_run_options(parse('--config', name), {})

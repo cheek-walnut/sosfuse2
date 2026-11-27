@@ -70,11 +70,15 @@ def source_hashes():
             'rays/shell_segments.py',
             'rays/incoming_quadrature.py',
             'rays/incoming_rings.py',
+            'rays/ray_columns.py',
             'solve/engine_core.py',
+            'solve/ray_geometry_parallel.py',
             # what _run itself calls: the column integrals of both kinds and this module
             'atmosphere/density.py',
             'atmosphere/stratosphere.py',
             'precompute/column_parallel.py',
+            'precompute/sun_parallel.py',
+            'precompute/ground_parallel.py',
         )
     }
 

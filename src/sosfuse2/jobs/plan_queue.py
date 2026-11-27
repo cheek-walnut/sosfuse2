@@ -367,6 +367,7 @@ def collect(a, cfg, states, columns, attach_root):
     """Per-state item lists and the item table (id -> kind, key, file, hit, cost)."""
     from sosfuse2.precompute import column_cache, host_cache
     from sosfuse2.solve import ray_geometry as gm
+    from sosfuse2.solve.ray_geometry_cpu import read_column
     from sosfuse2.atmosphere import tropo_profile
     from sosfuse2.solve.source_solver import Kernel
     from sosfuse2.jobs.run_state import attach_lock_name
@@ -527,15 +528,16 @@ def collect(a, cfg, states, columns, attach_root):
                 )
                 if own.aerosol_profile is not None:
                     row['aerosol_profile'] = own.aerosol_profile['tag']
-                item(
-                    iid,
-                    kind='aerosol',
-                    key=column.name,
-                    file=str(column),
-                    hit=column.is_file() or same,
-                    cost_seconds=costs['aerosol_column_seconds'],
-                    platform_dependent=False,
-                )
+                if iid not in items:
+                    item(
+                        iid,
+                        kind='aerosol',
+                        key=column.name,
+                        file=str(column),
+                        hit=same or read_column(column, len(g['host']['dirs'])) is not None,
+                        cost_seconds=costs['aerosol_column_seconds'],
+                        platform_dependent=False,
+                    )
                 row['items'].append(iid)
             for iid in row['items']:
                 items[iid]['states'].append(row['id'])

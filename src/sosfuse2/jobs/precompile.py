@@ -37,7 +37,7 @@ def one(job):
     domain = domain_arg[0] if domain_arg else Domain(step_km=step)
     from sosfuse2.backends.compile_cache import configure
 
-    configure(cache, 'cupy', block_size)
+    configure(cache, 'cupy', block_size, honor_env=False)
     from sosfuse2.solve.source_solver import Kernel
 
     k = Kernel(1, backend='cupy', block_size=block_size, flags=flags, L=L, profile_step_km=step, domain=domain)
@@ -90,7 +90,8 @@ def resolve_inputs(a):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--cache', default=os.environ.get('SOSFUSE2_COMPILE_CACHE'), help='NVRTC cache root (deployment)')
+    p.add_argument('--cache', default=os.environ.get('SOSFUSE2_COMPILE_CACHE', '').strip(),
+                   help='NVRTC cache root (deployment)')
     p.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1))
     p.add_argument('--no-strato', action='store_true')
     p.add_argument('--settings-json', type=Path, help='run_state settings JSON; omitted selects the default boundary')

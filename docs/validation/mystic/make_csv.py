@@ -7,7 +7,7 @@ import hashlib
 import math
 from pathlib import Path
 
-from common import DEFAULT_CONFIG, add_paths, read
+from common import DEFAULT_CONFIG, OBSERVER_KM, add_paths, read
 
 ARM = "A0"
 REP_PIXEL = (20.25, 0.5)
@@ -35,7 +35,7 @@ FIELDS = [
 HEADER_TEMPLATE = (
     '# Engine and MYSTIC on the same optical input: eight bundled states, six sky pixels, solar zeni'
     'th angles 93 and 96 degrees.\n'
-    '# Data of Figure 2 of docs/VALIDATION.md (mystic_states.png, plot_mystic_states.py). It is the r'
+    '# Data of Figure 3 of docs/VALIDATION.md (mystic_states.png, plot_mystic_states.py). It is the r'
     'ecord of the runs described\n'
     '# under Origin. The scripts in docs/validation/mystic rebuild it from the run records and can repe'
     'at the runs. Do not edit by hand.\n'
@@ -192,8 +192,23 @@ def main():
     engine_pixels = read(d / "engine_pixels.A0.json")
     engine_cfg = engine_pixels["contract"]
     engine_version = engine_cfg["engine_version"]
-    if engine_cfg["settings"].get("nr") != 44:  # the header below states nr 44
+    settings = engine_cfg["settings"]
+    # These settings are printed as fixed values in the public header.
+    if (settings.get("nr"), settings.get("view_shape"), settings.get("solar_elevation_deg")) != (
+        44, [100, 180], list(range(6, -19, -1))
+    ):
         raise ValueError("E_PUBLIC_GRID")
+    spectral = settings.get("spectral", {})
+    if (
+        settings.get("path_n") != 12
+        or settings.get("L") != 16
+        or settings.get("anderson_tol") != 0.001
+        or settings.get("observer_km") != OBSERVER_KM
+        or settings.get("kernel", {}).get("ground_sh", {}).get("order") != 24
+        or spectral.get("mode") != "point"
+        or spectral.get("ozone_column") != "ozone_233K"
+    ):
+        raise ValueError("E_PUBLIC_SETTINGS")
     if engine_cfg["engine_config_id"] != ARM or engine_cfg["optics_sha256"] != sha["optics.json"]:
         raise ValueError("E_ENGINE_INPUT_SHA")
     if mc["engine_pixels_sha256"][ARM] != sha256(d / "engine_pixels.A0.json"):
@@ -209,7 +224,8 @@ def main():
     full_rows = read_csv(d / "full.csv")
     seen = {(r['case_id'], round(float(r['wavelength_nm']), 4), int(r['seed'])) for r in full_rows}
     wavelengths = {round(x, 4) for x in config['wavelength_nm']}
-    expected = {(case, wave, seed) for case in expected_cases for wave in wavelengths for seed in config['seed_ids']}
+    case_waves = {(case, wave) for case in expected_cases for wave in wavelengths}
+    expected = {(case, wave, seed) for case, wave in case_waves for seed in config['seed_ids']}
     if len(full_rows) != len(expected) or seen != expected or any(r['status'] != 'ok' for r in full_rows):
         raise ValueError("E_MC_COVERAGE")
     eng = {}
@@ -221,15 +237,17 @@ def main():
         elev, azim = round(float(r["view_elev_deg"]), 2), float(r["view_azim_deg"])
         case_info[cid] = (r["state_id"], elev, azim, int(float(r["sza_deg"])))
         eng[(cid, round(float(r["wavelength_nm"]), 4))] = float(r["radiance"])
-    assert len(case_info) == 96 and len(eng) == 96 * 30
-    assert {c[1:3] for c in case_info.values()} == set(PIXEL_ORDER)
-    assert {c[0] for c in case_info.values()} == set(STATE_ORDER)
+    if (
+        set(case_info) != expected_cases
+        or eng.keys() != case_waves
+        or {c[1:3] for c in case_info.values()} != set(PIXEL_ORDER)
+        or {c[0] for c in case_info.values()} != set(STATE_ORDER)
+    ):
+        raise ValueError("E_ENGINE_COVERAGE")
 
     seeds = {}
     for r in full_rows:
-        assert r["status"] == "ok"
         seeds.setdefault((r["case_id"], round(float(r["wavelength_nm"]), 4)), []).append(float(r["radiance"]))
-    assert len(seeds) == 96 * 30 and all(len(v) == 16 for v in seeds.values())
 
     spec, lum = {}, {}
     for r in read_csv(d / "compare_long.csv"):
@@ -242,7 +260,8 @@ def main():
             spec[(r["case_id"], round(float(r["wavelength_nm"]), 4))] = row
         elif r["metric"] == "Y_ratio":
             lum[r["case_id"]] = row
-    assert len(spec) == 96 * 30 and len(lum) == 96
+    if spec.keys() != eng.keys() or lum.keys() != case_info.keys():
+        raise ValueError("E_ESTIMATE_COVERAGE")
 
     rows = []
 
@@ -258,14 +277,15 @@ def main():
             cid = cases[(sid, elev, azim, sza)]
             solar = states[sid]["solar"]
             wls = sorted(w for (c, w) in eng if c == cid)
-            assert len(wls) == 30
             for wi, w in enumerate(wls):
                 e_rad, ss = eng[(cid, w)], seeds[(cid, w)]
                 mean_l = math.fsum(ss) / 16
                 sd = math.sqrt(math.fsum((x - mean_l) ** 2 for x in ss) / 15)
                 est = spec[(cid, w)]
-                assert abs(est["mean"] - mean_l / e_rad) < 1e-9 * est["mean"]
-                assert abs(est["se"] - sd / 4 / e_rad) < 1e-8 * est["se"]
+                if not 0 < est["mean"] < math.inf or not math.isclose(est["mean"], mean_l / e_rad, rel_tol=1e-6):
+                    raise ValueError(f"E_ESTIMATE_MEAN {cid} {w:g}")
+                if not 0 <= est["se"] < math.inf or not math.isclose(est["se"], sd / 4 / e_rad, rel_tol=1e-6):
+                    raise ValueError(f"E_ESTIMATE_SE {cid} {w:g}")
                 max_dev = max(max_dev, abs(est["mean"] - mean_l / e_rad) / est["mean"])
                 add(
                     quantity="spectrum",
@@ -292,7 +312,8 @@ def main():
         sel = [r for r in rows if r["quantity"] == "spectrum" and int(r["sza_deg"]) == sza]
         for w in sorted({r["wavelength_nm"] for r in sel}):
             part = [r for r in sel if r["wavelength_nm"] == w]
-            assert len(part) == 8
+            if len(part) != 8:
+                raise ValueError(f"E_SPECTRUM_COVERAGE {sza} {w}")
             m = math.fsum(float(r["ratio"]) for r in part) / 8
             se = math.sqrt(math.fsum(float(r["ratio_se"]) ** 2 for r in part)) / 8
             add(

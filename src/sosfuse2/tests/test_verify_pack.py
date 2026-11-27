@@ -295,3 +295,35 @@ def test_first_order_requires_matching_coordinates(tmp_path, axis, axis_name):
     assert not rt.first_order_complete(tmp_path, dict(settings=dict(export_first_order=True), **meta))
     with pytest.raises(ValueError, match=rf'E_PACK_TABLE_MISMATCH: first_order\.npz: axes differ \({axis_name}\)'):
         compare_first_order(tmp_path / 'table.npz', tmp_path / 'first_order.npz')
+
+
+@pytest.mark.parametrize('compression', ['gzip', 'zstd'])
+def test_pack_strips_tar_owners_and_worker_machine_details(tmp_path, monkeypatch, compression):
+    from sosfuse2.outputs import pack_state
+
+    fake_zstd(tmp_path, monkeypatch)
+    monkeypatch.setenv('OMP_NUM_THREADS', '1')
+    out = tmp_path / 'state'
+    out.mkdir()
+    worker = {'file': str(tmp_path / 'package' / '__init__.py'), 'pid': 427, 'version': '1.0', 'L': 16}
+    data = json.dumps({
+        'complete': True, 'signature': 'sig', 'contract': V3.CONTRACT_VERSION,
+        'gpu': 'device-id', 'timings': [{'solve_worker': worker}],
+    })
+    for name in MEMBERS:
+        (out / name).write_text(data if name == 'meta.json' else 'stub')
+    original = tarfile.TarFile.gettarinfo
+
+    def with_owner(self, *args, **kwargs):
+        info = original(self, *args, **kwargs)
+        info.uid, info.gid, info.uname, info.gname = 42, 43, 'owner', 'group'
+        return info
+
+    monkeypatch.setattr(tarfile.TarFile, 'gettarinfo', with_owner)
+    target = pack_state.pack_state(out, tmp_path / 'pack', compression, reuse_previews=True)
+    with tarfile.open(target) as archive:
+        meta = json.load(archive.extractfile('meta.json'))
+        assert meta['timings'][0]['solve_worker'] == {'file': '__init__.py', 'version': '1.0', 'L': 16}
+        assert 'gpu' not in meta
+        assert all((m.uid, m.gid, m.uname, m.gname) == (0, 0, '', '') for m in archive)
+    assert json.loads((out / 'meta.json').read_text())['timings'][0]['solve_worker']['pid'] == 427

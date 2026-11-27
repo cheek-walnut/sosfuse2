@@ -306,9 +306,8 @@ def release_geometry(root, cache, success, keep=False):
 AUTO_FLAGS = ('STRATO', 'TROPO_MIE', 'AEROSOL_2L')
 
 
-def kernel_settings():
-    """Kernel variant from the environment only (the queue exports it and workers and the prefetch helper inherit
-    os.environ), so scheduler, prefetch and runner derive the same settings and signature.  None selects default transport with block 128; physical flags are attached from the state."""
+def kernel_settings(block_size=None):
+    """Resolve the kernel variant and block size. None selects default transport with block 128."""
     from sosfuse2.backends.flags import KERNEL_FLAGS, resolve_config
 
     flags = sorted({f for f in os.environ.get('SOSFUSE2_KERNEL_FLAGS', '').replace(' ', '').split(',') if f})
@@ -321,7 +320,9 @@ def kernel_settings():
     text = os.environ.get('SOSFUSE2_BLOCK_SIZE', '').strip()
     if text not in ('', '128', '256'):
         raise ValueError('E_KERNEL_BLOCK_SIZE: SOSFUSE2_BLOCK_SIZE must be 128 or 256')
-    block = int(text or 128)
+    if text and block_size is not None and block_size != int(text):
+        raise ValueError('E_KERNEL_BLOCK_SIZE: --block-size disagrees with SOSFUSE2_BLOCK_SIZE')
+    block = int(text or 128) if block_size is None else block_size
     from sosfuse2.solve.ground_sh import configured_order, GRID_INTERVALS
 
     ground_order = configured_order()
@@ -531,7 +532,7 @@ def settings_for(a):
     if hs.ndim != 1 or not np.isfinite(hs).all() or len(set(hs)) != len(hs) or -3 not in hs or -6 not in hs:
         raise ValueError('E_SETTINGS_SOLAR: unique finite elevations including -3,-6 required')
     # After the settings_json key check, so a settings file can never set or override it.
-    kernel = kernel_settings()
+    kernel = kernel_settings(getattr(a, 'block_size', None))
     if kernel is not None:
         cfg['kernel'] = kernel
     block = spectral.block(spectral_raw, wl, 'wavelengths_nm' in raw)
@@ -1472,31 +1473,41 @@ def _finish_chunk_tables(job, np):
 
 def _write_run_arrays(job, np, a):
     prepare, s, moments = job.prepare, job.s, job.moments
+    if job.meta_path.is_file():
+        previous = json.loads(job.meta_path.read_text())
+        if previous.get('complete'):
+            # Preserve the signature guard if a rerun is interrupted between files.
+            atomic_json(job.meta_path, dict(previous, complete=False))
     # Uncompressed: a per-state diagnostic read only through np.load (gate.py); zlib saved 6 % in
     # 0.5-1 s of single-core time per state. table.npz too (numeric identity is judged on
     # arrays, not file SHA); the pack is tar.zst either way, and same arrays still give the same file bytes.
-    np.savez(
-        prepare / 'source.npz',
-        source=np.concatenate(job.fields, axis=-1),
-        h=s.geo.h,
-        chi=s.geo.chi,
-        wavelength_nm=job.wl,
-        physics=np.array(json.dumps(physics(), sort_keys=True)),
-        optics_state=np.array(json.dumps(optics_state(job.state), sort_keys=True)),
-        source_contract=np.array(
-            json.dumps(
-                dict(
-                    state=canonical_state(job.state),
-                    anderson_tol=job.stats_all[0]['tolerance'],
-                    settings=job.cfg,
-                    backend=a.backend,
-                    polarization_model=a.polarization_model,
-                ),
-                sort_keys=True,
-                allow_nan=False,
+    source = prepare / 'source.npz'
+    tmp = source.with_suffix('.npz.tmp')
+    try:
+        with tmp.open('wb') as f:
+            np.savez(
+                f,
+                source=np.concatenate(job.fields, axis=-1),
+                h=s.geo.h,
+                chi=s.geo.chi,
+                wavelength_nm=job.wl,
+                physics=np.array(json.dumps(physics(), sort_keys=True)),
+                optics_state=np.array(json.dumps(optics_state(job.state), sort_keys=True)),
+                source_contract=np.array(json.dumps(
+                    {
+                        'state': canonical_state(job.state),
+                        'anderson_tol': job.stats_all[0]['tolerance'],
+                        'settings': job.cfg,
+                        'backend': a.backend,
+                        'polarization_model': a.polarization_model,
+                    },
+                    sort_keys=True,
+                    allow_nan=False,
+                )),
             )
-        ),
-    )
+        os.replace(tmp, source)
+    finally:
+        tmp.unlink(missing_ok=True)
     if moments:
         np.savez(
             prepare / 'moment.npz',
@@ -2081,13 +2092,11 @@ def main():
     if any(not re.fullmatch('[A-Za-z0-9_-]+', s) for s in (a.id, a.out_name or a.id)):
         p.error('unsafe state/output id')
     try:
-        kernel = kernel_settings()
+        kernel = kernel_settings(a.block_size)
     except ValueError as e:
         p.error(str(e))
     if a.block_size is None:
         a.block_size = (kernel or {}).get('block_size', 128)
-    elif os.environ.get('SOSFUSE2_BLOCK_SIZE', '').strip() and a.block_size != (kernel or {}).get('block_size', 128):
-        p.error('E_KERNEL_BLOCK_SIZE: --block-size disagrees with SOSFUSE2_BLOCK_SIZE (recorded in settings.kernel)')
     if a.gpu_lock and (a.geometry_only or a.extra_elevations):
         p.error('E_PIPELINE_MODE: gpu-lock requires ordinary state mode')
     if a.geometry_only:

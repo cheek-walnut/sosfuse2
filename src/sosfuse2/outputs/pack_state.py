@@ -1,8 +1,19 @@
 """Portable previews and an atomic archive of four products plus optional first-order radiance."""
 
-import ast, json, math, os, shutil, subprocess, tarfile, time
+import ast
+import io
+import json
+import math
+import os
+import shutil
+import subprocess
+import tarfile
+import time
+from pathlib import PurePosixPath, PureWindowsPath
+
 import numpy as np
 from PIL import Image, PngImagePlugin
+
 from sosfuse2.foundation import paths
 
 ROOT = paths.PKG
@@ -98,6 +109,35 @@ def previews(out):
         funcs['save_png'](out / f'preview_m{abs(h):02d}.png', funcs['tone'](projected, k))
 
 
+def _anonymous(info):
+    info.uid = info.gid = 0
+    info.uname = info.gname = ''
+    return info
+
+
+def _write_products(tar, out, names, meta):
+    # Leave diagnostic details in the loose record for local monitoring.
+    for timing in meta.get('timings') or ():
+        worker = timing.get('solve_worker') if isinstance(timing, dict) else None
+        if isinstance(worker, dict):
+            worker.pop('pid', None)
+            file = worker.get('file')
+            if isinstance(file, str):
+                for path in (PurePosixPath(file), PureWindowsPath(file)):
+                    if path.is_absolute():
+                        worker['file'] = path.name
+                        break
+    meta.pop('gpu', None)
+    data = (json.dumps(meta, indent=2, allow_nan=False) + '\n').encode()
+    for name in names:
+        if name == 'meta.json':
+            info = _anonymous(tar.gettarinfo(str(out / name), arcname=name))
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        else:
+            tar.add(out / name, arcname=name, recursive=False, filter=_anonymous)
+
+
 def pack_state(out, pack, compression='auto', started=None, *, reuse_previews=False):
     """Reuse previews only after a successful pack in the same attempt."""
     meta = json.loads((out / 'meta.json').read_text())
@@ -144,16 +184,14 @@ def pack_state(out, pack, compression='auto', started=None, *, reuse_previews=Fa
                 )
                 try:
                     with tarfile.open(fileobj=process.stdin, mode='w|') as tar:
-                        for name in names:
-                            tar.add(out / name, arcname=name, recursive=False)
+                        _write_products(tar, out, names, meta)
                 finally:
                     process.stdin.close()
                 if process.wait() != 0:
                     raise RuntimeError('E_PACK_ZSTD_FAILED')
         else:
             with tarfile.open(tmp, 'w:gz') as tar:
-                for name in names:
-                    tar.add(out / name, arcname=name, recursive=False)
+                _write_products(tar, out, names, meta)
         os.replace(tmp, target)
     finally:
         tmp.unlink(missing_ok=True)

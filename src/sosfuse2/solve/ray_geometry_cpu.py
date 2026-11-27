@@ -9,6 +9,7 @@ layers=2: ContractTwoLayerGeometry = TwoLayerGeometry whose COMMON-layer
 
 import copy
 import fcntl
+import hashlib
 import json
 import os
 import sys
@@ -82,43 +83,100 @@ def cache_complete(geometry):
 
 
 def column_ready(geometry):
-    """layers=2: True if this state's aerosol column file exists (layers=1: always True)."""
-    return not hasattr(geometry, 'column_path') or geometry.column_path(geometry.s.kernel.height).is_file()
+    """Whether this state's aerosol column is reusable (layers=1: always True)."""
+    if not hasattr(geometry, 'column_path'):
+        return True
+    rays = _packed_ray_count(geometry)
+    return rays is not None and read_column(geometry.column_path(geometry.s.kernel.height), rays) is not None
+
+
+def _packed_ray_count(geometry):
+    try:
+        rays = json.loads((geometry.cache / 'packed/layout.json').read_text())['rays']
+        return rays if type(rays) is int and rays >= 0 else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def read_column(path, rays):
+    """Read one checked snapshot of a raw aerosol column, or return None on a cache miss."""
+    import numpy as np
+
+    side = path.with_suffix('.f4.sha256')
+    try:
+        if path.is_symlink() or side.is_symlink() or not path.is_file() or not side.is_file():
+            return None
+        digest = side.read_bytes().strip()
+        if path.stat().st_size != 4 * rays:
+            return None
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if len(data) != 4 * rays or hashlib.sha256(data).hexdigest().encode('ascii') != digest:
+        return None
+    column = np.frombuffer(data, 'f4')
+    return column if np.isfinite(column).all() else None
 
 
 def ensure_column(geometry):
-    """layers=2 only: write the aerosol column file with the same rule as
-    TwoLayerGeometry.prepare() without any upload.
-    A per-height lock serialises writers; tmp names are per process.
-    Returns 'cached' | 'common layer (same height)' | 'computed' | None (layers=1)."""
-    if not hasattr(geometry, 'column_path'):
-        return None
+    """Prepare the aerosol column on the CPU, and return the cache outcome (None for layers=1)."""
+    return load_or_build_column(geometry)[1] if hasattr(geometry, 'column_path') else None
+
+
+def load_or_build_column(geometry, host=None):
+    """Load or repair the checksum pair under the shared per-height writer lock."""
     import numpy as np
     from ..atmosphere.tropo_profile import same_source
+    from ..foundation.timers import stage
 
     height = geometry.s.kernel.height
+    preparing_on_cpu = host is None
     path = geometry.column_path(height)
-    path.parent.mkdir(exist_ok=True)
-    with (path.parent / (path.name + '.lock')).open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if path.is_file():
-            return 'cached'
+    rays = _packed_ray_count(geometry) if host is None else len(host['dirs'])
+    if rays is None:
         host, _ = geometry.host_arrays()
-        source = json.loads((geometry.cache / 'source_height.json').read_text())['height']
+        rays = len(host['dirs'])
+    source = json.loads((geometry.cache / 'source_height.json').read_text())['height']
+    with stage('aerosol_column_load'):
+        column = read_column(path, rays)
+    if column is not None:
+        return column, 'cached', source
+    path.parent.mkdir(exist_ok=True)
+    with path.with_suffix('.f4.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        column = read_column(path, rays)
+        if column is not None:
+            return column, 'cached', source
+        if host is None:
+            host, _ = geometry.host_arrays()
         started = time.monotonic()
         if same_source(geometry.s, source, height):
             column = np.array(host['end_col'][:, 1])
             how = 'common layer (same height)'
         else:
-            column = geometry.recompute_column(host, height)
+            with stage('aerosol_column_compute'):
+                column = geometry.recompute_column(host, height)
             how = 'computed'
+        column = np.asarray(column, dtype='f4')
         if column.shape != (len(host['dirs']),):
             raise RuntimeError('E_AEROSOL_COLUMN: wrong length')
+        if not np.isfinite(column).all():
+            raise RuntimeError('E_AEROSOL_COLUMN: nonfinite values')
+        data = column.tobytes()
         tmp = path.with_name(f'{path.name}.{os.getpid()}.tmp')
-        column.astype('f4').tofile(tmp)
-        os.replace(tmp, path)
-        print(f'CPU_AEROSOL_COLUMN height={height} how={how} seconds={time.monotonic() - started:.2f}', flush=True)
-        return how
+        side = path.with_suffix('.f4.sha256')
+        side_tmp = tmp.with_suffix('.sha256.tmp')
+        try:
+            tmp.write_bytes(data)
+            side_tmp.write_text(hashlib.sha256(data).hexdigest() + '\n', encoding='ascii')
+            os.replace(tmp, path)
+            os.replace(side_tmp, side)
+        finally:
+            tmp.unlink(missing_ok=True)
+            side_tmp.unlink(missing_ok=True)
+        if preparing_on_cpu:
+            print(f'CPU_AEROSOL_COLUMN height={height} how={how} seconds={time.monotonic() - started:.2f}', flush=True)
+        return column, how, source
 
 
 def build_cells(geometry, count=None):

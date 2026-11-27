@@ -794,6 +794,9 @@ class KsplitMixin:
             key = xp.empty(n, xp.uint64)
             mod.get_function('vp_keys')(g(n), (T,), (np.int64(n), c0cp, np.int32(nc), key))
             key.sort()
+            # The keys for negative base cells sort after all nrec valid records.
+            if int(key[nrec - 1]) >> 32 >= ncell:
+                raise ValueError(f'E_VPROD_CELL_RANGE: a record cell is outside 0..{ncell - 1} (chunk {ci})')
             mod.get_function('vp_split')(g(nrec), (T,), (np.int64(nrec), key, slot, cell))
             del key
         pray = xp.empty(max(npt, 1), 'i4')

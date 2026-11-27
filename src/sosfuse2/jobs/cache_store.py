@@ -11,7 +11,7 @@ Mirror : SKY_CACHE_MIRROR (default <work root>/sky-cache)/{geometry,attach,colum
   python -B -m sosfuse2.jobs.cache_store pack-for-remote [--local DIR] (--all | K ...) <out.tar>
 
 A unit is what is checked complete, transferred and never overwritten. Local layout = the pipeline's (paths relative
-to the root); in the store every unit is ONE object, so an interrupted upload leaves nothing that looks complete:
+to the root); columns use checksum markers to detect incomplete transfers:
   geometry/endpoints_<20 hex>   local: identity.json, source_height.json, packed/* (complete = packed/complete.json,
       layout.json and every packed/<field>.bin of the size layout.json names, solve/ray_geometry.py; users/, *.lock,
       *.tmp never belong to it). Store: geometry/endpoints_<sig>.tar, MANIFEST.json first ([rel, bytes, sha256] per
@@ -20,7 +20,7 @@ to the root); in the store every unit is ONE object, so an interrupted upload le
       valid local copies of one key can differ: a store tar whose manifest differs from the local copy is
       E_CACHE_CONFLICT (kept, never overwritten or combined). Pull streams the tar, checks every member against the
       manifest and publishes the folder under the builder lock.
-  geometry/endpoints_<sig>/aerosol/<name>.f4  per-height column (tmp + os.replace, solve/ray_geometry_cpu.py); needs its endpoints.
+  geometry/endpoints_<sig>/aerosol/<name>.f4  per-height column with a .f4.sha256 marker; needs its endpoints.
   geometry/endpoints_<sig>/host_cache/<64 hex>.hcache  one-file envelope (host_cache.py): header size check.
   geometry/host_sun/.../sun_columns.npz      sun table (tmp + os.replace, sun_parallel.py): zip directory check.
   attach/attach_geometry_<24 hex>.npz        published by atomic rename only (jobs/run_state.py,
@@ -74,6 +74,8 @@ def _remote(remote):
 KINDS = ('geometry', 'attach', 'columns')
 STAGE = '.cache_store'  # staging folder inside a local root (same file system)
 ITEMSIZE = dict(i8=8, f8=8, u8=8, f4=4, i4=4, u4=4, u2=2, i2=2, u1=1, i1=1)
+# Bytes of packed/dirs.bin per byte of an aerosol column of the same endpoints (one f4 per ray).
+DIRS_PER_AEROSOL_BYTE = ITEMSIZE[DTYPES['dirs']] * prod(TRAIL['dirs']) // ITEMSIZE['f4']
 FORMAT = 'sky-cache-endpoints/1'
 MANIFEST = 'MANIFEST.json'
 HEAD = 1 << 20  # bytes read to get a stored tar's manifest (first member)
@@ -84,7 +86,7 @@ ORDER = ('endpoints', 'aerosol', 'hcache', 'sun', 'attach', 'columns', 'attach_d
 ENDPOINTS = re.compile(r'geometry/endpoints_[0-9a-f]{20}')
 ENDPOINTS_TAR = re.compile(r'(geometry/endpoints_[0-9a-f]{20})\.tar')
 LEGACY = re.compile(r'(geometry/endpoints_[0-9a-f]{20})/(?:identity\.json|source_height\.json|packed/[^/]+)')
-AEROSOL = re.compile(r'(geometry/endpoints_[0-9a-f]{20})/aerosol/[^/]+\.f4')
+AEROSOL = re.compile(r'(geometry/endpoints_[0-9a-f]{20})/aerosol/[^/]+\.f4(?:\.sha256)?')
 HCACHE = re.compile(r'geometry/endpoints_[0-9a-f]{20}/host_cache/[0-9a-f]{64}\.hcache')
 SUN = re.compile(r'geometry/host_sun/(?:[^/]+/)+sun_columns\.npz')
 ATTACH = re.compile(r'attach/attach_geometry_[0-9a-f]{24}\.npz')
@@ -279,6 +281,47 @@ def _endpoints(root, key):
     return Unit(key, 'endpoints', rel, [f'{key}/packed/complete.json'], size=size), None
 
 
+def _column_unit(rel):
+    if m := AEROSOL.fullmatch(rel):
+        key = rel.removesuffix('.sha256')
+        return Unit(key, 'aerosol', [key], [key + '.sha256'], requires=m.group(1))
+    if m := COLUMN.fullmatch(rel):
+        key = f'columns/{m.group(1)}'
+        return Unit(key, 'columns', [key + '.npy'], [key + '.sha256'])
+    return None
+
+
+def _payload_digest(path):
+    try:
+        if path.is_file() and not path.is_symlink():
+            return _sha_file(path).encode('ascii')
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def _marker_bytes(path):
+    try:
+        if path.is_file() and not path.is_symlink():
+            return path.read_bytes()
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def _pair_digest(payload, marker):
+    data = _marker_bytes(marker)
+    return data.strip() if data is not None and _payload_digest(payload) == data.strip() else None
+
+
+def _aerosol_size_ok(endpoints, payload):
+    try:
+        rays = json.loads((endpoints / 'packed/layout.json').read_text())['rays']
+        return type(rays) is int and rays >= 0 and payload.stat().st_size == rays * ITEMSIZE['f4']
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def scan(root):
     """Complete units under a local root: ({key: Unit}, [(path, reason)] for what was left out)."""
     root = Path(root)
@@ -319,8 +362,20 @@ def scan(root):
                     continue
                 if rel_dir.startswith('geometry/endpoints_') and rel_dir.count('/') == 1:
                     continue  # identity/source_height: part of the endpoints unit
-                if m := AEROSOL.fullmatch(rel):
-                    units[rel] = Unit(rel, 'aerosol', [rel], requires=m.group(1), size=path.stat().st_size)
+                if u := _column_unit(rel):
+                    if rel in u.markers:
+                        continue
+                    side = root / u.markers[0]
+                    try:
+                        if u.requires in units and not _aerosol_size_ok(root / u.requires, path):
+                            skipped.append((rel, 'incomplete: aerosol length'))
+                        elif _pair_digest(path, side) is None:
+                            skipped.append((rel, 'incomplete: checksum'))
+                        else:
+                            u.bytes = path.stat().st_size + side.stat().st_size
+                            units[u.key] = u
+                    except OSError:
+                        skipped.append((rel, 'incomplete: checksum'))
                 elif HCACHE.fullmatch(rel):
                     if _hcache_ok(path):
                         units[rel] = Unit(rel, 'hcache', [rel], size=path.stat().st_size)
@@ -338,21 +393,6 @@ def scan(root):
                         skipped.append((rel, 'incomplete: zip'))
                 elif ATTACH_DONE.fullmatch(rel):
                     units[rel] = Unit(rel, 'attach_done', [], [rel], size=path.stat().st_size)
-                elif m := COLUMN.fullmatch(rel):
-                    if m.group(2) == 'sha256':
-                        continue
-                    key = f'columns/{m.group(1)}'
-                    side = here / (m.group(1) + '.sha256')
-                    try:
-                        good = side.is_file() and side.read_text().strip() == _sha_file(path)
-                    except OSError:
-                        good = False
-                    if good:
-                        units[key] = Unit(
-                            key, 'columns', [rel], [key + '.sha256'], size=path.stat().st_size + side.stat().st_size
-                        )
-                    else:
-                        skipped.append((rel, 'incomplete: checksum'))
                 else:
                     skipped.append((rel, 'unknown'))
     return units, skipped
@@ -368,8 +408,10 @@ def group_remote(files, dups=()):
             units[m.group(1)] = Unit(m.group(1), 'endpoints', [rel], size=files[rel], fmt='tar')
         elif m := LEGACY.fullmatch(rel):
             legacy.setdefault(m.group(1), []).append(rel)
-        elif m := AEROSOL.fullmatch(rel):
-            units[rel] = Unit(rel, 'aerosol', [rel], requires=m.group(1), size=files[rel])
+        elif u := _column_unit(rel):
+            if rel in u.files and u.markers[0] in files:
+                u.bytes = files[rel] + files[u.markers[0]]
+                units[u.key] = u
         elif HCACHE.fullmatch(rel):
             units[rel] = Unit(rel, 'hcache', [rel], size=files[rel])
         elif SUN.fullmatch(rel):
@@ -378,11 +420,6 @@ def group_remote(files, dups=()):
             units[rel] = Unit(rel, 'attach', [rel], size=files[rel])
         elif ATTACH_DONE.fullmatch(rel):
             units[rel] = Unit(rel, 'attach_done', [], [rel], size=files[rel])
-        elif (m := COLUMN.fullmatch(rel)) and m.group(2) == 'npy':
-            key = f'columns/{m.group(1)}'
-            side = key + '.sha256'
-            if side in files:
-                units[key] = Unit(key, 'columns', [rel], [side], size=files[rel] + files[side])
     for key, rels in legacy.items():
         marker = key + '/packed/complete.json'
         if key in units or not {
@@ -515,7 +552,10 @@ def read_manifest(head):
 
 
 def remote_manifest(remote, key):
-    return read_manifest(rclone(['cat', '--head', str(HEAD), f'{remote}/{key}.tar'], binary=True).stdout)
+    m = read_manifest(rclone(['cat', '--head', str(HEAD), f'{remote}/{key}.tar'], binary=True).stdout)
+    if m.get('key') != key:
+        raise CacheStoreError('E_CACHE_MANIFEST', 'manifest of another key')
+    return m
 
 
 def extract_tar(stream, key, dst):
@@ -690,6 +730,51 @@ def _work(work):
     return Path(work) if work else paths.work_root() / 'tmp'
 
 
+def _push_markers(units, sent, markers, column_markers, hashed, remote, root, work, conflict):
+    """Check the payload winner before publishing its marker, then recheck the stored pair. Each payload is read back
+    at most once: one this push uploaded is hashed here before its marker goes up, one already stored was hashed by
+    push() (`hashed`), and the store never replaces an object (--ignore-existing), so the recheck reads markers only."""
+    pairs = [units[key] for key in sent if key in column_markers]
+    if not pairs:
+        return copy_files(root, remote, markers, work)
+    work.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='pairs-', dir=work) as folder:
+        check = Path(folder)
+        seconds = copy_files(remote, check / 'payload', [u.files[0] for u in pairs if u.key not in hashed], work)
+        ready = []
+        for u in pairs:
+            payload, side = u.files[0], u.markers[0]
+            if u.key not in hashed and _payload_digest(check / 'payload' / payload) != column_markers[u.key].strip():
+                conflict(u.key, 'another column payload was stored first')
+                sent.remove(u.key)
+                if side in markers:
+                    markers.remove(side)
+                continue
+            ready.append(u)
+            if side in markers:
+                path = check / 'markers' / side
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(column_markers[u.key])
+        paired_markers = {u.markers[0] for u in ready}
+        seconds += copy_files(check / 'markers', remote, [m for m in markers if m in paired_markers], work)
+        seconds += copy_files(root, remote, [m for m in markers if m not in paired_markers], work)
+        if ready:
+            now, dups = remote_listing(remote)
+            confirms = {
+                u.key
+                for u in ready
+                if all(f in now and f not in dups for f in u.all())
+                and now[u.files[0]] == (root / u.files[0]).stat().st_size
+            }
+            seconds += copy_files(remote, check / 'confirm', [u.markers[0] for u in ready if u.key in confirms], work)
+            for u in ready:
+                marker = _marker_bytes(check / 'confirm' / u.markers[0]) if u.key in confirms else None
+                if marker is None or marker.strip() != column_markers[u.key].strip():
+                    conflict(u.key, 'stored column pair differs after publication')
+                    sent.remove(u.key)
+    return seconds
+
+
 def push(root, remote=None, work=None):
     """Upload the complete units of root that the store lacks: endpoints as one tar each, then single files, then
     markers. Never overwrites; a stored unit that differs from the local one is reported, not combined."""
@@ -699,7 +784,8 @@ def push(root, remote=None, work=None):
     units, skipped = scan(root)
     have, dups = remote_listing(remote)
     stored = group_remote(have, dups)
-    tars, content, markers, orphans, sent, conflicts, verify = [], [], [], [], [], [], {}
+    tars, content, markers, orphans, sent, conflicts = [], [], [], [], [], []
+    verify, column_markers = {}, {}
 
     def conflict(key, why):
         conflicts.append(dict(key=key, code='E_CACHE_CONFLICT', detail=why))
@@ -723,12 +809,31 @@ def push(root, remote=None, work=None):
                 continue
             if other != m['content_sha256']:
                 conflict(u.key, 'stored tar has another manifest')
-        elif u.kind == 'columns':
-            npy, side = u.files[0], u.markers[0]
-            if npy in have or side in have:
-                verify[u.key] = u  # compare with the stored bytes first
+        elif u.kind in ('columns', 'aerosol'):
+            payload, side = u.files[0], u.markers[0]
+            data = _marker_bytes(root / side)
+            if data is None:
+                conflict(u.key, 'local column marker disappeared')
+                continue
+            if u.kind == 'aerosol' and u.requires not in units:
+                parent = stored[u.requires]
+                if parent.fmt == 'tar':
+                    try:
+                        remote_sizes = {f: size for f, size, _ in remote_manifest(remote, parent.key)['files']}
+                    except CacheStoreError as exc:
+                        conflicts.append({'key': u.key, 'code': exc.code, 'detail': exc.detail})
+                        continue
+                    dirs_size = remote_sizes.get('packed/dirs.bin')
+                else:
+                    dirs_size = have.get(f'{parent.key}/packed/dirs.bin')
+                if dirs_size is None or dirs_size != DIRS_PER_AEROSOL_BYTE * (root / payload).stat().st_size:
+                    conflict(u.key, 'aerosol length differs from the stored endpoints')
+                    continue
+            column_markers[u.key] = data
+            if payload in have or side in have:
+                verify[u.key] = u
             else:
-                content.append(npy)
+                content.append(payload)
                 markers.append(side)
                 sent.append(u.key)
         else:
@@ -740,26 +845,33 @@ def push(root, remote=None, work=None):
                 conflict(u.key, f'stored size {have[f]} != local {(root / f).stat().st_size}')
     seconds = 0.0
     tar_bytes = {}
+    hashed = set()  # column keys whose stored payload this push has read back and hashed
     if verify:  # one transfer for every stored column file needed
         work.mkdir(parents=True, exist_ok=True)
         got = Path(tempfile.mkdtemp(prefix='verify-', dir=work))
         try:
-            seconds += copy_files(remote, got, [f for u in verify.values() for f in u.all() if f in have], work)
+            # A stored marker is compared alone: markers are published only after their payload was checked
+            # (_push_markers), and pull() checks every pair again. Only a payload stored without its marker is read.
+            need = [u.markers[0] if u.markers[0] in have else u.files[0] for u in verify.values()]
+            seconds += copy_files(remote, got, need, work)
             for u in verify.values():
-                npy, side = u.files[0], u.markers[0]
-                local = (root / side).read_text().strip()
+                payload, side = u.files[0], u.markers[0]
+                digest = column_markers[u.key].strip()
                 if side in have:
-                    if (got / side).read_text().strip() != local:
+                    marker = _marker_bytes(got / side)
+                    if marker is None or marker.strip() != digest:
                         conflict(u.key, 'stored sha256 marker differs')
-                        continue
-                    if npy not in have:
-                        content.append(npy)
+                    elif payload not in have:
+                        content.append(payload)
                         sent.append(u.key)
-                elif _sha_file(got / npy) == local:
-                    markers.append(side)
-                    sent.append(u.key)  # stored npy = ours: attach marker
+                    elif have[payload] != (root / payload).stat().st_size:
+                        conflict(u.key, 'stored column payload size differs')
+                elif _payload_digest(got / payload) != digest:
+                    conflict(u.key, 'stored column payload differs')
                 else:
-                    conflict(u.key, 'stored npy without marker has other bytes')
+                    hashed.add(u.key)
+                    markers.append(side)
+                    sent.append(u.key)
         finally:
             shutil.rmtree(got, ignore_errors=True)
     for u, m in tars:
@@ -811,7 +923,7 @@ def push(root, remote=None, work=None):
             content[:] = [f for f in content if f not in u.all()]
             markers[:] = [f for f in markers if f not in u.all()]
     seconds += copy_files(root, remote, content, work)
-    seconds += copy_files(root, remote, markers, work)
+    seconds += _push_markers(units, sent, markers, column_markers, hashed, remote, root, work, conflict)
     codes = sorted({c['code'] for c in conflicts} | ({'E_CACHE_ORPHAN'} if orphans else set()))
     row = dict(
         event='push',
@@ -874,18 +986,25 @@ def publish(u, stage, root):
                     return 'E_CACHE_CONFLICT'
             os.rename(stage / u.key / 'packed', dst / 'packed')  # the whole build appears at once, complete.json inside
         return 'published'
-    if u.kind == 'aerosol':
-        if not _endpoints(root, u.requires)[0]:  # the build it belongs to, complete as scan() requires
-            return 'E_CACHE_ORPHAN'
-        with flocked((root / u.key).with_name((root / u.key).name + '.lock')):  # ensure_column's per-height lock
-            return _link(stage / u.key, root / u.key)
-    if u.kind == 'columns':
-        npy, side = root / u.files[0], root / u.markers[0]
-        with flocked(root / (u.key + '.lock')):  # cached_columns' per-key lock (column_cache.py)
-            if npy.exists():
-                return 'present'
-            os.replace(stage / u.markers[0], side)
-            os.replace(stage / u.files[0], npy)  # writer's order (column_cache.py)
+    if u.kind in ('columns', 'aerosol'):
+        payload, side = u.files[0], u.markers[0]
+        if u.kind == 'aerosol':
+            if not _endpoints(root, u.requires)[0]:
+                return 'E_CACHE_ORPHAN'
+            if not _aerosol_size_ok(root / u.requires, stage / payload):
+                return 'E_CACHE_STAGED_INCOMPLETE'
+        incoming = _pair_digest(stage / payload, stage / side)
+        if incoming is None:
+            return 'E_CACHE_STAGED_INCOMPLETE'
+        path, marker = root / payload, root / side
+        with flocked(root / (u.key + '.lock')):
+            if path.exists() or marker.exists() or path.is_symlink() or marker.is_symlink():
+                previous = _pair_digest(path, marker)
+                if previous is None:
+                    return 'E_CACHE_LOCAL_PARTIAL'
+                return 'present' if previous == incoming else 'E_CACHE_CONFLICT'
+            os.replace(stage / side, marker)
+            os.replace(stage / payload, path)
         return 'published'
     out = 'present'
     for f in u.all():

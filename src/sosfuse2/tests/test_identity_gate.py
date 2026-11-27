@@ -130,10 +130,12 @@ def test_stage_toolkey_fields_and_old_staged_rejection(tmp_path, monkeypatch):
     meta = dict(device=dict(cc='8.6', nvrtc='12', profile='default'),
                 config=dict(flags=[], stage1=[], async_=0, L=16, block=256),
                 launch=dict(max_seconds=0.0))
-    row = dict(meta=meta)
+    sample = np.ones((1, 1))
+    row = {
+        'meta': meta, 'solve': {'rc': 0, 'source_solve_sha256': 'test'},
+        'radiance': sample, 'source': sample, 'table': sample, 'solve_source': sample,
+    }
     monkeypatch.setattr(gate, 'run_all', lambda *a, **k: {'FX-C3': row})
-    monkeypatch.setattr(gate, 'repeat_run', lambda *a: dict(pass_=True, repeat_max_rel=0.0))
-    monkeypatch.setattr(gate, 'pinned_hashes', lambda r: {'radiance': 'test'})
     args = NS(flagsets=None, fixtures='FX-C3', inject=None, bless_numpy=False, bless=False,
               stage=True, runs=2, out=tmp_path, no_historical=True, no_persistent=True)
     report = dict(gates={})

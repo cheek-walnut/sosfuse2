@@ -401,3 +401,50 @@ def test_reused_aerosol_column_matches_fresh_pack(tmp_path, monkeypatch, method,
     geometry.prepare()
     assert geometry.stats['aerosol_column'] == 'computed'
     np.testing.assert_allclose(installed['end_col'][:, 1], expected, rtol=1e-3, atol=0)
+
+
+def test_precompile_uses_resolved_cache_over_environment(tmp_path, monkeypatch):
+    import sys
+
+    from sosfuse2.jobs import precompile
+    from sosfuse2.solve import source_solver
+
+    env_cache, cli_cache = tmp_path / 'env', tmp_path / 'cli'
+    monkeypatch.setenv('SOSFUSE2_COMPILE_CACHE', str(env_cache))
+    runtime = NS(getDeviceProperties=lambda device: {'name': b'test'}, getDevice=lambda: 0,
+                 runtimeGetVersion=lambda: 1, driverGetVersion=lambda: 1)
+    cuda = NS(runtime=runtime, nvrtc=NS(getVersion=lambda: (1, 0)))
+    monkeypatch.setitem(sys.modules, 'cupy', NS(cuda=cuda, __version__='test'))
+    monkeypatch.setattr(source_solver, 'Kernel', lambda *a, **kw: NS(raw_kernel=lambda *a: None))
+    monkeypatch.delenv('CUPY_CACHE_DIR', raising=False)
+    precompile.one(((1, 0, 0), [], 128, str(cli_cache), 16, 1, 0.5))
+    assert cli_cache.is_dir()
+    assert not env_cache.exists()
+
+
+@pytest.mark.parametrize('damage', ['no-checksum', 'same-length', 'nonfinite'])
+def test_aerosol_column_repairs_before_prepare_uses_it(tmp_path, damage):
+    import hashlib
+
+    from sosfuse2.solve import ray_geometry
+
+    geometry = ray_geometry.TwoLayerGeometry.__new__(ray_geometry.TwoLayerGeometry)
+    geometry.cache = tmp_path
+    geometry.s = NS(kernel=NS(height=3.0), aerosol_profile=None, density_optics=None)
+    geometry.bundle, geometry.stats = None, {}
+    host = {'dirs': np.zeros((2, 3)), 'end_col': np.zeros((2, 5), 'f4')}
+    host['end_col'][:, 1] = [1, 2]
+    geometry.host_arrays = lambda: (host, [])
+    installed = {}
+    geometry.install = lambda host, records, columns: installed.update(columns)
+    (tmp_path / 'source_height.json').write_text(json.dumps({'height': 3.0}))
+    path = geometry.column_path(3.0)
+    path.parent.mkdir()
+    bad = np.array([88, np.nan if damage == 'nonfinite' else 99], 'f4')
+    bad.tofile(path)
+    side = path.with_suffix('.f4.sha256')
+    if damage != 'no-checksum':
+        side.write_text(hashlib.sha256(path.read_bytes() if damage == 'nonfinite' else b'original').hexdigest())
+    geometry.prepare()
+    np.testing.assert_allclose(installed['end_col'][:, 1], [1, 2], rtol=1e-3, atol=0)
+    assert side.read_text().strip() == hashlib.sha256(path.read_bytes()).hexdigest()

@@ -406,7 +406,8 @@ def load_source(path, s, wl, *, settings=None, backend=None, full_settings=False
                 raise ValueError('solver settings differ')
             if source_settings.get('spectral') is not None:
                 raise ValueError('spectral settings unsupported')
-            if source_settings.get('kernel') != kernel_settings():
+            # Flags come from the environment; the block size is the one this run records (--block-size alone too).
+            if source_settings.get('kernel') != kernel_settings(recorded_block(settings)):
                 raise ValueError('kernel settings differ')
         if contract['backend'] != backend or contract['polarization_model'] != 'depolarizing':
             raise ValueError('backend or polarization differs')
@@ -416,11 +417,23 @@ def load_source(path, s, wl, *, settings=None, backend=None, full_settings=False
     return data['source']
 
 
+def recorded_block(settings):
+    """Block size recorded in settings.kernel (None: not recorded, the default 128). A value the runner cannot record
+    (not an object, a block size other than 128 or 256) is refused like any other unreadable setting."""
+    kernel = settings.get('kernel')
+    if kernel is None:
+        return None
+    block = kernel.get('block_size') if isinstance(kernel, dict) else None
+    if type(block) is not int or block not in (128, 256):
+        raise ValueError('kernel settings unreadable')
+    return block
+
+
 def restored_settings(path, state, reduced, backend):
     """Require a matching recorded solve tolerance before restoring settings or selecting the legacy grid."""
     from types import SimpleNamespace
     from ..atmosphere.components import canonical_state
-    from ..jobs.run_state import effective_tol, resolve_settings, settings_for
+    from ..jobs.run_state import effective_tol, kernel_settings, resolve_settings, settings_for
 
     try:
         with np.load(path) as data:
@@ -438,10 +451,17 @@ def restored_settings(path, state, reduced, backend):
         raise ValueError(f'E_SOURCE_CONTRACT: unreadable source archive ({type(exc).__name__})') from exc
     check_source_density(contract, state)
     check_source_tol(contract, cfg)
+    try:
+        # The legacy grid is rebuilt with the kernel of the environment, so it serves only a source recorded with that
+        # kernel; one recorded with another block size (--block-size alone) is restored from its own settings below.
+        current_kernel = kernel_settings()
+    except ValueError as exc:
+        raise ValueError('E_SOURCE_CONTRACT: ' + str(exc)) from exc
     legacy_wl, legacy_hs, el, az = axes(reduced)
     recorded = np.asarray(cfg.get('wavelengths_nm', legacy_wl))
     if (
         cfg.get('spectral') is None
+        and cfg.get('kernel') == current_kernel
         and not any(k in cfg for k in ('top_km', 'export_first_order'))
         and effective_tol(cfg) == effective_tol({})
         and cfg.get('view_shape') == [len(el), len(az)]
@@ -475,7 +495,11 @@ def restored_settings(path, state, reduced, backend):
             def read_text(self):
                 return json.dumps(raw, allow_nan=False)
 
-        expected = resolve_settings(settings_for(SimpleNamespace(reduced=reduced, settings_json=SettingsFile())), state)
+        # A recorded block size (from --block-size, not only SOSFUSE2_BLOCK_SIZE) is part of the settings to restore.
+        expected = resolve_settings(
+            settings_for(SimpleNamespace(reduced=reduced, settings_json=SettingsFile(), block_size=recorded_block(cfg))),
+            state,
+        )
         from ..atmosphere.spectral import same_settings
 
         if not same_settings(cfg, expected):

@@ -863,6 +863,10 @@ def evaluate(F, runs, golden, M, anchors, atol, report, regress_=True):
     G['R'], G['CUDA'] = {}, {}
     for fx, r in runs.items():
         if r['meta']['backend'] != 'cupy':
+            if F['fixtures'][fx]['golden'] is None:
+                raise GateError(
+                    'E_GATE_CONFIG', f'{fx}: the fixed CUDA comparison requires cupy, got {r["meta"]["backend"]}'
+                )
             continue
         entries = M['cuda'].get(fx, [])
         same = [e for e in entries if e['toolkey'] == keys[fx]]
@@ -1223,6 +1227,10 @@ def bless(F, names, args, report):
         anchors = load_anchors()
     if not evaluate(F, runs, golden, M, anchors, args.atol, report, regress_=False):
         return False
+    second = report['run2'] = {'fixtures': {}, 'gates': {}}
+    if not evaluate(F, again, golden, M, anchors, args.atol, second, regress_=False):
+        report['code'] = first_code(second['gates'])
+        return False
     if args.canonical:
         raise GateError(
             'E_GATE_CONFIG',
@@ -1414,13 +1422,30 @@ def dispatch(args, report):
     if args.stage:  # fresh runs for a later --bless --staged (no golden needed)
         if args.runs < 2:
             raise GateError('E_GATE_CONFIG', '--stage requires --runs >= 2')
-        rs = [run_all(F, names, args.out / f'run{i + 1}', 'cupy', True) for i in range(args.runs)]
+        rs = []
+        for i in range(1, args.runs + 1):
+            label = f'run{i}'
+            group = run_all(F, names, args.out / label, 'cupy', True)
+            for fx, r in group.items():
+                solve = r.get('solve')
+                if solve is None:
+                    raise GateError('E_GATE_SOLVE', f'{label}/{fx}: missing solve.json')
+                if solve['rc'] != 0:
+                    reason = solve.get('reason') or 'no solve reason recorded'
+                    raise GateError('E_GATE_SOLVE', f'{label}/{fx}: rc={solve["rc"]}, {reason}')
+                for field in ('table', 'solve_source'):
+                    if field not in r or r[field].size == 0:
+                        raise GateError('E_GATE_SOLVE', f'{label}/{fx}: no {field} samples')
+            rs.append(group)
         a = rs[0]
         report['determinism'] = {fx: [repeat_run(a[fx], r[fx]) for r in rs[1:]] for fx in names}
         report['repeat_max_rel'] = max(
             (v['repeat_max_rel'] for rows in report['determinism'].values() for v in rows), default=0.0
         )
-        ok = all(v['pass_'] for rows in report['determinism'].values() for v in rows)
+        ok = all(
+            v['pass_'] and (not v['deterministic'] or v['outputs_equal'])
+            for rows in report['determinism'].values() for v in rows
+        )
         report['fixtures'] = {}
         for fx in names:
             key, fields = toolkey(a[fx]['meta'])

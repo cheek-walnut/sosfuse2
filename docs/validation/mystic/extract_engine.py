@@ -5,7 +5,7 @@ import json
 
 import numpy as np
 
-from common import add_paths, configure_root, dump, require_legacy_top, sha, work_path
+from common import add_paths, configure_root, dump, require_legacy_top, require_observer, sha, work_path
 
 
 def validate(meta, st, expected, contract):
@@ -17,6 +17,7 @@ def validate(meta, st, expected, contract):
     if meta['parameters'] != st['parameters']:
         raise ValueError('E_ENGINE_PARAMETERS')
     require_legacy_top(expected)
+    require_observer(expected)
     if meta['density'] != density.build(st)['meta']:
         raise ValueError('E_ENGINE_DENSITY')
     # Includes all grids, geometry, spectral block, wavelengths, L, path_n and ground SH.
@@ -45,11 +46,20 @@ def validate(meta, st, expected, contract):
     # The published tables are CUDA runs, and the order a run applied is in its timings from 1.7.0 on.
     if meta['backend'] != 'cupy':
         raise ValueError('E_ENGINE_BACKEND')
-    # Each solve record of the run (the timings entries with solve_worker) names the order it applied. Tables of
-    # versions before 1.7.0 have no such field; where it is present it must be 24.
-    solves = [t for t in meta.get('timings') or [] if isinstance(t, dict) and 'solve_worker' in t]
+    stats = meta['source_solve']
+    chunks = stats if isinstance(stats, list) else [stats]
+    timings = meta.get('timings') or []
+    # The runner appends one timing alongside each solve. Older tables may lack the applied order.
     recorded = tuple(int(x) for x in meta['package_version'].split('.')[:2]) >= (1, 7)
-    if any(t.get('ground_sh_order', None if recorded else 24) != 24 for t in solves) or (recorded and not solves):
+    if recorded and (
+        not isinstance(timings, list)
+        or len(timings) != len(chunks)
+        or any(not isinstance(t, dict) or 'solve_worker' not in t or t.get('ground_sh_order') != 24 for t in timings)
+    ):
+        raise ValueError('E_ENGINE_GROUND_SH')
+    if not recorded and any(
+        t.get('ground_sh_order', 24) != 24 for t in timings if isinstance(t, dict) and 'solve_worker' in t
+    ):
         raise ValueError('E_ENGINE_GROUND_SH')
     # Check the tolerance included in the signed contract.
     if expected.get('anderson_tol', engine.ANDERSON_TOLERANCE) != 0.001 or contract.get('tolerance') != 0.001:
@@ -59,8 +69,6 @@ def validate(meta, st, expected, contract):
     )
     if sig != meta['signature']:
         raise ValueError('E_ENGINE_SIGNED_CONTRACT')
-    stats = meta['source_solve']
-    chunks = stats if isinstance(stats, list) else [stats]
     if not chunks or any(not isinstance(x, dict) or not x.get('converged') or not all(x['converged']) for x in chunks):
         raise ValueError('E_ENGINE_CONVERGENCE')
     if any(chunk.get('tolerance') != 0.001 for chunk in chunks):
@@ -82,6 +90,7 @@ def extract(H, c, data, arms, arm, state_ids):
         raise ValueError('E_ARM_INPUT_SHA')
     expected = dict(data['settings'], **overrides)
     expected['kernel'] = contract['settings']['kernel']
+    require_observer(expected)
     if expected != contract['settings']:
         raise ValueError('E_ARM_SETTINGS')
     if expected['path_n'] != dict(A0=12, A1=24, A2=12)[arm] or expected['L'] != dict(A0=16, A1=16, A2=24)[arm]:

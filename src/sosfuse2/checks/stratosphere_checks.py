@@ -24,10 +24,13 @@ def zero_bytes(current, baseline):
             continue
         with np.load(a, allow_pickle=False) as az, np.load(b, allow_pickle=False) as bz:
             # A key on one side only (e.g. 'record') is a mismatch, not a KeyError.
-            arrays = {
-                k: k in az.files and k in bz.files and within_tol(az[k], bz[k], rtol=1e-5)
-                for k in sorted(set(az.files) | set(bz.files))
-            }
+            arrays = {}
+            for k in sorted(set(az.files) | set(bz.files)):
+                if k not in az.files or k not in bz.files:
+                    arrays[k] = False
+                    continue
+                actual = az[k]
+                arrays[k] = actual.size > 0 and within_tol(actual, bz[k], rtol=1e-5)
         report[name] = dict(
             pass_=bool(arrays) and all(arrays.values()),  # a pair of empty files compares nothing
             arrays=arrays,
