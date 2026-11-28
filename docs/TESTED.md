@@ -4,6 +4,9 @@ This file records where and how we verified releases. The notes below cover docu
 `gate --stage` and `gate --gf` stand for the commands of *Tests and checks* in the README (tiers 2 and 3 of
 `docs/CHECKS.md`), and H and PS for G-H and G-PS. Persistent-queue tests and CI default to a `PERSISTENT_TEST_DEADLINE` of 2400 s.
 
+1.9.3 changes the checks, the cache store, run records and options, and the documentation; the engine is that of 1.9.0.
+Its `clear_34` tables below equal those of 1.9.2 array for array.
+
 1.9.2 changes documentation only. Apart from the version number, its code is that of 1.9.0, so the 1.9.0 rows apply
 to it.
 
@@ -17,6 +20,13 @@ beyond the CI run.
 
 1.2.1 and 1.2.2 change documentation only, so the 1.2.0 rows apply unchanged. The installed-sdist checks in the 1.2.3
 table cover its changed default v2 states.
+
+Configurations verified for 1.9.3:
+
+| platform | Python | backend | what was run |
+|---|---|---|---|
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment (package files equal to the release wheel), device profile `split`: `gate --all` exit 0 with the same results as for 1.9.0 (G-R radiance of the five fixtures within 3.1e-5 and tables within 6.4e-6 of the recorded values, the fixed CUDA comparison, G-P and G-A, the five G-T pairs and G-PS passed, G-H max relative difference 1.3e-6); G-F against the fixed reference table: max relative difference 8.1e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0; the upper-air CUDA check against NumPy: max relative difference 1.9e-5. `gate --stage --runs 2` passed with and without `SOSFUSE2_DETERMINISTIC=1`, and in deterministic mode the five fixtures gave equal outputs. The CUDA test modules (projection batches, kernel occupancy, persistent pipeline) passed, and `python -m sosfuse2.tests.test_tropo_mie --gpu` passed. On the same 10 GB GPU, the reproduction command of `docs/PERFORMANCE.md` for `clear_34` completed from an empty work root and warm, and both tables equal the 1.9.2 tables of the same command array for array. |
+| macOS arm64 | 3.12 | NumPy | release tree in place (`SOSFUSE2_SKY_SOS_ROOT` unset), every test module with six workers: 1365 passed, 76 skipped, 0 failed |
 
 Configurations verified for 1.9.0:
 
