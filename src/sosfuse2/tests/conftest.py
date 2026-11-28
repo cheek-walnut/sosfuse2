@@ -28,6 +28,7 @@ HEAVY_FILES = frozenset({
     'test_extended_top.py',
     'test_gate.py',
     'test_host_cache.py',
+    'test_offline_cpu.py',
     'test_ozone_temperature.py',
     'test_pipeline_persistent.py',
     'test_profile_step.py',
@@ -43,6 +44,7 @@ HEAVY_FILES = frozenset({
 
 def pytest_configure(config):
     config.addinivalue_line('markers', 'heavy: test of a long-running file (see HEAVY_FILES in tests/conftest.py)')
+    config.addinivalue_line('markers', 'offline_cpu: required CPU check that must run even without IPRT data')
 
 
 def pytest_collection_modifyitems(items):
@@ -59,7 +61,11 @@ def offline_stop(text):
     _, found, after = text.rpartition('Traceback (most recent call last):')
     if not found:
         return False
-    error = next((line for line in after.splitlines()[1:] if line and not line[0].isspace()), '')
+    # Pytest may indent the whole child traceback. Its frame lines have two more spaces than its error line.
+    margin = re.match(r'\r?\n([ \t]*?)(?:  File "|[A-Za-z_][\w.]*: )', after)
+    prefix = margin[1] if margin else ''
+    lines = (line.removeprefix(prefix) for line in after.splitlines()[1:])
+    error = next((line for line in lines if line and not line[0].isspace()), '')
     return re.match(r'[A-Za-z_][\w.]*: E_IPRT_OFFLINE: ', error) is not None
 
 
@@ -99,10 +105,23 @@ def synthetic_minor_work(tmp_path_factory):
         yield root
 
 
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
     report = outcome.get_result()
+    if item.get_closest_marker('offline_cpu') is not None:
+        if hasattr(report, 'wasxfail'):
+            status = 'XPASS' if report.passed else 'XFAIL'
+            report.outcome = 'failed'
+            report.longrepr = (
+                f'{item.nodeid}: required offline CPU check {status} during {report.when}: {report.wasxfail}'
+            )
+            del report.wasxfail  # pytest excludes reports with this attribute from its failure count.
+        elif report.skipped:
+            reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else report.longreprtext
+            report.outcome = 'failed'
+            report.longrepr = f'{item.nodeid}: required offline CPU check skipped during {report.when}: {reason}'
+        return  # Preserve the original failure, including an unexpected E_IPRT_OFFLINE.
     if not (report.failed and IPRT_MISSING and call.excinfo is not None):
         return
     if not any(offline_stop(str(e)) for e in _chain(call.excinfo.value)):

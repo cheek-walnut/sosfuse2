@@ -15,12 +15,12 @@ axes (solar elevation, view elevation, relative azimuth, wavelength). The defaul
 |---|---|
 | solar elevation | +6° to −18° in 1° steps; −3° and −6° are required rows |
 | view elevation | 100 rows of 0.9°, centres 89.55° to 0.45°; the horizon is the lower edge of the last row |
-| relative azimuth | 180 columns of 1°, centres 0.5° to 179.5°; 0° is towards the Sun, 180° away from it |
+| relative azimuth | 180 columns of 1°, centres 0.5° to 179.5°; 0° is sunward and 180° is antisolar |
 | wavelength | 45 bands between 360 and 830 nm, centres stored as `wavelength_nm` |
 
 Because the field is symmetric about the solar plane, only one half of the sky is stored. Each value is a point evaluation
-at a row and column centre rather than an average over the pixel. The observer stands 0.1 km above the ground, and solar
-elevation is measured from the horizontal plane at the observer, negative below the horizon.
+at a row and column centre rather than an average over the pixel. The observer stands 0.1 km above the ground.
+See [angle notation](ARCHITECTURE.md#angle-notation) for the reference directions.
 
 The table holds total radiance. Polarisation acts inside the calculation, as described under *Rayleigh scattering and
 polarisation*, but the code writes no Stokes parameters, degree of polarisation or polarisation angle.
@@ -35,9 +35,9 @@ cylinder.
 Because the atmosphere is uniform in the horizontal, the radiation field is symmetric about the direction to the Sun, and
 the solver stores it as a function of height `h` and of the angle `χ` from the sub-solar point. An observer at solar
 elevation `h_s` sits at `χ = 90° − h_s`, so changing the solar elevation of a table row moves the observer along the `χ`
-axis without changing the solved field. The `χ` grid reaches 180°, which leaves the geometry with no limit on solar
-depression; the convergence test of the iteration looks only at +2°, −3°, −6°, −9° and −12° (see *Iteration*), and the
-default table stops at −18°.
+axis without changing the solved field. The `χ` grid reaches 180°, corresponding to a solar elevation of −90°.
+On the default grid the convergence test samples +2°, −3°, −6°, −9° and −12° (see *Iteration*), and the default table
+stops at −18°.
 
 ### Calculation boundary
 
@@ -54,12 +54,16 @@ For example, a state with `density.profile_step_km` set to `0.125` can run with
 The precompiler reads the profile spacing from the command line and defaults to 0.5 km.
 
 Above 80 km, the default `upper_air: us76_neff` extends Rayleigh scattering with a tabulated effective air density
-matched to the coefficient at 80 km. `upper_air: vacuum` leaves the extension empty. The other constituents end at
-or below 80 km. The scattering source of the stratospheric layer is a value per height node that conserves the layer's
-column over the cells of the grid, so the node at 80 km changes with the cell above it: an empty extension reproduces
-the 80 km result only for a layer with no mass in the last cell below 80 km. The bundled layer (21 km, σ 3 km) has
-none and its node values are equal with and without the extension; a layer centred near 77 km is not equivalent. The extended grid adds the top shell to the incident-direction quadrature, adds −15° to the stopping
-and acceleration samples, and records −18° in the convergence history.
+matched to the coefficient at 80 km, whereas `upper_air: vacuum` leaves the extension empty; the other constituents
+end at or below 80 km.
+
+Because the scattering source of the stratospheric layer is a value per height node that conserves the layer's column
+over the grid cells, the node at 80 km changes with the cell above it: an empty extension reproduces the 80 km result
+only when the layer has no mass in the last cell below 80 km. The bundled layer (21 km, σ 3 km) has none, so its node
+values are equal with and without the extension, whereas a layer centred near 77 km is not equivalent.
+
+The extended grid adds the top shell to the incident-direction quadrature, adds −15° to the stopping and acceleration
+samples, and records −18° in the convergence history.
 
 ## Constituents
 
@@ -89,14 +93,17 @@ vertical profile `ρ_R` depends on the density option:
 | `exp8`/`triangle`/`keep` (default through 1.4.0) | exp(−h / 8 km) | 0.2420 / 0.1063 (β₄₅₀ = 0.030255 km⁻¹) |
 | `usstd76`/`usstd76`/`usstd` (default) | hydrostatic number density of the US Standard Atmosphere 1976 (NOAA et al. 1976) | 0.2215 / 0.0972 |
 
-The reference fixtures and `states_v1_usstd.json` use the second row. Its optical depth at 450 nm is the sum over the layers
-below 80 km of the tabulated Rayleigh optical depths of the IPRT phase E atmosphere at 450 nm (IPRT project: Emde et al.
-2015), so the Rayleigh spectrum is the Bodhaine law anchored at that 450 nm value. With the same anchors, the λ⁻⁴ law of
-1.0.0 gave 0.1085 and 0.0993 at 550 nm for the two rows. The states in `states_v1.json` and `states_v2.json` carry no
-density block and take the second row. Below −6° solar elevation the exp8 configuration is 1.4 to 2.1 times too bright
-against the Maryland and Paranal measurements. The earlier default through 1.4.0, exp8/triangle/keep, holds more air above 20 km than the US Standard Atmosphere 1976 at the same column (1.2 times at 20 km, 1.7 times at 30 km). The default still has site-dependent errors; README *Limitations*
-and `docs/VALIDATION.md` Table 13 give the comparison. A state's density block and the density command-line options
-together must supply all three choices.
+The reference fixtures and `states_v1_usstd.json` use the second row. Its optical depth at 450 nm is the sum over the
+layers below 80 km of the tabulated Rayleigh optical depths of the IPRT phase E atmosphere at 450 nm (IPRT project:
+Emde et al. 2015), so the Rayleigh spectrum is the Bodhaine law anchored at that 450 nm value. With the same anchors,
+the λ⁻⁴ law of 1.0.0 gave 0.1085 and 0.0993 at 550 nm for the two rows.
+
+The states in `states_v1.json` and `states_v2.json` carry no density block and take the second row. Below −6° solar elevation
+the exp8 configuration is 1.4 to 2.1 times too bright against the Maryland and Paranal measurements. The earlier default
+through 1.4.0, exp8/triangle/keep, holds more air above 20 km than the US Standard Atmosphere 1976 at the same column
+(1.2 times at 20 km, 1.7 times at 30 km). The default still has site-dependent errors; README *Limitations* and
+`docs/VALIDATION.md` Table 13 give the comparison. A state's density block and the density command-line options together
+must supply all three choices.
 
 ### Ozone
 
@@ -131,10 +138,12 @@ where the column `N_NO2` is `no2_du` × 2.687×10²⁰ m⁻². The state paramet
 column of the reference profile, and 0 switches NO₂ off. The shape `f` is the NO₂ number density of the AFGL US Standard
 profile (`afglus.dat`, Anderson et al. 1986, AFGL-TR-86-0110, as distributed with libRadtran 2.0.6), interpolated
 log-linearly onto 0.5 km steps and normalised to a maximum of 1 (`assets/no2_afglus_profile.json`). It applies with every
-density option, including an external air and ozone profile. The cross section is that of Vandaele et al. (1998) at
-220 K, from BIRA-IASB data resampled to 0.1 nm cells (`assets/no2_vandaele1998_fine.json`; attribution and changes in
-`THIRD_PARTY.md` §11). In band mode `σ̄` is the mean over each band and in point mode the value at the wavelength; it
-applies at all heights because the cross section has no temperature dependence.
+density option, including an external air and ozone profile.
+
+The cross section comes from Vandaele et al. (1998) at 220 K, resampled from BIRA-IASB data to 0.1 nm cells
+(`assets/no2_vandaele1998_fine.json`; attribution and changes in `THIRD_PARTY.md` §11). In band mode `σ̄` is the mean
+over each band and in point mode the value at the wavelength; because the cross section has no temperature dependence,
+it applies at all heights.
 
 ### O₄
 
@@ -144,13 +153,15 @@ $$
 \beta_{\mathrm{O_4}}(h,\lambda) = \bar\sigma_{\mathrm{O_4}}(\lambda)\,\bigl(0.20946\,n_{\mathrm{air}}(h)\bigr)^2,\qquad n_{\mathrm{air}}(h) = n_0\,\frac{\rho_R(h)}{\rho_R(0)}
 $$
 
-`n₀` is the air number density at the surface. It comes from the density asset for `usstd76`. For
-the exp(−h / 8 km) profile (default through 1.4.0) it equals 2.5469×10²⁵ m⁻³ and the O₄ shape is then exp(−h / 4 km).
-An external profile declares it as `air_surface_number_density_m3`. The state parameter `parameters.o4`, a JSON boolean that defaults to true,
-switches O₄ on and off. The cross section is the HITRAN 2024 collision-induced absorption (Gordon et al. 2026; Terragni
-et al. 2025): data set 54 at 293 K up to 499.861 nm, then data set 32 at 293 K up to 600 nm and at 287 K up to 653.842 nm,
-resampled to 0.1 nm cells and zero outside that range. The O₂ A- and B-band sets are excluded. Like NO₂, `σ̄` is a band or
-point value with no temperature dependence. The O₄ data are not bundled; `python -m sosfuse2.asset_tools.prepare_minor_absorbers`
+`n₀` is the air number density at the surface, taken from the density asset for `usstd76` and equal to
+2.5469×10²⁵ m⁻³ for the exp(−h / 8 km) profile (default through 1.4.0, giving an O₄ shape of exp(−h / 4 km)). An
+external profile declares the surface density as `air_surface_number_density_m3`. The state parameter `parameters.o4`, a JSON boolean
+that defaults to true, switches O₄ on and off.
+
+The cross section is the HITRAN 2024 collision-induced absorption (Gordon et al. 2026; Terragni et al. 2025): data set
+54 at 293 K up to 499.861 nm, then data set 32 at 293 K up to 600 nm and at 287 K up to 653.842 nm, resampled to
+0.1 nm cells and zero outside that range (excluding O₂ A- and B-band sets). Like NO₂, `σ̄` is a band or point value
+with no temperature dependence. The O₄ data are not bundled; `python -m sosfuse2.asset_tools.prepare_minor_absorbers`
 prepares them once in the work root (README, *Quick start*; sources and changes in `THIRD_PARTY.md` §12).
 
 ### Tropospheric aerosol
@@ -179,14 +190,16 @@ default. No shipped state file carries either block.
 
 ### Stratospheric sulfate layer
 
-The layer is enabled by default in all 64 bundled `states_v2.json` states. `states_v1.json` keeps the stratosphere status `unsupported` and
-`states_v1_usstd.json` keeps `disabled`; the runner can enable either with `--stratosphere on`. Test fixtures enable
-the layer in some states. When on, its profile is a Gaussian, by default centred at 21 km with σ = 3 km and normalised over 0 to 80 km,
-and its optical depth at 550 nm is `stratosphere_tau550`, with an axis of 0.002 to 0.006 in `states_v2.json`. The
-particles are a single lognormal sulfate population with median radius 0.08 µm, geometric width 1.6 and refractive index
-1.43 + 0i, so they do not absorb. The shipped Mie table covers 360 to 830 nm at 18 wavelengths, and extinction at other
-wavelengths scales with the Mie cross section relative to 550 nm. The asymmetry parameter of the table falls from 0.713 at
-360 nm to 0.510 at 830 nm. The layer scatters with its own tabulated phase function in place of Henyey–Greenstein.
+The layer is enabled by default in all 64 bundled `states_v2.json` states. `states_v1.json` keeps its status
+`unsupported` and `states_v1_usstd.json` keeps `disabled`, though the runner can enable either with
+`--stratosphere on`; test fixtures also enable the layer in some states. When on, its profile is a Gaussian centred at
+21 km by default with σ = 3 km, normalised over 0 to 80 km, and optical depth `stratosphere_tau550` at 550 nm (axis 0.002
+to 0.006 in `states_v2.json`).
+
+The particles are a single non-absorbing lognormal sulfate population with median radius 0.08 µm, geometric width 1.6
+and refractive index 1.43 + 0i. The shipped Mie table covers 360 to 830 nm at 18 wavelengths, scaling extinction at
+other wavelengths with the Mie cross section relative to 550 nm. The table's asymmetry parameter falls from 0.713 at
+360 nm to 0.510 at 830 nm, and the layer scatters with its own tabulated phase function instead of Henyey–Greenstein.
 
 ### Ground
 
@@ -233,30 +246,31 @@ expansion: its phase function is a quadratic polynomial in direction, and the fo
 ### Single scattering
 
 Sunlight scattered once into the line of sight is integrated along that line. The optical depth from the Sun to the
-scattering point comes from a precomputed table of slant columns of each constituent along the solar direction, as a
-function of height and angle, and the optical depth along the line of sight is integrated with Simpson's rule between the
+scattering point comes from a precomputed table of slant columns of each constituent along the solar direction as a
+function of height and angle, while the optical depth along the line of sight is integrated with Simpson's rule between
 quadrature nodes. Lines of sight are cut where they cross the 10, 25 and 40 km spheres, the Earth's limb, the shadow
-boundary and the ground, and each piece carries 12 Gauss–Legendre nodes, or 24 for the lines of sight of the output
-table. Light reflected once by the ground belongs to the first order and is scattered with the untruncated phase
-functions. Setting `"export_first_order": true` in `--settings-json` saves `first_order.npz` as a separate archive
-member with the same axes as the total radiance table, including the ground reflection of direct light.
-For a custom `radiance_table --out sky.npz`, the companion files are `sky.npz.first_order.npz` and
-`sky.npz.meta.json`. The default output name `table.npz` uses `first_order.npz` and `meta.json`.
+boundary and the ground, with 12 Gauss–Legendre nodes per piece (or 24 for output-table lines of sight). Light reflected
+once by the ground belongs to the first order and scatters with the untruncated phase functions.
+
+Setting `"export_first_order": true` in `--settings-json` saves `first_order.npz` as a separate archive member with the
+same axes as the total radiance table, including the ground reflection of direct light. For a custom
+`radiance_table --out sky.npz`, the companion files are `sky.npz.first_order.npz` and `sky.npz.meta.json`; the default
+output name `table.npz` uses `first_order.npz` and `meta.json`.
 
 ### Multiple scattering
 
-Higher orders are carried by a source field defined on the (height, `χ`) grid. In each cell the source is stored as ten
-Rayleigh slots, four tensor components and six spherical-harmonic coefficients, followed by the expansion coefficients
-of the aerosol scattering source, with a second set for the stratosphere if it is enabled. One application of the
-transport operator computes, for each cell, the radiance
-arriving from every incident direction by integrating the source field along that direction, with attenuation by all
-constituents and with the light reflected from the ground where the ray ends on it. The source is interpolated linearly
-in height and `χ` and then rescaled by `(G/A)^W`, where `G` and `A` are the weighted geometric and arithmetic means of the
-corner traces that are at least `FLT_MIN` and `W` is their total weight. With all corners valid the trace is the
-geometric mean, and as `W` goes to 0 the result goes continuously to the linear interpolation. The arriving radiance is
-then projected onto the source basis, which gives the next source field. The incident directions are Gauss–Legendre nodes
-inside intervals whose ends are the limb, the local horizon, the shadow boundary and the directions tangent to the shells
-at 0, 1.2, 8, 25, 40 and 80 km on the default grid.
+Higher orders are carried by a source field defined on the (height, `χ`) grid. Each cell stores the source as ten
+Rayleigh slots (four tensor components and six spherical-harmonic coefficients) followed by the expansion coefficients
+of the aerosol scattering source, plus a second set for the stratosphere if enabled. One application of the transport
+operator computes the radiance arriving at each cell from every incident direction by integrating the source field along
+that direction—with attenuation by all constituents and ground reflection where the ray ends on the surface—and projects
+the arriving radiance onto the source basis to give the next source field.
+
+The source is interpolated linearly in height and `χ`, then rescaled by `(G/A)^W`, where `G` and `A` are the weighted
+geometric and arithmetic means of the corner traces that are at least `FLT_MIN` and `W` is their total weight. With
+all corners valid, the trace is the geometric mean; as `W` goes to 0, the result goes continuously to linear
+interpolation. The incident directions are Gauss–Legendre nodes inside intervals bounded by the limb, local horizon,
+shadow boundary and directions tangent to the shells at 0, 1.2, 8, 25, 40 and 80 km on the default grid.
 
 ### Iteration
 
@@ -288,35 +302,35 @@ independent check; `docs/VALIDATION.md` compares the second-order term with a di
 ![Shares of first, second and higher scattering orders against solar zenith angle for three states and three directions](validation/scattering_orders.png)
 
 Figure 1. Share of the 553.875 nm radiance from first, second, and third and higher orders against solar zenith angle
-(SZA) in states R, T and S, for the zenith and for 10° elevation on the sun side and the opposite side. Data: `docs/validation/scattering_orders.csv`.
+(SZA) in states R, T and S, for the zenith and for 10° elevation in the sunward and antisolar directions. Data: `docs/validation/scattering_orders.csv`.
 Script: `docs/validation/plot_deep_twilight.py`.
 
-At a solar zenith angle (SZA) of 90° single scattering supplies 71–86 % of the 553.875 nm radiance in these directions. It ends at the zenith between SZA 96
-and 99 and on the opposite side by SZA 96, as the Earth's shadow rises above most of the air along those lines of
-sight; on the sun side at 10° elevation it fades between SZA 102 and 105. Second-order light then makes up 62–82 % of the zenith
-radiance from SZA 99 to 105, and third and higher orders grow with depression to 29 % (R) and 49 % (S) of the zenith
-radiance at SZA 108 and to 56–74 % at 10° elevation opposite the Sun. Aerosol, and the stratospheric layer most of all,
+At SZA 90° single scattering supplies 71–86 % of the 553.875 nm radiance in these directions. It ends at the zenith between SZA 96°
+and 99° and in the antisolar direction by SZA 96°, as the Earth's shadow rises above most of the air along those lines of
+sight; in the sunward direction at 10° elevation it fades between SZA 102° and 105°. Second-order light then makes up 62–82 % of the zenith
+radiance from SZA 99° to 105°. By SZA 108°, third and higher orders account for 29 % (R) and 49 % (S) of the zenith
+radiance and 56–74 % of the radiance at 10° view elevation in the antisolar direction. Aerosol, and the stratospheric layer most of all,
 raise the share of higher orders.
 
 ![Share of third and higher scattering orders over wavelength and solar zenith angle for three states and three directions](validation/scattering_orders_map.png)
 
 Figure 2. Share of third and higher orders over wavelength and solar zenith angle in states R, T and S, for the zenith
-and for 10° elevation on the sun side and the opposite side, with contours at 0.10, 0.25, 0.50 and
+and for 10° elevation in the sunward and antisolar directions, with contours at 0.10, 0.25, 0.50 and
 0.75. Data: `docs/validation/scattering_orders.csv`. Script: `docs/validation/plot_deep_twilight.py`.
 
-Higher orders contribute more at short wavelengths, where Rayleigh scattering is stronger: at the zenith at SZA 105 they make
+Higher orders contribute more at short wavelengths, where Rayleigh scattering is stronger: at the zenith at SZA 105° they make
 up 54 % of the radiance of state R at 366 nm and 10 % at 824 nm. With the stratospheric layer, whose scattering depends
-less on wavelength, the share stays at 35–40 % at red wavelengths at SZA 105.
+less on wavelength, the share stays at 35–40 % at red wavelengths at SZA 105°.
 
 Figure 3 shows where along the line of sight the light in state S is last scattered. At the zenith the mean altitude of
-the last scattering rises from 13 km at SZA 90 to 33 km at SZA 96, rising with the Earth's shadow, and falls to 15 km
-at SZA 99, when single scattering ends and the multiply scattered light from the lower atmosphere takes over. At 10°
-elevation on the sun side it reaches 43 km at SZA 99; on the opposite side it stays at 6–10 km from SZA 95 onwards.
+the last scattering rises from 13 km at SZA 90° to 33 km at SZA 96°, rising with the Earth's shadow, and falls to 15 km
+at SZA 99°, when single scattering ends and the multiply scattered light from the lower atmosphere takes over. At 10°
+elevation in the sunward direction it reaches 43 km at SZA 99°; in the antisolar direction it stays at 6–10 km from SZA 95° onwards.
 
-![Altitude of the last scattering along three lines of sight for solar zenith angles 90 to 108 degrees](validation/light_height.png)
+![Altitude of the last scattering along three lines of sight for solar zenith angles 90° to 108°](validation/light_height.png)
 
-Figure 3. Altitude of the last scattering in state S at 553.875 nm, for the zenith and for 10° elevation on the sun
-side and the opposite side. (a)–(c) Cumulative share of the radiance last scattered below each altitude along the
+Figure 3. Altitude of the last scattering in state S at 553.875 nm, for the zenith and for 10° elevation in the sunward
+and antisolar directions. (a)–(c) Cumulative share of the radiance last scattered below each altitude along the
 line of sight, for seven solar zenith angles. (d) Mean altitude of the last scattering for all orders (solid), single
 scattering (dotted) and higher orders (dashed), with the height of the Earth's shadow above the observer. Summed over the
 2 km bins, the contributions give the engine's table value within 7e-6 relative. Data: `docs/validation/light_height.csv`.
@@ -325,12 +339,15 @@ Script: `docs/validation/plot_deep_twilight.py`.
 ### Reference implementation and solver modules
 
 A NumPy reference implements the same transport with double-single arithmetic for the ray geometry and FP64 projection
-sums, and serves as the golden reference of the numeric checks. The CUDA transport uses FP32 ray geometry, spherical
-harmonics and compensated projection sums, with the ray and segment constants prepared in FP64 on the host. The
-`docs/CHECKS.md` describes the tolerances and checks. The solver definitions in `src/sosfuse2/rays/`, `src/sosfuse2/atmosphere/extinction.py` and
-`src/sosfuse2/solve/engine_core.py` define the grids, the quadrature and the physical constants, while
-`src/sosfuse2/atmosphere/rayleigh.py` and `src/sosfuse2/atmosphere/minor_absorbers.py` hold the Rayleigh and
-minor-absorber coefficients of 1.1.0.
+sums. The CUDA transport uses FP32 ray geometry, spherical harmonics and compensated projection sums, with ray and
+segment constants prepared in FP64 on the host. The [numeric checks](CHECKS.md) give the tolerances for comparing
+implementations. On Apple silicon, [MLX](ENVIRONMENT.md#experimental-mlx-transport-apple-silicon) can evaluate
+transport and observation rays for the same model.
+
+To change the grid or the wavelengths a state uses, start in `solve/configuration.py`. To change how a state supplies
+optical coefficients, geometry and a kernel to the solver, start in `solve/build.py`. Ray quadrature lives in
+`rays/`, and the Rayleigh and minor-absorber coefficients live in `atmosphere/rayleigh.py` and
+`atmosphere/minor_absorbers.py`. These paths are relative to `src/sosfuse2/`.
 
 ## Production grid
 
@@ -345,16 +362,17 @@ minor-absorber coefficients of 1.1.0.
 | Anderson relative tolerance (`anderson_tol`), depth | 1e-3 by default, 4 |
 
 The table lists the default grid, and the settings `h_refine`, `nr`, `chi_step_deg`, `chi_refine_deg` and `nchi` change
-its height and `χ` axes. Extended grids append the upper height nodes to the refined grid. In the settings,
-`h_refine` takes `b<m>a<k>`, which splits each height interval at or below 13
-km into m parts and each interval above into k parts, or `b<m>a<k1>.<k2>.<k3>.<k4>.<k5>`, which gives the five intervals
-above 13 km their own counts, with m and k from 1 to 12. The names `none`, `mid` and `below13mid_above13thirds` are
-aliases of `b1a1`, `b2a2` and `b2a3`; the default 44 nodes are `b2a3`. For the `χ` grid, `chi_step_deg` takes 0.5 by
-default, 0.25 or 0.125. The optional `chi_refine_deg` takes one `[lo, hi]` pair or a nonempty list of pairs. In
-list order, each pair inserts the midpoint of every adjacent node pair in its range. Its endpoints must be distinct,
-ordered nodes of the grid as refined so far, with 85 ≤ lo < hi ≤ 110. The counts `nr` and `nchi` are filled from the rules when omitted and must match them when given. The
-reduced grid stays fixed. For example, `b2a6` gives 59 nodes, and `chi_refine_deg` `[88, 100]` on the 0.5° grid gives 99
-`χ` nodes.
+its height and `χ` axes; extended grids append the upper height nodes to the refined grid. `h_refine` takes
+`b<m>a<k>` (splitting each interval at or below 13 km into m parts and each above into k parts) or
+`b<m>a<k1>.<k2>.<k3>.<k4>.<k5>` (giving the five intervals above 13 km their own counts), with m and k from 1 to 12.
+The names `none`, `mid` and `below13mid_above13thirds` are aliases of `b1a1`, `b2a2` and `b2a3`; the default 44 nodes are `b2a3`.
+For example, `b2a6` gives 59 height nodes.
+
+For the `χ` grid, `chi_step_deg` takes 0.5 by default, 0.25 or 0.125. The optional `chi_refine_deg` takes one `[lo, hi]`
+pair or a nonempty list of pairs and, in list order, inserts the midpoint of every adjacent node pair in its range;
+endpoints must be distinct, ordered nodes of the grid as refined so far, with 85 ≤ lo < hi ≤ 110 (for example, `chi_refine_deg` `[88, 100]`
+on the 0.5° grid gives 99 `χ` nodes). The counts `nr` and `nchi` are filled from the rules when omitted and must match
+them when given. The reduced grid stays fixed.
 
 The runner's reduced option uses 4 heights, 10 angles and one wavelength (550 nm). It is a software check, and its grid is
 too coarse for physical use.
@@ -464,14 +482,15 @@ X_c = \sum_i w_{ic}\,L_i,\qquad w_{ic} = \frac{K}{E_i}\int_{\mathrm{band}\ i}\ba
 $$
 
 `E_i` is the solar irradiance the solver uses for band `i` (the band mean, or the value at the band's wavelength in
-`point` mode), and `K` is 683 lm W⁻¹ for X, Y and Z and 1700 lm W⁻¹ for S′.
-Outside the legacy grid, the integral is evaluated exactly for the observer function and the solar spectrum taken as piecewise linear between
-their nodes. For the legacy 15-band tables, `table_weights` keeps the weights those tables were made with: trapezoidal
-integration over the band edges and the integer wavelengths between them, with `E_i` interpolated at the band
-centre. The colour-matching functions are the CIE 1931 data (CIE 2019a), and V′ is the CIE 1951 scotopic function
-(CIE 2019b). The preview images written with each table (`preview_m03.png`, `preview_m06.png`) use a separate 15-band RGB
-weight set, interpolated to the band centres and scaled by each band's width (`bin_edges_nm`) over the 31.33 nm width
-of the 15 reference bands. A preview of a table with one wavelength is monochrome.
+`point` mode), and `K` is 683 lm W⁻¹ for X, Y and Z and 1700 lm W⁻¹ for S′. Outside the legacy grid, the integral is
+evaluated exactly for the observer function and the solar spectrum taken as piecewise linear between their nodes. For
+legacy 15-band tables, `table_weights` keeps the original weights: trapezoidal integration over the band edges and the
+integer wavelengths between them, with `E_i` interpolated at the band centre. The colour-matching functions are the CIE
+1931 data (CIE 2019a), and V′ is the CIE 1951 scotopic function (CIE 2019b).
+
+The preview images written with each table (`preview_m03.png`, `preview_m06.png`) use a separate 15-band RGB weight set,
+interpolated to the band centres and scaled by each band's width (`bin_edges_nm`) over the 31.33 nm width of the 15
+reference bands. A preview of a table with one wavelength is monochrome.
 
 ## Processes not modelled
 

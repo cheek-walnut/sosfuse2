@@ -14,7 +14,7 @@ post-processing as `s.query` (Solver.query):
   accepted operations.
 
 Per-ray kernel arithmetic does not depend on the block partition (phase 2 has
-no cross-warp reduction; kernel.cu:117-239), so no approximation is introduced.
+no cross-warp reduction in the `K_PHASE == 2` path of `sos_fused` in kernel.cu), so no approximation is introduced.
 """
 
 import argparse, json, os, sys, time
@@ -135,6 +135,8 @@ def _evaluate(s, raws, field, first, group, bundle=None, *, intensity_out=None):
     kernel = s.kernel
     xp = kernel.xp
     if xp is np:
+        if intensity_out is not None:
+            raise ValueError('E_EVALUATE_INTENSITY_OUT: intensity_out requires the CuPy backend')
         # NumPy has no block partition: `group` cannot change these values.
         packed = np.ascontiguousarray(field, 'f4')
         with stage('table_launch'):

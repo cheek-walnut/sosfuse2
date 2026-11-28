@@ -10,11 +10,13 @@ from types import SimpleNamespace as NS
 import numpy as np
 import pytest
 
-from sosfuse2.tests.test_extended_top import small_solver, serial  # noqa: F401
+from sosfuse2.tests import test_extended_top
 from sosfuse2.foundation.top import Domain
 from sosfuse2.foundation import paths
 from sosfuse2.precompute import column_parallel as cp, sun_parallel as sp, ground_parallel as gp
 from sosfuse2.solve import ray_geometry as rg, ray_geometry_parallel as rp, source_solver as ss
+
+serial = test_extended_top.serial  # Register the autouse fixture for this module's tests.
 
 
 def test_boundary_literal_inventory():
@@ -51,7 +53,7 @@ def worker_values(column, sun, ground, geometry, geo, optics, sun_data):
 def test_spawn_and_payload(tmp_path, monkeypatch):
     from sosfuse2.jobs import pipeline_execution as pe
 
-    s, ctx = small_solver(tmp_path)
+    s, ctx = test_extended_top.small_solver(tmp_path)
     old, sun = ctx.b.sh.old, s.geo.sun
     d = s.kernel.domain
     optics = {k: v for k, v in s.density_optics.items() if k != 'old'}

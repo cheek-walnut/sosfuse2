@@ -25,9 +25,8 @@ import hashlib
 import inspect
 import re
 import json
-from pathlib import Path
 
-from ..foundation import content_identity as source_identity, paths
+from ..foundation import content_identity as source_identity, dependencies, paths
 
 VERSION = 'sosfuse2-geometry-contract-5'
 SIGNATURE_VERSION = 7  # v7 also identifies all endpoint-generation sources
@@ -63,21 +62,8 @@ DTYPES = dict(
 TRAIL = dict(starts=(3,), targets=(3, 3), dirs=(3,), end_col=(5,))
 AEROSOL_COLUMN = dict(path='aerosol/H_<float.hex(height)>.f4', dtype='f4', replaces='end_col[:,1]')
 # Upstream inputs that still generate the endpoints.
-UPSTREAM = (
-    'foundation/top.py',
-    'solve/engine.py',
-    'rays/shell_segments.py',
-    'rays/incoming_rings.py',
-    'solve/engine_core.py',
-    'atmosphere/tropo_profile.py',
-    'rays/ray_columns.py',
-    'atmosphere/density.py',
-    'atmosphere/components.py',
-    'solve/ray_geometry_parallel.py',
-    'precompute/column_parallel.py',
-    'jobs/run_state.py',
-)
-ROOT = paths.PKG  # package dir (public split: upstream definitions are editable sources)
+UPSTREAM = dependencies.files('endpoint_upstream')
+ROOT = paths.PKG  # Resolve the upstream source paths relative to the package.
 
 
 def check(gm):
@@ -121,7 +107,9 @@ def check(gm):
 def identity(s):
     """Common-layer identity: grid + quadrature counts + geometry rules file + upstream hashes; no scale height."""
     files = {'sosfuse2/' + name: source_identity.file_sha(ROOT / name) for name in UPSTREAM}
-    files[paths.rel(__file__)] = source_identity.file_sha(Path(__file__))
+    for name in dependencies.files('endpoint_contract'):
+        path = paths.PKG / name
+        files[paths.rel(path)] = source_identity.file_sha(path)
     from ..foundation.top import Domain
 
     content = dict(

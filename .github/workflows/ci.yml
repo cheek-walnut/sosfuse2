@@ -66,6 +66,11 @@ jobs:
           python -m pip install "pytest-xdist==3.8.0"
       - name: Compiler for the kernel syntax tests
         run: clang++ --version
+      - name: Required offline CPU checks
+        working-directory: ${{ runner.temp }}
+        env:
+          SOSFUSE2_OFFLINE: "1"
+        run: python -m pytest -q --pyargs sosfuse2.tests.test_offline_cpu
       - name: IPRT inputs (network, pinned sha256)
         working-directory: ${{ runner.temp }}
         run: python -B -c "from sosfuse2.asset_tools import iprt; iprt.inputs()"

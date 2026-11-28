@@ -45,7 +45,7 @@ def solver_grid(tmp_path, cfg):
     with (
         patch.object(source_solver, 'load_engine', return_value=engine),
         patch.object(engine_core, 'Solver', StopSolver),
-        patch.object(ray_geometry, 'Kernel', return_value=None),
+        patch.object(source_solver, 'Kernel', return_value=None),
         patch.object(host_cache, 'sun_geometry', return_value=None),
         patch.dict('os.environ', SOSFUSE2_HOST_CACHE='0'),
         pytest.raises(Captured) as caught,

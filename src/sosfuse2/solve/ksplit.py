@@ -1,7 +1,7 @@
 """KSPLIT (split transport, SOSFUSE2_KSPLIT=1/2/3) host side of source_solver.Kernel: column records, the VPROD aerosol
 producer and its plan, the slimray consumer, the chunk projection and the VERIFY comparisons. Kernel inherits these
 methods from KsplitMixin; they use the shared Kernel members (raw_kernel, timed_launch, next_chunk_end, device state)
-through self. Moved verbatim from fused.py; source_solver re-exports the module constants below."""
+through self. The source_solver module re-exports the constants below."""
 
 import itertools
 import json

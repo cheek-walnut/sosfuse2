@@ -1,6 +1,5 @@
 """Spawn cell calculations; the original packed writer owns ordering and resume.
 
-Imported at the end of ray_geometry after the serial classes are defined.
 Only ResidentGeometry.cached_cell callbacks are parallelized; generic builders
 and SOSFUSE2_GEOMETRY_WORKERS=1 use the accepted writer without adaptation.
 """
@@ -14,7 +13,7 @@ from concurrent.futures import ProcessPoolExecutor
 from types import SimpleNamespace as NS
 
 from ..precompute import column_parallel as cp
-from .ray_geometry import PackedCache as SerialPackedCache, ResidentGeometry
+from .ray_geometry import PackedCache as PackedCache, ResidentGeometry, SerialPackedCache as SerialPackedCache
 from ..foundation.top import Domain
 
 ENV = 'SOSFUSE2_GEOMETRY_WORKERS'
@@ -22,10 +21,15 @@ _GEOMETRY = None
 _SOURCE_DRIFT = None
 
 
-def workers():
-    value = os.environ.get(ENV, '').strip()
+def worker_setting():
+    """Capture the setting now. Only a parallelizable build needs to validate it."""
+    return os.environ.get(ENV, '').strip() or cp.default_workers()
+
+
+def workers(setting=None):
+    value = worker_setting() if setting is None else setting
     try:
-        count = cp.default_workers() if not value else int(value)
+        count = int(value)
     except ValueError:
         raise ValueError('E_GEOMETRY_WORKERS: %s must be a positive integer' % ENV) from None
     if count < 1:
@@ -104,76 +108,70 @@ def _event(result, count, completed, reason, started):
     )
 
 
-class PackedCache(SerialPackedCache):
-    def build(self, ncell, cell_arrays, progress=None):
-        started = time.perf_counter()
-        g = getattr(cell_arrays, '__self__', None)
-        if (
-            not isinstance(g, ResidentGeometry)
-            or getattr(cell_arrays, '__func__', None) is not ResidentGeometry.cached_cell
-        ):
-            _event('fallback', 1, 0, 'callback is not ResidentGeometry.cached_cell', started)
-            return super().build(ncell, cell_arrays, progress)
-        requested = workers()
-        count = min(requested, ncell)
-        if count <= 1:
-            if requested > 1:
-                _event('fallback', 1, 0, 'fewer than two cells', started)
-            return super().build(ncell, cell_arrays, progress)
-        completed = 0
-        try:
-            frozen = freeze(g)
-            geo = NS(h=g.s.geo.h, chi=g.s.geo.chi, cfg=g.s.geo.cfg)
-            optics = getattr(g.s, 'density_optics', None)
-            optics = None if optics is None else {k: v for k, v in optics.items() if k != 'old'}
-            profile = getattr(g.s, 'strato', {}).get('profile')
-            with ProcessPoolExecutor(
-                count,
-                mp_context=multiprocessing.get_context('spawn'),
-                initializer=_init,
-                initargs=(frozen, geo, g.legacy, optics, profile, cp.SOURCE_HASHES),
-            ) as pool:
-                pending = deque()
-                next_cell = None
+def build_cells(write, setting, ncell, cell_arrays, progress):
+    """Feed the selected cell calculations to the ordered serial writer."""
+    started = time.perf_counter()
+    g = getattr(cell_arrays, '__self__', None)
+    if (
+        not isinstance(g, ResidentGeometry)
+        or getattr(cell_arrays, '__func__', None) is not ResidentGeometry.cached_cell
+    ):
+        _event('fallback', 1, 0, 'callback is not ResidentGeometry.cached_cell', started)
+        return write(ncell, cell_arrays, progress)
+    requested = workers(setting)
+    count = min(requested, ncell)
+    if count <= 1:
+        if requested > 1:
+            _event('fallback', 1, 0, 'fewer than two cells', started)
+        return write(ncell, cell_arrays, progress)
+    completed = 0
+    try:
+        frozen = freeze(g)
+        geo = NS(h=g.s.geo.h, chi=g.s.geo.chi, cfg=g.s.geo.cfg)
+        optics = getattr(g.s, 'density_optics', None)
+        optics = None if optics is None else {k: v for k, v in optics.items() if k != 'old'}
+        profile = getattr(g.s, 'strato', {}).get('profile')
+        with ProcessPoolExecutor(
+            count,
+            mp_context=multiprocessing.get_context('spawn'),
+            initializer=_init,
+            initargs=(frozen, geo, g.legacy, optics, profile, cp.SOURCE_HASHES),
+        ) as pool:
+            pending = deque()
+            next_cell = None
 
-                def ordered(i):
-                    nonlocal next_cell, completed
-                    if next_cell is None:
-                        next_cell = i  # writer has already recovered/truncated its journal
-                    while next_cell < ncell and len(pending) < 2 * count:
-                        pending.append((next_cell, pool.submit(_run, next_cell)))
-                        next_cell += 1
-                    index, future = pending.popleft()
-                    if index != i:
-                        raise RuntimeError('E_GEOMETRY_ORDER: writer requested unexpected cell')
-                    host, meta, delta, joint = future.result()
-                    if joint is not None:
-                        g.__dict__.setdefault('_joint_cells', {})[i] = joint
-                    for k, v in delta.items():
-                        g.stats[k] += v
-                    g.groups.clear()
-                    completed += 1
-                    return host, meta
+            def ordered(i):
+                nonlocal next_cell, completed
+                if next_cell is None:
+                    next_cell = i  # writer has already recovered/truncated its journal
+                while next_cell < ncell and len(pending) < 2 * count:
+                    pending.append((next_cell, pool.submit(_run, next_cell)))
+                    next_cell += 1
+                index, future = pending.popleft()
+                if index != i:
+                    raise RuntimeError('E_GEOMETRY_ORDER: writer requested unexpected cell')
+                host, meta, delta, joint = future.result()
+                if joint is not None:
+                    g.__dict__.setdefault('_joint_cells', {})[i] = joint
+                for k, v in delta.items():
+                    g.stats[k] += v
+                g.groups.clear()
+                completed += 1
+                return host, meta
 
-                try:
-                    super().build(ncell, ordered, progress)
-                finally:
-                    for _, future in pending:
-                        future.cancel()
-        except Exception as exc:
-            reason = (
-                'E_COLUMN_WORKER_SOURCE_DRIFT'
-                if str(exc).startswith('E_COLUMN_WORKER_SOURCE_DRIFT:')
-                else type(exc).__name__ + ': ' + str(exc)
-            )
-            _event('fallback', count, completed, reason, started)
-            # Original writer resumes after the committed prefix and overwrites
-            # any uncommitted bytes, including a partially written failed cell.
-            return super().build(ncell, cell_arrays, progress)
-        _event('parallel', count, completed, None, started)
-
-
-# Also covers importing this adapter before geometry (including spawn workers).
-from . import ray_geometry
-
-ray_geometry.PackedCache = PackedCache
+            try:
+                write(ncell, ordered, progress)
+            finally:
+                for _, future in pending:
+                    future.cancel()
+    except Exception as exc:
+        reason = (
+            'E_COLUMN_WORKER_SOURCE_DRIFT'
+            if str(exc).startswith('E_COLUMN_WORKER_SOURCE_DRIFT:')
+            else type(exc).__name__ + ': ' + str(exc)
+        )
+        _event('fallback', count, completed, reason, started)
+        # Original writer resumes after the committed prefix and overwrites
+        # any uncommitted bytes, including a partially written failed cell.
+        return write(ncell, cell_arrays, progress)
+    _event('parallel', count, completed, None, started)

@@ -1,15 +1,17 @@
 # Environment variables
 
 **No environment variable is needed to run the package, and `jobs/run_state.py` needs no argument.** Without arguments
-it solves the state `clear_34` under `./work`; `--backend auto`, the default, is `cupy` when `nvidia-smi` names a
+it solves the state `clear_34` under `./work`. The default `--backend auto` selects `cupy` when `nvidia-smi` names a
 visible device, and `numpy` on a Mac, with a blank `CUDA_VISIBLE_DEVICES`, or on a machine with neither `nvidia-smi` nor
-CuPy; `numpy` solves the reduced grid. The run prints the choice on standard error. Three cases stop with `E_BACKEND_AUTO` instead of choosing: `nvidia-smi` without
-an answering device, CuPy installed without `nvidia-smi` on `PATH`, and a device named by `nvidia-smi` without CuPy
-installed (the package without its `gpu` extra). A typed `--backend` is not replaced by this choice; `--geometry-only`
-prepares the geometry on NumPy whichever backend is named, and on macOS it also needs `--reduced`.
-`jobs/pipeline.py` has the same defaults for `--states` (the packaged `states_v2.json`), `--work-root` and `--backend`,
-and still requires `--ids` or `--plan`; the commands that `jobs/plan_queue.py` writes name `--backend cupy`. The
-settings that a person changes from run to run are command-line options of both:
+CuPy. The `numpy` backend solves the reduced grid, and the run prints the choice on standard error. Three cases stop
+with `E_BACKEND_AUTO` instead of choosing: `nvidia-smi` without an answering device, CuPy installed without `nvidia-smi`
+on `PATH`, and a device named by `nvidia-smi` without CuPy installed (the package without its `gpu` extra).
+
+A typed `--backend` is not replaced by this choice. `--geometry-only` prepares the geometry on NumPy whichever backend is
+named, and on macOS it also needs `--reduced`. `jobs/pipeline.py` has the same defaults for `--states` (the packaged
+`states_v2.json`), `--work-root` and `--backend`, and still requires `--ids` or `--plan`. The commands that
+`jobs/plan_queue.py` writes name `--backend cupy`. The settings that a person changes from run to run are command-line
+options of both runners:
 
 | Option | Sets | Meaning |
 |---|---|---|
@@ -26,12 +28,12 @@ settings that a person changes from run to run are command-line options of both:
 | `--attach-cache DIR\|off` | `STRATO_ATTACH_CACHE` | stratosphere attach cache |
 | `--column-cache DIR` | `SOSFUSE2_COLUMN_CACHE` | column-array cache |
 
-An option writes its variable before the package reads it, so the option takes precedence over a value in the
-environment and the child processes of the run inherit it. `--block-size` is the exception: it writes no variable and
-goes to the kernel directly, and `jobs/pipeline.py` passes it to each state worker as the same option. When it differs from a
-nonblank `SOSFUSE2_BLOCK_SIZE`, or from the block size of `--config NAME`, the run stops with `E_KERNEL_BLOCK_SIZE`.
-A blank `--compile-cache` or `--attach-cache` selects the default location, like an empty variable. The variables remain
-for scripts and queues that export them.
+An option writes its variable before the package reads it, so the option takes precedence over any value in the
+environment, and the child processes of the run inherit it. `--block-size` is the exception: it writes no variable and
+goes to the kernel directly, and `jobs/pipeline.py` passes it to each state worker as the same option. When that option differs
+from a nonblank `SOSFUSE2_BLOCK_SIZE` or from the block size of `--config NAME`, the run stops with
+`E_KERNEL_BLOCK_SIZE`. A blank `--compile-cache` or `--attach-cache` selects the default location, like an empty
+variable. The variables remain for scripts and queues that export them.
 
 The rest of this page is the reference: every environment variable the package reads, the layer that reads it
 (`docs/ARCHITECTURE.md` section 2), its default, and the precedence when multiple settings apply; if no precedence is
@@ -66,10 +68,18 @@ SHA-256, and prints the generated table's SHA-256. Pass `--cia O2-O2_2024.cia` t
 `SOSFUSE2_OFFLINE=1` to refuse the download. O₄ data are neither bundled (`THIRD_PARTY.md`) nor downloaded by a solve,
 so a missing or stale cache stops the run with `E_O4_ASSET_MISSING` or `E_O4_ASSET_STALE`.
 
-The default density configuration fetches two IPRT inputs on first use unless pre-fetched by the density preparation command, `python -m sosfuse2 generate_density_profile`. `SOSFUSE2_OFFLINE=1` refuses missing inputs with `E_IPRT_OFFLINE` (`THIRD_PARTY.md` §9). Set all three density
-options explicitly to `exp8`/`triangle`/`keep` to avoid the download.
+The default density configuration fetches two IPRT inputs on first use unless pre-fetched with
+`python -m sosfuse2 generate_density_profile`; `SOSFUSE2_OFFLINE=1` refuses missing inputs with `E_IPRT_OFFLINE`
+(`THIRD_PARTY.md` §9). Set all three density options explicitly to `exp8`/`triangle`/`keep` to avoid the download.
 
-State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json`, holding 64 parameter sets over `aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo`, and `stratosphere_tau550`. It names as its parent `states_v1.json`, which holds the 40 first-generation states, so their ids also resolve from the default file. All 64 states in `states_v2.json` mark the stratospheric layer `enabled` so it stays on when `--stratosphere` is omitted, whereas `states_v1.json` marks it `unsupported` so it stays off unless `--stratosphere on` is passed. For a 200 km top with finer height and `χ` grids, Legendre degree 24, and a tighter tolerance, *Finer and taller grids together* in `docs/MODEL.md` lists the settings file, command, and stopping errors.
+State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json`, which holds 64 parameter sets over
+`aod550`, `angstrom`, `ssa`, `scale_height_km`, `g`, `ozone_du`, `albedo`, and `stratosphere_tau550`. Its parent is
+`states_v1.json`, which holds the 40 first-generation states, so their ids also resolve from the default file.
+
+All 64 states in `states_v2.json` mark the stratospheric layer `enabled` (so it stays on when `--stratosphere` is
+omitted), whereas `states_v1.json` marks it `unsupported` (so it stays off unless `--stratosphere on` is passed). For a
+200 km top with finer height and `χ` grids, Legendre degree 24, and a tighter tolerance, see *Finer and taller grids
+together* in `docs/MODEL.md` for the settings file, command, and stopping errors.
 
 ## Variables a person sets
 
@@ -79,6 +89,7 @@ State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json
 | `SOSFUSE2_PACKAGE_COMMIT` | foundation (`content_identity.package_info`) | unset | Any nonempty string is recorded as the commit beside the signed fields; empty falls through to `direct_url.json`, then this package's git checkout. The commit does not enter the signature. | user |
 | `SOSFUSE2_OFFLINE` | asset_tools (`iprt`, `prepare_minor_absorbers`) | unset (downloads allowed) | An empty value or `0` permits downloads, while any other string disables them with `E_IPRT_OFFLINE` or `E_O4_OFFLINE`. In `iprt.fetch`, an explicit `offline` argument overrides the variable, and an already verified local file is returned before any download. | user |
 | `SOSFUSE2_DETERMINISTIC` | backends (`flags.deterministic`) | `0` | Exactly `1` selects deterministic accumulation and `0` disables it; empty and every other value raise `E_DETERMINISTIC`. With `1`, the CUDA transport also skips the angular direction table and the tabulated first-light ground phase, and the Anderson step does not use the GPU arithmetic for history staged in host memory. The experimental MLX transport does not read it. The choice enters compile options and the compile cache key. | user |
+| `SOSFUSE2_MLX` | backends (`mlx_backend.enabled`) | unset (off) | `1` after trimming enables device transport and queries on Apple silicon, including the stratospheric layer, extended upper domain and reflecting ground. Other values leave MLX off. See [MLX coverage and fallback](#experimental-mlx-transport-apple-silicon). | user |
 | `SKY_CACHE_REMOTE` | jobs (`cache_store`) | unset | A nonempty string supplies the rclone remote; empty means no remote, so an operation without an explicit remote raises `E_CACHE_REMOTE_MISSING`. | user |
 | `SKY_CACHE_RCLONE_CONFIG` | jobs (`cache_store`) | unset: rclone default | A nonempty string names the rclone configuration file; empty uses rclone's default. A supplied path that is not a file raises `E_CACHE_CONFIG_MISSING`. | user |
 | `SKY_CACHE_MIRROR` | jobs (`cache_store`) | `<work root>/sky-cache` | A nonempty string is the local mirror path; empty uses the default. The path is used as supplied. | user |
@@ -95,10 +106,10 @@ State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json
 | `SOSFUSE2_SUN_METHOD` | atmosphere (`density.sun_method`) | `gl` | After trimming, empty selects `gl`; `gl` keeps quadrature and `exact` uses closed-form profile columns. Other values raise `E_SUN_METHOD`. The choice enters dependent cache keys. | tuning |
 | `SOSFUSE2_COLUMN_METHOD` | rays (`column_table.method`) | `table-v1` | After trimming, `gl24`, `table-v1` or `exact` selects the end-column method. Empty and all other values raise `E_COLUMN_METHOD`. | tuning |
 | `SOSFUSE2_COLUMN_TABLE_CACHE` | rays (`column_table.tables`) | falls back to `SOSFUSE2_COLUMN_CACHE`; with neither the tables are built in memory | Any nonempty string is the profile-table folder; empty falls back to `SOSFUSE2_COLUMN_CACHE`. The path is used as supplied; an unavailable cache falls back to an in-memory build. | tuning |
-| `SOSFUSE2_COLUMN_WORKERS` | precompute (`column_parallel.workers`) | all usable CPUs; N for a `jobs/run_state.py --threads N` run when the variable is unset or blank after trimming | A positive integer is the column pool size; `1` is serial. Empty after trimming uses the default; zero, negative or non-integer values raise `E_COLUMN_WORKERS`. `jobs/pipeline.py` only exports a per-state value when the name is unset or blank after trimming. | tuning |
+| `SOSFUSE2_COLUMN_WORKERS` | precompute (`column_parallel.workers`) | all usable CPUs; N for a `jobs/run_state.py --threads N` run when the variable is unset or blank after trimming | A positive integer is the column pool size; `1` is serial. Empty after trimming uses the default. Zero, negative or non-integer values raise `E_COLUMN_WORKERS` only with `gl24`. `jobs/pipeline.py` only exports a per-state value when the name is unset or blank after trimming. | tuning |
 | `SOSFUSE2_SUN_WORKERS` | precompute (`sun_parallel.workers`) | all usable CPUs; N for a `jobs/run_state.py --threads N` run when the variable is unset or blank after trimming | A positive integer is the solar-table pool size; `1` is serial. Empty after trimming uses the default; zero, negative or non-integer values raise `E_SUN_WORKERS`. Pipeline precedence is the same as for `SOSFUSE2_COLUMN_WORKERS`. | tuning |
 | `SOSFUSE2_GROUND_WORKERS` | precompute (`ground_parallel.workers`) | all usable CPUs; N for a `jobs/run_state.py --threads N` run when the variable is unset or blank after trimming | A positive integer is the ground-cell pool size; `1` is serial. Empty after trimming uses the default; zero, negative or non-integer values raise `E_GROUND_WORKERS`. Pipeline precedence is the same as for `SOSFUSE2_COLUMN_WORKERS`. | tuning |
-| `SOSFUSE2_GEOMETRY_WORKERS` | solve (`ray_geometry_parallel.workers`) | all usable CPUs; N for a `jobs/run_state.py --threads N` run when the variable is unset or blank after trimming | A positive integer sets the cell pool size. `1` selects the serial writer. Empty after trimming uses the default. Zero, negative or non-integer values raise `E_GEOMETRY_WORKERS`. Pipeline precedence is the same as for `SOSFUSE2_COLUMN_WORKERS`. See [Architecture](ARCHITECTURE.md#5-topics-that-cross-layers) for the serial fallback events. | tuning |
+| `SOSFUSE2_GEOMETRY_WORKERS` | solve (`ray_geometry_parallel.workers`) | all usable CPUs; N for a `jobs/run_state.py --threads N` run when the variable is unset or blank after trimming | A positive integer sets the cell pool size when a packed geometry cache is created. `1` selects the serial writer. Empty after trimming uses the default. Zero, negative or non-integer values raise `E_GEOMETRY_WORKERS`. Pipeline precedence is the same as for `SOSFUSE2_COLUMN_WORKERS`. See [Architecture](ARCHITECTURE.md#5-topics-that-cross-layers) for the serial fallback events. | tuning |
 | `SOSFUSE2_HOST_CACHE` | precompute (`host_cache.enabled`) | `1` | Exactly `0` bypasses the corrected solar-table and ground-preparation caches; empty and every other string enable them. The runner still uses the disk-cached original solar table at its production scale, and other caches, including profile tables and geometry, remain independent. | tuning |
 | `SOSFUSE2_COLUMN_CACHE` | precompute (`column_cache`) | unset (disabled for direct callers, enabled by `jobs/pipeline.py` for full grids) | Direct callers use any nonempty string as the column-array folder, while an empty value disables the cache. `jobs/pipeline.py` treats an explicitly empty value as the current directory and `off` as disabled; in both `jobs/pipeline.py` and `jobs/run_state.py`, `--column-cache` overrides the environment variable. | tuning |
 | `SOSFUSE2_KERNEL_FLAGS` | backends (`flags`, `compile_cache`) | empty | Takes a comma-separated list of flag names; spaces and empty entries are removed. An empty value selects no flags, retired names emit a warning and are ignored, unsupported names raise `E_KERNEL_FLAG`, and physical selectors in the runner raise `E_KERNEL_FLAGS`. The runner records the resolved flags in the signed settings. The `--config NAME` option of `jobs/run_state.py` and `jobs/pipeline.py` sets this variable and `SOSFUSE2_BLOCK_SIZE` from `backends/configs/NAME.json` and takes precedence. | tuning |
@@ -107,8 +118,7 @@ State ids come from the default `--states` file, `sosfuse2/assets/states_v2.json
 | `SOSFUSE2_FASTMATH` | solve (`source_solver.Kernel.stage1_flags`) | unset: the `stage1_defaults` of the device profile | `1` enables and `0` disables it; empty after trimming uses the profile. Other values raise `E_STAGE1_FLAG`. `checks/gate.py` sets both explicitly. `1` also selects the approximate exponential and logarithm of the warm kernel; `0` keeps the standard ones. Neither value turns off the angular direction table, which has its own eligibility checks. | tuning |
 | `SOSFUSE2_COMPILE_CACHE` | backends (`compile_cache.configure`) | unset (caller's root, or `compile_cache.default_root` beside the work root for `jobs/run_state.py`) | A nonempty path after trimming replaces the caller's CUDA runtime compilation (NVRTC) cache root, while an empty value keeps the caller's root. `jobs/precompile.py` uses this variable as its `--cache` default and requires either a nonempty value or an explicit option. The `--compile-cache` option of `jobs/run_state.py` and `jobs/pipeline.py` takes precedence. | tuning |
 | `SOSFUSE2_DEVICE_PROFILE` | backends (`device_profile.select`) | by CUDA device name; `cuda` when no profile lists the device, `mac` without CUDA | A profile name in `backends/configs/devices.json` forces selection; empty after trimming uses the default. An unknown name raises `E_DEVICE_PROFILE`. The `--device-profile` option of `jobs/run_state.py` and `jobs/pipeline.py` takes precedence. | tuning |
-| `SOSFUSE2_MLX` | backends (`mlx_backend.enabled`) | unset (off) | `1` after trimming enables device transport and queries on Apple silicon, including the stratospheric layer, extended upper domain and reflecting ground. Other values leave MLX off. See [MLX coverage and fallback](#experimental-mlx-transport-apple-silicon). | user |
-| `SOSFUSE2_MLX_TILE_SAMPLES` | backends (`mlx_backend.tile_samples`) | `1048576` (2**20) | A positive integer caps the path samples one MLX device tile holds; a single cell with more samples forms its own tile. Empty after trimming uses the default; zero or negative values raise `ValueError`. | tuning |
+| `SOSFUSE2_MLX_TILE_SAMPLES` | backends (`mlx_backend.tile_samples`) | `1048576` (2**20) | A positive integer caps the path samples one MLX device tile holds; a single cell with more samples forms its own tile. Empty after trimming uses the default. Non-integer, zero or negative values raise `ValueError` with code `E_MLX_TILE_SAMPLES`. | tuning |
 | `SOSFUSE2_MLX_EVAL_SHADOW` | backends (`mlx_backend.evaluate`) | unset (off) | `1` (after trimming spaces) recomputes every MLX `TransientGeometry.evaluate` call with the NumPy branch and records, per call, the largest difference relative to that wavelength's largest NumPy value in `mlx_backend.eval_shadow`. It doubles the host work and is meant for bench harnesses. | diagnostic |
 | `SOSFUSE2_MLX_QUERY_SHADOW` | backends (`mlx_backend.query`) | unset (off) | `1` (after trimming spaces) recomputes every MLX observation query with `numpy_reference.transport` and records, per call, the largest difference relative to that wavelength's largest NumPy value in `mlx_backend.shadow`. It is meant for bench harnesses. | diagnostic |
 | `SOSFUSE2_LAUNCH_BUDGET_SECONDS` | backends (`device_profile.select`) | the selected profile | A finite nonnegative number overrides the launch time limit. Empty, `0`, `none` or `off` disables it; invalid, negative or nonfinite values raise `E_DEVICE_PROFILE`. Disabling it leaves the pre-launch work cap of the warm transport active, computed for 0.8 × 30 s; one cell above that cap raises `E_LAUNCH_BUDGET`. | tuning |
@@ -278,7 +288,7 @@ the GPU with a Henyey–Greenstein troposphere, including stratospheric sulfate 
 implementation checks each call: a tropospheric Mie lookup table, for example, sends that call to NumPy.
 
 `run_state --backend numpy` selects the reduced grid, which requires an 80 km top, whereas the extended-domain device
-code can be exercised directly from Python. Use
+code can be exercised directly from Python. The [MLX timings](PERFORMANCE.md#release-1100) cover a small grid. Use
 separate `--work-root` folders to compare the same state with MLX on and off because the switch is outside the output
 signature.
 

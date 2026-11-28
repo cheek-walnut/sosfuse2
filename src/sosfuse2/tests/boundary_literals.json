@@ -91,6 +91,9 @@
   },
   "backends/numpy_reference.py": {},
   "jobs/run_state.py": {
+    "from sosfuse2.foundation.top import TOP_KM": 1
+  },
+  "solve/configuration.py": {
     "from sosfuse2.foundation.top import TOP_KM": 1,
     "if domain.top_km > TOP_KM:": 2,
     "if 'nr' in raw and 'h_refine' not in raw and domain.top_km == TOP_KM:": 1,

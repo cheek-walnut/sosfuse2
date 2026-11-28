@@ -1,5 +1,8 @@
 # Checks: what runs where
 
+For the required offline CPU check (`tests/test_offline_cpu.py`) and the command for your change, see
+[Your first change](../CONTRIBUTING.md).
+
 G-P compares against the NumPy golden at `rtol=1e-3`. G-T checks the recorded anchors. G-F compares the cold table
 against the fixed radiance reference at `rtol=1e-3, atol=0` and compares cold and warm radiance and source arrays
 at `rtol=1e-5, atol=0` in both accumulation modes. The checks fall into three tiers according to what the machine has.
@@ -23,40 +26,51 @@ the repeat check compares runs of one build with each other.
 | G-F | full-grid fixed table, solved cold and then warm (needs the research checkout) | cold radiance vs the fixed radiance rtol 1e-3; cold vs warm radiance and source rtol 1e-5 (atol 0 for both) |
 
 Accumulation order, lane mapping, record layout and the transport path may change between versions and are judged
-against these fixed references and tolerances. Set `SOSFUSE2_DETERMINISTIC=1` when studies require bit-stable repeats of a run on the same CUDA GPU:
-it fixes the accumulation order and turns off the angular direction table, the tabulated first-light ground phase and
-the GPU arithmetic for Anderson history staged in host memory, so the transport contracts the coefficients directly or
-uses the fused kernel. The experimental MLX transport does not read this variable and makes no such promise. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and reference manifest.
+against these fixed references and tolerances. `src/sosfuse2/checks/gate_data/baselines/` holds the baseline log and
+reference manifest.
+
+For studies requiring bit-stable repeats on the same CUDA GPU, set `SOSFUSE2_DETERMINISTIC=1`. This fixes the
+accumulation order and disables the angular direction table, the tabulated first-light ground phase, and GPU arithmetic
+for Anderson history staged in host memory, forcing transport to contract coefficients directly or use the fused kernel.
+The experimental MLX transport ignores this variable and makes no determinism guarantee.
 
 ## 1. Any machine, no GPU, no upstream research checkout (public CI)
+
+CI first runs the required offline CPU check described in the contributor guide above and fetches IPRT inputs for the
+broader suite only after that check passes. The broader suite permits skips for optional inputs and hardware.
+
+For changes to state setup or storage, `tests/test_run_boundaries.py` verifies that settings resolve independently of
+the output folder and that storage writes and reuses arrays correctly. `tests/test_identity_runner.py::test_interleaved_runner_kernels`
+solves two NumPy states with different settings, constructs a kernel with a stand-in device backend between them, and
+compares the second state's arrays and evaluation count against a fresh process. The [task table](../AGENTS.md) lists
+commands for each area.
 
 ```sh
 pip install ".[test]"            # from a checkout of the tagged commit; the package is not on PyPI
 python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2
 ```
 
-Tests that read inputs from the upstream research checkout skip at function or fixture level while `SOSFUSE2_SKY_SOS_ROOT` is unset.
-CUDA-only modules (`test_C_registers`, the `gate` CUDA paths) skip as well, and 9 cases that depend on `strato_colors`, a
-research module that is not packaged, skip too. Setting `SOSFUSE2_SKY_SOS_ROOT` to a checkout that lacks a record is a failure rather than a
-skip.
-The suite uses a synthetic O₄ table in an
-isolated temporary root without downloading HITRAN data, while optional reproduction from original data
-(`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) skips when neither is set. Pass a module name to run one file, such as
-`python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2.tests.test_names`.
+While `SOSFUSE2_SKY_SOS_ROOT` is unset, tests that read inputs from the upstream research checkout skip at the function
+or fixture level (setting `SOSFUSE2_SKY_SOS_ROOT` to a checkout missing a record fails rather than skips). CUDA-only
+modules (`test_C_registers`, the `gate` CUDA paths) and 9 cases depending on the unpackaged `strato_colors` research
+module also skip. The suite substitutes a synthetic O₄ table in an isolated temporary root without downloading HITRAN
+data, so optional reproduction tests from original data (`SOSFUSE2_HITRAN_CIA`, `SOSFUSE2_BIRA_DIR`) skip when neither
+variable is set.
+
+Pass a module name to run a single file, such as `python -B -m pytest -q -p no:cacheprovider --pyargs sosfuse2.tests.test_names`.
 The structure tests (`tests/test_layers.py`, `tests/test_names.py`, `tests/test_entry_points.py`,
-`tests/test_structure_imports.py`) run in this tier. `tests/test_docs_pointers.py` reads `AGENTS.md` and `docs/`, which
-the installed package does not contain, so it skips outside a source checkout and says so.
+`tests/test_structure_imports.py`) run in this tier, whereas `tests/test_docs_pointers.py`—which reads `AGENTS.md` and
+`docs/` absent from the installed package—skips outside a source checkout and reports why.
 
 The test session fetches the two IPRT inputs into the work root, `SOSFUSE2_WORK_ROOT` or else
 `$XDG_CACHE_HOME/sosfuse2`, when they are not there yet, and the density asset is regenerated with platform-independent
 arithmetic (`density.ASSET_SHA256`). The download makes up to three attempts if the server is unreachable (`E_IPRT_DOWNLOAD`). With
 `SOSFUSE2_OFFLINE=1`, or when the download fails, the session runs without the IPRT inputs. The tests that depend on the
-`usstd76` density asset, about 190 cases including every test that solves a state with the default density configuration,
-then skip, reporting `E_IPRT_OFFLINE` and the command that fetches the files,
+`usstd76` density asset then skip when they encounter `E_IPRT_OFFLINE` and report the command that fetches the files,
 `python -B -c "from sosfuse2.asset_tools import iprt; iprt.inputs()"`. A test that fails for another reason is still a failure.
 
-The check in a fresh virtual environment outside the source tree also runs one reduced NumPy solve, which takes a few
-minutes, after the one-time O₄ and density preparation from the README
+The check in a fresh virtual environment outside the source tree also runs one reduced NumPy solve after the one-time
+O₄ and density preparation from the README
 (`python -m sosfuse2.asset_tools.prepare_minor_absorbers --download` and `python -m sosfuse2 generate_density_profile`).
 Without the O₄ step the solve stops with `E_O4_ASSET_MISSING`; without the density step it fetches the IPRT inputs on
 first use, or stops with `E_IPRT_OFFLINE` under `SOSFUSE2_OFFLINE=1`:
@@ -71,19 +85,20 @@ bundled states. To reproduce the earlier off state, pass an explicit state file 
 there is no `--stratosphere off` option.
 
 On macOS, the persistent queue (`pipeline --persistent`, `test_r17_port`, `test_pipeline_persistent`) listens on a Unix
-socket under the run's temporary root, and macOS limits that path, terminator included, to 104 bytes. Keep `TMPDIR`
-short; the default `/var/folders/...` is fine (`SOSFUSE2_TEST_SCRATCH` sets a separate folder for test outputs). With a longer path, `pipeline --persistent` stops
-with `E_PERSISTENT_SERVICE_START`, and the tests that open the socket measure the path first and skip with
-`E_SOCKET_PATH_TOO_LONG`. The five cases of the `test_pipeline_persistent` test class share a 4-state non-persistent baseline queue and a 2-state
-persistent queue run once for the class, some cases start further queues, and a separate test solves one state. Each
-queue waits up to `PERSISTENT_TEST_DEADLINE` seconds, 2400 by default, on NumPy unless `PERSISTENT_TEST_BACKEND` names
-another backend.
-The public CI also sets `PERSISTENT_TEST_DEADLINE=2400`, and the CUDA G-PS check of tier 2 runs three of those cases with 900 s.
-The public CI splits this run into four shards for each platform and Python version and runs the test files of a shard
-side by side, one file per worker (`pytest-xdist` with `--dist loadfile`, one worker per CPU), because most files keep a
-single core busy. `.github/ci/ci_shard.py` assigns whole files to shards by the measured file times in
-`.github/ci/shard_weights.json`; a file that is not listed there gets the median time, so a new file still runs once. The
-`shard-coverage` job collects every shard and fails unless together they hold each collected test exactly once.
+socket under the run's temporary root, where macOS limits the path (terminator included) to 104 bytes. Keep `TMPDIR`
+short; the default `/var/folders/...` is fine (`SOSFUSE2_TEST_SCRATCH` sets a separate folder for test outputs). Longer
+paths stop `pipeline --persistent` with `E_PERSISTENT_SERVICE_START`, and tests that open the socket check path length
+first and skip with `E_SOCKET_PATH_TOO_LONG`. The five cases of `test_pipeline_persistent` share a 4-state
+non-persistent baseline queue and a 2-state persistent queue run once for the class, with some cases starting additional
+queues and a separate test solving one state. Each queue waits up to `PERSISTENT_TEST_DEADLINE` seconds (2400 by
+default) on NumPy unless `PERSISTENT_TEST_BACKEND` specifies another backend.
+
+Public CI sets `PERSISTENT_TEST_DEADLINE=2400` (whereas the CUDA G-PS check of tier 2 runs three of those cases with
+900 s) and splits the suite into four shards per platform and Python version. Because most files keep a single core busy,
+each shard runs test files side by side, one file per worker (`pytest-xdist` with `--dist loadfile`, one worker per
+CPU). `.github/ci/ci_shard.py` assigns whole files to shards using the measured file times in
+`.github/ci/shard_weights.json`, giving unlisted new files the median time so they still run once. The `shard-coverage`
+job collects every shard and fails unless together they include each collected test exactly once.
 
 The tests of the long-running files carry the marker `heavy`; `HEAVY_FILES` in `tests/conftest.py` lists those files, each
 of which took 20 s or longer in a serial run. `python -B -m pytest --pyargs sosfuse2 -m "not heavy"` runs the other files
@@ -127,16 +142,20 @@ heights, 109 `χ` nodes, Legendre degree 24, tolerance 2e-4) on a test state for
 `SOSFUSE2_OPTION_SMOKE_SLOW=1 python -B -m pytest -q -rs --pyargs sosfuse2.tests.test_option_combinations` and check
 that both CUDA cases ran.
 
-The `gpu` extra brings the CUDA libraries that CuPy loads at run time: NVRTC, the runtime, cuBLAS, cuSOLVER, cuSPARSE and
-nvJitLink. Install the extra rather than CuPy alone; the Anderson step forms its products on the GPU or on the host, depending on where the
-history is kept, the configuration, the deterministic mode and free memory, and solves the small regularized Gram system
-in FP64 on the host. The fixtures (`checks/gate_data/fixtures.json`) and baselines (`checks/gate_data/baselines/`) ship with the package. `--bless`
-moves no fixed reference; it records the SHA, difference, GPU toolchain and configuration key, and verdict. Only `--bless`, `--bless-numpy` and
-`--record-baselines` modify the package's own `checks/gate_data/baselines/`, and they need a writable checkout, stopping with
-`E_GATE_CONFIG` on a read-only install. Every top-level run writes its report to `<out>/gate.json`. Any other run that writes an execution record, as a passing G-F
-does with `manifest.json` and `BASELINE_LOG.md`, puts it under `<out>/records/` instead of the package. `gate.code_identity()` hashes the generated `usstd76` density asset and
-therefore needs the IPRT inputs, so the first run on a host downloads them over the network against the pinned sha256
-unless they are already in the work root.
+The `gpu` extra provides the CUDA libraries loaded at run time by CuPy: NVRTC, the runtime, cuBLAS, cuSOLVER, cuSPARSE
+and nvJitLink. Install the extra rather than CuPy alone; the Anderson step forms its products on the GPU or host
+depending on history placement, configuration, deterministic mode and free memory, and solves the small regularized Gram
+system in FP64 on the host.
+
+The fixtures (`checks/gate_data/fixtures.json`) and baselines (`checks/gate_data/baselines/`) ship with the package.
+`--bless` moves no fixed reference, instead recording the SHA, difference, GPU toolchain and configuration key, and
+verdict. Only `--bless`, `--bless-numpy` and `--record-baselines` modify `checks/gate_data/baselines/` in the package,
+which requires a writable checkout and stops with `E_GATE_CONFIG` on a read-only install.
+
+Every top-level run writes its report to `<out>/gate.json`, while other execution records (such as `manifest.json` and
+`BASELINE_LOG.md` from a passing G-F run) go under `<out>/records/` rather than the package. Because
+`gate.code_identity()` hashes the generated `usstd76` density asset, the first run on a host downloads the IPRT inputs
+against the pinned sha256 unless they are already cached in the work root.
 
 ## 3. CUDA machine with the upstream research checkout
 
@@ -144,27 +163,30 @@ unless they are already in the work root.
 SOSFUSE2_SKY_SOS_ROOT=/path/to/research-checkout python -B -m sosfuse2.checks.gate --gf --reference <table.npz> --out <dir>
 ```
 
-The G-F check against the full-grid fixed table reuses the upstream bake template through
-`SOSFUSE2_SKY_SOS_ROOT`, a research-side dependency. It stops with `E_GATE_CONFIG` without that dependency and with
-`E_GATE_TEMPLATE` when the template fails to load (for example, because of an import of a renamed module). The fixed table itself is not part of the package.
+The G-F check compares against a full-grid fixed table by reusing the upstream bake template via `SOSFUSE2_SKY_SOS_ROOT`,
+a research-side dependency; it stops with `E_GATE_CONFIG` without that dependency and with `E_GATE_TEMPLATE` if loading
+the template fails (for example, from importing a renamed module). The fixed table itself is excluded from the package.
 `checks/gate_data/baselines/manifest.json` records only the file name under `gf.reference`
-(`gf_L19s3_tau0p01_aod0p4_g0p65_e2620f6f90c39dcb.npz`) together with its radiance SHA-256. Historical paths in
-`BASELINE_LOG.md` are reduced to file or directory names, and a new record writes only the bare file name. `gate --gf`
-always requires `--reference <table.npz>` and stops with `E_GATE_BASELINE_MISSING` without an existing file
-(`checks/gate.py` `gf`); the SHA check `E_GATE_MANIFEST_SHA` still applies. The research tests (`test_cache_store`,
-`test_v14_runner`, the section clock checks and others) run in this tier as well. `gate --gf` and the cases that
-load the bake template (`test_cache_store` and the G-F cases of `test_gate`) need a research checkout whose scripts
-import the 1.4.0 module names. For `test_cache_store`, set `SOSFUSE2_TEST_BAKE_DRIVER` to the bake driver script and
-`SOSFUSE2_TEST_BAKE_PLANNER` to the planner script. Cases that use either script skip when its path is unset or missing.
-See the [test environment variables](ENVIRONMENT.md#variables-of-the-tests-only).
-The upstream cases of `test_ozone_temperature` need the asset files listed in the checkout’s manifest. The provenance check of `test_v14_runner` accepts the current
-format; in 1.4.0 it expected format v3 and failed. The runtime artifact check in `test_strato_delta_adversarial` reads the retained output of an earlier harness run, skips
-when that output is absent and expects a source of shape `(40, 10 + 2 * sh_count(L), 1)`. Here `L` comes from the retained run’s `meta['settings']['L']`. None of these cases runs in tier 1. This
-tier checks deployment in the upstream research repository. The optional `SADDLE_DATA_ROOT` names a folder
-with the packed full-grid geometry cache and run logs that
-`test_plan_queue` and `test_column_parallel` read. Without it, and without the same data under `SOSFUSE2_SKY_SOS_ROOT`,
-those tests skip. The cases for the plan's CPU budget and host-cache records in `test_plan_queue` and for the batch
-writer's locks in `test_regressions_110` need no such data.
+(`gf_L19s3_tau0p01_aod0p4_g0p65_e2620f6f90c39dcb.npz`) alongside its radiance SHA-256, and `BASELINE_LOG.md` reduces
+historical paths to bare file or directory names. `gate --gf` requires `--reference <table.npz>` and stops with
+`E_GATE_BASELINE_MISSING` when the file is absent (`checks/gate.py` `gf`); the SHA check `E_GATE_MANIFEST_SHA` still
+applies.
+
+Research tests (`test_cache_store`, `test_v14_runner`, section clock checks and others) run in this tier as well.
+`gate --gf` and cases loading the bake template (`test_cache_store` and the G-F cases of `test_gate`) require a research
+checkout whose scripts import the 1.4.0 module names. For `test_cache_store`, set `SOSFUSE2_TEST_BAKE_DRIVER` and
+`SOSFUSE2_TEST_BAKE_PLANNER` to the bake driver and planner scripts (cases skip if either path is unset or missing; see
+the [test environment variables](ENVIRONMENT.md#variables-of-the-tests-only)). Upstream cases of `test_ozone_temperature`
+need the asset files listed in the checkout’s manifest, and `test_v14_runner`'s provenance check accepts the current
+format (in 1.4.0 it expected v3 and failed). The runtime artifact check in `test_strato_delta_adversarial` reads the
+retained output of an earlier harness run, skipping when absent and otherwise expecting a source of shape
+`(40, 10 + 2 * sh_count(L), 1)` where `L` comes from the retained run’s `meta['settings']['L']`.
+
+None of these research cases run in tier 1; this tier verifies deployment in the upstream research repository. The
+optional `SADDLE_DATA_ROOT` names a folder holding the packed full-grid geometry cache and run logs read by
+`test_plan_queue` and `test_column_parallel`, without which (and without the same data under `SOSFUSE2_SKY_SOS_ROOT`)
+those tests skip. Cases testing the plan's CPU budget and host-cache records in `test_plan_queue` and batch writer locks
+in `test_regressions_110` require no such data.
 
 ### Local test inputs
 

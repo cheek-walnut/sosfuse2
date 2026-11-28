@@ -62,3 +62,21 @@ def test_two_writers_of_one_key_stay_private(tmp_path):
 def test_record_true_keeps_the_phase_record(tmp_path):
     results = run_pair(tmp_path, record=True)
     assert all(r['records'] == ['attach_cache'] for r in results)
+
+
+def test_failed_assembly_restores_environment_without_publishing(tmp_path, monkeypatch):
+    import pytest
+    from sosfuse2.jobs import run_state
+
+    setting = f'  {tmp_path}  '
+    monkeypatch.setenv('STRATO_ATTACH_CACHE', setting)
+    with pytest.raises(ValueError, match='assembly failed'):
+        with run_state.attach_cache_event('state', 0, STATE):
+            overlay = Path(os.environ['STRATO_ATTACH_CACHE'])
+            assert overlay.parent == tmp_path
+            (overlay / PUBLISHED).write_bytes(b'partial')
+            raise ValueError('assembly failed')
+    assert os.environ['STRATO_ATTACH_CACHE'] == setting
+    assert not overlay.exists()
+    assert not (tmp_path / PUBLISHED).exists()
+    assert not list(tmp_path.glob('*.done'))

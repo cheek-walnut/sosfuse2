@@ -4,7 +4,7 @@ Run: python -B -m sosfuse2.tests.test_r17_port
 1 column_cache job first-use comparison: miss, same-job hit, new-job hit and a poisoned payload all return
   the direct bytes.
 2 preview reuse: the repack of one attempt renders no previews; packed products are unchanged.
-3 nphi: v3 defaults to 16 (validated <=0.003 % on V14); explicit 32/64 still generate their geometry.
+3 nphi: full settings default to 16, and reduced grids generate more rays at 64 than at 32.
 4 kernel.cu production configurations preprocess; r17 flags remain reachable and parse.
 5 pipeline.py --persistent --workers auto --gpu-active auto hands the real runner parser its work-root,
   geometry-cache, keep-geometry and column-cache arguments and the r17 environment.
@@ -191,13 +191,12 @@ class PreviewReuse(unittest.TestCase):
 
 
 class Nphi(unittest.TestCase):
-    def test_default_32_explicit_64_generates(self):
+    def test_full_default_16_and_reduced_64_generates_more_rays_than_32(self):
         from sosfuse2.jobs import run_state as rv
         from sosfuse2.solve import ray_geometry as gm
         from sosfuse2.asset_tools.strato_states import build
 
-        # solve/engine.py keeps 64 (it is in the geometry signature, endpoint_contract.UPSTREAM);
-        # the v3 adapter replaces its grid counts with settings_for (jobs/run_state.py create_configured, the create() grid hook).
+        # The full engine grid starts with 64 azimuths. The grid hook in solve/build.py uses the configured nphi.
         engine = (paths.ACCEPTED / 'engine.py').read_text()
         self.assertRegex(engine, r"if mode == 'full':\s*h, ch = old\.grids\(1\)\s*nmu, nphi, path_n = 12, 64, 12")
         tmp = Path(tempfile.mkdtemp(prefix='r17-nphi-'))

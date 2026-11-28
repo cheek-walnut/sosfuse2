@@ -14,6 +14,8 @@ import os
 from importlib import resources
 from pathlib import Path
 
+from . import dependencies
+
 
 def resource_root():
     root = resources.files('sosfuse2')
@@ -35,7 +37,7 @@ ACCEPTED = PKG / 'solve'  # context factory location; source_solver.load_engine 
 NATIVE = PKG / 'backends/native'
 CONFIGS = PKG / 'backends/configs'
 GATE = PKG / 'checks/gate_data'
-KERNEL_CU = PKG / 'backends/kernel.cu'
+KERNEL_CU = PKG / dependencies.CUDA_SOURCE
 SRC = PKG.parent  # directory that makes `import sosfuse2` work (src/ in-tree, site-packages when installed)
 
 
@@ -87,112 +89,8 @@ def module_command(name, *args):
     return [sys.executable, '-B', '-m', 'sosfuse2.' + name, *map(str, args)]
 
 
-# Production modules that enter the provenance format (content_identity.package_hashes) and the gate bless identity
-# (gate.code_identity): a fixed list, not a glob, so a file that goes missing is an error instead of a silently different
-# signature. Each module enters by its identity text (content_identity.python_text: the source without comments and
-# docstrings), not by its bytes. test_*.py and checks/testkit.py (test support) are excluded; numerical_checks stays
-# (stratosphere_checks imports it). test_ozone_temperature.test_03c keeps this list equal to the tree: adding a module
-# means adding it here.
-PRODUCTION_MODULES = (
-    '__init__',
-    '__main__',
-    'foundation/__init__',
-    'atmosphere/__init__',
-    'rays/__init__',
-    'precompute/__init__',
-    'backends/__init__',
-    'solve/__init__',
-    'outputs/__init__',
-    'jobs/__init__',
-    'checks/__init__',
-    'asset_tools/__init__',
-    'foundation/available_cpus',
-    'foundation/top',
-    'atmosphere/upper_air',
-    'asset_tools/generate_upper_air',
-    'backends/flags_env',
-    'solve/engine',
-    'outputs/pack_state',
-    'atmosphere/air_wavelength',
-    'backends/arithmetic',
-    'jobs/cache_store',
-    'precompute/column_cache',
-    'precompute/column_parallel',
-    'rays/column_table',
-    'backends/compile_cache',
-    'atmosphere/components',
-    'atmosphere/density',
-    'backends/device_profile',
-    'backends/vram_budget',
-    'backends/vram_trace',
-    'solve/source_solver',
-    'solve/source_iteration',
-    'checks/gate',
-    'checks/kernel_diagnostics',
-    'asset_tools/generate_density_profile',
-    'asset_tools/generate_minor_absorbers',
-    'asset_tools/generate_strato_optics',
-    'asset_tools/generate_tropo_optics',
-    'solve/ray_geometry',
-    'precompute/endpoint_contract',
-    'solve/ray_geometry_cpu',
-    'solve/ray_geometry_parallel',
-    'precompute/ground_parallel',
-    'solve/ground_sh',
-    'precompute/host_cache',
-    'foundation/host_limits',
-    'foundation/content_identity',
-    'asset_tools/iprt',
-    'backends/flags',
-    'solve/ksplit',
-    'asset_tools/mie',
-    'atmosphere/minor_absorbers',
-    'checks/numerical_checks',
-    'atmosphere/ozone_temperature',
-    'foundation/paths',
-    'asset_tools/prepare_minor_absorbers',
-    'rays/shell_segments',
-    'atmosphere/extinction',
-    'rays/incoming_quadrature',
-    'rays/incoming_rings',
-    'rays/zenith_interpolation',
-    'solve/engine_core',
-    'outputs/preview_functions',
-    'jobs/pipeline',
-    'jobs/pipeline_execution',
-    'jobs/plan_queue',
-    'jobs/precompile',
-    'checks/validation_evidence',
-    'rays/ray_columns',
-    'atmosphere/rayleigh',
-    'backends/numpy_reference',
-    'checks/solver_diagnostics',
-    'jobs/run_state',
-    'jobs/walkthrough',
-    'backends/sh_layout',
-    'atmosphere/spectral',
-    'solve/strato_sh_aux',
-    'asset_tools/strato_states',
-    'backends/mlx_backend',
-    'backends/mlx_ops',
-    'backends/mlx_query',
-    'backends/mlx_query_kernel',
-    'backends/mlx_transport',
-    'backends/mlx_warm',
-    'backends/mlx_warm_kernels',
-    'atmosphere/stratosphere',
-    'precompute/sun_parallel',
-    'outputs/radiance_table',
-    'outputs/quantized_table',
-    'jobs/tables_from_sources',
-    'foundation/timers',
-    'foundation/version',
-    'atmosphere/tropo_mie',
-    'atmosphere/tropo_profile',
-    'checks/validate',
-    'checks/stratosphere_checks',
-    'solve/ksplit_tolerance',
-)
+# Keep the historical suffix-free module names for callers of production_files().
+PRODUCTION_MODULES = tuple(name.removesuffix('.py') for name in dependencies.FILES if name.endswith('.py'))
 
 
 def production_files(exclude=()):

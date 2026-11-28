@@ -1,46 +1,39 @@
 """Portable previews and an atomic archive of four products plus optional first-order radiance."""
 
-import ast
 import io
 import json
-import math
 import os
 import shutil
 import subprocess
 import tarfile
 import time
+from functools import partial
 from pathlib import PurePosixPath, PureWindowsPath
 
 import numpy as np
-from PIL import Image, PngImagePlugin
 
 from sosfuse2.foundation import paths
+from sosfuse2.outputs import preview_functions
 
 ROOT = paths.PKG
 PREVIEW_PNG_LEVEL = 6
 
 
 def render_functions():
-    path = ROOT / 'outputs/preview_functions.py'
-    tree = ast.parse(path.read_text())  # promoted preview definitions
-    names = {'film', 'tone', 'encode', 'save_png', 'projection', 'cubic_weights', 'sample', 'project', 'central'}
-    nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
-    if {n.name for n in nodes} != names:
-        raise RuntimeError('E_RENDER_ADAPTER_DRIFT')
-    scope = dict(np=np, math=math, Image=Image, PngImagePlugin=PngImagePlugin, Y=np.array([0.2126, 0.7152, 0.0722]))
-    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), scope)
-    encode = scope['encode']
-
-    def save_png(path, rgb, seed=17):
-        # sos_render.save_png with PNG level 6 instead of 9: identical pixels, 0.98 s -> 0.03 s per preview, +8 % bytes.
-        # Preview bytes are not fixed; table.npz stays as it was.
-        path.parent.mkdir(parents=True, exist_ok=True)
-        info = PngImagePlugin.PngInfo()
-        info.add(b'sRGB', b'\x00')
-        Image.fromarray(encode(rgb, seed)).save(path, compress_level=PREVIEW_PNG_LEVEL, pnginfo=info)
-
-    scope['save_png'] = save_png
-    return scope
+    """Renderer mapping shared by the packer and the runner's spectral preview path."""
+    weights = preview_functions.Y.copy()
+    return dict(
+        Y=weights,
+        film=preview_functions.film,
+        tone=preview_functions.tone,
+        encode=preview_functions.encode,
+        save_png=partial(preview_functions.save_png, compress_level=PREVIEW_PNG_LEVEL),
+        projection=preview_functions.projection,
+        cubic_weights=preview_functions.cubic_weights,
+        sample=preview_functions.sample,
+        project=preview_functions.project,
+        central=partial(preview_functions.central, weights=weights),
+    )
 
 
 def preview_band_widths(meta, wl):

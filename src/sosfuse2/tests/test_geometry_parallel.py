@@ -108,6 +108,17 @@ class GeometryParallelTests(unittest.TestCase):
             _, again = self.build('', 3, g)
             self.assertEqual(again, [])  # completed caches never spawn workers
 
+    def test_packed_cache_keeps_its_worker_count(self):
+        g = self.resident('selected')
+        with mock.patch.dict(os.environ, {gp.ENV: '2'}):
+            packed = g.packed()
+        log = io.StringIO()
+        with mock.patch.dict(os.environ, {gp.ENV: '1'}), contextlib.redirect_stdout(log):
+            packed.build(self.s.geo.ns, g.cached_cell)
+        events = [json.loads(line) for line in log.getvalue().splitlines() if '"geometry_parallel"' in line]
+        self.assertEqual([(e['result'], e['workers']) for e in events], [('parallel', 2)])
+        self.assert_same(g)
+
     def test_worker_failure_preserves_reason_and_bytes(self):
         with mock.patch.object(gp, '_run', fail_after_prefix):
             g, events = self.build('failure', 3)

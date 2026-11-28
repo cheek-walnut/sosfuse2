@@ -106,10 +106,6 @@ class PrepWorkers(unittest.TestCase):
         )
 
 
-if __name__ == '__main__':
-    unittest.main(verbosity=2)
-
-
 def test_column_keeps_the_cpu_budget_cap():
     # macOS cpu_budget() = 4: the column pool stays at the old max(--threads, budget // workers) while the other pools
     # take host_cores // workers (pool children are outside the RSS guard).
@@ -145,3 +141,7 @@ def test_pipeline_reports_ksplit_decision_per_state(tmp_path, capsys):
     assert len(fallback['ksplit_fallback']) == 1
     warnings = [line for line in capsys.readouterr().err.splitlines() if line.startswith('WARNING KSPLIT')]
     assert len(warnings) == 1 and warnings[0].startswith('WARNING KSPLIT fallback in state fallback: requested 3 -> 0,')
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

@@ -142,7 +142,6 @@ def test_runtime_metadata_separates_opt_in_outputs(monkeypatch):
 
 def test_angular_cache_shared_across_quadratures_but_not_states(monkeypatch):
     import json
-    from pathlib import Path
     from types import SimpleNamespace
     from sosfuse2.solve.source_solver import Kernel
 

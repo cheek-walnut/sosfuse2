@@ -14,7 +14,7 @@ import traceback
 from pathlib import Path
 from ..backends import vram_trace
 from ..backends.vram_budget import admission_items
-from ..foundation import content_identity, paths
+from ..foundation import content_identity, dependencies, paths
 
 
 class GpuToken:
@@ -170,7 +170,7 @@ def captured_queries(s, hs, part, ee, aa, dummy):
         view=host_cache.array_hash(np.stack([ee, aa])),
         sources={
             'sosfuse2/' + name: content_identity.file_sha(paths.PKG / name)
-            for name in ('outputs/radiance_table.py', 'solve/ray_geometry.py', 'jobs/pipeline_execution.py')
+            for name in dependencies.files('query')
         },
     )
     computed = []

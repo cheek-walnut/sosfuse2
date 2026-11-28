@@ -6,7 +6,8 @@ per-chunk call (stratosphere.columns / density.correct_columns) on equal input b
 placed at its own index; no sum crosses a chunk.  Workers are spawned processes (no GIL; never a fork of a parent
 that may hold CUDA or threads).  Module functions and minimal state bindings travel by pickle.
 Workers check the source hashes recorded when the parent imports this module before running any task.
-Workers are used only for SOSFUSE2_COLUMN_METHOD=gl24; the default table-v1 path uses column_table.fill.
+Only gl24 uses processes. The default table-v1 method uses column_table.fill and can split large stratospheric
+bundles across threads that share the same read-only table.
 
 The process count is SOSFUSE2_COLUMN_WORKERS; unset = all usable CPUs (default_workers), 1 = the serial loop.
 pipeline.py exports max(--threads, usable CPUs // concurrent states) unless the variable is set (pipeline.prep_workers).  The worker count enters no cache key: column_cache.cache_key hashes stratosphere.py, density.py, the
@@ -25,7 +26,7 @@ import numpy as np
 
 # Moved to host_limits (stdlib only, so pipeline.py can use it); re-exported for sun/ground/ray_geometry_parallel.
 from ..foundation.host_limits import _quota_limits, default_workers  # noqa: F401
-from ..foundation import paths
+from ..foundation import dependencies, paths
 
 CHUNK = 2048  # solve/source_solver.py strato_end_columns / density_end_columns
 TASK_CHUNKS = 32  # chunks per task (65,536 rays)
@@ -65,21 +66,7 @@ def source_hashes():
     here = paths.PKG
     return {
         name: hashlib.sha256((here / name).read_bytes()).hexdigest()
-        for name in (
-            'foundation/top.py',
-            'rays/shell_segments.py',
-            'rays/incoming_quadrature.py',
-            'rays/incoming_rings.py',
-            'rays/ray_columns.py',
-            'solve/engine_core.py',
-            'solve/ray_geometry_parallel.py',
-            # what _run itself calls: the column integrals of both kinds and this module
-            'atmosphere/density.py',
-            'atmosphere/stratosphere.py',
-            'precompute/column_parallel.py',
-            'precompute/sun_parallel.py',
-            'precompute/ground_parallel.py',
-        )
+        for name in dependencies.files('worker')
     }
 
 

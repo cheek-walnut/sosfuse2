@@ -1,19 +1,26 @@
 # Tested configurations
 
-This file records where and how we verified releases. The notes below cover documentation-only releases, and the tables run from newest to oldest. In the tables below, `gate --all`,
-`gate --stage` and `gate --gf` stand for the commands of *Tests and checks* in the README (tiers 2 and 3 of
-`docs/CHECKS.md`), and H and PS for G-H and G-PS. Persistent-queue tests and CI default to a `PERSISTENT_TEST_DEADLINE` of 2400 s.
+This file records where and how we verified releases. The [check guide](CHECKS.md) gives the commands and tolerances
+for `gate --all`, `gate --stage` and `gate --gf`. H and PS stand for G-H and G-PS. Persistent-queue tests and CI
+default to a `PERSISTENT_TEST_DEADLINE` of 2400 s.
 
-1.9.3 changes the checks, the cache store, run records and options, and the documentation; the engine is that of 1.9.0.
-Its `clear_34` tables below equal those of 1.9.2 array for array.
+| Release | Backend and grid | What was compared |
+|---|---|---|
+| 1.10.1 | NumPy reference run | After the settings, solver assembly and storage moved, every table array and the convergence results were identical to 1.10.0. |
+| 1.10.0 | CUDA, 10 GB NVIDIA GPU, full `state200` grid | Against the reference tables, the worst difference normalised by each solar elevation's maximum was 2.57e-6 for `clear_33` and 7.53e-6 for `clear_02`, the same as before the speed changes. In the separate G-F comparison, `change.max_rel` was 7.94e-6. G-F, the `--all` gate and the t120 check passed. |
+| 1.10.0 | Experimental MLX, Apple silicon, small grid | The stratospheric FX-C3 case ran end to end. Shadow checks recomputed MLX results with NumPy and gave a normalised maximum difference of about 1e-5. |
 
-1.9.2 changes documentation only. Apart from the version number, its code is that of 1.9.0, so the 1.9.0 rows apply
-to it.
+See [performance measurements](PERFORMANCE.md#release-1100) for the wall times and cache conditions.
 
-1.9.1 changes documentation only. Apart from the version number, its code is that of 1.9.0, so the 1.9.0 rows apply
-to it. For 1.9.1 we solved the
-engine side of the two MYSTIC figures and the `clear_34` command again with 1.9.0 (*Versions behind the comparisons* in
-`docs/VALIDATION.md`).
+1.9.3 changes the checks, cache store, run records, options and documentation; its engine matches 1.9.0, and its
+`clear_34` tables below equal those of 1.9.2 array for array.
+
+1.9.2 changes documentation only. Apart from the version number, its code matches 1.9.0, so the 1.9.0 rows apply to
+it.
+
+1.9.1 changes documentation only. Apart from the version number, its code matches 1.9.0, so the 1.9.0 rows apply to
+it. For 1.9.1 we solved the engine side of the two MYSTIC figures and the `clear_34` command again with 1.9.0
+(*Versions behind the comparisons* in `docs/VALIDATION.md`).
 
 1.3.3 and 1.3.4 change documentation only and share the 1.3.2 code, with no tests or reference comparisons repeated
 beyond the CI run.
@@ -25,7 +32,7 @@ Configurations verified for 1.9.3:
 
 | platform | Python | backend | what was run |
 |---|---|---|---|
-| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment (package files equal to the release wheel), device profile `split`: `gate --all` exit 0 with the same results as for 1.9.0 (G-R radiance of the five fixtures within 3.1e-5 and tables within 6.4e-6 of the recorded values, the fixed CUDA comparison, G-P and G-A, the five G-T pairs and G-PS passed, G-H max relative difference 1.3e-6); G-F against the fixed reference table: max relative difference 8.1e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0; the upper-air CUDA check against NumPy: max relative difference 1.9e-5. `gate --stage --runs 2` passed with and without `SOSFUSE2_DETERMINISTIC=1`, and in deterministic mode the five fixtures gave equal outputs. The CUDA test modules (projection batches, kernel occupancy, persistent pipeline) passed, and `python -m sosfuse2.tests.test_tropo_mie --gpu` passed. On the same 10 GB GPU, the reproduction command of `docs/PERFORMANCE.md` for `clear_34` completed from an empty work root and warm, and both tables equal the 1.9.2 tables of the same command array for array. |
+| Linux x86_64, NVIDIA GPU, CUDA 12 | 3.12 | CuPy | wheel in a fresh virtual environment (package files equal to the release wheel), device profile `split`: `gate --all` exit 0 with the same results as for 1.9.0 (G-R radiance of the five fixtures within 3.1e-5 and tables within 6.4e-6 of the recorded values, the fixed CUDA comparison, G-P and G-A, the five G-T pairs and G-PS passed, G-H max relative difference 1.3e-6); G-F against the fixed reference table: max relative difference 8.1e-6 (rtol 1e-3), cold/warm radiance and source max relative difference 0.0; the upper-air CUDA check against NumPy: max relative difference 1.9e-5. `gate --stage --runs 2` passed with and without `SOSFUSE2_DETERMINISTIC=1`, and in deterministic mode the five fixtures gave equal outputs. The CUDA test modules (projection batches, kernel occupancy, persistent pipeline) passed, and `python -m sosfuse2.tests.test_tropo_mie --gpu --out <dir>` passed. On the same 10 GB GPU, the reproduction command of `docs/PERFORMANCE.md` for `clear_34` completed from an empty work root and warm, and both tables equal the 1.9.2 tables of the same command array for array. |
 | macOS arm64 | 3.12 | NumPy | release tree in place (`SOSFUSE2_SKY_SOS_ROOT` unset), every test module with six workers: 1365 passed, 76 skipped, 0 failed |
 
 Configurations verified for 1.9.0:

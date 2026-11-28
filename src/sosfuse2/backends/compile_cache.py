@@ -22,7 +22,7 @@ def cache_key(gpu_name, compiler, block_size=None):
                 f for f in os.environ.get('SOSFUSE2_KERNEL_FLAGS', '').replace(' ', '').split(',') if f
             ).flags
         ),
-        block_size=int(block_size or os.environ.get('SOSFUSE2_BLOCK_SIZE', '128')),
+        block_size=int(block_size or os.environ.get('SOSFUSE2_BLOCK_SIZE', '').strip() or 128),
         automatic_flags=['STRATO', 'TROPO_MIE', 'AEROSOL_2L'],
         note='CuPy also keys each entry by exact source/options/architecture/compiler',
     )

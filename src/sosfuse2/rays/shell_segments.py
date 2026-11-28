@@ -4,11 +4,10 @@ from functools import lru_cache, partial
 from types import SimpleNamespace
 import json
 import time
-from pathlib import Path
 
 import numpy as np
 
-from sosfuse2.foundation import content_identity as source_identity, paths
+from sosfuse2.foundation import content_identity as source_identity, dependencies, paths
 from sosfuse2.foundation.top import TOP_KM, SUN_HEIGHT_INTERVALS, Domain
 
 R = 6371.0
@@ -237,15 +236,7 @@ class SunGeometry:
         one folder. sun_parallel.prebuild writes and checks the same string."""
         from sosfuse2.atmosphere import components, density
 
-        here = paths.PKG  # this file + both builders (prebuild: sun_parallel/ray_columns/column_parallel)
-        files = (
-            Path(__file__),
-            *(
-                here / n
-                for n in ('foundation/top.py', 'atmosphere/density.py', 'atmosphere/tropo_profile.py', 'rays/ray_columns.py',
-                          'rays/column_table.py', 'precompute/sun_parallel.py', 'precompute/column_parallel.py')
-            ),
-        )
+        files = (paths.PKG / name for name in dependencies.files('sun_table'))
         domain = domain or Domain()
         height = aerosol_height
         return json.dumps(

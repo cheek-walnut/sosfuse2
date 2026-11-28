@@ -45,7 +45,7 @@ import subprocess
 import tokenize
 from pathlib import Path
 
-from . import paths
+from . import dependencies, paths
 
 RULES = 'sosfuse2-identity-2'
 
@@ -495,41 +495,25 @@ def file_sha(path, kind=None):
     return _MEMO[key]
 
 
-# Fixed provenance inputs beside the production modules: the engine module, the host helpers and the data the engine
-# reads. Adding a file here changes every signature (intended); a listed file that is missing is an error.
-ACCEPTED_SOURCES = ('solve/__init__.py', 'solve/engine.py')
-HOST_MODULES = ('foundation/__init__.py', 'foundation/available_cpus.py', 'outputs/pack_state.py')
-DATA_ASSETS = (
-    'spectra.json',
-    'spectra_fine.json',
-    'spectra_fine_temperature.json',
-    'lef_cie.json',
-    'cmf_1nm.json',
-    'states_v1.json',
-    'states_v2.json',
-    'states_v1_usstd.json',
-    'rgb_weights.npy',
-    'temperature_usstd76.json',
-    'no2_afglus_profile.json',
-    'no2_vandaele1998_fine.json',
-    'upper_air_us76_neff.json',
-)
-STATE_ASSETS = ('states_v1.json', 'states_v2.json', 'states_v1_usstd.json')  # hashed as 'json'
+ACCEPTED_SOURCES = dependencies.files('accepted')
+HOST_MODULES = dependencies.files('host_module')
+DATA_ASSETS = tuple(name.removeprefix('assets/') for name in dependencies.files('asset'))
+STATE_ASSETS = tuple(name.removeprefix('assets/') for name in dependencies.files('state_asset'))
 
 
 def package_hashes():
     """Code and data hashes of the provenance format (docs/PROVENANCE_V3.md): package-relative keys ('sosfuse2/...')
-    over the production modules (paths.PRODUCTION_MODULES, a fixed list), the CUDA kernel, the engine module, the
-    host helpers, the native CPU kernel source and the data assets the engine reads. Values are file_sha(): sources
-    and state files by their identity text, registered numeric assets by asset_sha. Every entry is a fixed name and a
-    missing file is E_PACKAGE_FILE_MISSING, not a gap."""
+    over the production modules (paths.PRODUCTION_MODULES, derived from foundation.dependencies.FILES), the CUDA kernel,
+    the engine module, the host helpers, the native CPU kernel source and the data assets the engine reads. Values are
+    file_sha(): sources and state files by their identity text, registered numeric assets by asset_sha. Every entry is
+    a fixed name and a missing file is E_PACKAGE_FILE_MISSING, not a gap."""
     P = paths.PKG
     sources = paths.production_files()
     sources += [
         paths.KERNEL_CU,
         *[P / n for n in ACCEPTED_SOURCES],
         *[P / n for n in HOST_MODULES],
-        P / 'backends/native/sh_cpu.cpp',
+        P / dependencies.NATIVE_SOURCE,
     ]
     assets = [P / 'assets' / n for n in DATA_ASSETS]
     missing = [paths.rel(p) for p in sources + assets if not p.is_file()]

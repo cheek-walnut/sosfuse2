@@ -31,10 +31,14 @@ def tile_samples():
     value = os.environ.get(TILE_ENV, '').strip()
     if not value:
         return DEFAULT_TILE_SAMPLES
-    n = int(value)
-    if n < 1:
-        raise ValueError(f'{TILE_ENV} must be a positive integer, got {value!r}')
-    return n
+    try:
+        n = int(value)
+    except ValueError:
+        pass
+    else:
+        if n > 0:
+            return n
+    raise ValueError(f'E_MLX_TILE_SAMPLES: {TILE_ENV} must be a positive integer, got {value!r}')
 
 
 def mode_name(first, phase, ground_only):

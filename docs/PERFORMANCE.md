@@ -1,11 +1,29 @@
 # Performance
 
-The measurements show where solve time goes, how close the kernels get to hardware limits and what each change achieved. One
-question remains open. The solver is fast enough for its purpose, as discussed under
-*Headroom*, but its main kernel has never been bound by memory bandwidth or by arithmetic throughput. Earlier probes found
-`long_scoreboard` to be its largest measured stall reason, although the measured reasons did not account for all stalled
-cycles. The 1.2.1 release probe found `wait` first and `long_scoreboard` second.
-The last section asks how to reduce the work per sample.
+## Release 1.10.0
+
+On GPU A, a 10 GB NVIDIA GPU (described below), these times cover the whole state process on the full `state200` production grid with cache
+hits.
+
+| State | Stratospheric aerosol | 1.9.2 wall time | 1.10.0 wall time |
+|---|---|---:|---:|
+| `clear_33` | on | about 310 s | about 58–66 s |
+| `clear_02` | off | 130–144 s | about 53 s |
+
+`clear_80`, the largest state, also completed on the 10 GB card. Warm phase 0 makes fewer passes per transport point
+and uses a centred quadratic angular B-spline lookup, while ground and phase 2 table launches keep the cubic lookup.
+The GPU handles stratospheric first scattering and eligible Anderson history, and phase 2 accelerates table queries on
+the GPU using angular tables and two-sample transport for table first scattering.
+
+On the host, preparation of the next wavelength group overlaps the solve, workers receive file offsets for shared
+geometry and reuse ray paths across wavelengths, and stratospheric columns can be prepared in parallel. The run-time C99
+library for column integrals and its NumPy fallback agreed within 1e-12. [Tested configurations](TESTED.md) gives the
+radiance comparisons.
+
+On an Apple silicon GPU with experimental MLX, the small-grid stratospheric fixture FX-C3 went from about 29 s to about
+6.7 s end to end, including about 0.5 s for queries in the faster run. The cache state for these timings is unknown.
+
+## Earlier GPU measurements
 
 GPU A, GPU B and GPU C denote three NVIDIA GPUs spanning multiple generations in the kernel measurements. Their power limits were
 180–200 W, 72 W and 450 W, respectively. A separate survey of GPU A and two other GPUs supplied the cross-card scaling law.
@@ -26,13 +44,13 @@ warm column and geometry caches. Times are the wall time of one state.
 In both states the evaluations per wavelength group and the per-wavelength convergence masks were those of the
 reference build, and the tables agreed within about 1e-6 of each solar elevation's maximum. In `clear_33` the warm
 phase 0 took 810 s of GPU time with 1.8.0 and 23 s with 1.9.0, all of it on the angular direction-table path; the first
-scattering (about 126 s) and the Anderson step now take most of the remaining source solve.
+scattering (about 126 s) and the Anderson step took most of the remaining source solve in 1.9.0.
 
 ## MLX transport on Apple silicon (1.9.0, experimental)
 
-Measured on one otherwise idle Apple silicon Mac with 16 GB of unified memory, in the covered configuration only: a
-reduced NumPy `run_state` solve with two threads of the check fixture state FX-N, with its state and reduced-solve
-settings from `checks/gate_data/fixtures.json` and the stratospheric layer disabled (AOD 0.02, black surface, 45
+We measured this on an otherwise idle Apple silicon Mac with 16 GB of unified memory in the covered configuration: a
+reduced NumPy `run_state` solve (two threads) of the check fixture state FX-N using its state and reduced-solve
+settings from `checks/gate_data/fixtures.json` with the stratospheric layer disabled (AOD 0.02, black surface, 45
 wavelengths in three chunks, 21 Anderson evaluations), run twice with `SOSFUSE2_MLX=1` and twice without.
 
 | what | MLX | NumPy |
@@ -42,9 +60,8 @@ wavelengths in three chunks, 21 Anderson evaluations), run twice with `SOSFUSE2_
 | of which transport passes | 0.1–0.2 s | 41 s |
 | of which observer queries (NumPy in both runs) | about 20 s | about 20 s |
 
-MLX removes nearly all of the transport time. The observer queries after each evaluation and the geometry
-preparation still run on the CPU, so the whole run is about twice as fast. On the full grid only the transport
-passes have been run with MLX; a whole full-grid table has not been timed.
+In 1.9.0, the observer queries after each evaluation and the geometry preparation still ran on the CPU, so the whole
+run was about twice as fast. The full-grid MLX measurements for that release covered only transport passes.
 
 ## Release 1.6.1 on GPU A
 
@@ -114,21 +131,20 @@ the following kernels during an evaluation.
 | `sos_slim_proj` | projects the accumulated radiance onto the source basis | 32-ray tiles of 64 moments |
 
 Outside the KSPLIT transport, eligible warm passes use the fast transport kernels instead, all with `sos_fast_slim`.
-The direct path computes the phase values with `sos_vprod_y`, `vp_c0cp_chunk` and `sos_vprod_direct` and projects with
+The direct path computes phase values with `sos_vprod_y`, `vp_c0cp_chunk` and `sos_vprod_direct` and projects with
 `sos_slim_proj`; the angular path reads a direction table built by `sh_direction_table` and projects phase 0 with
-`fl_project` (*Release 1.9.0 on GPU A*). First light can read a ground table built by
-`hg_direction_table`.
+`fl_project` (*Release 1.9.0 on GPU A*). First light can read a ground table built by `hg_direction_table`.
 
-There are no floating-point atomics (the only atomics are integer counters that hand out rays and mark finished cells),
-and the kernel accumulates in a fixed order in both modes, but the transport path is chosen per launch;
-`SOSFUSE2_DETERMINISTIC=1` is the mode in which the package guarantees bit-stable repeats of the same run on the same
-GPU. The first-light phase-0
-variant of `sos_fused` carries `__launch_bounds__(256,2)`. In 1.0.x, the slimray variant compiled to 127 registers with 128-thread blocks and 18–19 KB of
-shared memory, limiting it to 4 blocks per SM, or 16 warps and 33 % of maximum occupancy.
-With NO₂ and O₄ included, the 1.2.1 probe used 141 registers, limiting it to 3 blocks per SM and 25 % occupancy,
-with enough shared memory for 5 blocks per SM.
-CUDA transport stages and feature policies are in `src/sosfuse2/backends/kernel.cu`. Host launch planning lives in
-`src/sosfuse2/solve/source_solver.py` and, for the split path, `src/sosfuse2/solve/ksplit.py`.
+There are no floating-point atomics—the only atomics are integer counters that hand out rays and mark finished
+cells—and the kernel accumulates in a fixed order in both modes. Because the transport path is chosen per launch,
+`SOSFUSE2_DETERMINISTIC=1` is required to guarantee bit-stable repeats of the same run on the same GPU.
+
+The first-light phase-0 variant of `sos_fused` carries `__launch_bounds__(256,2)`. In 1.0.x, the slimray variant
+compiled to 127 registers with 128-thread blocks and 18–19 KB of shared memory, limiting residency to 4 blocks per SM
+(16 warps, 33 % of maximum occupancy); with NO₂ and O₄ included, the 1.2.1 probe used 141 registers, limiting it to
+3 blocks per SM and 25 % occupancy even though shared memory allowed 5 blocks per SM. CUDA transport stages and feature
+policies live in `src/sosfuse2/backends/kernel.cu`, host launch planning in `src/sosfuse2/solve/source_solver.py`, and
+the split path in `src/sosfuse2/solve/ksplit.py`.
 
 `KSPLIT=3` needs the column records of a whole chunk in device memory. Each record now holds six floats (24 B),
 one for each of the five component columns and one for the stratospheric column. The consumer computes the
@@ -184,17 +200,18 @@ The four reasons measured after two steps per warp sum to 1.95 of an estimated 5
 in
 unmeasured reasons such as `wait`, `not_selected`, `branch_resolving` and `no_instruction` (*estimate*).
 
-`long_scoreboard` is the wait for a load through L1TEX, here global loads in slimray. The SASS shows why these waits arise:
-every corner of a sample ends in `__ballot_sync` and `__syncwarp`, so the compiler cannot hoist the next corner's loads and a
-ray step waits for four or more serial L2 round trips. Moving the current step's own aerosol, source-row and column-record
-loads before the corner loop (`SLIM_PRELOAD`) shortened slimray by 13 %.
-In a separate GPU B knockout, folding every step's global-load addresses onto an L1-resident range made the
-values wrong and the loads effectively free, but only reduced `long_scoreboard` from 0.476 to 0.239 warps per issue
-and launch time from 125.6 to 122.3 ms (−2.6 %).
-Hiding the remaining load latency is therefore worth at most about 3 %, and slimray is not latency-bound.
-Before the absorbers were added, we tried raising occupancy in every form
-the register budget allowed. A ray step at 15 wavelengths had a 127-register working set.
-Forcing 5 blocks per SM through `__launch_bounds__(128,5)` reduced the register count to 96 and gained 0.5 % of cycles.
+`long_scoreboard` is the wait for a load through L1TEX—here global loads in slimray. The SASS shows why these waits
+arise: every corner of a sample ends in `__ballot_sync` and `__syncwarp`, preventing the compiler from hoisting the next
+corner's loads so each ray step waits for four or more serial L2 round trips. Moving the current step's own aerosol,
+source-row and column-record loads before the corner loop (`SLIM_PRELOAD`) shortened slimray by 13 %. In a separate
+GPU B knockout, folding every step's global-load addresses onto an L1-resident range (making values wrong and loads
+effectively free) only reduced `long_scoreboard` from 0.476 to 0.239 warps per issue and launch time from 125.6 to
+122.3 ms (−2.6 %). Hiding the remaining load latency is therefore worth at most about 3 %, and slimray is not
+latency-bound.
+
+Before the absorbers were added, we tried raising occupancy in every way the register budget allowed. A ray step at 15
+wavelengths had a 127-register working set; forcing 5 blocks per SM through `__launch_bounds__(128,5)` reduced the
+register count to 96 and gained 0.5 % of cycles.
 
 The release 1.2.0 probe used Nsight Compute 2025.3.1 on GPU A, with the state runner (`jobs/run_state.py` since 1.4.0)
 running the full-grid reference state through the `KSPLIT=0` fused kernel after `gate --gf` refused the
@@ -236,25 +253,24 @@ The largest SASS `long_scoreboard` count in the production captures was 187608 s
 `FMUL.FTZ R129, R128, R132`, or 18.1 % of that launch's `long_scoreboard` samples and 5.11 % of all its PC samples.
 This `FMUL` consumes a load result, and PC sampling attributes the wait to the consuming instruction.
 
-On GPU B, the state runner (`jobs/run_state.py` since 1.4.0) in the installed 1.2.1 release solved the full-grid reference state
-with `KSPLIT=3` under Nsight Compute, with separate one-pass stall metric runs and one PC-sampling run.
-The slimray launches use 128-thread blocks, 18.4 KB of dynamic shared memory and grids of 77k–81k blocks, with 141
-registers limiting residency to 3 blocks per SM while shared memory allows 5, giving 24.9 % occupancy, 52.2 % issue
-activity and 24.7 threads per instruction out of 32.
-The nine measured stall reasons, including `lg_throttle` 0.03, `mio_throttle` 0.02 and `barrier` 0, sum to 4.20 stalled
-warps per issue-active cycle against an estimated total of 4.73 from occupancy and issue activity, explaining 89 %,
-with `long_scoreboard` taken from the earlier run.
-That earlier one-pass run measured 18.4 M local-load sectors per 25 ms launch, but 141 registers is below the limit
-of 255, so this is not read as evidence of spills.
-PC sampling, as percentages of the reported category sum including the non-stall `selected`, gives `wait` 26.6 %,
-`long_scoreboard` 21.0 %, `selected` 17.7 %, `not_selected` 10.6 %, `short_scoreboard` 9.3 %, `branch_resolving` 7.2 %,
-`dispatch_stall` 3.1 % and `tex_throttle` 2.0 %.
-The SASS instruction with the most `long_scoreboard` samples is an `FFMA` consuming a load result.
-The largest measured stall is the fixed-latency dependency `wait`, with `long_scoreboard` second, consistent with
-the load knockout gaining only 2.6 %.
-Following the NO₂ and O₄ additions in 1.1.0, registers rose from 127 to 141 and residency fell from 4 blocks per SM to 3,
-leaving 3 warps per scheduler at 25 % occupancy, too few to hide all fixed pipeline latency, which makes recovering the
-fourth block through `__launch_bounds__` a candidate for the next experiment, not yet run.
+On GPU B, the state runner (`jobs/run_state.py` since 1.4.0) in the installed 1.2.1 release solved the full-grid
+reference state with `KSPLIT=3` under Nsight Compute, using separate one-pass stall-metric runs and one PC-sampling run.
+The slimray launches use 128-thread blocks, 18.4 KB of dynamic shared memory and grids of 77k–81k blocks; 141 registers
+limit residency to 3 blocks per SM while shared memory allows 5, giving 24.9 % occupancy, 52.2 % issue activity and
+24.7 threads per instruction out of 32. The nine measured stall reasons—including `lg_throttle` 0.03, `mio_throttle` 0.02
+and `barrier` 0—sum to 4.20 stalled warps per issue-active cycle against an estimated total of 4.73 from occupancy and
+issue activity (explaining 89 %), with `long_scoreboard` taken from the earlier run. Although that earlier one-pass run
+measured 18.4 M local-load sectors per 25 ms launch, 141 registers sits below the 255-register hardware limit, so this is
+not read as evidence of spills.
+
+As percentages of the reported PC-sampling category sum (including the non-stall `selected`), the breakdown gives `wait`
+26.6 %, `long_scoreboard` 21.0 %, `selected` 17.7 %, `not_selected` 10.6 %, `short_scoreboard` 9.3 %,
+`branch_resolving` 7.2 %, `dispatch_stall` 3.1 % and `tex_throttle` 2.0 %. The SASS instruction with the most
+`long_scoreboard` samples is an `FFMA` consuming a load result, and the largest measured stall is the fixed-latency
+dependency `wait` rather than `long_scoreboard`, consistent with the load knockout gaining only 2.6 %. Following the NO₂
+and O₄ additions in 1.1.0, registers rose from 127 to 141 and residency fell from 4 blocks per SM to 3, leaving 3 warps
+per scheduler at 25 % occupancy—too few to hide all fixed pipeline latency. Recovering the fourth block through
+`__launch_bounds__` remains a candidate for a future experiment.
 
 ## Headroom
 
@@ -316,24 +332,26 @@ instruction count suggests, so the table above quotes GPU totals.
 
 ## Reproducing
 
-Prepare O₄ in the same asset cache following the [quick start](../README.md#quick-start), then run
+To reproduce the earlier `clear_34` runs on the default grid, prepare O₄ in the same asset cache following the
+[quick start](../README.md#quick-start), then run
 
 ```sh
 python -B -m sosfuse2.jobs.run_state --id clear_34 --backend cupy --work-root ./work
 ```
 
 The state id is bundled in `assets/states_v2.json`; other ids from that file work the same way. The device profile is
-chosen from the GPU name; add `--device-profile split` to select the profile of the
-measurements above on another card; launch-related environment variables still override its settings.
+chosen from the GPU name—add `--device-profile split` to select the profile of the measurements above on another card,
+noting that launch-related environment variables still override its settings.
+
 `meta.json` under `work/out/<id>/` records `elapsed_seconds`, `source_seconds`, `query_seconds` and, under
-`kernel.launch.by_kind`, the launch count and GPU seconds, measured with CUDA events, of each kind of timed launch or
-launch group in the last wavelength chunk. Launches are timed when the device profile sets a launch time limit, as
-both CUDA profiles do by default, or when the launch size adapts. The
-tolerance checks of `docs/CHECKS.md` tier 2 run the same kernels on the reduced fixtures. For profiling, run the same
-command under `nsys` for the timeline and under `ncu --target-processes all` with one metric group per run.
-Use `ksplit_effective` in `meta.json` to identify the path used in a run. With `KSPLIT=3`, look for `sos_fused`
-slimray launches. The `ksplit` decision records the reason and named memory estimates. See
-[Device memory diagnostics](ENVIRONMENT.md#device-memory-diagnostics) for the fallback warning and CuPy pool trace.
+`kernel.launch.by_kind`, the launch count and GPU seconds (measured with CUDA events) for each kind of timed launch or
+launch group in the last wavelength chunk. Launches are timed when the device profile sets a launch time limit, as both
+CUDA profiles do by default, or when the launch size adapts. The tolerance checks of `docs/CHECKS.md` tier 2 run the
+same kernels on the reduced fixtures; for profiling, run the same command under `nsys` for the timeline and under
+`ncu --target-processes all` with one metric group per run. Use `ksplit_effective` in `meta.json` to identify the path
+used in a run: with `KSPLIT=3`, look for `sos_fused` slimray launches, and inspect the `ksplit` decision for the reason
+and named memory estimates. See [Device memory diagnostics](ENVIRONMENT.md#device-memory-diagnostics) for the fallback
+warning and CuPy pool trace.
 
 ## The open question
 

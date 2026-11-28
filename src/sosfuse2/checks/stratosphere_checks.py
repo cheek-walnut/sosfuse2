@@ -3,6 +3,24 @@
 
 import argparse, copy, hashlib, json, os, sys, time
 from pathlib import Path
+
+
+def _configure_process():
+    sys.dont_write_bytecode = True
+    for key in (
+        'OMP_NUM_THREADS',
+        'OPENBLAS_NUM_THREADS',
+        'VECLIB_MAXIMUM_THREADS',
+        'MKL_NUM_THREADS',
+        'NUMEXPR_NUM_THREADS',
+        'BLIS_NUM_THREADS',
+    ):
+        os.environ[key] = '4'
+
+
+if __name__ == '__main__':
+    _configure_process()
+
 import numpy as np
 from ..foundation.top import TOP_KM, NORMALIZATION_TOP_KM
 from sosfuse2.backends import numpy_reference
@@ -264,17 +282,8 @@ def timing(out, repeats=3):
 
 
 def main():
-    # CLI-only process settings (importing this module must not change the caller's bytecode or thread environment)
-    sys.dont_write_bytecode = True
-    for key in (
-        'OMP_NUM_THREADS',
-        'OPENBLAS_NUM_THREADS',
-        'VECLIB_MAXIMUM_THREADS',
-        'MKL_NUM_THREADS',
-        'NUMEXPR_NUM_THREADS',
-        'BLIS_NUM_THREADS',
-    ):
-        os.environ[key] = '4'
+    if __name__ != '__main__':
+        _configure_process()
     p = argparse.ArgumentParser()
     p.add_argument('--out', type=Path, required=True)
     p.add_argument(

@@ -529,17 +529,6 @@ def _boundary_key(constants):
     )
 
 
-def _boundary(cells, order, constants):
-    strat = 'strato_ext' in constants
-    data, indices = [], []
-    for g, rays in zip(cells, order):
-        columns, stcol = ref.boundary_end_columns(g, constants, strat)
-        st = np.zeros(len(g['end_fraction']), 'f4') if stcol is None else np.asarray(stcol, 'f4')
-        data.append(np.column_stack([columns, g['end_fraction'], st])[rays])
-        indices.append(np.where(g['hits_ground'], g['end_index'], -1)[rays])
-    return _device(np.concatenate(data)), _device(np.concatenate(indices), 'i4')
-
-
 _HG_TABLE_CACHE = OrderedDict()
 _ST_TABLE_CACHE = OrderedDict()
 _HG_TABLE_CACHE_MAX = 4

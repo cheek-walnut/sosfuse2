@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """v2 numerical path with v3 identities, cooperative cache leases and phase events."""
 
-import argparse, contextlib, copy, errno, fcntl, hashlib, json, os, re, shutil
-import subprocess, sys, tarfile, threading, time
+import argparse, contextlib, fcntl, hashlib, json, os, re, shutil
+import sys, threading, time
 from pathlib import Path
 from functools import wraps
 from sosfuse2.backends import vram_trace
@@ -53,27 +53,28 @@ if __name__ == '__main__':
     sys.dont_write_bytecode = True
     _thread_env_before_numpy(sys.argv[1:], os.environ)
 from sosfuse2.foundation import paths
-from sosfuse2.foundation.top import TOP_KM
-from sosfuse2.foundation import top
-
-# Solar column table resolution (sos_sky.SunGeometry scale). 4 = production (measured:
-# scale 1 gives -2.38 % first order at -10 deg AOD .6, scale 4 +0.20 %); 1 = the accepted engine table.
-SUN_SCALE = 4
-# Production kernel SH order. 16 = production with SH_COMBINE in backends/configs/C3.json (measured:
-# CUDA measurement: L16+SH_COMBINE+nphi16+sun4 vs L32+nphi32+sun1 3.3-5.2x faster, order 2 vs direct L8 equal or 0.03 %p
-# better, full radiance within 0.40 %). settings_json may still choose 24 or 32.
-SH_L = 16
-# Production Anderson fixed-point tolerance (observer and source relative residual). .001 = production (measured:
-# .005 left up to 0.75 % iteration error at -9 deg, .001 -> .0002
-# changes <= 0.16 %); was .005. The persistent service (pipeline_execution.py) uses the same validated setting.
-ANDERSON_TOLERANCE = 0.001
+from sosfuse2.solve import build, configuration
+from sosfuse2.solve.build import SUN_SCALE
+# Names that moved to solve/configuration.py stay importable from run_state for existing callers.
+from sosfuse2.solve.configuration import (  # noqa: F401
+    ANDERSON_TOLERANCE, AUTO_FLAGS, CHI_STEPS_DEG, H_REFINE_ALIASES, SH_L,
+    _H_RULE, _chi_window, effective_state, effective_tol, execution_domain, extra_contract,
+    grid_metadata, height_rule, kernel_settings, parse_elevations, read_states,
+    refined_chi, refined_heights, resolve_settings, settings_for,
+)
+from . import run_storage as storage
+# Names that moved to jobs/run_storage.py stay importable from run_state for existing callers.
+from .run_storage import FirstOrderConflict, atomic_json, enable_spectral_previews, output_identity_message, verify_pack  # noqa: F401
 
 
-def effective_tol(settings):
-    value = settings.get('anderson_tol', ANDERSON_TOLERANCE)
-    if type(value) not in (int, float) or not 1e-6 <= value <= 1e-2:
-        raise ValueError('E_SETTINGS_TOL: anderson_tol must be a number in [1e-6, 1e-2]')
-    return float(value)
+def create_configured(
+    output, cfg, wavelengths, backend, state, block_size=128, geometry_cache=None, *, share_sun_geometry=True
+):
+    """Build a state solver using the runner's current solar column resolution."""
+    return build.create_configured(
+        output, cfg, wavelengths, backend, state, block_size, geometry_cache,
+        share_sun_geometry=share_sun_geometry, sun_scale=SUN_SCALE,
+    )
 
 
 def solve_chunk(solver, max_eval, tol):
@@ -100,12 +101,6 @@ def chunk_summary(stats, worker):
     return dict(worker=worker, tolerance=stats['tolerance'], evaluations=stats['evaluations'],
                 max_eval=stats['max_eval'], final_relative=max(max(final['observer_relative']), max(final['source_relative'])),
                 converged=all(stats['converged']), termination=stats['termination'], cache='fresh_solve')
-
-
-def atomic_json(path, data):
-    tmp = path.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(data, indent=2, allow_nan=False) + '\n')
-    os.replace(tmp, path)
 
 
 def phase(identifier, name, **data):
@@ -160,7 +155,8 @@ def attach_cache_event(name, index, state, record=True):
     The caller appends (solver,scope); hit = this state's own key file was already published.
     record=False keeps the overlay and publish but writes no PHASE record (the geometry-only prefetch, whose
     attach work the worker's own attach_cache record then sees as a hit; the pipeline and reference checks count those records)."""
-    root = os.environ.get('STRATO_ATTACH_CACHE', '').strip()
+    original_root = os.environ.get('STRATO_ATTACH_CACHE', '')
+    root = original_root.strip()
     t = time.monotonic()
     made = []
     if not root:
@@ -210,7 +206,7 @@ def attach_cache_event(name, index, state, record=True):
             try:
                 yield made
             finally:
-                os.environ['STRATO_ATTACH_CACHE'] = root
+                os.environ['STRATO_ATTACH_CACHE'] = original_root
             for n in os.listdir(private):
                 if re.fullmatch('attach_geometry_[0-9a-f]{24}[.]npz', n) and n not in before:
                     os.replace(private / n, folder / n)
@@ -303,539 +299,11 @@ def release_geometry(root, cache, success, keep=False):
         return dict(geometry_cache_removed=reason == 'removed', reason=reason)
 
 
-AUTO_FLAGS = ('STRATO', 'TROPO_MIE', 'AEROSOL_2L')
-
-
-def kernel_settings(block_size=None):
-    """Resolve the kernel variant and block size. None selects default transport with block 128."""
-    from sosfuse2.backends.flags import KERNEL_FLAGS, resolve_config
-
-    flags = sorted({f for f in os.environ.get('SOSFUSE2_KERNEL_FLAGS', '').replace(' ', '').split(',') if f})
-    flags = list(resolve_config(flags).flags)
-    allowed = [f for f in KERNEL_FLAGS if f not in AUTO_FLAGS]
-    if set(flags) - set(allowed):
-        raise ValueError(
-            'E_KERNEL_FLAGS: SOSFUSE2_KERNEL_FLAGS from ' + ','.join(allowed) + ' (physical selectors are automatic)'
-        )
-    text = os.environ.get('SOSFUSE2_BLOCK_SIZE', '').strip()
-    if text not in ('', '128', '256'):
-        raise ValueError('E_KERNEL_BLOCK_SIZE: SOSFUSE2_BLOCK_SIZE must be 128 or 256')
-    if text and block_size is not None and block_size != int(text):
-        raise ValueError('E_KERNEL_BLOCK_SIZE: --block-size disagrees with SOSFUSE2_BLOCK_SIZE')
-    block = int(text or 128) if block_size is None else block_size
-    from sosfuse2.solve.ground_sh import configured_order, GRID_INTERVALS
-
-    ground_order = configured_order()
-    if not flags and block == 128 and not ground_order:
-        return None
-    settings = dict(flags=flags, block_size=block, source='env SOSFUSE2_KERNEL_FLAGS/SOSFUSE2_BLOCK_SIZE')
-    if ground_order:
-        settings['ground_sh'] = dict(order=ground_order, grid_intervals=GRID_INTERVALS, interpolation='cubic')
-    return settings
-
-
-# Height grid rules (settings key h_refine). The 20 base heights of shell_segments.grids have 14 intervals at or below
-# 13 km and 5 above. 'b<m>a<k>' splits every interval at or below 13 km into m parts and every interval above into k parts;
-# 'b<m>a<k1>.<k2>.<k3>.<k4>.<k5>' gives the five intervals above 13 km their own counts; m and k are 1-12. The names of
-# 1.3.4 and earlier are aliases and give the same heights.
-H_REFINE_ALIASES = {'none': 'b1a1', 'mid': 'b2a2', 'below13mid_above13thirds': 'b2a3'}
-_H_RULE = re.compile(r'b([1-9]|1[0-2])a([1-9]|1[0-2])((?:\.(?:[1-9]|1[0-2])){4})?')
-CHI_STEPS_DEG = (0.5, 0.25, 0.125)
-
-
-def height_rule(rule):
-    """(parts below 13 km, (parts of the five intervals above)) for an h_refine value, or None when it is not a rule."""
-    match = _H_RULE.fullmatch(H_REFINE_ALIASES.get(rule, rule)) if isinstance(rule, str) else None
-    if match is None:
-        return None
-    above = (int(match.group(2)),) * 5
-    if match.group(3):
-        above = (above[0], *(int(x) for x in match.group(3)[1:].split('.')))
-    return int(match.group(1)), above
-
-
-def refined_heights(h, rule):
-    """Base heights h refined by an h_refine rule, sorted. Two parts add the midpoint (u + v) / 2, n parts add
-    u + (v - u) * (j / n), so the aliases reproduce the 1.3.4 grids; 'none' returns h itself."""
-    import numpy as np
-
-    below, above = height_rule(rule)
-    if below == 1 and set(above) == {1}:
-        return h
-    pairs = list(zip(h[:-1], h[1:]))
-    low = [(u, v) for u, v in pairs if v <= 13 + 1e-9]
-    high = [(u, v) for u, v in pairs if u >= 13 - 1e-9]
-    if len(low) + len(high) != len(pairs) or len(high) != len(above):
-        raise ValueError('E_SETTINGS_GRID: height rule %r does not fit the base heights' % rule)
-
-    def inner(u, v, n):
-        return [(u + v) / 2] if n == 2 else [u + (v - u) * (j / n) for j in range(1, n)]
-
-    return np.sort(
-        np.r_[
-            h,
-            [x for u, v in low for x in inner(u, v, below)],
-            [x for (u, v), n in zip(high, above) for x in inner(u, v, n)],
-        ]
-    )
-
-
-def refined_chi(ch, step, window=None):
-    """Solar zenith nodes in radians: the base nodes outside 85-110 deg, `step` deg inside (0.5 = the base nodes), and the
-    midpoint of every pair of neighbouring nodes inside `window` = [lo, hi] deg. Built in degrees, converted once.
-    step None (the reduced grid) or 0.5 without a window returns ch itself."""
-    import numpy as np
-
-    if step in (None, 0.5) and window is None:
-        return ch
-    degrees = np.round(np.rad2deg(ch), 12)
-    if step not in (None, 0.5):
-        degrees = np.unique(np.r_[degrees[(degrees < 85) | (degrees > 110)], np.arange(85, 110 + step / 2, step)])
-    if window is not None:
-        windows = window if isinstance(window[0], list) else [window]
-        for lo, hi in windows:
-            middle = [(u + v) / 2 for u, v in zip(degrees[:-1], degrees[1:]) if u >= lo - 1e-9 and v <= hi + 1e-9]
-            degrees = np.unique(np.r_[degrees, middle])
-    return np.deg2rad(degrees)
-
-
-def _chi_window(value, step, base_chi):
-    """Checked chi_refine_deg as [lo, hi] floats: two numbers within 1e-9 deg of two different nodes of the step grid in
-    85-110 deg, lo below hi; each is replaced by its node."""
-    import numpy as np
-
-    if isinstance(value, list) and value and isinstance(value[0], list):
-        nodes = refined_chi(base_chi, step)
-        windows = []
-        for window in value:
-            checked = _chi_window(window, None, nodes)
-            windows.append(checked)
-            nodes = refined_chi(nodes, None, checked)
-        return windows
-    if isinstance(value, list) and len(value) == 2 and all(type(x) in (int, float) for x in value):
-        nodes = np.round(np.rad2deg(refined_chi(base_chi, step)), 12)
-        nodes = nodes[(nodes >= 85) & (nodes <= 110)]
-        with contextlib.suppress(OverflowError):  # a JSON integer too large for a float is refused like any other value
-            near = [nodes[np.argmin(np.abs(nodes - float(x)))] for x in value]
-            if all(abs(n - float(x)) < 1e-9 for n, x in zip(near, value)) and near[0] < near[1]:
-                return [float(near[0]), float(near[1])]
-    raise ValueError(
-        'E_SETTINGS_GRID: chi_refine_deg must be [lo, hi] with 85 <= lo < hi <= 110 on the chi_step_deg nodes'
-    )
-
-
-def settings_for(a):
-    import numpy as np
-
-    # V14 production defaults; overrides are checked before any expensive work.
-    cfg = dict(
-        nr=4 if a.reduced else 44,
-        h_refine='none' if a.reduced else 'below13mid_above13thirds',
-        chi_step_deg=None if a.reduced else 0.5,
-        nchi=10 if a.reduced else 75,
-        nmu=1 if a.reduced else 12,
-        nphi=2 if a.reduced else 16,
-        path_n=4 if a.reduced else 12,
-        L=SH_L,
-        anderson_tol=effective_tol({}),
-        interpolation='log',
-        observer_km=0.1,
-        wavelengths=1 if a.reduced else 15,
-        wavelengths_nm=[550.0] if a.reduced else (360 + (np.arange(15) + 0.5) * 470 / 15).tolist(),
-        solar_elevation_deg=[-3.0, -6.0] if a.reduced else np.arange(6.0, -19.0, -1.0).tolist(),
-        view_shape=[4, 6] if a.reduced else [100, 180],
-    )
-    raw = json.loads(a.settings_json.read_text()) if a.settings_json else {}
-    from sosfuse2.atmosphere import spectral
-
-    # Spectral keys leave raw before the key check; legacy adds nothing, so explicit-legacy settings bytes are unchanged.
-    spectral_raw = {k: raw.pop(k) for k in spectral.KEYS if isinstance(raw, dict) and k in raw}
-    # chi_refine_deg has no default entry: absent (or null) means no refinement, so settings without it stay as they were.
-    if not isinstance(raw, dict) or set(raw) - set(cfg) - {'chi_refine_deg', 'top_km', 'upper_heights_km', 'upper_air', 'export_first_order'}:
-        raise ValueError('E_SETTINGS_KEYS: unknown settings')
-    raw['anderson_tol'] = effective_tol(raw)
-    domain = top.resolve(raw, 0.125, reduced=a.reduced)
-    if 'export_first_order' in raw:
-        if type(raw['export_first_order']) is not bool:
-            raise ValueError('E_SETTINGS_VALUE: export_first_order must be bool')
-        if not raw['export_first_order']:
-            del raw['export_first_order']
-    if domain.top_km > TOP_KM:
-        raw.update(top_km=domain.top_km, upper_heights_km=list(domain.upper_heights_km), upper_air=domain.upper_air)
-    # Product grid default band BM45; the reduced 550 nm smoke grid stays legacy unless a mode is named.
-    if not a.reduced:
-        spectral.product_default(spectral_raw, raw)
-    cfg.update(raw)
-    pairs = {20: 'none', 39: 'mid', 44: 'below13mid_above13thirds'}
-    for k in ('nr', 'nchi', 'nmu', 'nphi', 'path_n', 'L', 'wavelengths'):
-        if type(cfg[k]) is not int or cfg[k] < 1:
-            raise ValueError('E_SETTINGS_VALUE: ' + k)
-    if 'nr' in raw and 'h_refine' not in raw and domain.top_km == TOP_KM:
-        cfg['h_refine'] = 'none' if a.reduced else pairs.get(cfg['nr'])
-    if 'wavelengths' in raw and 'wavelengths_nm' not in raw:
-        n = cfg['wavelengths']
-        cfg['wavelengths_nm'] = (360 + (np.arange(n) + 0.5) * 470 / n).tolist()
-    if len(cfg['wavelengths_nm']) != cfg['wavelengths']:
-        raise ValueError('E_SETTINGS_WAVELENGTHS: inconsistent count')
-    wl = np.asarray(cfg['wavelengths_nm'], float)
-    if not np.isfinite(wl).all() or np.any(wl <= 0) or np.any(np.diff(wl) <= 0):
-        raise ValueError('E_SETTINGS_WAVELENGTHS: positive ordered wavelengths required')
-    if cfg['L'] not in (16, 24, 32) or cfg['interpolation'] != 'log':
-        raise ValueError('E_SETTINGS_FIXED: L in {16,24,32} and log interpolation required')
-    if cfg.get('chi_refine_deg', 0) is None:
-        del cfg['chi_refine_deg']
-    if a.reduced:
-        # The reduced smoke grid is fixed: 4 heights, no refinement, its own 10 chi nodes.
-        fixed = (cfg['nr'], cfg['h_refine'], cfg['nchi'], cfg['chi_step_deg']) == (4, 'none', 10, None)
-        if not fixed or 'chi_refine_deg' in cfg:
-            raise ValueError(
-                'E_SETTINGS_GRID: received=%r; the reduced grid is nr 4, h_refine none, nchi 10, no chi_step_deg or '
-                'chi_refine_deg' % ((cfg['nr'], cfg['h_refine']),)
-            )
-    else:
-        from sosfuse2.rays.shell_segments import grids
-
-        base_h, base_chi = grids(1)
-        if height_rule(cfg['h_refine']) is None:
-            raise ValueError(
-                'E_SETTINGS_GRID: received=%r; h_refine must be none, mid, below13mid_above13thirds or '
-                'b<m>a<k>[.<k2>.<k3>.<k4>.<k5>] with m, k in 1-12 (nr 20, 39, 44 alone name the first three)'
-                % ((cfg['nr'], cfg['h_refine']),)
-            )
-        want = len(refined_heights(base_h, cfg['h_refine'])) + len(domain.upper_heights_km)
-        if ('h_refine' in raw or domain.top_km > TOP_KM) and 'nr' not in raw:
-            cfg['nr'] = want
-        if cfg['nr'] != want:
-            raise ValueError(
-                'E_SETTINGS_GRID: received=%r; h_refine gives nr %d' % ((cfg['nr'], cfg['h_refine']), want)
-            )
-        step = cfg['chi_step_deg']
-        if type(step) not in (int, float) or step not in CHI_STEPS_DEG:
-            raise ValueError('E_SETTINGS_GRID: chi_step_deg must be 0.5, 0.25 or 0.125')
-        if 'chi_refine_deg' in cfg:
-            cfg['chi_refine_deg'] = _chi_window(cfg['chi_refine_deg'], step, base_chi)
-        want = len(refined_chi(base_chi, step, cfg.get('chi_refine_deg')))
-        if 'nchi' in raw and cfg['nchi'] != want:
-            raise ValueError(
-                'E_SETTINGS_GRID: received nchi %d; chi_step_deg and chi_refine_deg give %d' % (cfg['nchi'], want)
-            )
-        cfg['nchi'] = want
-    if not 0 <= cfg['observer_km'] <= domain.top_km:
-        raise ValueError('E_SETTINGS_OBSERVER')
-    if (
-        not isinstance(cfg['view_shape'], list)
-        or len(cfg['view_shape']) != 2
-        or any(type(x) is not int or x < 1 for x in cfg['view_shape'])
-    ):
-        raise ValueError('E_SETTINGS_VIEW')
-    hs = np.asarray(cfg['solar_elevation_deg'], float)
-    if hs.ndim != 1 or not np.isfinite(hs).all() or len(set(hs)) != len(hs) or -3 not in hs or -6 not in hs:
-        raise ValueError('E_SETTINGS_SOLAR: unique finite elevations including -3,-6 required')
-    # After the settings_json key check, so a settings file can never set or override it.
-    kernel = kernel_settings(getattr(a, 'block_size', None))
-    if kernel is not None:
-        cfg['kernel'] = kernel
-    block = spectral.block(spectral_raw, wl, 'wavelengths_nm' in raw)
-    if block is not None:
-        cfg['spectral'] = block
-    json.dumps(cfg, allow_nan=False)
-    return cfg
-
-
-def execution_domain(cfg, state):
-    """Resolve a calculation domain and reject unsupported density inputs before preparation."""
-    from sosfuse2.atmosphere import density
-
-    domain = top.resolve(cfg, 0.125, reduced=cfg.get('nr') == 4)
-    if domain.top_km > TOP_KM:
-        raw = state.get('density', {})
-        if not isinstance(raw, dict) or raw.get('density_profile') != 'usstd76' or 'external_profile' in raw:
-            raise ValueError('E_SETTINGS_TOP: extended top requires an explicit usstd76 air profile without external PROFILE')
-        density.options(state)
-    return top.resolve(cfg, density.profile_step_km(state), reduced=cfg.get('nr') == 4)
-
-
-def resolve_settings(cfg, state):
-    """Per-state settings (A′ resolver): a profile_mean spectral block takes
-    its q identity from this (effective) state; the shared cfg is never changed (a new copy is returned). Without a
-    profile_mean block the same cfg object comes back. Callers: run, run_extra, geometry_only, plan_queue.probe, reference-run worker."""
-    from sosfuse2.atmosphere import spectral
-
-    execution_domain(cfg, state)
-    block = cfg.get('spectral')
-    resolved = spectral.resolve(block, state)
-    if resolved is block:
-        return cfg
-    out = copy.deepcopy(cfg)
-    out['spectral'] = resolved
-    return out
-
-
-def grid_metadata(cfg, h=None):
-    """Sign the height bytes without constructing solar tables or a solver."""
-    import numpy as np
-
-    if h is None:
-        from sosfuse2.rays.shell_segments import grids, small_heights
-
-        h = refined_heights(grids(1)[0], cfg['h_refine']) if cfg['nr'] != 4 else small_heights()
-        if cfg.get('top_km', TOP_KM) > TOP_KM:
-            h = np.r_[h, cfg['upper_heights_km']]
-    result = dict(h_refine=cfg['h_refine'], h_sha256=hashlib.sha256(np.ascontiguousarray(h).tobytes()).hexdigest())
-    result.update({k: cfg[k] for k in ('top_km', 'upper_heights_km', 'upper_air') if k in cfg})
-    return result
-
-
-def create_configured(
-    output, cfg, wavelengths, backend, state, block_size=128, geometry_cache=None, *, share_sun_geometry=True
-):
-    """Configure the accepted engine's create() for the production settings through its keyword hooks (observer, kernel,
-    grid, spectrum, sun geometry, deferred ground, aerosol profile). Returns the solver and its scope; the solver is
-    built over `wavelengths` (a second Solver in the same scope when more than one)."""
-    from sosfuse2.atmosphere import spectral
-
-    domain = execution_domain(cfg, state)
-    spectral.check_state(
-        cfg.get('spectral'), state
-    )  # A′: a block resolved for another (or no) state never reaches SPEC
-    if cfg.get('spectral') is not None:
-        from ..atmosphere.components import check_current
-
-        check_current(cfg['spectral'].get('physics'), what='solver spectral block')
-    from sosfuse2.solve import ray_geometry as gm
-    from sosfuse2.solve.source_solver import load_engine
-
-    engine = load_engine()
-    threads_budget = int(os.environ.get('OMP_NUM_THREADS', str(os.cpu_count() or 1)))
-    from sosfuse2.atmosphere.density import profile_step_km, kernel_kwargs
-
-    kw = kernel_kwargs(profile_step_km(state))
-    kw['domain'] = domain
-
-    def kernel_factory(threads, H, g):
-        return gm.Kernel(threads_budget, H, g, backend, block_size, L=cfg['L'], **kw)
-
-    def grid(mode, h, ch, nmu, nphi, path_n):
-        # The settings own the grid: full mode refines the accepted h/chi, every mode takes the quadrature counts from cfg.
-        if mode == 'full':
-            h = refined_heights(h, cfg['h_refine'])
-            if domain.upper_heights_km:
-                import numpy as np
-
-                h = np.r_[h, domain.upper_heights_km]
-            ch = refined_chi(ch, cfg['chi_step_deg'], cfg.get('chi_refine_deg'))
-        if len(h) != cfg['nr'] or len(ch) != cfg['nchi']:
-            raise ValueError('E_SETTINGS_GRID_COUNT: actual grid disagrees with nr/nchi')
-        return h, ch, cfg['nmu'], cfg['nphi'], cfg['path_n']
-
-    from sosfuse2.precompute import host_cache
-
-    fast_host = host_cache.enabled()
-    sun_geometry = None
-    if fast_host or SUN_SCALE != 1:
-        # host_cache.sun_geometry keys its folder by height and scale; the accepted constructor keys neither.
-        def sun_geometry(old, cache, H):
-            return host_cache.sun_geometry(old, SUN_SCALE, cache, H, shared=geometry_cache if share_sun_geometry else None)
-
-    spec = None
-    if cfg.get('spectral') is not None:
-        # The engine's only spectral input is this SPEC dict (a fresh table per call; create() completes it in place).
-        # Representative values belong to the settings bins; a solver over a subset (geometry-only passes the first
-        # wavelength) reads its own rows of the full table.
-        if any(float(w) not in cfg['wavelengths_nm'] for w in wavelengths):
-            raise ValueError('E_SPECTRAL_CONTRACT: solver wavelengths outside the settings')
-        spec = spectral.spec_table(cfg['spectral'], cfg['wavelengths_nm'], state)
-    from sosfuse2.atmosphere import tropo_profile
-
-    output.mkdir(parents=True, exist_ok=True)
-    # With fast_host, density.attach prepares the ground below, after the wavelength Solver.
-    initial, scope, _ = engine.create(
-        state,
-        output,
-        'selftest' if cfg['nr'] == 4 else 'full',
-        threads_budget,
-        float(wavelengths[0]),
-        observer_km=cfg['observer_km'],
-        kernel_factory=kernel_factory,
-        grid=grid,
-        spec=spec,
-        sun_geometry=sun_geometry,
-        prepare_ground=not fast_host,
-        aerosol=tropo_profile.engine_hooks(state),
-        domain=domain,
-    )
-    s = initial if len(wavelengths) == 1 else scope.Solver(initial.geo, initial.kernel, wavelengths, 1, 0.03)
-    s.levels = s.levels[: s.kernel.K]
-    s.af = s.af[: s.kernel.K]
-    s.active[1::2] = 0
-    s.fuse_state = state
-    s.export_first_order = cfg.get('export_first_order', False)
-    tropo_profile.attach(s)
-    if fast_host:
-        scope.prepare_ground = True
-    if geometry_cache is not None:
-        s.host_cache_root = Path(geometry_cache)
-    from sosfuse2.atmosphere.density import attach as attach_density
-    from sosfuse2.atmosphere.stratosphere import tau_of
-
-    # attach() immediately replaces all first-ground arrays when the layer is on.
-    attach_density(s, scope, defer_ground=tau_of(state) > 0)
-    from sosfuse2.atmosphere.stratosphere import attach
-
-    attach(s, scope)
-    from sosfuse2.atmosphere.tropo_mie import attach as attach_tropo
-
-    attach_tropo(s)
-    s.geo.pack = lambda p, d, n: gm.pack(p, d, n, s, scope, ground=False)
-    return s, scope
-
-
-def effective_state(state, a):
-    state = copy.deepcopy(state)
-    if getattr(a, 'stratosphere', None) == 'on':
-        state.setdefault('stratosphere', {})['status'] = 'enabled'
-    from sosfuse2.atmosphere.density import with_options
-
-    return with_options(state, a)
-
-
-class FirstOrderConflict(RuntimeError):
-    """The loose and archived first-order files have different digests."""
-
-
-def verify_pack(path, signature, *, export_first_order=None, first_order_sha=None, table_sha=None,
-                loose_table=None, restore_first=None):
-    # Read every archived member through zstd; verify both CRC/content and the identity.
-    # tarfile's stream mode stops at the end-of-archive marker and leaves the record padding (10240 bytes measured) unread;
-    # closing the pipe then can kill a zstd still writing it (SIGPIPE, nonzero exit) when the pipe buffer is small, which
-    # can reject a valid pack. The rest of the stream
-    # is drained before close, and a real decode failure reports zstd's exit code and stderr.
-    import tempfile
-
-    from ..outputs.radiance_table import exports_first_order, read_table
-
-    with tempfile.TemporaryFile() as err:
-        proc = subprocess.Popen(['zstd', '-q', '-dc', str(path)], stdout=subprocess.PIPE, stderr=err)
-        failed = False
-        tar_error = None
-        try:
-            with tarfile.open(fileobj=proc.stdout, mode='r|') as archive:
-                names = []
-                meta = None
-                for member in archive:
-                    if not member.isfile():
-                        raise RuntimeError('E_PACK_VERIFY: unexpected member')
-                    names.append(member.name)
-                    f = archive.extractfile(member)
-                    if member.name == 'meta.json':
-                        meta = json.load(f)
-                    elif member.name == 'table.npz' and table_sha is not None:
-                        if hashlib.file_digest(f, 'sha256').hexdigest() != table_sha:
-                            raise RuntimeError('E_PACK_VERIFY: archived radiance table differs')
-                    elif member.name == 'table.npz' and loose_table is not None:
-                        import numpy as np
-
-                        with tempfile.TemporaryFile() as archived, loose_table.open('rb') as loose:
-                            shutil.copyfileobj(f, archived)
-                            archived.seek(0)
-                            if hashlib.file_digest(archived, 'sha256').digest() != hashlib.file_digest(loose, 'sha256').digest():
-                                archived.seek(0)
-                                loose.seek(0)
-                                aa, ar = read_table(archived)
-                                ba, br = read_table(loose)
-                                if (any(a.dtype != b.dtype or not np.array_equal(a, b) for a, b in zip(aa, ba))
-                                        or not np.allclose(ar, br, rtol=1e-5, atol=0)):
-                                    raise RuntimeError('E_PACK_VERIFY: archived radiance table differs')
-                    elif member.name == 'first_order.npz' and restore_first is not None:
-                        shutil.copyfileobj(f, restore_first)
-                    elif member.name == 'first_order.npz' and first_order_sha is not None:
-                        if hashlib.file_digest(f, 'sha256').hexdigest() != first_order_sha:
-                            raise FirstOrderConflict('E_PACK_VERIFY: first-order table differs')
-                    else:
-                        while f.read(1024 * 1024):
-                            pass
-                expected = ['table.npz', 'meta.json', 'preview_m03.png', 'preview_m06.png']
-                exported = isinstance(meta, dict) and exports_first_order(meta)
-                if export_first_order is not None and export_first_order != exported:
-                    raise RuntimeError('E_PACK_VERIFY: first-order setting differs')
-                if exported:
-                    expected.append('first_order.npz')
-                    first = meta.get('first_order')
-                    if not isinstance(first, dict) or first.get('file') != 'first_order.npz':
-                        raise RuntimeError('E_PACK_VERIFY: first-order metadata missing')
-                if (
-                    sorted(names) != sorted(expected)
-                    or not isinstance(meta, dict)
-                    or meta.get('complete') is not True
-                    or meta.get('signature') != signature
-                ):
-                    raise RuntimeError('E_PACK_VERIFY: members or identity')
-        except (tarfile.TarError, EOFError) as exc:
-            tar_error = exc
-            raise
-        except BaseException:
-            failed = True
-            raise
-        finally:
-            try:
-                while proc.stdout.read(1024 * 1024):
-                    pass
-            except OSError:
-                pass
-            proc.stdout.close()
-            rc = proc.wait()
-            if rc != 0 and not failed:
-                err.seek(0)
-                detail = err.read().decode(errors='replace').strip()[-300:]
-                message = f'E_PACK_VERIFY: zstd decode failed (exit {rc}{": " + detail if detail else ""})'
-                if tar_error is not None:
-                    message += f'; {type(tar_error).__name__}: {tar_error}'
-                raise RuntimeError(message) from tar_error
-
-
-def output_identity_message(path, reason):
-    return (
-        f'E_OUTPUT_IDENTITY: {path}: {reason}. '
-        'If this output is from an earlier code version, use a separate output root or inspect and move the old output.'
-    )
-
-
-def enable_spectral_previews(module):
-    import numpy as np
-
-    original = module.previews
-
-    def previews(out):
-        from ..atmosphere.spectral import check_meta_contract
-
-        meta = json.loads((out / 'meta.json').read_text())
-        check_meta_contract(meta)
-        with np.load(out / 'table.npz') as f:
-            table = f['radiance']
-            wl = f['wavelength_nm']
-            hs = f['solar_elevation_deg']
-        if len(wl) in (1, 15):
-            return original(out)
-        weights = module.preview_weights(
-            wl, module.preview_band_widths(meta, wl), np.load(paths.ASSETS / 'rgb_weights.npy')
-        )
-        rgb = table @ weights
-        funcs = module.render_functions()
-        for h in (-3, -6):
-            folded = rgb[np.flatnonzero(hs == h)[0]]
-            pano = np.concatenate([folded[:, ::-1], folded], axis=1)
-            projected = funcs['project'](pano, funcs['projection'](960, 540, 100, 0))
-            k = funcs['central'](projected)[1] if (projected @ funcs['Y']).max() > 0 else 1.0
-            funcs['save_png'](out / f'preview_m{abs(h):02d}.png', funcs['tone'](projected, k))
-
-    module.previews = previews
-
-
 from ..foundation.content_identity import package_hashes, package_info
 from ..foundation.content_identity import ACCEPTED_SOURCES as ACCEPTED_SOURCES, HOST_MODULES as HOST_MODULES, DATA_ASSETS as DATA_ASSETS
 
 
-from ..atmosphere.components import physics, optics_state, canonical_state, check_optics
+from ..atmosphere.components import physics, optics_state, canonical_state
 
 CONTRACT_VERSION = 'v5'  # Readers also accept v3 and v4 tables.
 
@@ -896,77 +364,21 @@ def signed_contract(state, cfg, backend, reduced, polarization_model, derived=No
     return signature, hashes
 
 
-def parse_elevations(text):
-    values = [float(x) for x in str(text).split(',') if x.strip()]
-    if not values or len(set(values)) != len(values) or not all(abs(v) < 90 for v in values):
-        raise ValueError('E_EXTRA_ELEVATIONS: unique finite |h|<90 list required')
-    return values
-
-
-def extra_contract(cfg, extra, source_out_name):
-    """M3 (shared by scheduler and runner): rows = extra elevations + the -3/-6
-    anchors (previews, pack format and a bit-level reuse check against the
-    source job's table).  cfg stays the SOURCE job's settings unchanged."""
-    if not re.fullmatch('[A-Za-z0-9_-]+', str(source_out_name or '')):
-        raise ValueError('E_EXTRA_SOURCE: safe source_out_name required')
-    extra = parse_elevations(extra) if isinstance(extra, str) else [float(x) for x in extra]
-    if set(extra) & set(float(x) for x in cfg['solar_elevation_deg']):
-        raise ValueError('E_EXTRA_ELEVATIONS: already a source table row')
-    rows = sorted(set(extra) | {-3.0, -6.0}, reverse=True)
-    return dict(
-        mode='extra_elevations',
-        extra_elevations=sorted(extra, reverse=True),
-        table_elevations=rows,
-        source_out_name=source_out_name,
-    )
-
-
-def read_states(path, include_parent=False):
-    doc = json.loads(path.read_text())
-    states = list(doc['states'])
-    if include_parent and doc.get('parent'):
-        parent = json.loads((path.parent / doc['parent']).read_text())['states']
-        own = {s['id'] for s in states}
-        states.extend(s for s in parent if s['id'] not in own)
-    return states
-
-
 def geometry_only(a):
     # This entry point never selects a CUDA backend or constructs a fused Solver.
-    for k in (
-        'OMP_NUM_THREADS',
-        'OPENBLAS_NUM_THREADS',
-        'MKL_NUM_THREADS',
-        'VECLIB_MAXIMUM_THREADS',
-        'NUMEXPR_NUM_THREADS',
-        'BLIS_NUM_THREADS',
-    ):
-        os.environ[k] = str(a.threads)
+    _set_run_threads(a)
     import numpy as np
     from sosfuse2.solve.ray_geometry_cpu import build_cells, cache_complete, column_ready, ensure_column
     from sosfuse2.foundation.host_limits import monitor
 
-    for k in (
-        'OMP_NUM_THREADS',
-        'OPENBLAS_NUM_THREADS',
-        'MKL_NUM_THREADS',
-        'VECLIB_MAXIMUM_THREADS',
-        'NUMEXPR_NUM_THREADS',
-        'BLIS_NUM_THREADS',
-    ):
-        os.environ[k] = str(a.threads)
+    _set_run_threads(a)
     if a.polarization_model != 'depolarizing':
         raise RuntimeError(
             'E_UNSUPPORTED_POL_MODEL: sosfuse2 solve/source_solver.py and backends/kernel.cu have no preserving aerosol tensor transport'
         )
     if a.lease_pid is not None and (a.lease_pid < 1 or a.lease_pid == os.getpid() or not alive(str(a.lease_pid))):
         raise RuntimeError('E_PREFETCH_LEASE_PID')
-    found = [s for s in read_states(a.states, True) if s['id'] == a.id and s.get('runnable')]
-    if len(found) != 1:
-        raise ValueError(f'E_STATE_ID: exactly one runnable state {a.id!r} required in {a.states}')
-    cfg = settings_for(a)
-    state = effective_state(found[0], a)
-    cfg = resolve_settings(cfg, state)
+    state, cfg = configuration.state_settings(a, geometry_only=True, resolve=resolve_settings)
     name = a.out_name or a.id
     output = a.work_root / 'prefetch' / name
     output.mkdir(parents=True, exist_ok=True)
@@ -1101,6 +513,12 @@ def _pool_limit(threads, environ):
 class _StateRun:
     """Per-run ownership of buffers, leases and the active device token."""
 
+    def __init__(self):
+        self.token = None
+        self.geometry = None
+        self.leased = None
+        self.released = False
+
 
 def _check_run_options(a):
     from ..atmosphere.components import production_only
@@ -1124,70 +542,30 @@ def _check_run_options(a):
 
 
 def _set_run_threads(a):
-    for k in (
-        'OMP_NUM_THREADS',
-        'OPENBLAS_NUM_THREADS',
-        'MKL_NUM_THREADS',
-        'VECLIB_MAXIMUM_THREADS',
-        'NUMEXPR_NUM_THREADS',
-        'BLIS_NUM_THREADS',
-    ):
+    for k in _THREAD_ENV:
         os.environ[k] = str(a.threads)
 
 
-def _select_run_state(job, a):
-    states = read_states(a.states, True)
-    found = [s for s in states if s['id'] == a.id and s.get('runnable')]
-    if len(found) != 1:
-        raise ValueError(f'E_STATE_ID: exactly one runnable state {a.id!r} required in {a.states}')
-    job.state = effective_state(found[0], a)
-    job.cfg = resolve_settings(settings_for(a), job.state)
-    job.name = a.out_name or a.id
-    if a.backend == 'cupy':
-        # Refuse a first light the device profile cannot split, before any geometry or CPU preparation (split profile, C2 8.6 s).
-        from sosfuse2.backends.device_profile import select, smi_device_name, first_light_split_error
-        from sosfuse2.solve.source_solver import default_flags
-        from sosfuse2.atmosphere.stratosphere import tau_of
+def _preflight_device(state):
+    # Refuse a first light the device profile cannot split, before any geometry or CPU preparation (split profile, C2 8.6 s).
+    from sosfuse2.backends.device_profile import select, smi_device_name, first_light_split_error
+    from sosfuse2.solve.source_solver import default_flags
+    from sosfuse2.atmosphere.stratosphere import tau_of
 
-        pname, profile, _ = select(smi_device_name())
-        err = first_light_split_error(default_flags(), tau_of(job.state) > 0, pname, profile)
-        if err:
-            raise RuntimeError(err)
-    job.signature, job.hashes = signed_contract(job.state, job.cfg, a.backend, a.reduced, a.polarization_model)
-
-
-def _lock_run_output(job, a):
-    job.out = a.work_root / 'out' / job.name
-    job.prepare = a.work_root / 'tmp' / job.name
-    job.out.mkdir(parents=True, exist_ok=True)
-    job.output_lock = (job.out / '.worker.lock').open('a')
-    try:
-        fcntl.flock(job.output_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise RuntimeError('E_OUTPUT_BUSY: out_name already owned by another worker')
-    job.prepare.mkdir(parents=True, exist_ok=True)
-    job.meta_path = job.out / 'meta.json'
-    if job.meta_path.exists():
-        previous = json.loads(job.meta_path.read_text())
-        check_optics(previous.get('optics_state'), optics_state(job.state))
-        if previous.get('signature') != job.signature:
-            raise RuntimeError(
-                output_identity_message(job.out, f"signature differs (stored format={previous.get('contract')!r})")
-            )
+    pname, profile, _ = select(smi_device_name())
+    err = first_light_split_error(default_flags(), tau_of(state) > 0, pname, profile)
+    if err:
+        raise RuntimeError(err)
 
 
 def _start_run_monitor(job, a, monitor):
     job.started = time.monotonic()
     job.stop = threading.Event()
-    job.geometry = None
-    job.leased = None
-    job.released = False
     threading.Thread(target=monitor, args=(job.stop, a.rss_gb * 1e9), daemon=True).start()
 
 
 def _prepare_run_grid(job, a, np, configure, default_root):
     job.pipeline_lock = getattr(a, 'gpu_lock', None)
-    job.token = None
     job.pending_tables = []
     job.solver = job.field = None
     job.persistent = bool(os.environ.get('SOS_PERSISTENT_ROOT'))
@@ -1512,77 +890,8 @@ def _finish_chunk_tables(job, np):
         raise RuntimeError('E_TABLE_FINITE')
 
 
-def _write_run_arrays(job, np, a):
-    prepare, s, moments = job.prepare, job.s, job.moments
-    if job.meta_path.is_file():
-        previous = json.loads(job.meta_path.read_text())
-        if previous.get('complete'):
-            # Preserve the signature guard if a rerun is interrupted between files.
-            atomic_json(job.meta_path, dict(previous, complete=False))
-    # Uncompressed: a per-state diagnostic read only through np.load (gate.py); zlib saved 6 % in
-    # 0.5-1 s of single-core time per state. table.npz too (numeric identity is judged on
-    # arrays, not file SHA); the pack is tar.zst either way, and same arrays still give the same file bytes.
-    source = prepare / 'source.npz'
-    tmp = source.with_suffix('.npz.tmp')
-    try:
-        with tmp.open('wb') as f:
-            np.savez(
-                f,
-                source=np.concatenate(job.fields, axis=-1),
-                h=s.geo.h,
-                chi=s.geo.chi,
-                wavelength_nm=job.wl,
-                physics=np.array(json.dumps(physics(), sort_keys=True)),
-                optics_state=np.array(json.dumps(optics_state(job.state), sort_keys=True)),
-                source_contract=np.array(json.dumps(
-                    {
-                        'state': canonical_state(job.state),
-                        'anderson_tol': job.stats_all[0]['tolerance'],
-                        'settings': job.cfg,
-                        'backend': a.backend,
-                        'polarization_model': a.polarization_model,
-                    },
-                    sort_keys=True,
-                    allow_nan=False,
-                )),
-            )
-        os.replace(tmp, source)
-    finally:
-        tmp.unlink(missing_ok=True)
-    if moments:
-        np.savez(
-            prepare / 'moment.npz',
-            moment=np.concatenate(moments, axis=-1),
-            h=s.geo.h,
-            chi=s.geo.chi,
-            wavelength_nm=job.wl,
-            L=np.int32(s.kernel.L),
-            layout=np.array(
-                '(cell=ih*n_chi+ic, slot, channel); slot [0:4] Rayleigh coherency, [4:4+K] scalar radiance SH k=l(l+1)/2+m (m>=0, cos m phi), frame up=radial ex=sun-ward horizontal'
-            ),
-        )
-    with (job.out / 'table.npz.tmp').open('wb') as f:
-        np.savez(
-            f,
-            radiance=job.table,
-            wavelength_nm=job.wl.astype('f4'),
-            solar_elevation_deg=job.hs.astype('f4'),
-            view_elevation_deg=job.el.astype('f4'),
-            relative_azimuth_deg=job.az.astype('f4'),
-            units=np.array('W m^-2 sr^-1 nm^-1'),
-        )
-    os.replace(job.out / 'table.npz.tmp', job.out / 'table.npz')
-    from sosfuse2.outputs.radiance_table import save_first_order
-
-    first_meta = (
-        save_first_order(job.out, job.first_tables, job.wl, job.hs, job.el, job.az)
-        if job.cfg.get('export_first_order')
-        else {}
-    )
-    return first_meta
-
-
-def _record_run_metadata(job, a, peak, first_meta):
+def _run_metadata(job, a, peak, first_meta, optics):
+    """Snapshot the live solver and geometry before their leases are released."""
     from sosfuse2.atmosphere.stratosphere import computed_metadata
 
     optical_meta = computed_metadata(job.state, getattr(job.s, 'strato', None))
@@ -1604,7 +913,7 @@ def _record_run_metadata(job, a, peak, first_meta):
         complete=True,
         contract=CONTRACT_VERSION,
         physics=physics(),
-        optics_state=optics_state(job.state),
+        optics_state=optics,
         **package_info(),
         signature=job.signature,
         id=a.id,
@@ -1659,24 +968,20 @@ def _record_run_metadata(job, a, peak, first_meta):
         meta['troposphere_phase_computed'] = job.s.tropo['meta']
     if getattr(job.s, 'aerosol_profile', None) is not None:
         meta['troposphere_profile_computed'] = job.s.aerosol_profile['meta']
-    atomic_json(job.meta_path, meta)
+    return meta
 
 
-def _pack_verified_output(job, a, pm):
-    enable_spectral_previews(pm)
-    pack = pm.pack_state(job.out, a.work_root / 'pack', 'zstd', started=job.started)
-    verify_pack(pack, job.signature)
+def _pack_verified_output(job, a):
+    storage.pack_output(job.out, a.work_root / 'pack', job.started, job.signature, verify=verify_pack)
     # layers=2: the common layer is shared by every state; never removed by a worker.
     result = release_geometry(a.geometry_cache, job.leased.cache, True, a.keep_geometry or a.geometry_layers == 2)
     job.released = True
-    meta = json.loads(job.meta_path.read_text())
-    meta.update(result)
-    atomic_json(job.meta_path, meta)
+    storage.update_metadata(job.meta_path, result)
     phase(job.name, 'geometry_cleanup', **result)
     # Repack once so archived meta records the actual post-verification deletion result.
     # This attempt's first pack and verification completed; its previews are ready.
-    pack = pm.pack_state(job.out, a.work_root / 'pack', 'zstd', started=job.started, reuse_previews=True)
-    verify_pack(pack, job.signature)
+    pack = storage.pack_output(job.out, a.work_root / 'pack', job.started, job.signature,
+                               verify=verify_pack, reuse_previews=True)
     phase(job.name, 'pack_done', bytes=pack.stat().st_size, **result)
     if job.pipeline_lock:
         phase(job.name, 'cpu_finalize_done')
@@ -1704,34 +1009,46 @@ def run(a):
     from sosfuse2.solve import ray_geometry as gm
     from sosfuse2.solve.source_solver import Solver
     from sosfuse2.solve.ray_geometry_cpu import build_cells, cache_complete, column_ready, ensure_column
-    from sosfuse2.outputs import pack_state as pm
     from sosfuse2.foundation.host_limits import monitor, peak_rss_bytes as peak
 
     _set_run_threads(a)
-    if a.backend == 'numpy':
-
-        class ScalarKernel(gm.Kernel):
-            def host(self, x):
-                return np.asarray(x)
-
-        gm.Kernel = ScalarKernel
     job = _StateRun()
-    _select_run_state(job, a)
-    _lock_run_output(job, a)
-    _start_run_monitor(job, a, monitor)
-    from sosfuse2.backends.compile_cache import configure, default_root
+    job.state, job.cfg = configuration.state_settings(a, resolve=resolve_settings)
+    job.name = a.out_name or a.id
+    if a.backend == 'cupy':
+        _preflight_device(job.state)
+    job.signature, job.hashes = signed_contract(job.state, job.cfg, a.backend, a.reduced, a.polarization_model)
+    job.out = a.work_root / 'out' / job.name
+    job.prepare = a.work_root / 'tmp' / job.name
+    job.meta_path = job.out / 'meta.json'
+    job.out.mkdir(parents=True, exist_ok=True)
+    with storage.output_lock(job.out):
+        job.prepare.mkdir(parents=True, exist_ok=True)
+        optics = optics_state(job.state)
+        storage.check_output(job.out, job.signature, optics)
+        _start_run_monitor(job, a, monitor)
+        from sosfuse2.backends.compile_cache import configure, default_root
 
-    _prepare_run_grid(job, a, np, configure, default_root)
-    try:
-        _solve_wavelength_chunks(
-            job, a, np, gm, Solver, build_cells, cache_complete, column_ready, ensure_column, configure, default_root
-        )
-        _finish_chunk_tables(job, np)
-        first_meta = _write_run_arrays(job, np, a)
-        _record_run_metadata(job, a, peak, first_meta)
-        _pack_verified_output(job, a, pm)
-    finally:
-        _release_run_resources(job, a)
+        try:
+            _prepare_run_grid(job, a, np, configure, default_root)
+            _solve_wavelength_chunks(
+                job, a, np, gm, Solver, build_cells, cache_complete, column_ready, ensure_column, configure, default_root
+            )
+            _finish_chunk_tables(job, np)
+            contract = dict(
+                state=canonical_state(job.state), anderson_tol=job.stats_all[0]['tolerance'],
+                settings=job.cfg, backend=a.backend, polarization_model=a.polarization_model,
+            )
+            first_meta = storage.write_run_arrays(
+                job.out, job.prepare, job.table, job.wl, job.hs, job.el, job.az,
+                h=job.s.geo.h, chi=job.s.geo.chi, fields=job.fields, moments=job.moments, order=job.s.kernel.L,
+                physical=physics(), optics=optics, contract=contract,
+                first_tables=job.first_tables if job.cfg.get('export_first_order') else None,
+            )
+            atomic_json(job.meta_path, _run_metadata(job, a, peak, first_meta, optics))
+            _pack_verified_output(job, a)
+        finally:
+            _release_run_resources(job, a)
 
 
 @trace_state
@@ -1743,35 +1060,14 @@ def run_extra(a):
     production_only()
     if not shutil.which('zstd'):
         raise RuntimeError('E_ZSTD_MISSING: install zstd (required by pack and verify)')
-    for k in (
-        'OMP_NUM_THREADS',
-        'OPENBLAS_NUM_THREADS',
-        'MKL_NUM_THREADS',
-        'VECLIB_MAXIMUM_THREADS',
-        'NUMEXPR_NUM_THREADS',
-        'BLIS_NUM_THREADS',
-    ):
-        os.environ[k] = str(a.threads)
+    _set_run_threads(a)
     import numpy as np
-    from sosfuse2.solve import ray_geometry as gm
     from sosfuse2.outputs import radiance_table as tf
-    from sosfuse2.outputs import pack_state as pm
     from sosfuse2.foundation.host_limits import monitor, peak_rss_bytes as peak
 
     if a.polarization_model != 'depolarizing':
         raise RuntimeError('E_UNSUPPORTED_POL_MODEL')
-    if a.backend == 'numpy':
-
-        class ScalarKernel(gm.Kernel):
-            def host(self, x):
-                return np.asarray(x)
-
-        gm.Kernel = ScalarKernel
-    found = [s for s in read_states(a.states, True) if s['id'] == a.id and s.get('runnable')]
-    if len(found) != 1:
-        raise ValueError(f'E_STATE_ID: exactly one runnable state {a.id!r} required in {a.states}')
-    state = effective_state(found[0], a)
-    cfg = resolve_settings(settings_for(a), state)
+    state, cfg = configuration.state_settings(a, resolve=resolve_settings)
     name = a.out_name or a.id
     derived = extra_contract(cfg, a.extra_elevations, a.source_out_name)
     signature, hashes = signed_contract(state, cfg, a.backend, a.reduced, a.polarization_model, derived)
@@ -1783,59 +1079,20 @@ def run_extra(a):
         raise ValueError('E_EXTRA_SOURCE: output must differ from source')
     out.mkdir(parents=True, exist_ok=True)
     prepare.mkdir(parents=True, exist_ok=True)
-    output_lock = (out / '.worker.lock').open('a')
-    try:
-        fcntl.flock(output_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise RuntimeError('E_OUTPUT_BUSY: out_name already owned by another worker')
-    meta_path = out / 'meta.json'
-    if meta_path.exists():
-        previous = json.loads(meta_path.read_text())
-        check_optics(previous.get('optics_state'), optics_state(state))
-        if previous.get('signature') != signature:
-            raise RuntimeError(output_identity_message(out, f"signature differs (stored format={previous.get('contract')!r})"))
-    started = time.monotonic()
-    stop = threading.Event()
-    threading.Thread(target=monitor, args=(stop, a.rss_gb * 1e9), daemon=True).start()
-    from sosfuse2.backends.compile_cache import configure, default_root
+    with contextlib.ExitStack() as resources:
+        resources.enter_context(storage.output_lock(out))
+        optics = optics_state(state)
+        storage.check_output(out, signature, optics)
+        started = time.monotonic()
+        stop = threading.Event()
+        threading.Thread(target=monitor, args=(stop, a.rss_gb * 1e9), daemon=True).start()
+        resources.callback(stop.set)
+        from sosfuse2.backends.compile_cache import configure, default_root
 
-    configure(default_root(a.work_root), a.backend, a.block_size)
-    os.environ['CUDA_CACHE_PATH'] = str(prepare / 'cuda_driver_cache')
-    source_lock = None
-    try:
-        # run() rewrites tmp/<source>/source.npz and out/<source>/ in place while it holds out/<source>/.worker.lock.
-        # A shared hold for this whole job admits other derived jobs and makes a rerun of the source stop with
-        # E_OUTPUT_BUSY, so the arrays loaded, the SHA recorded and the anchor rows all come from one source.
-        try:
-            source_lock = (src_out / '.worker.lock').open('a')
-        except FileNotFoundError:
-            raise RuntimeError('E_EXTRA_SOURCE: source job meta missing')
-        except OSError as exc:
-            if exc.errno not in (errno.EACCES, errno.EPERM, errno.EROFS):
-                raise
-            try:  # another user's lock file, or a read-only mount: a shared hold needs no write access
-                source_lock = (src_out / '.worker.lock').open('r')
-            except FileNotFoundError:
-                pass  # a read-only source folder that no worker has locked: nothing to hold
-        if source_lock is not None:
-            try:
-                fcntl.flock(source_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise RuntimeError('E_EXTRA_SOURCE: source job is owned by a running worker (.worker.lock)')
+        configure(default_root(a.work_root), a.backend, a.block_size)
+        os.environ['CUDA_CACHE_PATH'] = str(prepare / 'cuda_driver_cache')
+        resources.enter_context(storage.source_lock(src_out))
         phase(name, 'source_reuse_start', source_out_name=a.source_out_name)
-        try:
-            source_meta = json.loads((src_out / 'meta.json').read_text())
-        except (OSError, ValueError):
-            raise RuntimeError('E_EXTRA_SOURCE: source job meta missing')
-        if not src.is_file():
-            raise RuntimeError('E_EXTRA_SOURCE: source.npz missing')
-        # package_version/package_commit are recorded in meta but are never a reuse condition.
-        from sosfuse2.atmosphere.components import check_current  # E_PHYSICS_MIXED / _CONTRACT before the generic comparison
-
-        check_current(source_meta.get('physics'), what='source job')
-        if source_meta.get('density') is None:
-            raise RuntimeError('E_EXTRA_SOURCE: density profile missing')
-        check_optics(source_meta.get('optics_state'), optics_state(state))
         same = dict(
             complete=True,
             contract=CONTRACT_VERSION,
@@ -1847,9 +1104,7 @@ def run_extra(a):
             mode='reduced-validation' if a.reduced else 'full',
             code_hashes=hashes,
         )
-        bad = [k for k, v in same.items() if source_meta.get(k) != v]
-        if bad:
-            raise RuntimeError('E_EXTRA_SOURCE: source meta differs: ' + ','.join(bad))
+        source_meta = storage.read_source_metadata(src_out, src, optics, same)
         wl = np.asarray(cfg['wavelengths_nm'])
         hs = np.asarray(derived['table_elevations'])
         nr, nc = cfg['view_shape']
@@ -1924,33 +1179,10 @@ def run_extra(a):
         table = np.concatenate(tables, -1)
         if not np.isfinite(table).all():
             raise RuntimeError('E_TABLE_FINITE')
-        # Anchor rows (-3,-6) against the source job's own table: reuse check.
-        with np.load(src_out / 'table.npz') as f:
-            ref = f['radiance']
-            ref_hs = f['solar_elevation_deg']
-        anchors = {}
-        for h in (-3.0, -6.0):
-            a_row = table[int(np.flatnonzero(hs == h)[0])]
-            b_row = ref[int(np.flatnonzero(ref_hs == h)[0])]
-            anchors[str(h)] = dict(
-                max_rel=float(np.max(np.abs(a_row - b_row)) / max(float(np.max(np.abs(b_row))), 1e-30))
-            )
-        for row in anchors.values():
-            row['within_tol'] = row['max_rel'] <= 1e-6
-        if max(v['max_rel'] for v in anchors.values()) > 1e-6:
-            raise RuntimeError('E_EXTRA_ANCHOR: anchor rows differ from source table by >1e-6')
-        with (out / 'table.npz.tmp').open('wb') as f:
-            np.savez(
-                f,
-                radiance=table,
-                wavelength_nm=wl.astype('f4'),
-                solar_elevation_deg=hs.astype('f4'),
-                view_elevation_deg=el.astype('f4'),
-                relative_azimuth_deg=az.astype('f4'),
-                units=np.array('W m^-2 sr^-1 nm^-1'),
-            )
-        os.replace(out / 'table.npz.tmp', out / 'table.npz')
-        first_meta = tf.save_first_order(out, first_tables, wl, hs, el, az) if cfg.get('export_first_order') else {}
+        anchors = storage.check_anchor_rows(src_out, table, hs)
+        # Extra-elevation reruns keep the previous completion until the new table replaces the old one, as before the split.
+        first_meta = storage.write_table(out, table, wl, hs, el, az,
+                                         first_tables=first_tables if cfg.get('export_first_order') else None)
 
         meta = dict(
             **first_meta,
@@ -1959,7 +1191,7 @@ def run_extra(a):
             complete=True,
             contract=CONTRACT_VERSION,
             physics=physics(),
-            optics_state=optics_state(state),
+            optics_state=optics,
             **package_info(),
             signature=signature,
             id=a.id,
@@ -2011,15 +1243,9 @@ def run_extra(a):
             meta['troposphere_phase_computed'] = s.tropo['meta']
         if getattr(s, 'aerosol_profile', None) is not None:
             meta['troposphere_profile_computed'] = s.aerosol_profile['meta']
-        atomic_json(meta_path, meta)
-        enable_spectral_previews(pm)
-        pack = pm.pack_state(out, a.work_root / 'pack', 'zstd', started=started)
-        verify_pack(pack, signature)
+        atomic_json(out / 'meta.json', meta)
+        pack = storage.pack_output(out, a.work_root / 'pack', started, signature, verify=verify_pack)
         phase(name, 'pack_done', bytes=pack.stat().st_size, geometry_cache_removed=False, reason='no_geometry')
-    finally:
-        stop.set()
-        if source_lock is not None:
-            source_lock.close()
 
 
 DEFAULT_ID = 'clear_34'  # the state of the README quick start

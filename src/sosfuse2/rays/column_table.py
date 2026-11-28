@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 import numpy as np
-from ..foundation import content_identity as source_identity, paths
+from ..foundation import content_identity as source_identity, dependencies, paths
 from ..foundation.top import TOP_KM, COLUMN_TOP_MARGIN_KM, Domain
 from ..atmosphere.components import MOLECULAR_COLUMNS
 
@@ -35,7 +35,8 @@ def method():
 @lru_cache(None)
 def source_hash():
     h = hashlib.sha256()
-    for path in (Path(__file__), paths.PKG / 'atmosphere/tropo_profile.py', paths.PKG / 'foundation/top.py'):
+    for name in dependencies.files('column_integral'):
+        path = paths.PKG / name
         h.update(path.name.encode())
         h.update(source_identity.file_sha(path).encode())
     return h.hexdigest()

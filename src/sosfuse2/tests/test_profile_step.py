@@ -797,11 +797,13 @@ def test_h_outputs_independent_of_N(tmp_path, env):
             (within_tol(np.asarray(ga[k]), np.asarray(gb[k]))) for k in ('p', 'd', 'edges', 'weight', 'end_index')
         )
     src = re.sub(
-        r'\s+', '', (HERE / 'jobs/run_state.py').read_text()
+        r'\s+', '', (HERE / 'jobs/run_storage.py').read_text()
     )  # whitespace-free: the call may be formatted over lines
     assert (
-        src.count("np.savez(prepare/'moment.npz',moment=np.concatenate(moments,axis=-1),h=s.geo.h,chi=s.geo.chi") == 1
+        src.count("np.savez(prepare/'moment.npz',moment=np.concatenate(moments,axis=-1),h=h,chi=chi") == 1
     )
+    runner = re.sub(r'\s+', '', (HERE / 'jobs/run_state.py').read_text())
+    assert 'h=job.s.geo.h,chi=job.s.geo.chi,fields=job.fields,moments=job.moments' in runner
 
 
 # ------------------------------------------------------------------------------------------------ review

@@ -11,7 +11,7 @@ import warnings
 import zipfile
 import numpy as np
 
-from ..foundation import content_identity as source_identity
+from ..foundation import content_identity as source_identity, dependencies
 
 
 def array_hash(value):
@@ -39,15 +39,9 @@ def cache_key(kernel, bundle, c, kind):
             value = original[name] if name in original else kernel.host(bundle.arrays[name])
             hashes[name] = array_hash(value)
     optics = c['density_optics'] if kind == 'density' else None
-    files = (
-        PKG / ('atmosphere/density.py' if optics is not None else 'atmosphere/stratosphere.py'),
-        PKG / 'rays/shell_segments.py',
-        PKG / 'rays/shell_segments.py',
-        PKG / 'rays/shell_segments.py',
-    )
-    sources = {str(i): source_identity.file_sha(path) for i, path in enumerate(files)}
-    sources['joint_columns'] = source_identity.file_sha(PKG / 'rays/ray_columns.py')
-    sources['engine'] = source_identity.file_sha(PKG / 'solve/engine.py')
+    sources = {
+        slot: source_identity.file_sha(PKG / name) for slot, name in dependencies.column_slots(optics is not None)
+    }
     from ..atmosphere.density import column_identity  # Grid, normalization, origin and table bytes.
 
     parameters = (

@@ -12,7 +12,7 @@ from tempfile import NamedTemporaryFile
 from types import SimpleNamespace as NS
 import numpy as np
 from ..backends.flags import deterministic
-from ..foundation import paths, content_identity
+from ..foundation import paths, content_identity, dependencies
 from ..outputs.radiance_table import TABLE_AXES
 
 GATE = paths.GATE  # fixtures.json, anchors.json, baselines/{manifest.json,numpy/,<toolkey>/}
@@ -119,8 +119,10 @@ def code_identity():
         hashes = package_hashes()
     except RuntimeError as e:
         raise GateError('E_PACKAGE_FILE_MISSING', str(e)) from e
-    hashes.pop('sosfuse2/checks/gate.py', None)
-    extra = [GATE / 'fixtures.json', *[paths.CONFIGS / f'{n}.json' for n in ('C3', 'C3_nostrato', 'devices')]]
+    for name in dependencies.files('gate_exclude'):
+        hashes.pop('sosfuse2/' + name, None)
+    extra = [GATE / name.removeprefix('checks/gate_data/') for name in dependencies.files('gate_fixture')]
+    extra.extend(paths.CONFIGS / name.removeprefix('backends/configs/') for name in dependencies.files('gate_config'))
     missing = [paths.rel(p) for p in extra if not p.is_file()]
     if missing:
         raise GateError('E_PACKAGE_FILE_MISSING', f'baseline identity inputs absent from the package: {missing}')

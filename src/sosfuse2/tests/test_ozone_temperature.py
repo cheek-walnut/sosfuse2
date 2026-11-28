@@ -348,14 +348,14 @@ def test_03_identity_and_conflicts():
 
 def test_03c_v4_fixed_provenance_lists(monkeypatch, tmp_path):
     """The v4 provenance inputs are fixed lists, kept equal to the tree, and a missing file is an error (not a gap)."""
-    tree = {p.relative_to(paths.PKG).with_suffix('').as_posix() for p in paths.PKG.rglob('*')
-            if p.is_file() and p.suffix == '.py' and 'tests' not in p.relative_to(paths.PKG).parts
-            and p.relative_to(paths.PKG).as_posix() != 'checks/testkit.py'
+    from sosfuse2.foundation import dependencies
+
+    relative = (p.relative_to(paths.PKG) for p in paths.PKG.rglob('*.py') if p.is_file())
+    tree = {p.as_posix() for p in relative if 'tests' not in p.parts and p.as_posix() != 'checks/testkit.py'
             and not p.name.startswith(('test_', '._'))}
-    assert tree == set(paths.PRODUCTION_MODULES), tree ^ set(
-        paths.PRODUCTION_MODULES
-    )  # add new modules to paths.PRODUCTION_MODULES
-    assert len(set(paths.PRODUCTION_MODULES)) == len(paths.PRODUCTION_MODULES)
+    registered = tuple(name for name in dependencies.FILES if name.endswith('.py'))
+    assert tree == set(registered), tree ^ set(registered)
+    assert tuple(f'{name}.py' for name in paths.PRODUCTION_MODULES) == registered
     assert set(V3.ACCEPTED_SOURCES) | set(V3.HOST_MODULES) <= {f'{n}.py' for n in paths.PRODUCTION_MODULES}
     h = V3.package_hashes()
     assert set(h) >= {f'sosfuse2/{n}.py' for n in paths.PRODUCTION_MODULES} | {

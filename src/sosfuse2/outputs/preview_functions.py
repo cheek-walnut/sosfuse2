@@ -1,15 +1,12 @@
-"""Solver definitions loaded into per-call scopes by outputs.pack_state.render_functions.
-
-The loader executes only the top-level def/class nodes, in a fresh scope per state (filled by outputs.pack_state). The imports and
-placeholders below never run there; they name the injected globals for static analysis (ruff, pyright)."""
+"""Projection, exposure and sRGB encoding for radiance previews."""
 
 import math
-from typing import Any
 
 import numpy as np
 from PIL import Image, PngImagePlugin
 
-Y: Any = None  # Rec. 709 luminance weights (outputs.pack_state)
+Y = np.array([0.2126, 0.7152, 0.0722])  # Rec. 709 luminance weights
+Y.setflags(write=False)
 
 
 def film(x):
@@ -34,11 +31,12 @@ def encode(rgb, seed=17):
     return np.uint8(np.clip(np.rint(v * 255 + dither), 0, 255))
 
 
-def save_png(path, rgb, seed=17):
+def save_png(path, rgb, seed=17, *, compress_level=9):
+    """Write dithered 8-bit sRGB. The packer supplies the product compression level."""
     path.parent.mkdir(parents=True, exist_ok=True)
     info = PngImagePlugin.PngInfo()
     info.add(b'sRGB', b'\x00')
-    Image.fromarray(encode(rgb, seed)).save(path, compress_level=9, pnginfo=info)
+    Image.fromarray(encode(rgb, seed)).save(path, compress_level=compress_level, pnginfo=info)
 
 
 def projection(w, h, hfov, azimuth):
@@ -109,23 +107,23 @@ def project(pano, coords):
     return rgb
 
 
-def central(rgb):
+def central(rgb, *, weights=Y):
     h, w = rgb.shape[:2]
     region = rgb[round(0.25 * h) : round(0.55 * h), round(0.40 * w) : round(0.60 * w)]
-    lum = region @ Y
+    lum = region @ weights
     key = float(np.median(lum))
     if key <= 0:
-        positive = rgb[(rgb @ Y) > 0]
+        positive = rgb[(rgb @ weights) > 0]
         if not len(positive):
             raise ValueError('E_PREVIEW_LUMINANCE: positive luminance required')
         region = positive
-        key = float(np.median(region @ Y))
+        key = float(np.median(region @ weights))
     representative = np.median(region.reshape(-1, 3), axis=0)
-    representative *= key / max(float(representative @ Y), 1e-30)
+    representative *= key / max(float(representative @ weights), 1e-30)
     lo, hi = 0.0, 10.0 / key
     for _ in range(60):
         mid = (lo + hi) / 2
-        if float(tone(representative, mid) @ Y) < 0.18:
+        if float(tone(representative, mid) @ weights) < 0.18:
             lo = mid
         else:
             hi = mid

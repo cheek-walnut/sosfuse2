@@ -48,6 +48,18 @@ def test_static_map_points_at_real_code():
     assert not defined(paths.PKG / 'solve/source_iteration.py', 'initialize')
 
 
+def test_first_output_explains_example_scope(tmp_path, monkeypatch, capsys):
+    def begin(root):
+        first = capsys.readouterr().out.splitlines()
+        assert first and 'program flow' in first[0]
+        assert all(term in first[0] for term in ('O4', 'stratospheric aerosol', 'accuracy'))
+        raise RuntimeError('stop before the solve')
+
+    monkeypatch.setattr(walkthrough, 'run_example', begin)
+    with pytest.raises(RuntimeError, match='stop before the solve'):
+        walkthrough.main(['--work-root', str(tmp_path)])
+
+
 @pytest.mark.parametrize('where', ['run', 'render'])
 def test_failed_run_keeps_the_page(tmp_path, monkeypatch, where):
     page = tmp_path / 'WALKTHROUGH.md'

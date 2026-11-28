@@ -3,6 +3,19 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`. From 1.6.0, full-grid runs can extend above the default 80 km boundary. The main change to default output came in 1.5.0: a state without a `density` block, run without density options, now uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (README, *Limitations*). In 1.2.3 the bundled `states_v2.json` states began including the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option.
 
+## 1.10.1
+
+- **Upgrading an output folder.** Although the NumPy reference run produced identical table arrays and convergence
+  results, moving production code changed its identity and cache keys. Rerunning in an output folder written by an
+  earlier release, including 1.9.x, stops with `E_OUTPUT_IDENTITY`. Choose a new output folder; affected caches rebuild
+  on use.
+- **Finding the code to change.** `solve/configuration.py` resolves a state's settings, `solve/build.py` assembles its
+  solver, and `jobs/run_storage.py` handles output, resume checks and locks. Each solver receives its kernel at
+  creation, and each packed geometry cache receives its worker setting at creation. Previews import the renderer as an
+  ordinary module, and production files and the caches they affect are registered in `foundation/dependencies.py`.
+- **Checking a first change.** The [contributor guide](../CONTRIBUTING.md) links the walkthrough to a test for each
+  task. CI runs the required offline CPU check before fetching the IPRT inputs.
+
 ## 1.10.0
 
 - **CUDA transport.** Stratospheric first scattering and Anderson history can remain on the GPU. Warm phase 0 requires
@@ -13,11 +26,8 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
   Stratospheric table columns can be prepared in parallel, and the next wavelength group prepares while the current
   group solves. A C99 library accelerates column integrals when a C compiler is available.
 - **Apple silicon.** Experimental MLX transport now supports observer and table queries, a reflecting ground, the
-  stratospheric aerosol layer and extended domains up to 200 km.
-- **Timings.** On a 10 GB NVIDIA GPU with cache hits, the whole state process on the full `state200` grid took about 58–66 s
-  for `clear_33` (about 310 s with 1.9.2) and about 53 s for `clear_02` (130–144 s). The reference-table comparison is
-  unchanged: 2.57e-6 for `clear_33` and 7.53e-6 for `clear_02`. On an Apple silicon GPU, the small-grid FX-C3 case ran
-  end to end in about 6.7 s instead of about 29 s.
+  stratospheric aerosol layer and extended domains up to 200 km. See the [timings](PERFORMANCE.md#release-1100) for
+  the CUDA production grid and the MLX small grid, and [tested configurations](TESTED.md) for reference comparisons.
 
 ## 1.9.3
 
@@ -46,7 +56,7 @@ not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are describe
 - **Validation scripts.** The MYSTIC scripts in `docs/validation/mystic` stop with `E_ENGINE_MISSING` when a requested
   engine result is missing (`--allow-partial` relaxes this), refuse to resume plans started with earlier scripts (their
   results can still be collected), and check recomputed means and standard errors to 1e-6 relative.
-  `tests/test_tropo_mie.py --static` passes when both kernels preprocess and records token differences instead of
+  `tests/test_tropo_mie.py --static --out <dir>` passes when both kernels preprocess and records token differences instead of
   requiring identical tokens.
 - **Deep-twilight figures.** Figure 1 of `docs/VALIDATION.md`, now also the README figure, adds MYSTIC at solar zenith
   angle 102° (Tables 1 and 2 gain a 102° row). New figures show the noise of single MYSTIC runs up to SZA 105° (Figure 2),

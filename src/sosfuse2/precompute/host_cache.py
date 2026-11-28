@@ -18,7 +18,7 @@ import zipfile
 from pathlib import Path
 import numpy as np
 
-from ..foundation import content_identity as source_identity, paths
+from ..foundation import content_identity as source_identity, dependencies, paths
 
 VERSION = 3
 PKG = paths.PKG
@@ -28,7 +28,7 @@ ROOT = None  # override of the default cache root (tests patch it); None = work 
 
 
 def default_root():
-    """Default packed-geometry cache root (public split: under the work root, not inside a results/ folder)."""
+    """Return the packed-geometry cache directory, which defaults to geometry_cache under the work root."""
     return Path(ROOT) if ROOT is not None else paths.work_root() / 'geometry_cache'
 
 
@@ -104,16 +104,7 @@ def context(s, optics):
         selected_columns=[0, 2, 3, 4],
         sources={
             'sosfuse2/' + name: source_identity.file_sha(PKG / name)
-            for name in (
-                'precompute/host_cache.py',
-                'atmosphere/density.py',
-                'rays/ray_columns.py',
-                'rays/incoming_quadrature.py',
-                'precompute/sun_parallel.py',
-                'precompute/ground_parallel.py',
-                'rays/column_table.py',
-                'precompute/column_parallel.py',
-            )
+            for name in dependencies.files('host_context')
         },
     )
     root = Path(getattr(s, 'host_cache_root', None) or default_root())
@@ -209,7 +200,7 @@ def cached(folder, key, build, compressed=False):
                 os.unlink(name)
             except FileNotFoundError:
                 pass
-            except OSError as error:
+            except OSError:
                 warnings.warn('E_HOST_CACHE_UNWRITABLE: ' + str(folder), RuntimeWarning)
         return arrays
 
@@ -227,25 +218,11 @@ def sun_geometry(old, scale, folder, height, shared=None):
         # Table identity: the code that computes it (old.total_columns is compiled from rays/shell_segments.py), its
         # dependencies and radius/top; scale and height key the folders below.
         # tropo_profile.py: the aerosol_profile tag hashes the profile config, not the code that evaluates it.
-        files = sorted(
-            {
-                str(PKG / 'rays/shell_segments.py'),
-                str(PKG / 'foundation/top.py'),
-                str(PKG / 'solve/engine.py'),
-                str(PKG / 'precompute/sun_parallel.py'),
-                str(PKG / 'precompute/column_parallel.py'),
-                str(PKG / 'atmosphere/tropo_profile.py'),
-                str(PKG / 'rays/ray_columns.py'),
-                # shell_segments.profiles reads density.no2_profile, which interpolates this asset.
-                str(PKG / 'atmosphere/density.py'),
-                str(PKG / 'assets/no2_afglus_profile.json'),
-            }
-        )
         from ..foundation.top import Domain
 
         source = hashlib.sha256(json.dumps(dict(R=float(old.R), Z=float(old.Z), domain=getattr(old, 'domain', Domain()).identity())).encode())
-        for name in files:
-            p = Path(name)
+        for name in dependencies.files('shared_sun'):
+            p = PKG / name
             digest = source_identity.asset_sha(p) if p.name in source_identity.ASSET_NOTES else source_identity.file_sha(p)
             source.update(digest.encode())
         folder = Path(shared) / 'host_sun' / source.hexdigest()[:20]
@@ -371,7 +348,7 @@ def aerosol_identity(s):
         blocks={k: state.get(k) for k in LEGACY_BLOCKS},
         sources={
             'sosfuse2/' + name: source_identity.file_sha(PKG / name)
-            for name in ('precompute/ground_parallel.py', 'atmosphere/tropo_profile.py')
+            for name in dependencies.files('host_aerosol')
         },
     )
 

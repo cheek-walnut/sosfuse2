@@ -9,10 +9,12 @@ import json
 import os
 import shutil
 import time
+from functools import partial
 from pathlib import Path
 import numpy as np
 from ..foundation.top import Domain
-from .source_solver import Kernel, load_engine
+from . import source_solver
+from .source_solver import Kernel as Kernel, load_engine
 from ..foundation import content_identity as source_identity, paths
 from ..backends import numpy_reference, vram_trace
 from ..atmosphere import tropo_profile
@@ -104,7 +106,7 @@ def _create(output, grid, wavelengths, backend, block_size, state):
         grid,
         4,
         float(wavelengths[0]),
-        kernel_factory=lambda threads, H, g: Kernel(4, H, g, backend, block_size, **kw),
+        kernel_factory=partial(source_solver.Kernel, backend=backend, block_size=block_size, **kw),
         aerosol=tropo_profile.engine_hooks(state),
     )
     s = initial
@@ -386,7 +388,7 @@ class Bundle:
             end_col=np.concatenate([g['end_columns'] for g in groups]).astype('f4'),
             hits=np.concatenate([g['hits_ground'] for g in groups]).astype('u1'),
         )
-        with stage('bundle_upload', device=True):
+        with stage('bundle_upload', device=xp is not np):
             upload_geometry(self, a, xp, 'geometry.bundle')
 
 
@@ -473,7 +475,7 @@ def publish_json(path, record):
     os.replace(tmp, path)
 
 
-class PackedCache:
+class SerialPackedCache:
     """Whole-grid endpoint cache with one contiguous raw file per field.
 
     Replaces 1500 x (13 .npy + complete.json).  Cells are appended in order;
@@ -595,6 +597,21 @@ class PackedCache:
         return arrays, records
 
 
+class PackedCache(SerialPackedCache):
+    """A packed writer with a worker setting bound to this cache instance."""
+
+    def __init__(self, folder, *, workers=None):
+        super().__init__(folder)
+        from .ray_geometry_parallel import worker_setting
+
+        self._workers = worker_setting() if workers is None else workers
+
+    def build(self, ncell, cell_arrays, progress=None):
+        from .ray_geometry_parallel import build_cells
+
+        return build_cells(super().build, self._workers, ncell, cell_arrays, progress)
+
+
 def identity(s, version):
     """Cache identity.  version 1 is used for read-only legacy lookup;
     version 2 is the sosfuse2 packed cache (hashes sosfuse2/solve/ray_geometry.py);
@@ -685,7 +702,7 @@ def aerosol_column(arrays, height, chunk=50_000, workers=None, profile=None, dom
     edge_off = np.asarray(arrays['edge_off']).astype('i8')
     edges = np.asarray(arrays['edges'])
     x, w = np.polynomial.legendre.leggauss(24)
-    u, wu = (x + 1) / 2, w / 2  # sos_probe.gl(24)
+    u, wu = (x + 1) / 2, w / 2  # Map the Gauss-Legendre nodes and weights to [0, 1].
     rays = len(dirs)
     out = np.empty(rays, 'f4')
     owner = np.repeat(np.arange(len(starts)), np.diff(cell_off))
@@ -850,7 +867,7 @@ class ResidentGeometry(TransientGeometry):
         xp = self.s.kernel.xp
         before = time.perf_counter()
         replace = replace or {}
-        with stage('geometry_upload', device=True):
+        with stage('geometry_upload', device=xp is not np):
             bundle = Bundle.__new__(Bundle)
             upload_geometry(bundle, dict(host, **replace), xp, 'geometry.main')
             self.s.kernel.sync()
@@ -1023,7 +1040,3 @@ class TwoLayerGeometry(ResidentGeometry):
             key = profile_identity(optics)['sha256']  # same key as source_solver.density_end_columns and the IPC check
             self.bundle.density_columns = {key: self.bundle.arrays['end_col']}
             self.ground_bundle.density_columns = {key: self.ground_bundle.arrays['end_col']}
-
-
-# Intentional same-layer cycle: the adapter replaces PackedCache after its serial definition exists.
-from . import ray_geometry_parallel  # noqa: E402,F401

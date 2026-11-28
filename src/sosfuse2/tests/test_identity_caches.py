@@ -265,41 +265,155 @@ def test_shared_sun_asset_uses_content_identity(tmp_path, monkeypatch):
         assert sun_folder(tmp_path, monkeypatch) != baseline
 
 
-def test_source_digest_encodings(tmp_path, monkeypatch):
-    column_table.source_hash.cache_clear()
-    expected = hashlib.sha256()
-    for path in (paths.PKG / 'rays/column_table.py', paths.PKG / 'atmosphere/tropo_profile.py',
-                 paths.PKG / 'foundation/top.py'):
-        expected.update(path.name.encode())
-        expected.update(source_identity.file_sha(path).encode())
-    assert column_table.source_hash() == expected.hexdigest()
+def test_registered_source_order():
+    """Check the historical inputs, allowing additional files to acquire their own slots."""
+    from sosfuse2.foundation import dependencies
 
-    names = (
-        'foundation/top.py', 'rays/shell_segments.py', 'solve/engine.py', 'precompute/sun_parallel.py', 'precompute/column_parallel.py',
-        'atmosphere/tropo_profile.py', 'rays/ray_columns.py', 'atmosphere/density.py', 'assets/no2_afglus_profile.json',
-    )
-    from sosfuse2.foundation.top import Domain
-    expected = hashlib.sha256(json.dumps({'R': 6371.0, 'Z': 80.0, 'domain': Domain().identity()}).encode())
-    for name in sorted(str(paths.PKG / name) for name in names):
-        p = Path(name)
-        digest = source_identity.asset_sha(p) if p.name in source_identity.ASSET_NOTES else source_identity.file_sha(p)
-        expected.update(digest.encode())
-    assert sun_folder(tmp_path, monkeypatch).parent.name == expected.hexdigest()[:20]
+    expected = {
+        'accepted': 'solve/__init__.py solve/engine.py',
+        'host_module': 'foundation/__init__.py foundation/available_cpus.py outputs/pack_state.py',
+        'asset': (
+            'assets/spectra.json assets/spectra_fine.json assets/spectra_fine_temperature.json assets/lef_cie.json '
+            'assets/cmf_1nm.json assets/states_v1.json assets/states_v2.json assets/states_v1_usstd.json '
+            'assets/rgb_weights.npy assets/temperature_usstd76.json assets/no2_afglus_profile.json '
+            'assets/no2_vandaele1998_fine.json assets/upper_air_us76_neff.json'
+        ),
+        'state_asset': 'assets/states_v1.json assets/states_v2.json assets/states_v1_usstd.json',
+        'engine_source': (
+            'foundation/top.py rays/shell_segments.py atmosphere/extinction.py rays/incoming_quadrature.py '
+            'rays/incoming_rings.py rays/zenith_interpolation.py solve/engine_core.py outputs/preview_functions.py '
+            'atmosphere/tropo_profile.py assets/spectra.json'
+        ),
+        'engine_extra': 'solve/engine.py outputs/pack_state.py backends/native/sh_cpu.cpp assets/rgb_weights.npy',
+        'cell_extra': 'atmosphere/density.py atmosphere/components.py',
+        'endpoint_upstream': (
+            'foundation/top.py solve/engine.py rays/shell_segments.py rays/incoming_rings.py solve/engine_core.py '
+            'atmosphere/tropo_profile.py rays/ray_columns.py atmosphere/density.py atmosphere/components.py '
+            'solve/ray_geometry_parallel.py precompute/column_parallel.py jobs/run_state.py solve/configuration.py solve/build.py'
+        ),
+        'endpoint_contract': 'precompute/endpoint_contract.py',
+        'column_integral': 'rays/column_table.py atmosphere/tropo_profile.py foundation/top.py',
+        'strato_geometry': (
+            'foundation/top.py atmosphere/stratosphere.py precompute/ground_parallel.py rays/ray_columns.py '
+            'atmosphere/density.py rays/column_table.py precompute/column_parallel.py rays/incoming_quadrature.py '
+            'rays/shell_segments.py'
+        ),
+        'shared_sun': (
+            'assets/no2_afglus_profile.json atmosphere/density.py atmosphere/tropo_profile.py foundation/top.py '
+            'precompute/column_parallel.py precompute/sun_parallel.py rays/ray_columns.py rays/shell_segments.py '
+            'solve/engine.py'
+        ),
+        'sun_table': (
+            'rays/shell_segments.py foundation/top.py atmosphere/density.py atmosphere/tropo_profile.py '
+            'rays/ray_columns.py rays/column_table.py precompute/sun_parallel.py precompute/column_parallel.py'
+        ),
+        'host_aerosol': 'precompute/ground_parallel.py atmosphere/tropo_profile.py',
+        'host_context': (
+            'precompute/host_cache.py atmosphere/density.py rays/ray_columns.py rays/incoming_quadrature.py '
+            'precompute/sun_parallel.py precompute/ground_parallel.py rays/column_table.py '
+            'precompute/column_parallel.py'
+        ),
+        'worker': (
+            'foundation/top.py rays/shell_segments.py rays/incoming_quadrature.py rays/incoming_rings.py '
+            'rays/ray_columns.py solve/engine_core.py solve/ray_geometry_parallel.py atmosphere/density.py '
+            'atmosphere/stratosphere.py precompute/column_parallel.py precompute/sun_parallel.py '
+            'precompute/ground_parallel.py'
+        ),
+        'query': 'outputs/radiance_table.py solve/ray_geometry.py jobs/pipeline_execution.py',
+        'gate_exclude': 'checks/gate.py',
+        'gate_fixture': 'checks/gate_data/fixtures.json',
+        'gate_config': 'backends/configs/C3.json backends/configs/C3_nostrato.json backends/configs/devices.json',
+    }
+    # Keep the original provenance order as well. Projecting onto these paths lets a contributor
+    # add a module to any scope without editing this historical sample.
+    production = (
+        '__init__ __main__ foundation/__init__ atmosphere/__init__ rays/__init__ precompute/__init__ '
+        'backends/__init__ solve/__init__ outputs/__init__ jobs/__init__ checks/__init__ asset_tools/__init__ '
+        'foundation/available_cpus foundation/top atmosphere/upper_air asset_tools/generate_upper_air '
+        'backends/flags_env solve/engine outputs/pack_state atmosphere/air_wavelength backends/arithmetic '
+        'jobs/cache_store precompute/column_cache precompute/column_parallel rays/column_table '
+        'backends/compile_cache atmosphere/components atmosphere/density backends/device_profile '
+        'backends/vram_budget backends/vram_trace solve/source_solver solve/source_iteration checks/gate '
+        'checks/kernel_diagnostics asset_tools/generate_density_profile asset_tools/generate_minor_absorbers '
+        'asset_tools/generate_strato_optics asset_tools/generate_tropo_optics solve/ray_geometry '
+        'precompute/endpoint_contract solve/ray_geometry_cpu solve/ray_geometry_parallel '
+        'precompute/ground_parallel solve/ground_sh precompute/host_cache foundation/host_limits '
+        'foundation/content_identity asset_tools/iprt backends/flags solve/ksplit asset_tools/mie '
+        'atmosphere/minor_absorbers checks/numerical_checks atmosphere/ozone_temperature foundation/paths '
+        'asset_tools/prepare_minor_absorbers rays/shell_segments atmosphere/extinction rays/incoming_quadrature '
+        'rays/incoming_rings rays/zenith_interpolation solve/engine_core outputs/preview_functions jobs/pipeline '
+        'jobs/pipeline_execution jobs/plan_queue jobs/precompile checks/validation_evidence rays/ray_columns '
+        'atmosphere/rayleigh backends/numpy_reference checks/solver_diagnostics jobs/run_state solve/configuration solve/build '
+        'jobs/run_storage jobs/walkthrough '
+        'backends/sh_layout atmosphere/spectral solve/strato_sh_aux asset_tools/strato_states backends/mlx_backend '
+        'backends/mlx_ops backends/mlx_query backends/mlx_query_kernel backends/mlx_transport backends/mlx_warm '
+        'backends/mlx_warm_kernels atmosphere/stratosphere precompute/sun_parallel outputs/radiance_table '
+        'outputs/quantized_table jobs/tables_from_sources foundation/timers foundation/version '
+        'atmosphere/tropo_mie atmosphere/tropo_profile checks/validate checks/stratosphere_checks '
+        'solve/ksplit_tolerance'
+    ).split()
+    production_set = set(production)
+    assert [name for name in paths.PRODUCTION_MODULES if name in production_set] == production
+    original = {f'{name}.py' for name in production} | {name for names in expected.values() for name in names.split()}
+    original.update(('backends/kernel.cu', 'foundation/dependencies.py'))
+    fields = {field for row in dependencies.FILES.values() for field in row}
+    assert fields == expected.keys() | {'density_columns', 'strato_columns', 'column_name'}
+    for scope, names in expected.items():
+        assert [p for p in dependencies.files(scope) if p in original] == names.split(), scope
 
+    for density_mode, first in ((True, 'atmosphere/density.py'), (False, 'atmosphere/stratosphere.py')):
+        slots = [(key, path) for key, path in dependencies.column_slots(density_mode) if path in original]
+        assert slots == [
+            ('0', first), ('1', 'rays/shell_segments.py'), ('2', 'rays/shell_segments.py'),
+            ('3', 'rays/shell_segments.py'), ('joint_columns', 'rays/ray_columns.py'), ('engine', 'solve/engine.py'),
+        ]
+
+
+def test_cache_scope_matrix(tmp_path, monkeypatch):
+    from sosfuse2.checks import gate
+
+    # Keep the optional external profile constant on installations without IPRT inputs.
+    profile = tmp_path / 'ozone.json'
+    profile.write_bytes(b'{}')
+    monkeypatch.setattr(density, 'asset_path', lambda: profile)
     s = solver()
-    profile = {'center': 21.0, 'sigma': 3.0, 'norm': 1.0}
-    expected = hashlib.sha256()
-    for array in (s.geo.h, s.geo.chi, s.geo.sun.h, s.geo.sun.x, s.geo.sun.col):
-        expected.update(np.ascontiguousarray(array).tobytes())
-    for name in ('foundation/top.py', 'atmosphere/stratosphere.py', 'precompute/ground_parallel.py', 'rays/ray_columns.py',
-                 'atmosphere/density.py', 'rays/column_table.py', 'precompute/column_parallel.py',
-                     'rays/incoming_quadrature.py', 'rays/shell_segments.py'):
-        expected.update(name.encode())
-        expected.update(bytes.fromhex(source_identity.file_sha(paths.PKG / name)))
-    expected.update(json.dumps({
-        'profile': [21.0, 3.0, 1.0], 'cfg': {}, 'params': {}, 'density': None, 'domain': Domain().identity(),
-    }, sort_keys=True, default=str).encode())
-    assert stratosphere._geometry_key(s, None, profile) == expected.hexdigest()[:24]
+    bundle = SimpleNamespace(arrays={
+        'starts': np.zeros((1, 3)), 'dirs': np.array([[0., 0., 1.]]),
+        'cell_off': np.array([0, 1]), 'end_col': np.zeros((1, 5)),
+    })
+    config = dict(strato_profile=dict(center=21., sigma=3., norm=1.),
+                  density_optics=density.build({'density': dict(density.LEGACY)}))
+
+    def keys():
+        column_table.source_hash.cache_clear()
+        return {
+            'endpoint': endpoint_contract.identity(s)[1],
+            'integral': column_table.source_hash(),
+            'density_columns': column_cache.cache_key(s.kernel, bundle, config, 'density'),
+            'strato_columns': column_cache.cache_key(s.kernel, bundle, config, 'strato'),
+            'sun': shell_segments.SunGeometry.identity(1, 1.2, None),
+            'shared_sun': sun_folder(tmp_path, monkeypatch),
+            'cell': engine.cell_folder(tmp_path, s.geo.h, s.geo.chi, s.geo.cfg),
+            'gate': gate.code_identity(),
+        }
+
+    baseline = keys()
+    try:
+        for name, changed in (
+            ('jobs/run_state.py', {'endpoint', 'gate'}),
+            ('rays/column_table.py', {'endpoint', 'integral', 'density_columns', 'strato_columns', 'sun', 'gate'}),
+            ('atmosphere/stratosphere.py', {'strato_columns', 'gate'}),
+            ('precompute/sun_parallel.py', {'sun', 'shared_sun', 'gate'}),
+            ('outputs/preview_functions.py', {'cell', 'gate'}),
+            ('outputs/pack_state.py', {'cell', 'gate'}),
+            ('foundation/version.py', {'gate'}),
+            ('checks/gate.py', set()),
+        ):
+            with patch_source(paths.PKG / name, lambda data: source_edit(data, 'code')):
+                after = keys()
+            assert {key for key in after if after[key] != baseline[key]} == changed, name
+    finally:
+        column_table.source_hash.cache_clear()
 
 
 def test_column_method_selects_workers_after_table_path(monkeypatch):
@@ -432,3 +546,25 @@ def test_endpoint_identity_without_density_assets(tmp_path, monkeypatch):
     assert common['minor_profiles'] == [column_table.molecular(None, k) for k in (2, 3)]
     assert len(signature) == 20
     assert not (tmp_path / 'assets').exists()
+
+
+@pytest.mark.parametrize('name,old,new,affects_endpoint', [
+    ('solve/configuration.py', b'v <= 13 + 1e-9', b'v <= 14 + 1e-9', True),
+    ('solve/build.py', b'gm.pack(p, d, n, s, scope, ground=False)', b'gm.pack(p, d, n, s, scope, ground=True)', True),
+    ('jobs/run_storage.py', b'allow_nan=False', b'allow_nan=True', False),
+])
+def test_run_module_geometry_keys(name, old, new, affects_endpoint):
+    from sosfuse2.checks import gate
+
+    state = solver()
+
+    def identities():
+        return (endpoint_contract.identity(state)[1], ray_geometry.identity(state, 2)[1],
+                source_identity.package_hashes(), gate.code_identity())
+
+    target = paths.PKG / name
+    assert old in target.read_bytes()
+    original = identities()
+    with patch_source(target, lambda data: data.replace(old, new, 1)):
+        changed = identities()
+    assert tuple(a != b for a, b in zip(changed, original)) == (affects_endpoint, affects_endpoint, True, True)

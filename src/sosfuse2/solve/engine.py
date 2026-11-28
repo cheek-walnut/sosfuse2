@@ -5,7 +5,7 @@ from pathlib import Path
 from collections.abc import Mapping
 from functools import partial
 import numpy as np
-from ..foundation import paths
+from ..foundation import dependencies, paths
 from ..foundation.top import NORMALIZATION_TOP_KM, Domain
 from ..rays import (
     shell_segments,
@@ -19,21 +19,9 @@ from ..foundation import content_identity as source_identity
 from ..atmosphere.tropo_profile import ExponentialProfile
 
 ROOT = paths.PKG  # package sources and assets
-HERE = Path(__file__).resolve().parent
 R, Z = shell_segments.R, shell_segments.Z
 OBS = 0.1
-SOURCE_FILES = [
-    'foundation/top.py',
-    'rays/shell_segments.py',
-    'atmosphere/extinction.py',
-    'rays/incoming_quadrature.py',
-    'rays/incoming_rings.py',
-    'rays/zenith_interpolation.py',
-    'solve/engine_core.py',
-    'outputs/preview_functions.py',
-    'atmosphere/tropo_profile.py',
-    'assets/spectra.json',
-]
+SOURCE_FILES = list(dependencies.files('engine_source'))
 SPECTRA = ROOT / 'assets/spectra.json'
 
 
@@ -47,8 +35,8 @@ def cell_folder(cache, h, chi, cfg, domain=None):
     files = fingerprint()
     files.update(
         {
-            paths.rel(p): source_identity.file_sha(p)
-            for p in (ROOT / 'atmosphere/density.py', ROOT / 'atmosphere/components.py')
+            paths.rel(ROOT / name): source_identity.file_sha(ROOT / name)
+            for name in dependencies.files('cell_extra')
         }
     )
     key = dict(
@@ -72,17 +60,12 @@ def peak():
 
 def fingerprint():
     """Package-relative keys ('sosfuse2/rays/shell_segments.py') of everything the accepted CPU engine reads or compiles."""
-    files = [ROOT / p for p in SOURCE_FILES] + [
-        HERE / 'engine.py',
-        ROOT / 'outputs/pack_state.py',
-        ROOT / 'backends/native/sh_cpu.cpp',
-        ROOT / 'assets/rgb_weights.npy',
-    ]
+    files = [ROOT / name for name in (*SOURCE_FILES, *dependencies.files('engine_extra'))]
     return {paths.rel(p): source_identity.file_sha(p) for p in files}
 
 
 def compile_kernel(threads=2, force=False):
-    source = paths.NATIVE / 'sh_cpu.cpp'
+    source = paths.PKG / dependencies.NATIVE_SOURCE
     digest = hashlib.sha256(source.read_bytes() + str(threads).encode()).hexdigest()
     # build products are keyed by the source bytes and the thread count only, not by host, although built with
     # -march=native; they live in the work root, never inside the package

@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import numpy as np
 
-from ..foundation import content_identity as source_identity, paths
+from ..foundation import content_identity as source_identity, dependencies, paths
 from ..foundation.top import NORMALIZATION_TOP_KM
 
 DEFAULT = paths.ASSETS / 'strato_sulfate_rg0.08_sg1.6_n1.43.json'
@@ -339,21 +339,9 @@ def _geometry_key(s, scope, profile):
     for a in (s.geo.h, s.geo.chi, s.geo.sun.h, s.geo.sun.x, s.geo.sun.col):
         h.update(np.ascontiguousarray(a).tobytes())
     # the code that computes col/st/geom, so an edit to it cannot reuse a stale npz.
-    here = paths.PKG
-    for name in (
-        'foundation/top.py',
-        'atmosphere/stratosphere.py',
-        'precompute/ground_parallel.py',
-        'rays/ray_columns.py',
-        'atmosphere/density.py',
-        'rays/column_table.py',
-        'precompute/column_parallel.py',
-        # the incoming directions and weights stored in the file, and the frame, boundaries and solar lookup of each ray
-        'rays/incoming_quadrature.py',
-        'rays/shell_segments.py',
-    ):
+    for name in dependencies.files('strato_geometry'):
         h.update(name.encode())
-        h.update(bytes.fromhex(source_identity.file_sha(here / name)))
+        h.update(bytes.fromhex(source_identity.file_sha(paths.PKG / name)))
     d = getattr(s, 'density_optics', None)
     p = {k: v for k, v in s.fuse_state.get('parameters', {}).items() if k not in ATTACH_OPTICS_PARAMS}
     # Include the PROFILE identity and ground-ray method, not only the sun.col bytes.

@@ -63,6 +63,7 @@ def test_mie_gpu_and_recheck_are_exclusive(tmp_path, monkeypatch, capsys):
     [
         ('E_IPRT_OFFLINE: afglus.dat missing from /work/iprt', True),
         ('child failed:\nTraceback (most recent call last):\n  File "x.py", line 1\nRuntimeError: E_IPRT_OFFLINE: afglus.dat missing', True),
+        ('Traceback (most recent call last):\n    File "x.py", line 1\n  RuntimeError: E_IPRT_OFFLINE: missing\nassert 1 == 0', True),
         ('the table differs; note that E_IPRT_OFFLINE: is the code of the offline stop', False),
         ('summary:\nRuntimeError: E_IPRT_OFFLINE: handled earlier\nE_OTHER: the failure', False),
         ('child failed:\nTraceback (most recent call last):\n  File "x.py", line 1\nValueError: E_OTHER: not the inputs', False),

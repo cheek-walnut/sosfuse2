@@ -8,8 +8,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
-# ray_geometry binds source_solver.Kernel at import; import it before Kernel is patched so the Recorder never leaks to later tests.
-from sosfuse2.solve import source_solver, ray_geometry
+from sosfuse2.solve import source_solver
 from sosfuse2.foundation.top import Domain
 from sosfuse2.jobs import pipeline_execution as pe  # noqa: E402,F401
 

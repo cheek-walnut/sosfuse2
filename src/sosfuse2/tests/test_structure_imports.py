@@ -13,13 +13,14 @@ from sosfuse2.checks import testkit
 
 @pytest.mark.parametrize('first', ['ray_geometry', 'ray_geometry_parallel'])
 def test_parallel_adapter_import_order(first):
-    code = (
-        f'import sosfuse2.solve.{first}\n'
-        'import sys\n'
-        "ray_geometry = sys.modules['sosfuse2.solve.ray_geometry']\n"
-        "ray_geometry_parallel = sys.modules['sosfuse2.solve.ray_geometry_parallel']\n"
-        'assert ray_geometry.PackedCache is ray_geometry_parallel.PackedCache\n'
-    )
+    code = f"""
+import sys
+from sosfuse2.solve.{first} import PackedCache
+if {first!r} == 'ray_geometry':
+    assert 'sosfuse2.solve.ray_geometry_parallel' not in sys.modules
+from sosfuse2.solve import ray_geometry, ray_geometry_parallel
+assert PackedCache is ray_geometry.PackedCache is ray_geometry_parallel.PackedCache
+"""
     subprocess.run([sys.executable, '-B', '-W', 'error::ImportWarning', '-c', code], check=True, env=paths.child_env())
 
 

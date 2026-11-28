@@ -44,7 +44,7 @@ path = "src/sosfuse2/foundation/version.py"
 packages = ["src/sosfuse2"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["src/sosfuse2", "pyproject.toml", "docs", "CITATION.cff", "AGENTS.md"]
+only-include = ["src/sosfuse2", "pyproject.toml", "docs", "CITATION.cff", "AGENTS.md", "CONTRIBUTING.md"]
 
 [tool.hatch.build]
 # VCS ignore files are not consulted, so a developer's local or global ignore rules (for instance *.npz for research outputs)
@@ -68,8 +68,7 @@ addopts = "-p no:cacheprovider"
 line-length = 120
 # pre-commit passes file names; force-exclude keeps the excluded paths out anyway.
 force-exclude = true
-# docs/ holds records. outputs/preview_functions.py declares the globals its loader injects as placeholders (never executed by
-# the loader), so it is checked like every other module.
+# docs/ holds records. The packer imports outputs/preview_functions.py as a regular module covered by Ruff.
 extend-exclude = ["docs"]
 
 [tool.ruff.format]

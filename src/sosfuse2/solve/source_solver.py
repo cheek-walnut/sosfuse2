@@ -1156,6 +1156,8 @@ class Kernel(KsplitMixin):
             if cupy.cuda.runtime.getDeviceCount() < 1:
                 raise RuntimeError('E_CUDA_DEVICE: no CUDA device')
             self.xp = cupy
+            # A NumPy kernel can coexist with queued and future work on this device.
+            TIMERS.bind(cupy)
             trace = vram_trace.current.get()
             if trace is not None:
                 trace.bind(cupy)
@@ -1168,7 +1170,6 @@ class Kernel(KsplitMixin):
         self.attributes = {}
         self.cuda_events = []
         self.pool_peaks = dict(used_bytes_sampled=0, reserved_bytes_sampled=0)
-        TIMERS.bind(self.xp)
 
     def config(self, W=None):
         return resolve_config(self.flags, W=W if W is not None else getattr(self, '_W', 15))
@@ -2248,7 +2249,7 @@ class Kernel(KsplitMixin):
         key = (id(s), nq)
         if key not in self.device_constants:
             c = self.setup(s, nq)
-            with stage('constants_device', device=True):
+            with stage('constants_device', device=self.xp is not np):
                 names = (
                     'h',
                     'chi',

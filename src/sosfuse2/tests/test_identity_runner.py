@@ -174,9 +174,6 @@ def test_cli_states_default_and_parent(tmp_path, state, monkeypatch, module):
 
 @pytest.fixture
 def run_args(tmp_path, state, monkeypatch):
-    from sosfuse2.solve import ray_geometry
-    # The runner's NumPy adapter changes this global; isolate the test's lifetime.
-    monkeypatch.setattr(ray_geometry, 'Kernel', ray_geometry.Kernel)
     monkeypatch.setattr(runner.shutil, 'which', lambda name: name)
     monkeypatch.setattr(runner, 'package_hashes', lambda: {'module': 'current'})
     states = tmp_path / 'states.json'
@@ -185,6 +182,115 @@ def run_args(tmp_path, state, monkeypatch):
                            work_root=tmp_path, backend='numpy', reduced=True, settings_json=None,
                            polarization_model='depolarizing', threads=2, stratosphere=None,
                            extra_elevations='-4', rss_gb=6, block_size=128)
+
+
+def _small_numpy_run(root, states, config, name, block_size):
+    """Run the reduced CLI path, including the solve and the saved observation table."""
+    from unittest.mock import patch
+
+    argv = ['run_state', '--states', str(states), '--settings-json', str(config), '--id', name,
+            '--work-root', str(root), '--threads', '1', '--block-size', str(block_size),
+            '--reduced', '--backend', 'numpy', '--fixed-boxes']
+    with patch.dict(os.environ), patch.object(sys, 'argv', argv), patch.object(runner, 'SUN_SCALE', 1):
+        runner.main()
+    out = root / 'out' / name
+    solve = json.loads((out / 'meta.json').read_text())['source_solve']
+    assert solve['converged'] == [True]
+    with np.load(out / 'table.npz') as table:
+        return dict(table), solve['evaluations']
+
+
+def test_interleaved_runner_kernels(tmp_path, monkeypatch):
+    """Compare a real A/device/B sequence with a cold B solve in a fresh interpreter."""
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+    from sosfuse2.jobs.walkthrough import example_state
+    from sosfuse2.foundation.timers import TIMERS
+
+    a = example_state()
+    a.update(id='first', runnable=True)
+    a['parameters'].update(scale_height_km=1.2, aod550=0.02, ssa=0.05, albedo=0.01)
+    b = copy.deepcopy(a)
+    b['id'] = 'second'
+    b['parameters'].update(scale_height_km=2.4, aod550=0.025)
+    states = tmp_path / 'states.json'
+    states.write_text(json.dumps(dict(states=[a, b])))
+    config = tmp_path / 'settings.json'
+    config.write_text(json.dumps(dict(nphi=1, path_n=1, view_shape=[2, 2], wavelengths_nm=[800.], anderson_tol=0.01)))
+    for key in runner.POOL_WORKER_ENV:
+        monkeypatch.setenv(key, '1')
+    monkeypatch.setenv('SOSFUSE2_KSPLIT', '0')
+    monkeypatch.setenv('SOSFUSE2_MLX', '0')
+    monkeypatch.setenv('SOSFUSE2_HOST_CACHE', '1')
+
+    mixed = tmp_path / 'mixed'
+    first, _ = _small_numpy_run(mixed, states, config, 'first', 128)
+    device_value = object()
+    device_host = np.array([37.0])
+    device = SimpleNamespace(cuda=SimpleNamespace(runtime=SimpleNamespace(getDeviceCount=lambda: 1)),
+                             asnumpy={device_value: device_host}.__getitem__)
+    monkeypatch.setitem(sys.modules, 'cupy', device)
+    monkeypatch.setattr(TIMERS, 'xp', None)
+    monkeypatch.setattr(runner, 'SUN_SCALE', 1)
+    cfg = runner.settings_for(SimpleNamespace(reduced=True, settings_json=config))
+    gpu, _ = runner.create_configured(mixed / 'device', cfg, [800.], 'cupy', a, geometry_cache=mixed / 'geometry_cache')
+    second, evaluations = _small_numpy_run(mixed, states, config, 'second', 256)
+    assert gpu.kernel.host(device_value) is device_host
+    assert np.isfinite(second['radiance']).all() and (second['radiance'] > 0).any()
+    assert not np.array_equal(first['radiance'], second['radiance'])
+
+    with ProcessPoolExecutor(1, mp_context=multiprocessing.get_context('spawn')) as pool:
+        reference = pool.submit(_small_numpy_run, tmp_path / 'alone', states, config, 'second', 256)
+        alone, reference_evaluations = reference.result()
+    assert second.keys() == alone.keys()
+    for name in alone:
+        np.testing.assert_array_equal(second[name], alone[name], strict=True, err_msg=name)
+    assert evaluations == reference_evaluations
+
+
+def test_timers_keep_device_events_across_numpy_kernel_creation(monkeypatch):
+    from sosfuse2.foundation.timers import Timers
+    from sosfuse2.solve import source_solver
+
+    class Event:
+        def record(self):
+            self.recorded = True
+
+        def synchronize(self):
+            self.synchronized = True
+
+    def elapsed(begin, end):
+        assert begin.recorded and end.recorded and end.synchronized
+        return 2.0  # milliseconds
+
+    cuda = SimpleNamespace(runtime=SimpleNamespace(getDeviceCount=lambda: 1), Event=Event, get_elapsed_time=elapsed)
+    device = SimpleNamespace(cuda=cuda)
+    timers = Timers()
+    monkeypatch.setattr(source_solver, 'TIMERS', timers)
+    monkeypatch.setitem(sys.modules, 'cupy', device)
+    monkeypatch.setenv('SOSFUSE2_KSPLIT', '0')
+
+    gpu = source_solver.Kernel(backend='cupy', L=16)
+    with timers.stage('transfer', device=True):
+        pass
+    cpu = source_solver.Kernel(backend='numpy', L=16)
+    assert timers.report()['cuda_event_seconds'] == {'transfer': 0.002}
+    with timers.stage('host_copy', device=cpu.xp is not np):
+        pass
+    with timers.stage('transfer', device=True):
+        pass
+    with timers.stage('kernel', device=gpu.xp is not np):
+        timers.bind(np)  # The open interval still belongs to the original event provider.
+    mixed = timers.snapshot()
+    assert set(mixed) == {'wall_seconds', 'counts', 'cuda_event_seconds', 'backend', 'note'}
+    assert mixed['counts'] == {'transfer': 2, 'host_copy': 1, 'kernel': 1}
+    assert mixed['cuda_event_seconds'] == {'transfer': 0.004, 'kernel': 0.002}
+    assert mixed['backend'] == 'cupy'
+    timers.bind(gpu.xp)
+    with timers.stage('host_copy', device=cpu.xp is not np):
+        pass
+    host = timers.report()
+    assert host['backend'] == 'numpy' and host['cuda_event_seconds'] == {}
 
 
 def test_run_frees_chunk_device_memory_before_next_admission(run_args, monkeypatch):
@@ -517,7 +623,8 @@ def test_block_size_alone_is_signed(state, monkeypatch):
 
 
 @pytest.mark.parametrize('failure', ['source', 'table'])
-def test_interrupted_rerun_invalidates_meta_before_replacing_source(tmp_path, state, failure):
+def test_interrupted_rerun_invalidates_meta_before_replacing_source(tmp_path, state, failure, monkeypatch):
+    from sosfuse2.jobs import run_storage
     out, prepare = tmp_path / 'out', tmp_path / 'prepare'
     out.mkdir()
     prepare.mkdir()
@@ -525,13 +632,8 @@ def test_interrupted_rerun_invalidates_meta_before_replacing_source(tmp_path, st
     meta.write_text(json.dumps({'complete': True, 'signature': 'original'}))
     source = prepare / 'source.npz'
     source.write_bytes(b'old source')
-    job = SimpleNamespace(
-        prepare=prepare, out=out, meta_path=meta, s=SimpleNamespace(geo=SimpleNamespace(h=[0], chi=[0])),
-        moments=[], fields=[np.ones((1, 1, 1))], wl=np.array([550.]), state=state,
-        stats_all=[{'tolerance': 1e-3}], cfg={}, table=np.ones((1, 1, 1, 1)),
-        hs=np.array([-3.]), el=np.array([40.]), az=np.array([0.]),
-    )
-    a = SimpleNamespace(backend='numpy', polarization_model='depolarizing')
+    field = np.ones((1, 1, 1))
+    savez = np.savez
 
     def save(target, **arrays):
         if failure == 'source' or 'radiance' in arrays:
@@ -540,16 +642,22 @@ def test_interrupted_rerun_invalidates_meta_before_replacing_source(tmp_path, st
             else:
                 Path(target).write_bytes(b'partial')
             raise OSError('interrupted')
-        np.savez(target, **arrays)
+        savez(target, **arrays)
 
+    monkeypatch.setattr(np, 'savez', save)
     with pytest.raises(OSError, match='interrupted'):
-        runner._write_run_arrays(job, SimpleNamespace(concatenate=np.concatenate, array=np.array, savez=save), a)
+        run_storage.write_run_arrays(
+            out, prepare, np.ones((1, 1, 1, 1)), np.array([550.]), np.array([-3.]), np.array([40.]), np.array([0.]),
+            fields=[field], h=[0], chi=[0], moments=[], order=16, physical=physics(), optics=optics_state(state),
+            contract=dict(state=canonical_state(state), anderson_tol=1e-3, settings={}, backend='numpy',
+                          polarization_model='depolarizing'),
+        )
     assert json.loads(meta.read_text()) == {'complete': False, 'signature': 'original'}
     if failure == 'source':
         assert source.read_bytes() == b'old source'
     else:
         with np.load(source) as result:
-            np.testing.assert_allclose(result['source'], job.fields[0], rtol=1e-3, atol=0)
+            np.testing.assert_allclose(result['source'], field, rtol=1e-3, atol=0)
     assert list(prepare.iterdir()) == [source]
 
 

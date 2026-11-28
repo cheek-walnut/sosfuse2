@@ -40,7 +40,7 @@ repository-relative source directory in the upstream checkout.
 
 | v3 (`code_hashes` key) | v4 and v5 key | note |
 |---|---|---|
-| `<source>/<module>.py` (every `*.py`, tests included: 141 keys) | `sosfuse2/<layer>/<module>.py` for the fixed list `paths.PRODUCTION_MODULES` | tests and `checks/testkit.py` are not provenance inputs in v4 |
+| `<source>/<module>.py` (every `*.py`, tests included: 141 keys) | `sosfuse2/<layer>/<module>.py` for `paths.PRODUCTION_MODULES`, derived from `FILES` in `foundation/dependencies.py` | tests and `checks/testkit.py` are not provenance inputs in v4 |
 | — (not hashed) | `sosfuse2/solve/__init__.py` and `sosfuse2/solve/engine.py` (`content_identity.ACCEPTED_SOURCES`, 2) | the engine module and package initializer; the CPU solver modules (`rays/`, `atmosphere/extinction.py`, `solve/engine_core.py`, `outputs/preview_functions.py`) are in `PRODUCTION_MODULES` |
 | — | `sosfuse2/foundation/__init__.py`, `sosfuse2/foundation/available_cpus.py`, `sosfuse2/outputs/pack_state.py` (`content_identity.HOST_MODULES`), `sosfuse2/backends/native/sh_cpu.cpp` | host helpers and the CPU kernel source |
 | `<source>/kernel.cu` | `sosfuse2/backends/kernel.cu` | |
@@ -51,8 +51,9 @@ repository-relative source directory in the upstream checkout.
 | upstream geometry helper | removed | not an engine input |
 
 The keys are serialized in sorted order, and every entry of the fixed lists must exist; a missing file raises
-`E_PACKAGE_FILE_MISSING` rather than leaving a silent gap. A new production module must be added to
-`paths.PRODUCTION_MODULES`, and the test `test_03c` keeps that list equal to the tree.
+`E_PACKAGE_FILE_MISSING` rather than leaving a silent gap. Since 1.10.1, `paths.PRODUCTION_MODULES` is derived from
+`foundation/dependencies.py`. To register a file and its cache dependencies, follow
+[Moving or adding a file](ARCHITECTURE.md#8-moving-or-adding-a-file).
 
 ## Superseded asset digests
 
@@ -68,17 +69,18 @@ digest records the current one.
 |---|---|---|
 | `a7ccf7b1…` | float64/numpy generator | last-ulp values differed between arm64 and x86_64 (6 values, ≤1.9e-15), so a pinned digest could not hold across platforms; the decimal generator (`05dfeb6e…`) gave the same bytes on both platforms measured below, values within 4.7e-15 of this one |
 
-The current `usstd76_profile.json` asset is regenerated from the IPRT inputs with `decimal` arithmetic. Its libmpdec
-implementation is the same C algorithm in every CPython build, independent of libm and SIMD width; its `power()` is
-"almost always" correctly rounded, which does not matter for reproducibility.
-The digest `05dfeb6e…` was measured identical on arm64 with CPython 3.14 and on
-x86_64 with CPython 3.12; other interpreters are not covered by that measurement. The earlier asset
-`a7ccf7b1…` was produced with float64/numpy and differs per CPU architecture in the last ulp, 6 values at ≤ 1.9e-15
-relative between arm64 and x86_64. The expressions, physical constants, inputs and normalization are unchanged; what
-changed is the arithmetic implementation, the derived asset's values (≤ 4.7e-15 relative for air, ≤ 1.2e-15 for ozone) and
-its hash. These differences lie nine orders of magnitude below the 1e-6 tolerance that was used for
-prepared quantities when the asset was replaced. v3 tables record `ozone_profile.asset_sha256 = a7ccf7b1…` in their resolved spectral block and v4
-tables record `05dfeb6e…`; the spectral-block checks treat both as the same asset (*Superseded asset digests*).
+The current `usstd76_profile.json` asset is regenerated from the IPRT inputs using `decimal` arithmetic. Its libmpdec
+implementation is the same C algorithm in every CPython build, independent of libm and SIMD width (its `power()` is
+"almost always" correctly rounded, which does not affect reproducibility). The resulting digest `05dfeb6e…` was measured
+identical on arm64 with CPython 3.14 and on x86_64 with CPython 3.12; other interpreters were not tested.
+
+The earlier `a7ccf7b1…` asset, built with float64/numpy, differed by CPU architecture in the last ulp (6 values at
+≤ 1.9e-15 relative between arm64 and x86_64). The expressions, physical constants, inputs
+and normalization are unchanged; what changed is the arithmetic implementation, the derived values (≤ 4.7e-15 relative
+for air, ≤ 1.2e-15 for ozone) and the asset hash. These differences lie nine orders of magnitude below the 1e-6
+tolerance that was used for prepared quantities when the asset was replaced. v3 tables record
+`ozone_profile.asset_sha256 = a7ccf7b1…` in their resolved spectral block and v4 tables record `05dfeb6e…`; the
+spectral-block checks treat both as the same asset (*Superseded asset digests*).
 
 ## Signature inputs (v4 and v5)
 
@@ -92,29 +94,30 @@ arrays nor the bytes of a stored source enter it, and a table made from a stored
 `optics_state`, `state`, `backend`, `reduced`, the wavelengths, solar elevations and view shape, `tolerance`,
 `code_hashes`, and `settings` when given.
 
-`package_version` and `package_commit` are outside the signed dictionary. The version literal in production source
-contributes through `code_hashes`. `package_version` is the installed metadata
-version when that metadata describes the loaded package, `sosfuse2.__version__` when it belongs to another installed copy,
-and `null` in-tree without an install.
+`package_version` and `package_commit` sit outside the signed dictionary, though the version literal in production source
+contributes through `code_hashes`. `package_version` is the installed metadata version when that metadata describes the
+loaded package, `sosfuse2.__version__` when it belongs to another installed copy, and `null` in-tree without an
+install.
 
-`package_commit` is resolved in this order: `SOSFUSE2_PACKAGE_COMMIT`; the
-installer's `direct_url.json` (`vcs_info.commit_id` of a pip or uv VCS install), used only when the installed
-distribution's `sosfuse2/__init__.py` is this very package; the git HEAD of the checkout whose `src/sosfuse2` is this
-package (a consumer checkout that merely holds an installed copy is not recorded); else `null`. `gate.commit()`
-records the same value, or `GATE_SOURCE_COMMIT`.
+`package_commit` is resolved in order from: `SOSFUSE2_PACKAGE_COMMIT`; the installer's `direct_url.json`
+(`vcs_info.commit_id` of a pip or uv VCS install), used only when the installed distribution's `sosfuse2/__init__.py` is
+this package; the git HEAD of the checkout whose `src/sosfuse2` is this package (ignoring consumer checkouts that merely
+hold an installed copy); or `null`. `gate.commit()` records the same value, or `GATE_SOURCE_COMMIT`.
 
-The code identity for baseline updates (`gate.code_identity`) is the same `package_hashes()` manifest minus `sosfuse2/checks/gate.py`, plus
-`checks/gate_data/fixtures.json`, `backends/configs/{C3,C3_nostrato,devices}.json` and the ozone asset under its logical key, in one manifest
-for both versions. A derived table (`--extra-elevations`) reuses a stored source only when the source job is complete, its
+The code identity for baseline updates (`gate.code_identity`) uses the same `package_hashes()` manifest minus
+`sosfuse2/checks/gate.py`, plus `checks/gate_data/fixtures.json`, `backends/configs/{C3,C3_nostrato,devices}.json` and
+the ozone asset under its logical key, in one manifest for both versions.
+
+A derived table (`--extra-elevations`) reuses a stored source only when the source job is complete, its
 `contract, physics, id, settings, backend, polarization_model, mode, code_hashes` match, it recorded its density
-profile, and its requested and computed optical state equal those of the derived job; the source file then passes the
-checks of `radiance_table.load_source` (`E_SOURCE_DENSITY` and `E_SOURCE_TOL` below among them). After the tables are
-made, the density record of the derived job must equal that of the source job, and its rows at −3° and −6° must differ
-from the source job's table by at most 1e-6 of the row maximum (`E_EXTRA_ANCHOR`). `package_version` and
-`package_commit` are recorded in its meta but are not a reuse condition. For its whole run the derived job holds the
-source job's `<out>/.worker.lock` shared: it stops with `E_EXTRA_SOURCE` while a worker is writing that source, several
-derived jobs may read one source at once, and a rerun of the source started meanwhile stops with `E_OUTPUT_BUSY`. Only
-a source folder that the user cannot write and that holds no lock file is read without the lock.
+profile, and its requested and computed optical states match the derived job; the source file must also pass
+`radiance_table.load_source` checks (`E_SOURCE_DENSITY` and `E_SOURCE_TOL` among them). After creating the tables, the
+derived job's density record must match the source job's, and its rows at −3° and −6° must agree within 1e-6 of the row
+maximum (`E_EXTRA_ANCHOR`). `package_version` and `package_commit` are recorded in its meta but do not affect reuse.
+Throughout its run, the derived job holds a shared lock on the source job's `<out>/.worker.lock`: it stops with
+`E_EXTRA_SOURCE` while a worker is writing that source, multiple derived jobs can read one source concurrently, and a
+concurrent rerun of the source stops with `E_OUTPUT_BUSY`. Only an unwritable source folder without a lock file is read
+unlocked.
 
 ## v3 to v4: signatures, caches and regression evidence
 

@@ -1,20 +1,22 @@
 # Where to start
 
-Paths are relative to `src/sosfuse2/` unless they start with `docs/`. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-describes the package structure and rules, and [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) lists the environment
-variables.
+Paths are relative to `src/sosfuse2/` unless they start with `docs/`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+for package structure and import rules, and [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for environment variables.
 
-| Task | Open first | Section |
-|---|---|---|
-| State and grid settings | `jobs/run_state.py::settings_for`, `jobs/run_state.py::resolve_settings`, `atmosphere/components.py::canonical_state` | [1](docs/ARCHITECTURE.md#1-one-input-state-and-one-output-table) |
-| Transport and iteration | `solve/source_iteration.py::Solver.solve`, `solve/source_solver.py::Kernel`, `backends/numpy_reference.py::transport` | [4](docs/ARCHITECTURE.md#4-the-call-spine) |
-| Endpoint preparation and parallel workers | `solve/ray_geometry.py::PackedCache`, `solve/ray_geometry_parallel.py::workers`, `precompute/column_parallel.py::workers`, `precompute/host_cache.py` | [5](docs/ARCHITECTURE.md#5-topics-that-cross-layers) |
-| Cache and code identity | `foundation/content_identity.py::package_hashes`, `foundation/paths.py::PRODUCTION_MODULES`, `precompute/endpoint_contract.py::identity` | [8](docs/ARCHITECTURE.md#8-moving-or-adding-a-file) |
-| Observation table and previews | `outputs/radiance_table.py::make_table`, `outputs/pack_state.py::render_functions`, `outputs/preview_functions.py` | [4](docs/ARCHITECTURE.md#4-the-call-spine) |
-| Kernel formulas | `backends/kernel.cu`, `backends/numpy_reference.py::extinction_profile`, `backends/sh_layout.py`, `docs/MODEL.md` | [4](docs/ARCHITECTURE.md#4-the-call-spine) |
-| Stratosphere | `atmosphere/stratosphere.py`, `solve/strato_sh_aux.py`, `checks/stratosphere_checks.py` | [5](docs/ARCHITECTURE.md#5-topics-that-cross-layers) |
-| New command | `__main__.py`, the `main` of the module it runs | [7](docs/ARCHITECTURE.md#7-commands-and-settings) |
-| Gate baselines and anchors (changes need the maintainer's approval) | `checks/gate.py::pinned_hashes`, `checks/gate.py::code_identity`, `checks/gate_data/fixtures.json`, `docs/CHECKS.md` | [8](docs/ARCHITECTURE.md#8-moving-or-adding-a-file) |
-| Move or add a file | `foundation/paths.py::PRODUCTION_MODULES`, `solve/engine.py::SOURCE_FILES`, `precompute/endpoint_contract.py::UPSTREAM` | [8](docs/ARCHITECTURE.md#8-moving-or-adding-a-file) |
-| Layer rules and import exceptions | `tests/test_layers.py`, `tests/test_names.py` | [6](docs/ARCHITECTURE.md#6-known-upward-imports) |
-| Regenerate the walkthrough | `jobs/walkthrough.py`, `tests/test_walkthrough.py`, `docs/WALKTHROUGH.md` | [3](docs/ARCHITECTURE.md#3-the-walkthrough) |
+| Task | Open first | Section | Run after editing |
+|---|---|---|---|
+| State and grid settings | `solve/configuration.py::state_settings`, `solve/configuration.py::settings_for`, `atmosphere/components.py::canonical_state` | [1](docs/ARCHITECTURE.md#1-one-input-state-and-one-output-table) | `python -m pytest -q src/sosfuse2/tests/test_grid_rules.py -k 'rules_and_node_counts or chi_refine_window or reduced_grid_is_fixed'` |
+| Run outputs, source reuse and locking | `jobs/run_storage.py::write_run_arrays`, `jobs/run_storage.py::source_lock` | [4](docs/ARCHITECTURE.md#4-the-call-spine) | `python -m pytest -q src/sosfuse2/tests/test_run_boundaries.py src/sosfuse2/tests/test_identity_runner.py` |
+| Transport and iteration | `solve/build.py::create_configured`, `solve/source_solver.py::Kernel`, `solve/source_iteration.py::Solver.solve`, `backends/numpy_reference.py::transport` | [4](docs/ARCHITECTURE.md#4-the-call-spine) | `python -m pytest -q src/sosfuse2/tests/test_identity_runner.py src/sosfuse2/tests/test_iteration.py -k 'interleaved_runner_kernels or timers_keep_device_events or (test_iteration and not device_source_metrics)'` |
+| MLX transport and observer queries (Apple silicon with Metal and MLX) | `backends/mlx_backend.py`, `backends/mlx_ops.py`, `backends/mlx_query.py`, `backends/mlx_warm.py` | [MLX coverage](docs/ENVIRONMENT.md#experimental-mlx-transport-apple-silicon) | `python -m pytest -q src/sosfuse2/tests/test_mlx_query.py src/sosfuse2/tests/test_mlx_extended.py` |
+| Endpoint preparation and parallel workers | `solve/ray_geometry.py::PackedCache`, `solve/ray_geometry_parallel.py::build_cells`, `precompute/column_parallel.py::workers`, `precompute/host_cache.py` | [5](docs/ARCHITECTURE.md#5-topics-that-cross-layers) | `python -m pytest -q src/sosfuse2/tests/test_geometry_parallel.py src/sosfuse2/tests/test_identity_caches.py -k 'GeometryParallelTests or extended_direct_callback or geometry_prepare_publishes or column_method_selects'` |
+| Cache and code identity | `foundation/dependencies.py::FILES`, `foundation/content_identity.py::package_hashes`, `precompute/endpoint_contract.py::identity` | [8](docs/ARCHITECTURE.md#8-moving-or-adding-a-file) | `python -m pytest -q src/sosfuse2/tests/test_identity_caches.py -k 'geometry_contract or geometry_versions'` |
+| Observation table and previews | `outputs/radiance_table.py::make_table`, `outputs/pack_state.py::PREVIEW_PNG_LEVEL`, `outputs/pack_state.py::render_functions`, `outputs/preview_functions.py::save_png` | [4](docs/ARCHITECTURE.md#4-the-call-spine) | `SOSFUSE2_OFFLINE=1 python -m pytest -q src/sosfuse2/tests/test_preview_png.py src/sosfuse2/tests/test_input_boundaries.py` |
+| Kernel formulas | `backends/kernel.cu`, `backends/numpy_reference.py::extinction_profile`, `backends/sh_layout.py`, `docs/MODEL.md` | [4](docs/ARCHITECTURE.md#4-the-call-spine) | `python -m pytest -q src/sosfuse2/tests/test_b2_components.py -k one_component_optical_depth` |
+| Optical coefficients | `atmosphere/extinction.py::coefficients`, `atmosphere/components.py` | [4](docs/ARCHITECTURE.md#4-the-call-spine) | `python -m pytest -q src/sosfuse2/tests/test_b2_components.py -k zero_minor_coefficients` |
+| Stratosphere | `atmosphere/stratosphere.py`, `solve/strato_sh_aux.py`, `checks/stratosphere_checks.py` | [5](docs/ARCHITECTURE.md#5-topics-that-cross-layers) | `python -m pytest -q src/sosfuse2/tests/test_strato_adversarial.py -k 'gaussian_normalization or phase_and_eigen'` |
+| New command | `__main__.py`, the `main` of the module it runs | [7](docs/ARCHITECTURE.md#7-commands-and-settings) | `python -m pytest -q src/sosfuse2/tests/test_entry_points.py` |
+| Gate baselines and anchors (changes need the maintainer's approval) | `checks/gate.py::pinned_hashes`, `checks/gate.py::code_identity`, `checks/gate_data/fixtures.json`, `docs/CHECKS.md` | [8](docs/ARCHITECTURE.md#8-moving-or-adding-a-file) | `python -m pytest -q src/sosfuse2/tests/test_gate.py -k 'missing_anchor_is or tampered_baseline'` |
+| Move or add a file | `foundation/dependencies.py::FILES` (one row per production file and the caches it affects). For a move, rename the old path in the fixed lists in `tests/test_identity_caches.py::test_registered_source_order`. | [8](docs/ARCHITECTURE.md#8-moving-or-adding-a-file) | `python -m pytest -q src/sosfuse2/tests/test_ozone_temperature.py::test_03c_v4_fixed_provenance_lists src/sosfuse2/tests/test_identity_caches.py` |
+| Layer rules and import exceptions | `tests/test_layers.py`, `tests/test_names.py` | [6](docs/ARCHITECTURE.md#6-known-upward-imports) | `python -m pytest -q src/sosfuse2/tests/test_layers.py src/sosfuse2/tests/test_names.py` |
+| Regenerate the walkthrough | `jobs/walkthrough.py`, `tests/test_walkthrough.py`, `docs/WALKTHROUGH.md` | [3](docs/ARCHITECTURE.md#3-the-walkthrough) | `SOSFUSE2_WALKTHROUGH_SLOW=1 python -m pytest -q src/sosfuse2/tests/test_walkthrough.py` |
