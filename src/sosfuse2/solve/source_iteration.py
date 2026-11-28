@@ -49,6 +49,54 @@ def _history_row(xp, shape, dtype, pin):
     return np.empty(shape, dtype=dtype)
 
 
+_SOURCE_METRICS = r'''
+extern "C" __global__ void source_metrics(const float *g, const float *x, long long rows,
+                                          unsigned frozen, unsigned *partials) {
+    __shared__ unsigned maxima[2][32];
+    __shared__ unsigned invalid[32];
+    const unsigned w = threadIdx.x;
+    const unsigned waves = blockDim.x;
+    if (threadIdx.y == 0) {
+        maxima[0][w] = maxima[1][w] = invalid[w] = 0;
+    }
+    __syncthreads();
+    unsigned bad = 0, magnitude = 0, difference = 0;
+    const long long start = (long long)blockIdx.x * 4096;
+    for (long long row = start + threadIdx.y; row < rows && row < start + 4096; row += blockDim.y) {
+        const long long i = row * waves + w;
+        const float current = g[i], old = x[i];
+        bad += !isfinite(current);
+        const float value = (frozen & (1u << w)) ? old : current;
+        // Positive IEEE words have numeric order, with NaNs above infinity.
+        magnitude = max(magnitude, __float_as_uint(fabsf(value)));
+        difference = max(difference, __float_as_uint(fabsf(value - old)));
+    }
+    atomicAdd(&invalid[w], bad);
+    atomicMax(&maxima[0][w], magnitude);
+    atomicMax(&maxima[1][w], difference);
+    __syncthreads();
+    if (threadIdx.y == 0) {
+        unsigned *out = partials + blockIdx.x * 3 * waves + w;
+        out[0] = invalid[w];
+        out[waves] = maxima[0][w];
+        out[2 * waves] = maxima[1][w];
+    }
+}
+'''
+
+
+def _device_source_metrics(xp, reduce, g, x, done):
+    waves = len(done)
+    rows = g.size // waves
+    blocks = (rows + 4095) // 4096
+    partials = xp.empty((blocks, 3, waves), 'u4')
+    frozen = sum(1 << int(w) for w in np.flatnonzero(done))
+    reduce((blocks,), (waves, 256 // waves), (g, x, np.int64(rows), np.uint32(frozen), partials))
+    parts = xp.asnumpy(partials)
+    magnitude, difference = parts[:, 1:].max(axis=0).view('f4')
+    return int(parts[:, 0].sum()), difference / np.maximum(magnitude, np.float32(1e-30))
+
+
 class Solver:
     def __init__(
         self, accepted, geometry, fixed_boxes=False, box_group=32, prepared=False, observer=None, box_evaluate=None
@@ -84,6 +132,8 @@ class Solver:
             first_moments, first_flux = self.geometry.evaluate(s, zero, first=True, phase=0)
             self.kernel.sync()
         del zero
+        if xp is not np:
+            xp.get_default_memory_pool().free_all_blocks()
         bundles = []
         if xp is not np:
             if self.geometry.bundle is None:
@@ -234,6 +284,28 @@ class Solver:
         used = any('ground_sh' in dc for (state, _), dc in constants.items() if state == id(self.s))
         return getattr(self.kernel, 'ground_sh_l', 0) if used else 0
 
+    def _apply_vram_reserve(self, x):
+        """Conservative device-memory reserve for warm transport and apply outputs."""
+        s = self.s
+        h = getattr(s.geo, 'h', None)
+        chi = getattr(s.geo, 'chi', None)
+        cells = len(h) * len(chi) if (h is not None and chi is not None) else s.geo.ns
+        L = getattr(self.kernel, 'L', 32)
+        K = getattr(self.kernel, 'K', (L + 1) * (L + 2) // 2)
+        stride = 2 * ((s.W + 1) // 2)
+        nodes = (10 * L + 2) // 3 + 3
+        bundle = getattr(self.geometry, 'bundle', None)
+        c = getattr(self.kernel, 'constants', {}).get((id(s), getattr(bundle, 'nq', 0)))
+        if c is not None and h is not None and chi is not None:
+            from ..backends.sh_layout import live_sh_cells as _live_sh_cells
+
+            n_owners = len(_live_sh_cells(c, getattr(s, 'strato', None) is not None, len(h), len(chi), s.W))
+        else:
+            n_owners = cells
+        table_bytes = 4 * nodes * (n_owners * nodes * stride + K + L + 1) + 8 * cells + 4 * n_owners
+        src_rm_bytes = cells * 4 * stride * 4
+        return table_bytes + src_rm_bytes + 3 * x.nbytes + (512 << 20)
+
     def solve(self, max_eval=16, tolerance=0.005):
         """Same Anderson4 normalization, regularization and candidate guard."""
         s = self.s
@@ -243,210 +315,340 @@ class Solver:
             raise ValueError('E_ANDERSON_HISTORY: expected device or host')
         host_history = history_storage == 'host'
         self.timings['anderson_history'] = history_storage
+        # where the history rings actually live: 'host', or with SOSFUSE2_ANDERSON_HISTORY=host on CUDA 'device-sources'
+        # or 'device' when the first evaluation found enough free device memory (set below, kept per chunk)
+        self.timings['anderson_ring'] = 'device' if not host_history and xp is not np else 'host'
         with vram_trace.item('source.iterate'):
             x = xp.zeros((s.geo.ns, source_size(s), s.W), 'f4')
         gs = [[] for _ in range(s.W)]
         fs = [[] for _ in range(s.W)]
         grams = [np.empty((0, 0), 'f8') for _ in range(s.W)] if host_history else None
-        tmp_buf = np.empty((s.geo.ns, source_size(s)), 'f4') if host_history else None
-        if host_history and xp is not np:
-            shape = (s.geo.ns, source_size(s))
-            src_pin = _history_row(xp, shape, np.float32, True)
-            mix_f4 = _history_row(xp, shape, np.float32, True)
-            res_pin = None
-        else:
-            src_pin = None
-            mix_f4 = np.empty((s.geo.ns, source_size(s)), 'f4') if host_history else None
-            res_pin = None
+        tmp_buf = None
+        src_pin = None
+        mix_f4 = None
+        res_pin = None
         fs_mat = [None for _ in range(s.W)] if host_history else None
         ring_len = [0 for _ in range(s.W)] if host_history else None
         ring_head = [0 for _ in range(s.W)] if host_history else None
+        device_sources = False
+        device_residuals = False
         done = np.zeros(s.W, bool)
         history = []
+        metrics_kernel = None
         started = time.perf_counter()
         boxes = self.observer or (self.boxes_fixed if self.fixed_boxes else self.boxes)
-        for iteration in range(1, max_eval + 1):
-            trace = vram_trace.current.get()
-            if trace is not None:
-                trace.iteration = iteration
-            evaluation_start = time.perf_counter()
-            old = boxes(x)
-            old_query_seconds = time.perf_counter() - evaluation_start
-            apply_start = time.perf_counter()
-            g = self.apply(x)
-            apply_seconds = time.perf_counter() - apply_start
-            # A NaN trace takes the kernel's linear path and propagates instead of vanishing: count and stop.
-            nonfinite = int(xp.count_nonzero(~xp.isfinite(g)))
-            if nonfinite:
-                raise RuntimeError(f'E_NONFINITE_SOURCE: {nonfinite} values after evaluation {iteration}')
-            with vram_trace.item('source.masked'):
-                g = xp.where(xp.asarray(done)[None, None, :], x, g)
-            query_start = time.perf_counter()
-            new = boxes(g)
-            query_seconds = old_query_seconds + time.perf_counter() - query_start
-            stop_count = len(self.monitor_sets['stop'])
-            stop_old, stop_new = old[:stop_count], new[:stop_count]
-            rr = np.max(abs(stop_new - stop_old) / np.maximum(abs(stop_new), 1e-30), axis=(0, 1))
-            with vram_trace.item('source.residual_test'):
-                ss = self.kernel.host(xp.max(abs(g - x), axis=(0, 1)) / xp.maximum(xp.max(abs(g), axis=(0, 1)), 1e-30))
-            if iteration >= 2:
-                done |= np.maximum(rr, ss) <= tolerance
-            history.append(
-                dict(
-                    evaluation=iteration,
-                    observer_relative=rr.tolist(),
-                    source_relative=ss.tolist(),
-                    converged=done.tolist(),
-                    apply_seconds=apply_seconds,
-                    observer_seconds=query_seconds,
-                    seconds=time.perf_counter() - started,
-                )
-            )
-            if self.monitor_sets['record']:
-                history[-1]['record_observer_relative'] = np.max(
-                    abs(new[stop_count:] - old[stop_count:]) / np.maximum(abs(new[stop_count:]), 1e-30), axis=1
-                ).tolist()
-            print(
-                f'SOSFUSE EVAL {iteration} obs={max(rr):.6g} source={max(ss):.6g} done={done.sum()}/{s.W}', flush=True
-            )
-            if done.all():
-                x = g
-                history[-1]['evaluation_seconds'] = time.perf_counter() - evaluation_start
-                history[-1]['Anderson_seconds'] = 0.0
-                break
-            anderson_start = time.perf_counter()
-            with vram_trace.item('source.candidate'):
-                nxt = g.copy()  # the Anderson time is recorded below as stage 'anderson'
-            on_device = host_history and xp is not np
-            features = x.shape[0] * x.shape[1] + stop_new[:, :, 0].size
-            pin_history = 12 * x.nbytes <= (2 << 30)
-            strato = getattr(s, 'strato', None) is not None
-            gpu_history_math = _use_gpu_history(
-                host_history, on_device, getattr(self.kernel, 'deterministic', False), strato,
-                getattr(self.kernel, 'L', None), s.W, features, self.kernel.ksplit_memory() if on_device else 0,
-            ) and (not strato or pin_history)
-            for w in range(s.W):
-                if done[w]:
-                    continue
-                gw = g[:, :, w]
-                norm = xp.linalg.norm(gw, axis=1)
-                scale = xp.maximum(norm, norm.max() * 1e-8)
-                with vram_trace.item('anderson.feature'):
-                    feature = ((gw - x[:, :, w]) / scale[:, None]).astype('f4', copy=False).ravel()
-                obs = xp.asarray(
-                    ((stop_new[:, :, w] - stop_old[:, :, w]) / np.maximum(abs(stop_new[:, :, w]), 1e-20)).ravel()
-                    * math.sqrt(len(feature) / (stop_new.shape[0] * stop_new.shape[1])), dtype=xp.float32,
-                )
-                with vram_trace.item('anderson.source_history'):
-                    source = gw.copy()
-                with vram_trace.item('anderson.residual_history'):
-                    residual = xp.concatenate([feature, obs])
-                if host_history:
-                    diag = float(self.kernel.host(xp.dot(residual, residual)))
-                    nfeat = int(residual.size)
-                    cur_len = ring_len[w]
-                    if fs_mat[w] is None:
-                        fs_mat[w] = _history_row(xp, (4, nfeat), 'f4', gpu_history_math and pin_history)
-                    if cur_len < 4:
-                        slot = cur_len
-                        gs[w].append(_history_row(xp, source.shape, source.dtype, gpu_history_math and pin_history))
-                        order_prev = list(range(cur_len))
-                        ring_len[w] = cur_len + 1
-                    else:
-                        slot = ring_head[w]
-                        ring_head[w] = (slot + 1) & 3
-                        grams[w] = grams[w][1:, 1:]
-                        order_prev = [(slot + 1 + j) & 3 for j in range(3)]
-                    order_new = order_prev + [slot]
-                    res_view = fs_mat[w][slot]
-                    if gpu_history_math:
-                        # Write directly into the host ring. The blocking residual
-                        # copy completes both transfers before the slot is read.
-                        pinned = isinstance(gs[w][slot].base, xp.cuda.PinnedMemoryPointer)
-                        source.get(out=gs[w][slot], blocking=not pinned)
-                        residual.get(out=res_view)
-                    elif xp is not np:
-                        if res_pin is None or res_pin.size != nfeat:
-                            res_pin = _history_row(xp, (nfeat,), np.float32, True)
-                        source.get(out=src_pin)
-                        residual.get(out=res_pin)
-                        np.copyto(gs[w][slot], src_pin)
-                        np.copyto(res_view, res_pin)
-                    else:
-                        np.copyto(gs[w][slot], self.kernel.host(source))
-                        np.copyto(res_view, self.kernel.host(residual))
-                    del source
-                    m = len(order_prev)
-                    if m:
-                        previous = fs_mat[w][:cur_len]
-                        if gpu_history_math:
-                            try:
-                                products = self.kernel.host(xp.asarray(previous) @ residual)
-                            except MemoryError as exc:
-                                warnings.warn(f'Anderson Gram fallback ({exc})', RuntimeWarning)
-                                gpu_history_math = False
-                        if not gpu_history_math:
-                            products = previous @ res_view
-                        col = products[order_prev]
-                        G = np.empty((m + 1, m + 1), dtype='f8')
-                        G[:m, :m] = grams[w]
-                        G[:m, m] = col
-                        G[m, :m] = col
-                        G[m, m] = diag
-                    else:
-                        G = np.array([[diag]], dtype='f8')
-                    del residual
-                    grams[w] = G
-                    if len(order_new) > 1:
-                        self.kernel.memory()
-                        try:
-                            ah = _anderson_weights(G)
-                            if ah is not None:
-                                if gpu_history_math:
-                                    mixed = None
-                                    try:
-                                        mixed = xp.multiply(xp.asarray(gs[w][order_new[0]]), ah[0], dtype=xp.float32)
-                                        for c_val, s_idx in zip(ah[1:], order_new[1:]):
-                                            mixed += xp.multiply(xp.asarray(gs[w][s_idx]), c_val, dtype=xp.float32)
-                                        nxt[:, :, w] = mixed
-                                        continue
-                                    except MemoryError as exc:
-                                        warnings.warn(f'Anderson mixing fallback ({exc})', RuntimeWarning)
-                                        gpu_history_math = False
-                                    finally:
-                                        del mixed
-                                np.multiply(gs[w][order_new[0]], ah[0], out=mix_f4)
-                                for c_val, s_idx in zip(ah[1:], order_new[1:]):
-                                    np.multiply(gs[w][s_idx], c_val, out=tmp_buf)
-                                    mix_f4 += tmp_buf
-                                nxt[:, :, w] = xp.asarray(mix_f4)
-                        except np.linalg.LinAlgError:
-                            pass
+        try:
+            for iteration in range(1, max_eval + 1):
+                trace = vram_trace.current.get()
+                if trace is not None:
+                    trace.iteration = iteration
+                evaluation_start = time.perf_counter()
+                old = boxes(x)
+                old_query_seconds = time.perf_counter() - evaluation_start
+                apply_start = time.perf_counter()
+                g = self.apply(x)
+                apply_seconds = time.perf_counter() - apply_start
+                # A NaN trace takes the kernel's linear path and propagates instead of vanishing: count and stop.
+                ss = None
+                if (getattr(self.kernel, 'backend', None) == 'cupy' and 0 < s.W <= 32 and g.size
+                        and g.flags.c_contiguous and x.flags.c_contiguous and g.dtype == x.dtype == np.float32):
+                    with vram_trace.item('source.residual_test'):
+                        if metrics_kernel is None:
+                            metrics_kernel = xp.RawKernel(_SOURCE_METRICS, 'source_metrics')
+                        nonfinite, ss = _device_source_metrics(xp, metrics_kernel, g, x, done)
                 else:
-                    gs[w].append(source)
-                    fs[w].append(residual)
-                    del source, residual
-                    if len(fs[w]) > 4:
-                        gs[w].pop(0)
-                        fs[w].pop(0)
-                    if len(fs[w]) > 1:
-                        with vram_trace.item('anderson.stack'):
-                            f = xp.stack(fs[w], 1)
-                        products = self.kernel.host(f.T @ f)
-                        self.kernel.memory()
+                    nonfinite = int(xp.count_nonzero(~xp.isfinite(g)))
+                if nonfinite:
+                    raise RuntimeError(f'E_NONFINITE_SOURCE: {nonfinite} values after evaluation {iteration}')
+                if done.any():
+                    with vram_trace.item('source.masked'):
+                        g = xp.where(xp.asarray(done)[None, None, :], x, g)
+                query_start = time.perf_counter()
+                new = boxes(g)
+                query_seconds = old_query_seconds + time.perf_counter() - query_start
+                stop_count = len(self.monitor_sets['stop'])
+                stop_old, stop_new = old[:stop_count], new[:stop_count]
+                rr = np.max(abs(stop_new - stop_old) / np.maximum(abs(stop_new), 1e-30), axis=(0, 1))
+                if ss is None:
+                    with vram_trace.item('source.residual_test'):
+                        ss = self.kernel.host(xp.max(abs(g - x), axis=(0, 1)) / xp.maximum(xp.max(abs(g), axis=(0, 1)), 1e-30))
+                if iteration >= 2:
+                    done |= np.maximum(rr, ss) <= tolerance
+                history.append(
+                    dict(
+                        evaluation=iteration,
+                        observer_relative=rr.tolist(),
+                        source_relative=ss.tolist(),
+                        converged=done.tolist(),
+                        apply_seconds=apply_seconds,
+                        observer_seconds=query_seconds,
+                        seconds=time.perf_counter() - started,
+                    )
+                )
+                if self.monitor_sets['record']:
+                    history[-1]['record_observer_relative'] = np.max(
+                        abs(new[stop_count:] - old[stop_count:]) / np.maximum(abs(new[stop_count:]), 1e-30), axis=1
+                    ).tolist()
+                print(
+                    f'SOSFUSE EVAL {iteration} obs={max(rr):.6g} source={max(ss):.6g} done={done.sum()}/{s.W}', flush=True
+                )
+                if done.all():
+                    x = g
+                    del g
+                    history[-1]['evaluation_seconds'] = time.perf_counter() - evaluation_start
+                    history[-1]['Anderson_seconds'] = 0.0
+                    break
+                for w in range(s.W):
+                    if done[w]:
+                        gs[w] = []
+                        if host_history:
+                            fs_mat[w] = None
+                        else:
+                            fs[w] = []
+                anderson_start = time.perf_counter()
+                with vram_trace.item('source.candidate'):
+                    nxt = g.copy()  # the Anderson time is recorded below as stage 'anderson'
+                on_device = host_history and xp is not np
+                features = x.shape[0] * x.shape[1] + stop_new[:, :, 0].size
+                if iteration == 1 and on_device and not getattr(self.kernel, 'deterministic', False):
+                    # Keep Anderson rings in free device memory when warm transport retains headroom.
+                    free_during_apply = self.kernel.ksplit_memory() + 2 * x.nbytes
+                    room = free_during_apply - self._apply_vram_reserve(x)
+                    source_ring_bytes = 4 * x.nbytes
+                    residual_ring_bytes = 4 * s.W * features * 4
+                    if room >= source_ring_bytes + residual_ring_bytes:
+                        device_sources = True
+                        device_residuals = True
+                    elif room >= source_ring_bytes:
+                        device_sources = True
+                    self.timings['anderson_ring'] = 'device' if device_residuals else 'device-sources' if device_sources else 'host'
+                pin_history = 12 * x.nbytes <= (2 << 30)
+                strato = getattr(s, 'strato', None) is not None
+                gpu_history_math = _use_gpu_history(
+                    host_history, on_device, getattr(self.kernel, 'deterministic', False), strato,
+                    getattr(self.kernel, 'L', None), s.W, features, self.kernel.ksplit_memory() if on_device else 0,
+                ) and (not strato or pin_history)
+                gw = norm = scale = feature = obs = res_view = None
+                for w in range(s.W):
+                    if done[w]:
+                        continue
+                    gw = g[:, :, w]
+                    norm = xp.linalg.norm(gw, axis=1)
+                    scale = xp.maximum(norm, norm.max() * 1e-8)
+                    with vram_trace.item('anderson.feature'):
+                        feature = ((gw - x[:, :, w]) / scale[:, None]).astype('f4', copy=False).ravel()
+                    obs = xp.asarray(
+                        ((stop_new[:, :, w] - stop_old[:, :, w]) / np.maximum(abs(stop_new[:, :, w]), 1e-20)).ravel()
+                        * math.sqrt(len(feature) / (stop_new.shape[0] * stop_new.shape[1])), dtype=xp.float32,
+                    )
+                    if host_history and device_sources and device_residuals:
+                        nfeat = len(feature) + len(obs)
+                        cur_len = ring_len[w]
                         try:
-                            ah = _anderson_weights(products)
-                            if ah is not None:
-                                nxt[:, :, w] = sum(c * q for c, q in zip(ah, gs[w]))
-                        except np.linalg.LinAlgError:
-                            pass
-            # A converged wavelength is frozen exactly as the accepted active mask.
-            with vram_trace.item('source.iterate'):
-                x = xp.where(xp.asarray(done)[None, None, :], g, nxt)
-            self.kernel.sync()
-            history[-1]['Anderson_seconds'] = time.perf_counter() - anderson_start
-            TIMERS.add('anderson', history[-1]['Anderson_seconds'])
-            history[-1]['evaluation_seconds'] = time.perf_counter() - evaluation_start
+                            if fs_mat[w] is None:
+                                with vram_trace.item('anderson.residual_history'):
+                                    fs_mat[w] = xp.empty((4, nfeat), dtype=xp.float32)
+                            if cur_len < 4:
+                                with vram_trace.item('anderson.source_history'):
+                                    new_src = gw.copy()
+                            else:
+                                new_src = None
+                        except MemoryError as exc:
+                            warnings.warn(f'Anderson device ring fallback ({exc})', RuntimeWarning)
+                            device_sources = False
+                            device_residuals = False
+                            self.timings['anderson_ring'] = 'host'
+                            for wi in range(s.W):
+                                if gs[wi] and not isinstance(gs[wi][0], np.ndarray):
+                                    gs[wi] = [self.kernel.host(arr) for arr in gs[wi]]
+                                if fs_mat[wi] is not None and not isinstance(fs_mat[wi], np.ndarray):
+                                    fs_mat[wi] = self.kernel.host(fs_mat[wi])
+                        else:
+                            if cur_len < 4:
+                                slot = cur_len
+                                gs[w].append(new_src)
+                                order_prev = list(range(cur_len))
+                                ring_len[w] = cur_len + 1
+                            else:
+                                slot = ring_head[w]
+                                ring_head[w] = (slot + 1) & 3
+                                grams[w] = grams[w][1:, 1:]
+                                order_prev = [(slot + 1 + j) & 3 for j in range(3)]
+                                xp.copyto(gs[w][slot], gw)
+                            del new_src
+                            order_new = order_prev + [slot]
+                            res_view = fs_mat[w][slot]
+                            res_view[: len(feature)] = feature
+                            res_view[len(feature) :] = obs
+                            del feature, obs
+                            diag = float(self.kernel.host(xp.dot(res_view, res_view)))
+                            m = len(order_prev)
+                            if m:
+                                products = self.kernel.host(fs_mat[w][:cur_len] @ res_view)
+                                col = products[order_prev]
+                                G = np.empty((m + 1, m + 1), dtype='f8')
+                                G[:m, :m] = grams[w]
+                                G[:m, m] = col
+                                G[m, :m] = col
+                                G[m, m] = diag
+                            else:
+                                G = np.array([[diag]], dtype='f8')
+                            grams[w] = G
+                            if len(order_new) > 1:
+                                self.kernel.memory()
+                                try:
+                                    ah = _anderson_weights(G)
+                                    if ah is not None:
+                                        mixed = xp.multiply(gs[w][order_new[0]], ah[0], dtype=xp.float32)
+                                        for c_val, s_idx in zip(ah[1:], order_new[1:]):
+                                            mixed += xp.multiply(gs[w][s_idx], c_val, dtype=xp.float32)
+                                        nxt[:, :, w] = mixed
+                                        del mixed
+                                except np.linalg.LinAlgError:
+                                    pass
+                            continue
+                    with vram_trace.item('anderson.source_history'):
+                        source = gw.copy()
+                    with vram_trace.item('anderson.residual_history'):
+                        residual = xp.concatenate([feature, obs])
+                    if host_history:
+                        diag = float(self.kernel.host(xp.dot(residual, residual)))
+                        nfeat = int(residual.size)
+                        cur_len = ring_len[w]
+                        if fs_mat[w] is None:
+                            fs_mat[w] = _history_row(xp, (4, nfeat), 'f4', gpu_history_math and pin_history)
+                        if cur_len < 4:
+                            slot = cur_len
+                            if device_sources:
+                                gs[w].append(source)
+                            else:
+                                gs[w].append(_history_row(xp, source.shape, source.dtype, gpu_history_math and pin_history))
+                            order_prev = list(range(cur_len))
+                            ring_len[w] = cur_len + 1
+                        else:
+                            slot = ring_head[w]
+                            ring_head[w] = (slot + 1) & 3
+                            grams[w] = grams[w][1:, 1:]
+                            order_prev = [(slot + 1 + j) & 3 for j in range(3)]
+                            if device_sources:
+                                xp.copyto(gs[w][slot], source)
+                        order_new = order_prev + [slot]
+                        res_view = fs_mat[w][slot]
+                        if gpu_history_math:
+                            if not device_sources:
+                                pinned = isinstance(gs[w][slot].base, xp.cuda.PinnedMemoryPointer)
+                                source.get(out=gs[w][slot], blocking=not pinned)
+                            residual.get(out=res_view)
+                        elif xp is not np:
+                            if not device_sources and src_pin is None:
+                                src_pin = _history_row(xp, (s.geo.ns, source_size(s)), np.float32, True)
+                            if res_pin is None or res_pin.size != nfeat:
+                                res_pin = _history_row(xp, (nfeat,), np.float32, True)
+                            if not device_sources:
+                                source.get(out=src_pin)
+                                np.copyto(gs[w][slot], src_pin)
+                            residual.get(out=res_pin)
+                            np.copyto(res_view, res_pin)
+                        else:
+                            np.copyto(gs[w][slot], self.kernel.host(source))
+                            np.copyto(res_view, self.kernel.host(residual))
+                        del source
+                        m = len(order_prev)
+                        if m:
+                            previous = fs_mat[w][:cur_len]
+                            if gpu_history_math:
+                                try:
+                                    products = self.kernel.host(xp.asarray(previous) @ residual)
+                                except MemoryError as exc:
+                                    warnings.warn(f'Anderson Gram fallback ({exc})', RuntimeWarning)
+                                    gpu_history_math = False
+                            if not gpu_history_math:
+                                products = previous @ res_view
+                            col = products[order_prev]
+                            G = np.empty((m + 1, m + 1), dtype='f8')
+                            G[:m, :m] = grams[w]
+                            G[:m, m] = col
+                            G[m, :m] = col
+                            G[m, m] = diag
+                        else:
+                            G = np.array([[diag]], dtype='f8')
+                        del residual
+                        grams[w] = G
+                        if len(order_new) > 1:
+                            self.kernel.memory()
+                            try:
+                                ah = _anderson_weights(G)
+                                if ah is not None:
+                                    if device_sources:
+                                        mixed = xp.multiply(gs[w][order_new[0]], ah[0], dtype=xp.float32)
+                                        for c_val, s_idx in zip(ah[1:], order_new[1:]):
+                                            mixed += xp.multiply(gs[w][s_idx], c_val, dtype=xp.float32)
+                                        nxt[:, :, w] = mixed
+                                        del mixed
+                                        continue
+                                    if gpu_history_math:
+                                        mixed = None
+                                        try:
+                                            mixed = xp.multiply(xp.asarray(gs[w][order_new[0]]), ah[0], dtype=xp.float32)
+                                            for c_val, s_idx in zip(ah[1:], order_new[1:]):
+                                                mixed += xp.multiply(xp.asarray(gs[w][s_idx]), c_val, dtype=xp.float32)
+                                            nxt[:, :, w] = mixed
+                                            continue
+                                        except MemoryError as exc:
+                                            warnings.warn(f'Anderson mixing fallback ({exc})', RuntimeWarning)
+                                            gpu_history_math = False
+                                        finally:
+                                            del mixed
+                                    if mix_f4 is None:
+                                        shape = (s.geo.ns, source_size(s))
+                                        mix_f4 = (
+                                            _history_row(xp, shape, np.float32, True)
+                                            if xp is not np
+                                            else np.empty(shape, 'f4')
+                                        )
+                                    if tmp_buf is None:
+                                        tmp_buf = np.empty((s.geo.ns, source_size(s)), 'f4')
+                                    np.multiply(gs[w][order_new[0]], ah[0], out=mix_f4)
+                                    for c_val, s_idx in zip(ah[1:], order_new[1:]):
+                                        np.multiply(gs[w][s_idx], c_val, out=tmp_buf)
+                                        mix_f4 += tmp_buf
+                                    nxt[:, :, w] = xp.asarray(mix_f4)
+                            except np.linalg.LinAlgError:
+                                pass
+                    else:
+                        gs[w].append(source)
+                        fs[w].append(residual)
+                        del source, residual
+                        if len(fs[w]) > 4:
+                            gs[w].pop(0)
+                            fs[w].pop(0)
+                        if len(fs[w]) > 1:
+                            with vram_trace.item('anderson.stack'):
+                                f = xp.stack(fs[w], 1)
+                            products = self.kernel.host(f.T @ f)
+                            self.kernel.memory()
+                            try:
+                                ah = _anderson_weights(products)
+                                if ah is not None:
+                                    nxt[:, :, w] = sum(c * q for c, q in zip(ah, gs[w]))
+                            except np.linalg.LinAlgError:
+                                pass
+                # nxt starts as a copy of g and the mixing loop only writes active wavelengths.
+                x = nxt
+                gw = norm = scale = feature = obs = res_view = None
+                del g, nxt
+                self.kernel.sync()
+                history[-1]['Anderson_seconds'] = time.perf_counter() - anderson_start
+                TIMERS.add('anderson', history[-1]['Anderson_seconds'])
+                history[-1]['evaluation_seconds'] = time.perf_counter() - evaluation_start
+        finally:
+            gs.clear()
+            fs.clear()
+            if fs_mat is not None:
+                fs_mat.clear()
+            tmp_buf = src_pin = mix_f4 = res_pin = None
+            if xp is not np:
+                xp.get_default_memory_pool().free_all_blocks()
         self.kernel.sync()
         if not done.all():
             raise RuntimeError(f'E_NOT_CONVERGED: {done.sum()}/{s.W} within {tolerance}')

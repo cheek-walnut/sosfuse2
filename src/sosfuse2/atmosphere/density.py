@@ -19,10 +19,20 @@ The external API remains two columns; NO2 is supplied from its packaged shape. E
 """
 
 import copy
+import ctypes
 import hashlib
 import json
 import os
+import platform
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import warnings
 from functools import lru_cache
+from pathlib import Path
+
 import numpy as np
 
 from ..foundation import paths, top
@@ -705,6 +715,32 @@ def molecular_profiles(h, optics):
     return values
 
 
+_GRID = grid
+_PROFILE_N = top.profile_n
+_DOMAIN = top.Domain
+_MOLECULAR_BINDINGS = (molecular_profiles, profiles, check_consumed, domain_of)
+_DESCRIPTOR_BINDINGS = (profile_identity, _sha)
+_NO2_BINDINGS = (no2_profile, no2_asset, require_asset_range)
+
+
+def _standard_grid():
+    return grid is _GRID and top.profile_n is _PROFILE_N
+
+
+def _standard_molecular():
+    return (_standard_grid() and top.Domain is _DOMAIN
+            and all(a is b for a, b in zip((molecular_profiles, profiles, check_consumed, domain_of),
+                                           _MOLECULAR_BINDINGS)))
+
+
+def _standard_descriptors():
+    return _standard_molecular() and profile_identity is _DESCRIPTOR_BINDINGS[0] and _sha is _DESCRIPTOR_BINDINGS[1]
+
+
+def _standard_no2():
+    return all(a is b for a, b in zip((no2_profile, no2_asset, require_asset_range), _NO2_BINDINGS))
+
+
 SUN_METHOD_ENV = 'SOSFUSE2_SUN_METHOD'
 SUN_METHODS = ('gl', 'exact')
 
@@ -755,12 +791,26 @@ def exact_profile_columns(p, d, end, optics, selected=(0, 1, 2, 3)):
     below = inside(RADIUS)
     above = np.maximum(end - inside(RADIUS + TOP), 0) if TOP == top.TOP_KM else np.zeros_like(end)
     t = molecular_profiles(np.array([0.0, TOP]), optics)
+    if (type(selected) is tuple and len(selected) == 2 and all(type(k) is int for k in selected)
+            and selected == (2, 3) and type(optics) is dict and optics['mask'] & 1):
+        from ..rays import column_table
+
+        pair = column_table._minor_pair(optics, rho, sa, sb, molecular, exact_columns)
+        if pair is not None:
+            out[:, 2] = pair[1] + t[0, 2] * below + t[-1, 2] * above
+            out[:, 3] = pair[0] + t[0, 3] * below + t[-1, 3] * above
+            if not np.isfinite(out).all():
+                raise ValueError('E_SUN_METHOD_NONFINITE')
+            return out
     for k in selected:
         if k >= 2 or optics['mask'] & (1 << k):
             out[:, k] = exact_columns(molecular(optics, k), p, d, end) + t[0, k] * below + t[-1, k] * above
     if not np.isfinite(out).all():
         raise ValueError('E_SUN_METHOD_NONFINITE')
     return out
+
+
+_DEFAULT_EXACT_PROFILE_COLUMNS = exact_profile_columns
 
 
 def correct_columns(p, d, base, old, optics, n=24, *, end=None):
@@ -866,3 +916,546 @@ def chunk_metadata(s, wavelengths, previous):
             raise ValueError(f'E_UPPER_AIR_WAVELENGTH: incomplete {key}')
         connection[key] = prior.get(key, []) + lanes
     return result
+
+
+_HOST_NATIVE_SRC = r"""
+#include <math.h>
+#include <stddef.h>
+#include <stdint.h>
+#if defined(__ARM_NEON) || defined(__aarch64__)
+#include <arm_neon.h>
+#define SOS_USE_NEON 1
+#else
+#define SOS_USE_NEON 0
+#endif
+
+enum profile_kind { EXPONENTIAL, TWO_LAYER, MOLECULAR, STRATOSPHERE };
+
+#if SOS_USE_NEON
+static inline float64x2_t fast_exp2_bounded_neon(float64x2_t x) {
+    /* For callers guaranteeing -700.0 <= x <= 0.0 */
+    const float64x2_t inv_ln2 = vdupq_n_f64(1.44269504088896340736);
+    const float64x2_t ln2_hi = vdupq_n_f64(0.69314718036912381649);
+    const float64x2_t ln2_lo = vdupq_n_f64(1.90821492927058770002e-10);
+    float64x2_t kd = vrndnq_f64(vmulq_f64(x, inv_ln2));
+    float64x2_t r = vfmsq_f64(vfmsq_f64(x, kd, ln2_hi), kd, ln2_lo);
+    float64x2_t r2 = vmulq_f64(r, r);
+    float64x2_t r4 = vmulq_f64(r2, r2);
+    float64x2_t p01 = vaddq_f64(vdupq_n_f64(1.0), r);
+    float64x2_t p23 = vfmaq_f64(vdupq_n_f64(0.5), r, vdupq_n_f64(1.0 / 6.0));
+    float64x2_t p45 = vfmaq_f64(vdupq_n_f64(1.0 / 24.0), r, vdupq_n_f64(1.0 / 120.0));
+    float64x2_t p67 = vfmaq_f64(vdupq_n_f64(1.0 / 720.0), r, vdupq_n_f64(1.0 / 5040.0));
+    float64x2_t p89 = vfmaq_f64(vdupq_n_f64(1.0 / 40320.0), r, vdupq_n_f64(1.0 / 362880.0));
+    float64x2_t p1011 = vfmaq_f64(vdupq_n_f64(1.0 / 3628800.0), r, vdupq_n_f64(1.0 / 39916800.0));
+    float64x2_t q0 = vfmaq_f64(p01, r2, p23);
+    float64x2_t q1 = vfmaq_f64(p45, r2, p67);
+    float64x2_t q2 = vfmaq_f64(vfmaq_f64(p89, r2, p1011), r4, vdupq_n_f64(1.0 / 479001600.0));
+    float64x2_t poly = vfmaq_f64(q0, r4, vfmaq_f64(q1, r4, q2));
+    int64x2_t ki = vcvtq_s64_f64(kd);
+    uint64x2_t bits = vshlq_n_u64(vreinterpretq_u64_s64(vaddq_s64(ki, vdupq_n_s64(1023))), 52);
+    return vmulq_f64(poly, vreinterpretq_f64_u64(bits));
+}
+
+static inline float64x2_t exp_pair(float64x2_t x) {
+    if (vminvq_f64(x) >= -700.0 && vmaxvq_f64(x) <= 0.0)
+        return fast_exp2_bounded_neon(x);
+    double y[2];
+    vst1q_f64(y, x);
+    y[0] = exp(y[0]);
+    y[1] = exp(y[1]);
+    return vld1q_f64(y);
+}
+
+/* Preserve the NumPy order for t, Cartesian coordinates, radius and support tests. */
+static void planar_segment(const double *p, const double *d, double a, double b, int lower, const double *u,
+                           const double *w, size_t nodes, double radius, int kind, const double *params,
+                           const double *table, size_t nz, double step, double air_end, double lower_end,
+                           double cap, int bounded_exp, double *sum) {
+    float64x2_t acc[5] = {0};
+    const double length = b - a;
+    const double inv_step = 1.0 / step;
+    const double inv_height = bounded_exp ? -1.0 / params[0] : 0.0;
+    for (size_t j = 0; j < nodes; j += 2) {
+        float64x2_t v = vld1q_f64(u + j);
+        if (!lower)
+            v = vsubq_f64(vdupq_n_f64(1.0), v);
+        float64x2_t offset = lower ? vmulq_f64(vmulq_n_f64(v, length), v) : vmulq_n_f64(vmulq_f64(v, v), length);
+        float64x2_t t = lower ? vaddq_f64(vdupq_n_f64(a), offset) : vsubq_f64(vdupq_n_f64(b), offset);
+        float64x2_t ds = vmulq_f64(vmulq_n_f64(v, 2.0 * length), vld1q_f64(w + j));
+        float64x2_t x = vaddq_f64(vdupq_n_f64(p[0]), vmulq_n_f64(t, d[0]));
+        float64x2_t z = vaddq_f64(vdupq_n_f64(p[2]), vmulq_n_f64(t, d[2]));
+        float64x2_t h = vsubq_f64(vsqrtq_f64(vaddq_f64(vmulq_f64(x, x), vmulq_f64(z, z))), vdupq_n_f64(radius));
+        uint64x2_t low = vcleq_f64(h, vdupq_n_f64(lower_end));
+        float64x2_t low_ds = vbslq_f64(low, ds, vdupq_n_f64(0.0));
+        if (kind == STRATOSPHERE) {
+            float64x2_t q = vdivq_f64(vsubq_f64(h, vdupq_n_f64(params[0])), vdupq_n_f64(params[1]));
+            q = vdivq_f64(exp_pair(vmulq_n_f64(vmulq_f64(q, q), -0.5)), vdupq_n_f64(params[2]));
+            acc[0] = vfmaq_f64(acc[0], q, low_ds);
+            continue;
+        }
+        float64x2_t hp = vmaxq_f64(h, vdupq_n_f64(0.0));
+        float64x2_t e8 = vmulq_n_f64(hp, -0.125);
+        float64x2_t ea =
+            bounded_exp ? vmulq_n_f64(hp, inv_height) : vdivq_f64(vnegq_f64(hp), vdupq_n_f64(params[0]));
+        float64x2_t air = bounded_exp ? fast_exp2_bounded_neon(e8) : exp_pair(e8);
+        float64x2_t aerosol = bounded_exp ? fast_exp2_bounded_neon(ea) : exp_pair(ea);
+        float64x2_t ozone = vmaxq_f64(
+            vdupq_n_f64(0.0),
+            vsubq_f64(vdupq_n_f64(1.0), vdivq_f64(vabsq_f64(vsubq_f64(h, vdupq_n_f64(25.0))), vdupq_n_f64(15.0))));
+        float64x2_t air_ds = vbslq_f64(vcleq_f64(h, vdupq_n_f64(air_end)), ds, vdupq_n_f64(0.0));
+        acc[0] = vfmaq_f64(acc[0], air, air_ds);
+        acc[1] = vfmaq_f64(acc[1], aerosol, low_ds);
+        acc[2] = vfmaq_f64(acc[2], ozone, low_ds);
+        acc[4] = vfmaq_f64(acc[4], vmulq_f64(air, air), low_ds);
+        double pos[2], no2[2];
+        vst1q_f64(
+            pos, vminq_f64(vmulq_n_f64(vminq_f64(hp, vdupq_n_f64(cap)), inv_step), vdupq_n_f64((double)(nz - 1))));
+        for (int k = 0; k < 2; ++k) {
+            size_t idx = (size_t)pos[k];
+            no2[k] = table[2 * idx] + (pos[k] - idx) * table[2 * idx + 1];
+        }
+        acc[3] = vfmaq_f64(acc[3], vld1q_f64(no2), low_ds);
+    }
+    for (size_t k = 0; k < (kind == STRATOSPHERE ? 1u : 5u); ++k)
+        sum[k] = vaddvq_f64(acc[k]);
+}
+#endif
+
+static double aerosol_value(double h, const double *v, int two_layers) {
+    if (!two_layers)
+        return exp(-h / v[0]);
+    const double x = fmin(fmax((h - v[0]) * v[1], 0.0), 1.0);
+    const double s = x * x * (3.0 - 2.0 * x);
+    return v[2] * exp(-h * v[3]) * (1.0 - s) + v[4] * exp(-(fmax(h, v[0]) - v[6]) * v[5]) * s;
+}
+
+/* Integrate the requested profiles at every supplied node, segment by segment. */
+int profile_columns(size_t rays, size_t ne, size_t nodes, const double *p, const double *d, const double *edges,
+                    const double *u, const double *w, double radius, int kind, int mask, const double *aerosol,
+                    size_t nz, double step, const double *table, double air_end, double lower_end, double cap,
+                    double *out) {
+    const size_t width = kind == STRATOSPHERE ? 1 : (kind == MOLECULAR ? 4 : 5);
+    for (size_t ray = 0; ray < rays; ++ray, p += 3, d += 3, edges += ne, out += width) {
+        for (size_t e = 1; e < ne; ++e) {
+            const double a = edges[e - 1], b = edges[e], length = b - a;
+            if (length <= 1e-8)
+                continue;
+            double ra = 0.0, rb = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                const double x = p[k] + a * d[k], y = p[k] + b * d[k];
+                ra += x * x;
+                rb += y * y;
+            }
+            if (!isfinite(ra) || !isfinite(rb))
+                return 1;
+            double sum[5] = {0};
+#if SOS_USE_NEON
+            if ((kind == EXPONENTIAL || kind == STRATOSPHERE) && nodes % 2 == 0 && p[1] == 0 && d[1] == 0) {
+                /* The radius is convex along a segment, so both endpoints bound the maximum. */
+                double max_height = sqrt(fmax(ra, rb)) - radius;
+                int bounded_exp =
+                    kind == EXPONENTIAL && aerosol[0] >= 0x1p-1022 && max_height < 699.0 * fmin(8.0, aerosol[0]);
+                planar_segment(p, d, a, b, ra <= rb, u, w, nodes, radius, kind, aerosol, table, nz, step, air_end,
+                               lower_end, cap, bounded_exp, sum);
+            } else
+#endif
+                for (size_t j = 0; j < nodes; ++j) {
+                    const double v = ra <= rb ? u[j] : 1.0 - u[j];
+                    const double t = ra <= rb ? a + length * v * v : b - length * (v * v);
+                    const double ds = 2.0 * length * v * w[j];
+                    const double x = p[0] + t * d[0], y = p[1] + t * d[1], z = p[2] + t * d[2];
+                    const double h = sqrt(x * x + y * y + z * z) - radius;
+                    if (!isfinite(h))
+                        return 1;
+                    if (kind == STRATOSPHERE) {
+                        const double z = (h - aerosol[0]) / aerosol[1];
+                        if (h <= lower_end)
+                            sum[0] += exp(-0.5 * z * z) / aerosol[2] * ds;
+                        continue;
+                    }
+                    const double h0 = fmax(h, 0.0);
+                    const double pos = fmin(fmin(h0, cap) / step, (double)(nz - 1));
+                    const size_t k = (size_t)pos;
+                    const double fraction = pos - k;
+                    if (kind == MOLECULAR) {
+                        const double *row = table + 4 * k;
+                        const double air = mask & 1 ? row[0] + fraction * row[2] : exp(-h0 / 8.0);
+                        const double ozone =
+                            mask & 2 ? row[1] + fraction * row[3] : fmax(0.0, 1.0 - fabs(h - 25.0) / 15.0);
+                        if (h <= air_end)
+                            sum[0] += air * ds;
+                        if (h <= lower_end)
+                            sum[1] += ozone * ds;
+                    } else {
+                        const double air = exp(-h0 / 8.0);
+                        if (h <= air_end)
+                            sum[0] += air * ds;
+                        if (h <= lower_end) {
+                            const double no2 = table[2 * k] + fraction * table[2 * k + 1];
+                            sum[1] += aerosol_value(h0, aerosol, kind) * ds;
+                            sum[2] += fmax(0.0, 1.0 - fabs(h - 25.0) / 15.0) * ds;
+                            sum[3] += no2 * ds;
+                            sum[4] += air * air * ds;
+                        }
+                    }
+                }
+            for (size_t k = 0; k < width; ++k)
+                out[k] += sum[k];
+        }
+    }
+    return 0;
+}
+/* Primitive of the radius along a straight chord. */
+static double radial_primitive(double s, double r) {
+    return 0.5 * (s * hypot(r, s) + r * r * asinh(s / fmax(r, 1e-100)));
+}
+
+/* Integrate the linear pieces actually produced by the descriptor. */
+void linear_columns_c(size_t rays, size_t pieces, const double *coeff, const double *rho, const double *sa,
+                      const double *sb, double *out) {
+    for (size_t i = 0; i < rays; ++i) {
+        const double r = rho[i], start = sa[i], end = sb[i];
+        double total = 0.0;
+        for (size_t j = 0; j < pieces; ++j) {
+            const double *row = coeff + 4 * j;
+            const double left = sqrt(fmax((row[0] - r) * (row[0] + r), 0.0));
+            const double right = sqrt(fmax((row[1] - r) * (row[1] + r), 0.0));
+            for (int side = 0; side < 2; ++side) {
+                const double a = fmax(start, side ? -right : left);
+                const double b = fmin(end, side ? -left : right);
+                if (b > a)
+                    total += row[2] * (b - a) + row[3] * (radial_primitive(b, r) - radial_primitive(a, r));
+            }
+        }
+        out[i] = fmax(total, 0.0);
+    }
+}
+
+/* Resolve floating-point displacements across a knot against the full interpolation grid. */
+static double knot_value(double h, const double *value, size_t count, double step) {
+    const double pos = fmin(fmax(h / step, 0.0), (double)(count - 1));
+    const size_t i = (size_t)pos;
+    if (i == count - 1)
+        return value[i];
+    return value[i] + (pos - i) * (value[i + 1] - value[i]);
+}
+
+void squared_columns(size_t rays, size_t nz, size_t n_values, const double *z, const double *value,
+                     const double *u, const double *w, const double *rho, const double *sa, const double *sb,
+                     double radius, double support, double *out, int with_linear, const double *alpha,
+                     const double *beta, double *linear) {
+    int symmetric = 1;
+    for (size_t j = 0; j < 4; ++j)
+        symmetric &= u[j] == -u[7 - j] && w[j] == w[7 - j];
+    for (size_t i = 0; i < rays; ++i) {
+        const double r = rho[i], r2 = r * r, start = sa[i], end = sb[i];
+        if (end <= start || nz < 2)
+            continue;
+        const double nearest = fmax(fmax(start, -end), 0.0);
+        const double farthest = fmax(fabs(start), fabs(end));
+        /* Shells below the minimum radius cannot intersect the path. Begin one knot earlier
+           to leave both tangencies and floating-point endpoint ties to the chord overlap test. */
+        const double near_height = hypot(r, nearest) - radius;
+        const size_t first = (size_t)fmin(fmax(near_height / (z[1] - z[0]) - 1.0, 0.0), (double)(nz - 2));
+        const double lo = radius + z[first];
+        double left = sqrt(fmax((lo - r) * (lo + r), 0.0));
+        double sum = 0.0, linear_sum = 0.0;
+        double fl = 0.0, fr = 0.0, fstart = 0.0, fend = 0.0;
+        if (with_linear) {
+            fl = radial_primitive(left, r);
+            fstart = radial_primitive(start, r);
+            fend = radial_primitive(end, r);
+        }
+        for (size_t k = first + 1; k < nz && left < farthest; ++k) {
+            const double hi = radius + z[k];
+            const double right = sqrt(fmax((hi - r) * (hi + r), 0.0));
+            if (with_linear)
+                fr = radial_primitive(right, r);
+            const double slope = (value[k] - value[k - 1]) / (z[k] - z[k - 1]);
+            double positive_integral = 0.0;
+            const int both_sides = symmetric && start <= -right && end >= right;
+            for (int side = 0; side < 2; ++side) {
+                const double a = fmax(start, side ? -right : left);
+                const double b = fmin(end, side ? -left : right);
+                if (b <= a)
+                    continue;
+                if (with_linear) {
+                    const double fa = a == start ? fstart : (side ? -fr : fl);
+                    const double fb = b == end ? fend : (side ? -fl : fr);
+                    linear_sum += alpha[k - 1] * (b - a) + beta[k - 1] * (fb - fa);
+                }
+                if (side && both_sides) {
+                    sum += positive_integral;
+                    continue;
+                }
+                const double mid = (a + b) * 0.5, half = (b - a) * 0.5;
+                double integral = 0.0;
+#if SOS_USE_NEON
+                float64x2_t total = vdupq_n_f64(0.0);
+                float64x2_t low = vdupq_n_f64(INFINITY), high = vdupq_n_f64(-INFINITY);
+                for (size_t j = 0; j < 8; j += 2) {
+                    float64x2_t s = vaddq_f64(vdupq_n_f64(mid), vmulq_n_f64(vld1q_f64(u + j), half));
+                    float64x2_t ss = vmulq_f64(s, s);
+                    float64x2_t h = vaddq_f64(
+                        vdupq_n_f64(r - radius),
+                        vdivq_f64(ss, vaddq_f64(vsqrtq_f64(vaddq_f64(vdupq_n_f64(r2), ss)), vdupq_n_f64(r))));
+                    low = vminq_f64(low, h);
+                    high = vmaxq_f64(high, h);
+                    float64x2_t q = vaddq_f64(vdupq_n_f64(value[k - 1]),
+                                              vmulq_n_f64(vsubq_f64(h, vdupq_n_f64(z[k - 1])), slope));
+                    total = vfmaq_f64(total, vmulq_f64(q, q), vld1q_f64(w + j));
+                }
+                if (vminvq_f64(low) >= z[k - 1] && vmaxvq_f64(high) <= fmin(z[k], support)) {
+                    integral = vaddvq_f64(total);
+                } else
+#endif
+                {
+                    for (size_t j = 0; j < 8; ++j) {
+                        const double s = mid + half * u[j], ss = s * s;
+                        const double h = (r - radius) + ss / (sqrt(r2 + ss) + r);
+                        if (h > support)
+                            continue;
+                        double q = value[k - 1] + (h - z[k - 1]) * slope;
+                        /* A roundoff displacement across a knot uses the neighboring interpolant. */
+                        if (h < z[k - 1] || h > z[k]) {
+                            q = knot_value(h, value, n_values, z[1] - z[0]);
+                        }
+                        integral += q * q * w[j];
+                    }
+                }
+                positive_integral = half * integral;
+                sum += positive_integral;
+            }
+            left = right;
+            fl = fr;
+        }
+        out[i] = sum;
+        if (with_linear)
+            linear[i] = fmax(linear_sum, 0.0);
+    }
+}
+
+/* The table grid and quadrature rule are supplied by the Python builder. */
+enum table_profile { TABLE_EXP, TABLE_TRIANGLE, TABLE_LINEAR, TABLE_SQUARE, TABLE_GAUSSIAN, TABLE_TWO_LAYER };
+
+static inline double table_profile_value(double h, int kind, const double *p, const double *values, size_t nz,
+                                         double step) {
+    if (kind == TABLE_EXP)
+        return exp(-fmax(h, 0.0) / p[0]);
+    if (kind == TABLE_TRIANGLE)
+        return fmax(0.0, 1.0 - fabs(h - 25.0) / 15.0);
+    if (kind == TABLE_GAUSSIAN) {
+        double z = (h - p[0]) / p[1];
+        return exp(-0.5 * (z * z)) / p[2];
+    }
+    if (kind == TABLE_TWO_LAYER)
+        return aerosol_value(fmax(h, 0.0), p, 1);
+    double x = fmin(fmax(h / step, 0.0), (double)(nz - 1));
+    size_t i = (size_t)x;
+    double q = values[i];
+    if (i + 1 < nz)
+        q += (h - i * step) * ((values[i + 1] - values[i]) / step);
+    return kind == TABLE_SQUARE ? q * q : q;
+}
+
+void build_table_c(size_t na, size_t nx, int ground, double radius, double top, double end, int kind,
+                   const double *p, const double *values, size_t nz, double step, const double *x, const double *u,
+                   const double *w, const double *impact2, const double *rho, const double *hlo, double *workspace,
+                   double *out) {
+    /* On ground-impact rays all rows share heights, profiles, and quadrature weights. */
+    double *numerator = workspace;
+    double *denominator = ground ? workspace + (nx - 1) * 8 : workspace;
+    for (size_t i = 0; i < na; ++i) {
+        const double h0 = hlo[i], vmax = sqrt(fmax(top - h0, 0.0)), dv = vmax / (nx - 1);
+        const double support = sqrt(fmax(end - h0, 0.0));
+        double total = 0.0;
+        out[i * nx] = 0.0;
+        for (size_t j = 0; j + 1 < nx; ++j) {
+            double left = x[j] * vmax, width = dv;
+            if (end < top) {
+                left = fmin(left, support);
+                width = fmin(x[j + 1] * vmax, support) - left;
+            }
+            double inc = 0.0;
+            for (size_t k = 0; k < 8; ++k) {
+                const size_t idx = j * 8 + k;
+                if (!ground || i == 0) {
+                    const double v = left + width * u[k], h = h0 + v * v, r = radius + h;
+                    const double profile = h <= end ? table_profile_value(h, kind, p, values, nz, step) : 0.0;
+                    if (ground) {
+                        numerator[idx] = profile * (2 * r * v) * (w[k] * width);
+                        denominator[idx] = v * v * (r + radius);
+                    } else {
+                        inc += profile * (2 * r / sqrt(r + rho[i])) * (w[k] * width);
+                    }
+                }
+                if (ground)
+                    inc += numerator[idx] / sqrt(denominator[idx] + impact2[i]);
+            }
+            total += inc;
+            out[i * nx + j + 1] = total;
+        }
+    }
+}
+
+/* The shadow cylinder and outer sphere belong to the bound probe. Additional shells
+   use the ray integrator's radius and domain, which may have been supplied separately. */
+static void solar_edges(double r, double dx, double mu, double probe_r2, double top_r2, size_t n_extra,
+                        const double *extra_r2, double *edges) {
+    const double b = r * mu, pp = r * r, core = b * b - pp;
+    const double disc = core + probe_r2;
+    double end = -b + sqrt(fmax(core + top_r2, 0.0));
+    const double hit = -b - sqrt(fmax(disc, 0.0));
+    if (disc >= 0.0 && b < 0.0 && hit >= -1e-7)
+        end = hit;
+    end = fmax(end, 0.0);
+    edges[0] = 0.0;
+    edges[1] = -b > 0.0 && -b < end ? -b : end;
+    const double aa = dx * dx;
+    const double root = sqrt(aa * probe_r2) / fmax(aa, 1e-30);
+    edges[2] = end;
+    edges[3] = aa > 1e-20 && root > 0 && root < end && r + root * mu < 0 ? root : end;
+    edges[4] = end;
+    size_t ne = 5;
+    for (size_t j = 0; j < n_extra; ++j) {
+        const double det = core + extra_r2[j], chord = sqrt(fmax(det, 0.0));
+        const double a = -b - chord, c = -b + chord;
+        edges[ne++] = det > 0 && a > 0 && a < end ? a : end;
+        edges[ne++] = det > 0 && c > 0 && c < end ? c : end;
+    }
+    for (size_t j = 1; j < ne; ++j) {
+        const double value = edges[j];
+        size_t k = j;
+        while (k && edges[k - 1] > value) {
+            edges[k] = edges[k - 1];
+            --k;
+        }
+        edges[k] = value;
+    }
+}
+
+/* Construct solar rays in row order. The caller supplies the actual shell and profile bindings. */
+void sun_rays_c(size_t nh, const double *h, size_t nx, const double *x, double radius, const double *grazing_mu,
+                double probe_r2, double top_r2, size_t n_extra, const double *extra_r2, double *p, double *d,
+                double *edges) {
+    const size_t ne = 5 + 2 * n_extra;
+    for (size_t i = 0; i < nh; ++i) {
+        const double r = radius + h[i], grazing = grazing_mu[i];
+        for (size_t j = 0; j < nx; ++j, p += 3, d += 3) {
+            const double mu = j ? grazing + (1.0 - grazing) * (x[j] * x[j]) : grazing + 1e-9;
+            p[0] = p[1] = 0.0;
+            p[2] = r;
+            d[0] = sqrt(fmax(0.0, 1.0 - mu * mu));
+            d[1] = 0.0;
+            d[2] = mu;
+            solar_edges(r, d[0], mu, probe_r2, top_r2, n_extra, extra_r2, edges);
+            edges += ne;
+        }
+    }
+}
+"""
+
+_HOST_NATIVE_CACHE = {}
+_HOST_NATIVE_RETRY_AFTER = {}
+_HOST_NATIVE_CFLAGS = ('-std=c99', '-O3', '-ffp-contract=off', '-fPIC')
+
+
+@lru_cache(maxsize=2)
+def _native_digest(flags, source):
+    """Digest the translation unit and the flags that determine its arithmetic."""
+    return hashlib.sha256('\0'.join((*flags, source)).encode()).hexdigest()
+
+
+def host_native_source_hash():
+    return _native_digest(_HOST_NATIVE_CFLAGS, _HOST_NATIVE_SRC)
+
+
+def _host_buffer(value, shape, *, writable=False):
+    if (type(value) is not np.ndarray or value.dtype != np.float64 or value.shape != shape
+            or not value.flags.c_contiguous or not value.flags.aligned or (writable and not value.flags.writeable)):
+        raise ValueError(f'E_HOST_NATIVE_BUFFER: expected aligned contiguous float64 {shape}')
+    return value
+
+
+def _load_host_native(path):
+    lib = ctypes.CDLL(str(path))
+    arr = np.ctypeslib.ndpointer(dtype='f8', flags=('C_CONTIGUOUS', 'ALIGNED'))
+    size, real, integer = ctypes.c_size_t, ctypes.c_double, ctypes.c_int
+    lib.profile_columns.argtypes = [
+        size, size, size, arr, arr, arr, arr, arr, real, integer, integer, arr, size, real, arr, real, real, real, arr
+    ]
+    lib.profile_columns.restype = integer
+    lib.linear_columns_c.argtypes = [size, size, arr, arr, arr, arr, arr]
+    lib.linear_columns_c.restype = None
+    lib.squared_columns.argtypes = [
+        size, size, size, arr, arr, arr, arr, arr, arr, arr, real, real, arr, integer, arr, arr, arr
+    ]
+    lib.squared_columns.restype = None
+    lib.build_table_c.argtypes = [
+        size, size, integer, real, real, real, integer, arr, arr, size, real, arr, arr, arr, arr, arr, arr, arr, arr
+    ]
+    lib.build_table_c.restype = None
+    lib.sun_rays_c.argtypes = [size, arr, size, arr, real, arr, real, real, size, arr, arr, arr, arr]
+    lib.sun_rays_c.restype = None
+    return lib
+
+
+def _host_native():
+    """Use NumPy if the optional C99 library is unavailable. Retry transient failures after a minute."""
+    try:
+        root = paths.work_root(create=False)
+    except (OSError, RuntimeError) as exc:
+        warnings.warn(f'E_HOST_NATIVE_WORK_ROOT ({type(exc).__name__}: {exc}): using NumPy', RuntimeWarning)
+        return None
+    digest = host_native_source_hash()
+    arch = platform.machine()
+    key = (root, arch, digest)
+    if key in _HOST_NATIVE_CACHE:
+        return _HOST_NATIVE_CACHE[key]
+    if time.monotonic() < _HOST_NATIVE_RETRY_AFTER.get(key, 0):
+        return None
+    ext = '.dylib' if sys.platform == 'darwin' else '.so'
+    build_dir = root / 'build'
+    target = build_dir / f'host_native_{arch}_{digest}{ext}'
+    reason = 'E_HOST_NATIVE_WORK_ROOT'
+    try:
+        build_dir.mkdir(parents=True, exist_ok=True)
+        lib = None
+        if target.is_file():
+            try:
+                lib = _load_host_native(target)
+            except (OSError, AttributeError) as exc:
+                warnings.warn(f'E_HOST_NATIVE_LOAD ({type(exc).__name__}: {exc}): rebuilding', RuntimeWarning)
+        if lib is None:
+            reason = 'E_HOST_NATIVE_COMPILER_MISSING'
+            compiler = shutil.which('cc') or shutil.which('clang') or shutil.which('gcc')
+            if compiler is None:
+                raise FileNotFoundError('C compiler')
+            reason = 'E_HOST_NATIVE_BUILD'
+            with tempfile.TemporaryDirectory(dir=build_dir) as tmp:
+                source = Path(tmp) / 'host_native.c'
+                binary = Path(tmp) / target.name
+                source.write_text(_HOST_NATIVE_SRC, encoding='utf-8')
+                link = ['-dynamiclib'] if sys.platform == 'darwin' else ['-shared']
+                subprocess.run(
+                    [compiler, *_HOST_NATIVE_CFLAGS, *link, source, '-o', binary, '-lm'],
+                    check=True,
+                    capture_output=True, text=True, errors='replace', timeout=30, cwd=tmp,
+                    env=dict(os.environ, TMPDIR=tmp),
+                )
+                # Bind the staged image before publication. An old image at the target
+                # path can still be mapped if it loaded but lacked a required symbol.
+                reason = 'E_HOST_NATIVE_LOAD'
+                lib = _load_host_native(binary)
+                reason = 'E_HOST_NATIVE_BUILD'
+                os.replace(binary, target)
+                lib._name = str(target)
+    except (OSError, subprocess.SubprocessError, AttributeError) as exc:
+        _HOST_NATIVE_RETRY_AFTER[key] = time.monotonic() + 60.0
+        detail = (f'exit {exc.returncode}: {(exc.stderr or str(exc))[-1000:]}' if isinstance(exc, subprocess.CalledProcessError)
+                  else f'{type(exc).__name__}: {exc}')
+        warnings.warn(f'{reason} ({detail}): using NumPy', RuntimeWarning)
+        return None
+    _HOST_NATIVE_RETRY_AFTER.pop(key, None)
+    _HOST_NATIVE_CACHE[key] = lib
+    return lib

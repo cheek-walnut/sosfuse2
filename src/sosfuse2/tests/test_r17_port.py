@@ -390,7 +390,9 @@ class Stage1Wiring(unittest.TestCase):
             with patch.dict(os.environ, env, clear=True):
                 first = cuda.raw_kernel(15, 1, 0, 0, ray_limit=True)
                 project = cuda.fl_project_kernel(15, 0)
-            key = (tuple(cuda.flags), 15, 15, 1, 0, 0, ('L', cuda.L), *grid(cuda), 'LAUNCH_RAY_LIMIT')
+            # the stratospheric first light takes the FAST_FIRST layout (angular table), whose defines are part of the key
+            fast_first = ('-DFAST_WAVE_STRIDE=16', '-DFAST_BATCH=12', '-DFAST_FIRST', '-DHG_ANGLE_BINS=64', '-DFAST_THREADS=128')
+            key = (tuple(cuda.flags), 15, 15, 1, 0, 0, ('L', cuda.L), *grid(cuda), fast_first, 'LAUNCH_RAY_LIMIT')
             key = (key, stage1) if stage1 else key
             self.assertIs(cuda.raw[key], first)
             self.assertIs(cuda.raw[key + ('fl_project',)], project)

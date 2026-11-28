@@ -386,6 +386,7 @@ def create(
       aerosol         None (exponential profile) or a namespace with profile(h), column (aod normalisation), folder(cache)
                       (sun-cache folder per profile) and vector (two-layer parameters for the native kernel): tropo_profile.engine_hooks."""
     from sosfuse2.atmosphere import density, components, minor_absorbers
+    from ..rays import ray_columns
 
     params = state['parameters']
     domain = domain or Domain(step_km=density.profile_step_km(state))
@@ -420,6 +421,9 @@ def create(
         SunGeometry=SunGeometryBinder(profile, H, descriptor, domain),
         aerosol_descriptor=descriptor,
     )
+    # Associate the optional scalar integral with this particular geometry binding.
+    # Serialized geometry-only workers and replacement providers need only the iterator.
+    old._strato_quadrature = (old.geometry_segments, ray_columns._strato_columns)
     optical = density.build(state, domain)
     amounts = components.optics_state(state, optical)
     if not components.reference_active() and 'no2' not in spectral:

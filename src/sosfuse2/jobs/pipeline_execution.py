@@ -9,6 +9,7 @@ import copy
 import fcntl
 import os
 import time
+import tempfile
 import traceback
 from pathlib import Path
 from ..backends import vram_trace
@@ -91,7 +92,11 @@ def promote_bundle(bundle, xp):
     for attr in ('density_columns', 'strato_columns'):
         if hasattr(bundle, attr):
             with vram_trace.item(f'{label}.{attr}'):
-                setattr(result, attr, {k: xp.asarray(v) for k, v in getattr(bundle, attr).items()})
+                columns = {
+                    k: result.arrays['end_col'] if v is bundle.arrays['end_col'] else xp.asarray(v)
+                    for k, v in getattr(bundle, attr).items()
+                }
+                setattr(result, attr, columns)
     return result
 
 
@@ -248,7 +253,7 @@ def prepare_tables(s, hs, el, az, group, batch):
     return dict(batches=prepared, ee=ee, aa=aa, hs=hs, group=group, shape=(len(hs), len(el), len(az), s.W))
 
 
-def evaluate_tables(s, field, prepared):
+def evaluate_tables(s, field, prepared, *, paired=False):
     """GPU transport + completed host collection; replay is deferred to CPU."""
     from ..outputs.radiance_table import _evaluate
 
@@ -260,10 +265,18 @@ def evaluate_tables(s, field, prepared):
     for b in prepared['batches']:
         with vram_trace.item('query.table_geometry'):
             bundle = None if xp is np else promote_bundle(b['bundle'], xp)
-        one = _evaluate(s, b['flat'], device_field, True, prepared['group'], bundle)
-        multiple = _evaluate(s, b['flat'], device_field, False, prepared['group'], bundle)
+        if paired:
+            # Only the sum of the three intensity components reaches either table.
+            # Keep each order separate until after the FP64 solar multiplication.
+            pair = np.empty((bundle.rays, s.W, 2), dtype='f8')
+            for lane, first in enumerate((True, False)):
+                _evaluate(s, b['flat'], device_field, first, prepared['group'], bundle, intensity_out=pair[..., lane])
+            results.append(pair)
+        else:
+            one = _evaluate(s, b['flat'], device_field, True, prepared['group'], bundle)
+            multiple = _evaluate(s, b['flat'], device_field, False, prepared['group'], bundle)
+            results.append((one, multiple))
         s.kernel.sync()
-        results.append((one, multiple))
         del bundle
     return results
 
@@ -275,20 +288,25 @@ def replay_tables(s, prepared, results):
     table = np.empty(prepared['shape'], 'f4')
     first_table = first_order_buffer(s, table.shape)
     dummy = np.empty(0, 'f4')
-    for b, (one_values, multiple_values) in zip(prepared['batches'], results):
+    for b, values in zip(prepared['batches'], results):
         offset = 0
         for j, raws in zip(b['part'], b['captured']):
-            n = len(raws)
             args = (s, prepared['hs'][j], prepared['ee'], prepared['aa'], dummy, raws)
-            one = _replay(*args, one_values[offset : offset + n], True)
-            multiple = _replay(*args, multiple_values[offset : offset + n], False)
+            if isinstance(values, np.ndarray):
+                n = prepared['ee'].size
+                pair = _replay(*args, values[offset : offset + n], True, paired=True)
+                one, multiple = pair[..., 0], pair[..., 1]
+            else:
+                n = len(raws)
+                one = _replay(*args, values[0][offset : offset + n], True)[..., 0]
+                multiple = _replay(*args, values[1][offset : offset + n], False)[..., 0]
             offset += n
-            spec = (one + multiple)[..., 0].astype('f4')
+            spec = (one + multiple).astype('f4')
             if not np.isfinite(spec).all() or (spec < 0).any():
                 raise RuntimeError('E_RADIANCE_INVALID: nonfinite/negative')
             table[j] = spec
             if first_table is not None:
-                first_table[j] = one[..., 0]
+                first_table[j] = one
     return table
 
 
@@ -420,27 +438,84 @@ def restore_device_payload(payload, compiled):
     return s, geometry
 
 
+class GeometryBuffers:
+    """Wire locations for immutable arrays of this state's leased geometry."""
+
+    def __init__(self, file):
+        self.file = file
+        self.locations = {}
+        self.paths = {}
+
+    def select(self, bundle):
+        import numpy as np
+
+        for value in bundle.arrays.values():
+            if id(value) in self.locations or value.flags.writeable or not value.flags.c_contiguous:
+                continue
+            # The lease protects the packed files for the whole chunk loop.
+            base = value
+            while isinstance(base.base, np.ndarray):
+                base = base.base
+            if isinstance(base, np.memmap) and base.mode == 'r':
+                offset = base.offset + value.ctypes.data - base.ctypes.data
+                self.locations[id(value)] = (value, (str(base.filename), offset, value.nbytes))
+        for value in bundle._device_paths.values():
+            # These derived CSR records are computed once by _transport_payload.
+            value.setflags(write=False)
+            self.paths[id(value)] = value
+
+    def location(self, view):
+        key = id(view.obj)
+        saved = self.locations.get(key)
+        if saved is not None:
+            return saved[1]
+        if key in self.paths:
+            location = (self.file.name, self.file.tell(), view.nbytes)
+            self.file.write(view)
+            self.locations[key] = (view.obj, location)
+            return location
+        return None
+
+
+@contextlib.contextmanager
+def geometry_buffers():
+    with tempfile.NamedTemporaryFile(dir=os.environ['SOS_PERSISTENT_ROOT']) as file:
+        buffers = GeometryBuffers(file)
+        try:
+            yield buffers
+        finally:
+            buffers.locations.clear()
+            buffers.paths.clear()
+
+
 # Production IPC uses protocol-5 out-of-band buffers in anonymous session files.
 # Only small descriptors cross the socket; consumers mmap arrays without pickle
 # array copies. The sender retains ownership until the matching reply arrives.
 @contextlib.contextmanager
-def wire_send(conn, value, root, emit, name):
+def wire_send(conn, value, root, emit, name, shared=None):
     import pickle
-    import tempfile
 
     start = time.monotonic()
     with tempfile.TemporaryDirectory(dir=root) as directory:
         offsets = []
-        with open(Path(directory) / 'arrays', 'wb') as f:
+        path = Path(directory) / 'arrays'
+        shared_start = shared.file.tell() if shared is not None else 0
+        with path.open('wb') as f:
 
             def buffer(b):
                 view = b.raw()
-                offsets.append((f.tell(), view.nbytes))
-                f.write(view)
+                location = shared.location(view) if shared is not None else None
+                if location is None:
+                    location = (str(path), f.tell(), view.nbytes)
+                    f.write(view)
+                offsets.append(location)
 
             data = pickle.dumps(value, protocol=5, buffer_callback=buffer)
+            size = f.tell() + len(data)
+        if shared is not None:
+            shared.file.flush()
+            size += shared.file.tell() - shared_start
         (Path(directory) / 'object').write_bytes(data)
-        size = sum(n for _, n in offsets) + len(data)
         conn.send((directory, offsets, size))
         emit(name, 'ipc_send', bytes=size, seconds=time.monotonic() - start)
         yield
@@ -459,9 +534,17 @@ def wire_recv(conn, emit, name):
     directory, offsets, size = message
     path = Path(directory)
     # ndarray bases retain the mmap until every loaded array is dropped.
-    with (path / 'arrays').open('rb') as f:
-        mapped = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_COPY) if offsets else None
-    value = pickle.loads((path / 'object').read_bytes(), buffers=[memoryview(mapped)[i : i + n] for i, n in offsets])
+    mappings = {}
+    buffers = []
+    for filename, offset, length in offsets:
+        if not length:
+            buffers.append(memoryview(bytearray()))
+            continue
+        if filename not in mappings:
+            with open(filename, 'rb') as f:
+                mappings[filename] = memoryview(mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_COPY))
+        buffers.append(mappings[filename][offset : offset + length])
+    value = pickle.loads((path / 'object').read_bytes(), buffers=buffers)
     emit(name, 'ipc_receive', bytes=size, seconds=time.monotonic() - start)
     return value
 
@@ -487,7 +570,7 @@ class PreparedSegments:
         return iter(self.rows[self.key(p, d, n)])
 
 
-def persistent_chunk(s, geometry, tables, a, name, emit, *, tol=None):
+def persistent_chunk(s, geometry, tables, a, name, emit, *, tol=None, shared=None, on_sent=None):
     """CPU closure owner. Service calls back once for every observer evaluation."""
     import numpy as np
     from multiprocessing.connection import Client
@@ -527,6 +610,17 @@ def persistent_chunk(s, geometry, tables, a, name, emit, *, tol=None):
         if a.backend != 'numpy':
             for key in ('bundle', 'ground_bundle'):
                 payload[key] = _transport_payload(payload[key])
+                if shared is not None:
+                    shared.select(getattr(geometry, key))
+            # The device kernel reads the compact ground rows. Dense rows are
+            # used only by the reference transport. Replay stays on the producer.
+            for c in payload['constants'].values():
+                c.pop('gd', None)
+                c.pop('gv', None)
+            tables = dict(
+                group=tables['group'], batches=[dict(flat=None, bundle=b['bundle']) for b in tables['batches']]
+            )
+            prepared['raws'] = None
         trace = vram_trace.current.get()
         if trace is not None:
             payload['vram_chunk'] = trace.chunk
@@ -546,7 +640,9 @@ def persistent_chunk(s, geometry, tables, a, name, emit, *, tol=None):
             from .run_state import effective_tol
             tol = effective_tol({})
         conn.send((name, a.max_eval, a.block_size, a.threads, tol))
-        with wire_send(conn, payload, root, emit, name):
+        with wire_send(conn, payload, root, emit, name, shared):
+            if on_sent is not None:
+                on_sent()
             while True:
                 message = conn.recv()
                 if message == 'observer':
@@ -925,7 +1021,7 @@ def persistent_service(root, backend, lock, active_limit, rss_gb):
                 solve_seconds = time.monotonic() - solve_start
                 begin('table_transport')
                 table_start = time.monotonic()
-                collected = evaluate_tables(s, field, payload['tables'])
+                collected = evaluate_tables(s, field, payload['tables'], paired=backend == 'cupy')
                 table_seconds = time.monotonic() - table_start
                 result = (kernel.host(field), stats, solver.timings, collected, solve_seconds, table_seconds)
                 end()

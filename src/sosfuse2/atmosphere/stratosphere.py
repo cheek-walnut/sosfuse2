@@ -9,6 +9,7 @@ All distances are km; beta is km^-1; AOD is dimensionless.
 
 import hashlib, json, math, os
 from pathlib import Path
+from types import SimpleNamespace
 import numpy as np
 
 from ..foundation import content_identity as source_identity, paths
@@ -262,22 +263,38 @@ def _column_nodes(p, d, old, n):
         yield active, r, ds
 
 
+_COLUMN_DENSITY = density
+
+
 def columns(p, d, old, profile, n=24):
     """Same accepted segment decomposition and GL order as old total_columns."""
     p = np.broadcast_to(p, np.shape(d))
     out = np.zeros(len(d))
-    if os.environ.get('SOSFUSE2_STRATO_HOST_NOPREFIX') == '1':
+    mode = os.environ.get('SOSFUSE2_STRATO_HOST_NOPREFIX')
+    if mode == '1':
         for active, r, ds in _column_nodes(p, d, old, n):
             out[active] += np.sum(density(r - 6371.0, profile) * ds, axis=1)
         return out
-    for active, q, r, ds, prefix in old.geometry_segments(p, d, n):
+    geometry = old.geometry_segments
+    if mode is None and density is _COLUMN_DENSITY and type(old) is SimpleNamespace:
+        native = vars(old).get('_strato_quadrature')
+        if (type(native) is tuple and len(native) == 2 and native[0] is geometry
+                and native[1](p, d, geometry, profile, n, out, np)):
+            return out
+    for active, q, r, ds, prefix in geometry(p, d, n):
         out[active] += np.sum(density(r - 6371.0, profile) * ds, axis=1)
     return out
 
 
 def solar_grid(s, old, profile):
     sun = s.geo.sun
-    out = np.empty(sun.col.shape[:2])
+    shape = sun.col.shape[:2]
+    if type(sun) is SimpleNamespace:
+        h, x = vars(sun).get('h'), vars(sun).get('x')
+        if type(h) is np.ndarray and type(x) is np.ndarray and (
+                h.ndim != 1 or x.ndim != 1 or shape != (len(h), len(x))):
+            raise ValueError('E_SUN_GRID: column dimensions must match the solar coordinates')
+    out = np.empty(shape)
     for i, h in enumerate(sun.h):
         r = 6371.0 + h
         mg = -np.sqrt(max(0.0, 1 - (6371.0 / r) ** 2))

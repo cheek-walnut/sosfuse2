@@ -32,8 +32,11 @@ def test_first_ground_syntax_and_scratch(tmp_path, L, W):
         selected = flags + ([] if raysplit else ['EXP_SECTION_CLOCKS'])
         fused = Kernel(flags=selected, L=L, block_size=256)
         plain = Kernel(flags=['STRATO'], L=L, block_size=fused.bs(first=True))
-        # Phase 2 reuses the existing Y rows, including the 162-float L16 pad.
-        assert fused.shared_bytes(W, 2, first=True) == plain.shared_bytes(W, 2, first=True)
+        # Instrumented queries use the ground scratch in the Y rows, as do
+        # boundary queries. Uninstrumented wide queries share the batched first-light layout.
+        assert fused.shared_bytes(W, 2, first=True) == plain.shared_bytes(W, 2, first=True, boundary=not raysplit)
+        if W == 15:
+            assert plain.shared_bytes(W, 2, first=True) == plain.shared_bytes(W, 0, first=True, ray_limit=True)
         for phase in (0, 2):
             for mie in (False, True):
                 options = defines(W, selected + (['TROPO_MIE'] if mie else []), (1, phase, 0))

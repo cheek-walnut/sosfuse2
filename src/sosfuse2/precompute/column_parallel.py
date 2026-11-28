@@ -169,6 +169,29 @@ def _event(kind, count, rays, tasks, result, reason, started):
     )
 
 
+def _strato_table_columns(out, starts, cell_off, dirs, old, profile, count):
+    """Apply the same interpolant on disjoint cell ranges with one shared table."""
+    from concurrent.futures import ThreadPoolExecutor
+    from ..rays import column_table
+
+    # Build once before worker threads enter the lookup. The tables are read-only.
+    column_table.tables(column_table.strato(profile))
+    span = CHUNK * TASK_CHUNKS
+    cuts = np.unique(np.r_[0, np.searchsorted(cell_off, np.arange(span, len(dirs), span)), len(starts)])
+
+    def fill(pair):
+        first, last = pair
+        lo, hi = cell_off[first], cell_off[last]
+        return column_table.fill(
+            out[lo:hi], 'strato', starts[first:last], cell_off[first:last + 1] - lo,
+            dirs[lo:hi], old, profile,
+        )
+
+    with ThreadPoolExecutor(min(count, len(cuts) - 1)) as pool:
+        list(pool.map(fill, zip(cuts[:-1], cuts[1:])))
+    return True
+
+
 def parallel_columns(out, kind, starts, cell_off, dirs, old, parameter, count=None):
     """Fill `out` in place like the serial loop and return True, or return False to let the caller run that loop.
 
@@ -178,7 +201,15 @@ def parallel_columns(out, kind, starts, cell_off, dirs, old, parameter, count=No
     a numerical error then recurs in the serial loop and is raised there)."""
     from ..rays import column_table
 
-    if column_table.method() != 'gl24':
+    method = column_table.method()
+    if method != 'gl24':
+        if method == 'table-v1' and kind == 'strato' and dirs is not None and len(dirs) >= MIN_RAYS:
+            try:
+                count = workers() if count is None else int(count)
+            except ValueError:  # the table path does not depend on the worker setting
+                count = 1
+            if count > 1 and len(starts) > 1:
+                return _strato_table_columns(out, starts, cell_off, dirs, old, parameter, count)
         return column_table.fill(out, kind, starts, cell_off, dirs, old, parameter)
     count = workers() if count is None else int(count)
     rays = len(dirs)

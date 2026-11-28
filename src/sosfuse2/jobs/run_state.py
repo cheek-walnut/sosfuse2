@@ -1211,30 +1211,43 @@ def _prepare_run_grid(job, a, np, configure, default_root):
     job.ksplit_decision = None
 
 
-def _prepare_wavelength_chunk(job, a, np, chunk_metadata):
-    if job.trace is not None:
-        job.trace.chunk, job.trace.stage, job.trace.iteration = job.index, 'setup', None
-    count = len(job.chunk)
-    job.padded = (
-        job.chunk
+def _build_chunk_inputs(job, a, np, index, chunk, *, prepare_table=False):
+    """Build an independent solver, scope and query bundle using only fixed run inputs."""
+    count = len(chunk)
+    padded = (
+        chunk
         if count == 15 or (count == 1 and len(job.chunks) == 1)
-        else np.r_[job.chunk, np.repeat(job.chunk[-1], 15 - count)]
+        else np.r_[chunk, np.repeat(chunk[-1], 15 - count)]
     )
     if job.pipeline_lock:
-        phase(job.name, 'cpu_prepare_start', chunk=job.index)
-    with attach_cache_event(job.name, job.index, job.state) as job.made:
-        job.made.append(
+        phase(job.name, 'cpu_prepare_start', chunk=index)
+    with attach_cache_event(job.name, index, job.state) as made:
+        made.append(
             create_configured(
-                job.prepare / f'prepare_{job.index}',
+                job.prepare / f'prepare_{index}',
                 job.cfg,
-                job.padded,
+                padded,
                 'numpy' if job.pipeline_lock else a.backend,
                 job.state,
                 a.block_size,
                 geometry_cache=a.geometry_cache,
             )
         )
-    job.s, job.scope = job.made[0]
+    s, scope = made[0]
+    table = None
+    if prepare_table:
+        from .pipeline_execution import prepare_tables
+
+        table = prepare_tables(s, job.hs, job.el, job.az, a.group, a.batch)
+    return s, scope, table
+
+
+def _prepare_wavelength_chunk(job, a, np, chunk_metadata, inputs=None):
+    if job.trace is not None:
+        job.trace.chunk, job.trace.stage, job.trace.iteration = job.index, 'setup', None
+    job.s, job.scope, job.prepared_table = (
+        _build_chunk_inputs(job, a, np, job.index, job.chunk) if inputs is None else inputs.result()
+    )
     job.table_density = chunk_metadata(job.s, job.chunk, job.table_density)
     if job.ksplit_decision is not None:
         job.s.ksplit_decision = job.ksplit_decision
@@ -1262,7 +1275,7 @@ def _prepare_wavelength_chunk(job, a, np, chunk_metadata):
         from sosfuse2.backends.device_profile import apply_pool_limit
 
         apply_pool_limit(job.xp)
-    return count
+    return len(job.chunk)
 
 
 def _prepare_chunk_geometry(job, a, gm, cache_complete, build_cells, column_ready, ensure_column):
@@ -1376,7 +1389,7 @@ def _collect_chunk_table(job, a, np, count):
             job.xp.get_default_memory_pool().free_all_blocks()
 
 
-def _prepare_pipeline_chunk(job, a, np, count, configure, default_root):
+def _prepare_pipeline_chunk(job, a, np, count, configure, default_root, on_sent=None):
     from sosfuse2.jobs.pipeline_execution import (
         GpuToken,
         prepare_geometry,
@@ -1391,12 +1404,16 @@ def _prepare_pipeline_chunk(job, a, np, count, configure, default_root):
     job.evaluate_tables = evaluate_tables
     job.replay_tables = replay_tables
     prepare_geometry(job.s, job.geometry, a.reduced)
-    job.prepared_table = prepare_tables(job.s, job.hs, job.el, job.az, a.group, a.batch)
+    if job.prepared_table is None:
+        job.prepared_table = prepare_tables(job.s, job.hs, job.el, job.az, a.group, a.batch)
     if job.persistent:
         from sosfuse2.jobs.pipeline_execution import persistent_chunk
 
+        # every event of the persistent exchange carries the chunk index (benchmark segments are joined by chunk, not by order)
         job.host, job.stats, job.stiming, job.collected, sec, qsec = persistent_chunk(
-            job.s, job.geometry, job.prepared_table, a, job.name, phase, tol=job.cfg['anderson_tol']
+            job.s, job.geometry, job.prepared_table, a, job.name,
+            lambda name, event, **kw: phase(name, event, **{'chunk': job.index, **kw}), tol=job.cfg['anderson_tol'],
+            shared=job.geometry_buffers, on_sent=on_sent,
         )
         if job.trace is not None:
             job.service_traces.append(job.stiming.pop('vram_trace'))
@@ -1406,6 +1423,11 @@ def _prepare_pipeline_chunk(job, a, np, count, configure, default_root):
         job.timings.append(job.stiming)
         job.source_seconds += sec
         job.query_seconds += qsec
+        for batch in job.prepared_table['batches']:
+            batch.pop('bundle')
+            batch.pop('flat')
+            batch['captured'] = [[{'d': raw['d']} for raw in raws] for raws in batch['captured']]
+        job.s.kernel.constants.clear()
         job.pending_tables.append((job.s, job.prepared_table, job.collected, count, job.index))
         phase(
             job.name,
@@ -1440,14 +1462,33 @@ def _solve_wavelength_chunks(
     from sosfuse2.atmosphere.density import chunk_metadata
 
     job.table_density = None
-    chunks = enumerate(job.chunks)
-    for job.index, job.chunk in chunks:
-        count = _prepare_wavelength_chunk(job, a, np, chunk_metadata)
-        _prepare_chunk_geometry(job, a, gm, cache_complete, build_cells, column_ready, ensure_column)
-        if job.pipeline_lock and _prepare_pipeline_chunk(job, a, np, count, configure, default_root):
-            continue
-        _solve_chunk_source(job, a, np, Solver, count)
-        _collect_chunk_table(job, a, np, count)
+    from .pipeline_execution import geometry_buffers
+    from concurrent.futures import ThreadPoolExecutor
+
+    share = job.persistent and a.backend == 'cupy' and not a.reduced and len(job.chunks) > 1
+    with contextlib.ExitStack() as stack:
+        job.geometry_buffers = stack.enter_context(geometry_buffers()) if share else None
+        pool = ThreadPoolExecutor(max_workers=1) if share else None
+        if pool is not None:
+            stack.callback(pool.shutdown, wait=True, cancel_futures=True)
+        pending = None
+
+        def prepare_next():
+            nonlocal pending
+            index = job.index + 1
+            if index < len(job.chunks):
+                pending = pool.submit(_build_chunk_inputs, job, a, np, index, job.chunks[index], prepare_table=True)
+
+        for job.index, job.chunk in enumerate(job.chunks):
+            count = _prepare_wavelength_chunk(job, a, np, chunk_metadata, pending)
+            pending = None
+            _prepare_chunk_geometry(job, a, gm, cache_complete, build_cells, column_ready, ensure_column)
+            if job.pipeline_lock and _prepare_pipeline_chunk(
+                job, a, np, count, configure, default_root, prepare_next if pool is not None else None
+            ):
+                continue
+            _solve_chunk_source(job, a, np, Solver, count)
+            _collect_chunk_table(job, a, np, count)
 
 
 def _finish_chunk_tables(job, np):

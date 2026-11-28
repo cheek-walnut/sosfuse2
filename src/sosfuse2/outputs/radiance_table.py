@@ -57,12 +57,13 @@ def _capture(s, h, ee, aa, dummy):
     return raws
 
 
-def _replay(s, h, ee, aa, dummy, raws, values, first):
+def _replay(s, h, ee, aa, dummy, raws, values, first, *, paired=False):
     """Run the accepted query again, returning precomputed per-chunk values."""
     kernel = s.kernel
     geo = s.geo
     index = iter(range(len(raws)))
     pack = geo.pack
+    offset = 0
 
     def token(p, d, n):
         i = next(index)
@@ -71,8 +72,15 @@ def _replay(s, h, ee, aa, dummy, raws, values, first):
         return i
 
     def fetch(i, solver, field, first_flag=False):
+        nonlocal offset
         if bool(first_flag) != bool(first):
             raise RuntimeError('E_REPLAY_FLAG')
+        if paired:
+            # Each lane already contains the FP64 sum of its three intensities.
+            # query applies the same solar weight to the two scattering orders.
+            start = offset
+            offset += len(raws[i]['d'])
+            return values[start:offset, :, :, None]
         value = values[i]
         out = np.zeros((len(value), solver.W, 2, 4), 'f8')
         out[:, :, 0] = value
@@ -119,7 +127,7 @@ def _bundle(s, raws, group):
     return bundle
 
 
-def _evaluate(s, raws, field, first, group, bundle=None):
+def _evaluate(s, raws, field, first, group, bundle=None, *, intensity_out=None):
     """Per-chunk phase-2 values (n,W,4) float32 for every captured raw pack."""
     from sosfuse2.backends import numpy_reference
     from sosfuse2.foundation.timers import stage
@@ -130,9 +138,14 @@ def _evaluate(s, raws, field, first, group, bundle=None):
         # NumPy has no block partition: `group` cannot change these values.
         packed = np.ascontiguousarray(field, 'f4')
         with stage('table_launch'):
-            return [
-                numpy_reference.transport(g, kernel.setup(s, g['nq']), packed, first, statistics=kernel.metrics) for g in raws
-            ]
+            constants = [kernel.setup(s, g['nq']) for g in raws]
+            from sosfuse2.backends import mlx_backend
+
+            if mlx_backend.enabled():
+                values = mlx_backend.query(raws, constants, packed, first)
+                if values is not None:
+                    return values
+            return [numpy_reference.transport(g, c, packed, first, statistics=kernel.metrics) for g, c in zip(raws, constants)]
     if bundle is None:
         bundle = _bundle(s, raws, group)
     sizes = bundle.sizes
@@ -142,6 +155,10 @@ def _evaluate(s, raws, field, first, group, bundle=None):
         value = kernel.host(query)
     if value.shape != (sum(sizes), s.W, 4):
         raise RuntimeError('E_QUERY_SHAPE')
+    if intensity_out is not None:
+        np.add(value[..., 0], value[..., 1], dtype=np.float64, out=intensity_out)
+        np.add(intensity_out, value[..., 2], out=intensity_out)
+        return intensity_out
     return np.split(value, np.cumsum(sizes)[:-1])
 
 

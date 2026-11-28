@@ -268,6 +268,20 @@ class ExponentialProfile:
         return dict(kind='exp', height=float(self.height))
 
 
+_EXPONENTIAL_CALL = ExponentialProfile.__call__
+_TWO_LAYER_CALL = TwoLayerProfile.__call__
+_TWO_LAYER_PROFILE = profile
+
+
+def _standard_aerosol(aerosol):
+    if type(aerosol) is ExponentialProfile:
+        return (type(aerosol).__call__ is _EXPONENTIAL_CALL and aerosol.clamp is True
+                and type(aerosol.height) in (int, float, np.float64) and 0 < aerosol.height < float('inf'))
+    return (type(aerosol) is TwoLayerProfile and type(aerosol).__call__ is _TWO_LAYER_CALL
+            and profile is _TWO_LAYER_PROFILE and type(aerosol.vector) is np.ndarray
+            and aerosol.vector.dtype == np.float64 and aerosol.vector.shape == (7,))
+
+
 @dataclass
 class ProfileFolder:
     tag: str

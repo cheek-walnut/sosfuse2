@@ -47,7 +47,7 @@ def load_wrapper(path=None):
     module.__dict__.update(
         {
             name: getattr(layout, name)
-            for name in ('count', 'padded', 'workspace', 'source_size', 'kernel_source', 'combined_aux', 'FastTransport')
+            for name in ('live_sh_cells', 'count', 'padded', 'workspace', 'source_size', 'kernel_source', 'combined_aux', 'FastTransport')
         }
     )
     from sosfuse2.solve.ground_sh import GRID_INTERVALS

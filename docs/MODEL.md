@@ -394,9 +394,10 @@ SOSFUSE2_ANDERSON_HISTORY=host SOSFUSE2_GROUND_SH_L=24 python -B -m sosfuse2.job
 ```
 
 The two environment variables are separate from the settings file, and `docs/ENVIRONMENT.md` describes both.
-`SOSFUSE2_ANDERSON_HISTORY=host` keeps the Anderson history in host memory, so the solve holds less device memory,
-although the memory admission estimate does not change; an eligible CUDA solve copies one wavelength's history at a
-time to the device for the products and the mixing.
+`SOSFUSE2_ANDERSON_HISTORY=host` keeps the Anderson history in host memory unless the first evaluation of a CUDA solve
+finds enough free device memory beyond the warm transport reserve; then the history rings stay on the device
+(`timings[i].anderson_ring` records `device-sources` or `device`). The memory admission estimate does not change; an
+eligible CUDA solve copies one wavelength's history at a time to the device for the products and the mixing.
 `SOSFUSE2_GROUND_SH_L=24` sets the order of the ground convolution, which is off by default and changes the result only
 for a state with nonzero albedo.
 
@@ -426,7 +427,7 @@ the environment.
 | `top_km`, the upper air and the height and `χ` grids | `settings.nr`, `settings.nchi` and `grid`, and for a top above 80 km `settings.top_km` and `settings.upper_air` |
 | `L` | `settings.L` and `solve_grid.L` |
 | `anderson_tol` | `settings.anderson_tol` and `anderson_tol` |
-| `SOSFUSE2_ANDERSON_HISTORY=host` | `timings[i].anderson_history` for each chunk |
+| `SOSFUSE2_ANDERSON_HISTORY=host` | `timings[i].anderson_history` and `timings[i].anderson_ring` for each chunk |
 | `SOSFUSE2_GROUND_SH_L` | `settings.kernel.ground_sh.order`, and `timings[i].ground_sh_order` for each chunk, the order of the ground table the CUDA kernel used (0 without one, and with the NumPy backend, which convolves the ground exactly) |
 | the density block | `density` |
 

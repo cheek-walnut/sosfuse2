@@ -1,5 +1,6 @@
 """Offline cross-section loader. NO2 is packaged; O4 is explicitly prepared."""
 
+from functools import lru_cache
 import hashlib
 import json
 
@@ -27,6 +28,21 @@ def o4_path():
     return paths.work_root(create=False) / 'assets' / O4_NAME
 
 
+# The fine grid is only read internally. The public asset document and its
+# content identity follow the current parser and identity policy on every call.
+_JSON = json
+_JSON_LOADS = json.loads if getattr(json.loads, '__globals__', None) is vars(json) else None
+_JSON_DECODER = json._default_decoder
+_SCAN = _JSON_DECODER.scan_once
+_DECODE = json.JSONDecoder.decode
+_RAW_DECODE = json.JSONDecoder.raw_decode
+
+
+@lru_cache(maxsize=2)
+def _fine_document(raw):
+    return json.loads(raw)
+
+
 def load(kind, *, required=True, path=None):
     """Validated FP64 values, content identity, byte-integrity SHA, and metadata. Never downloads."""
     path = path or (NO2 if kind == 'no2' else o4_path())
@@ -48,7 +64,14 @@ def load(kind, *, required=True, path=None):
         ):
             raise ValueError('E_O4_ASSET_STALE: source SHA or rules version differs; run ' + PREPARE)
         grid = np.asarray(doc['wavelength_nm'], 'f8')
-        fine = json.loads((paths.ASSETS / 'spectra_fine.json').read_bytes())
+        fine_raw = (paths.ASSETS / 'spectra_fine.json').read_bytes()
+        if (json is _JSON and json.loads is _JSON_LOADS and json._default_decoder is _JSON_DECODER
+                and _JSON_DECODER.scan_once is _SCAN and 'decode' not in vars(_JSON_DECODER)
+                and 'raw_decode' not in vars(_JSON_DECODER) and json.JSONDecoder.decode is _DECODE
+                and json.JSONDecoder.raw_decode is _RAW_DECODE):
+            fine = _fine_document(fine_raw)
+        else:
+            fine = json.loads(fine_raw)
         values = np.asarray(doc[field], 'f8')
         if (
             doc['format'] != f'{kind}-fine-v1'
@@ -104,7 +127,8 @@ def representative(block, wavelengths, *, o4=True):
             raise ValueError('E_SPECTRAL_CONTRACT: minor absorber asset changed since block creation')
         if block is not None and block['mode'] == 'band':
             edges = block['bin_edges_nm']
-            result[kind] = np.array([band_mean(asset['values'], a, b) for a, b in zip(edges[:-1], edges[1:])])
+            result[kind] = np.array([band_mean(asset['values'], a, b, asset['wavelength_nm'])
+                                     for a, b in zip(edges[:-1], edges[1:])])
         else:
             result[kind] = np.interp(wavelengths, asset['wavelength_nm'], asset['values'])
     return result

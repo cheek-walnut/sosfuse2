@@ -175,6 +175,8 @@ PRODUCTION_MODULES = (
     'asset_tools/strato_states',
     'backends/mlx_backend',
     'backends/mlx_ops',
+    'backends/mlx_query',
+    'backends/mlx_query_kernel',
     'backends/mlx_transport',
     'backends/mlx_warm',
     'backends/mlx_warm_kernels',

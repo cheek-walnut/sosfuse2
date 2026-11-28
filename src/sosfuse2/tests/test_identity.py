@@ -646,6 +646,7 @@ def test_state_labels_are_not_read():
     keys only; a key built at run time is outside its reach. The listed uses are not state dicts."""
     allowed = {
         ('jobs/pipeline_execution.py', 'group', 'prepared'): 'the prepared launch bundle, not a state',
+        ('jobs/pipeline_execution.py', 'group', 'tables'): 'the table transport bundle, not a state',
         ('jobs/plan_queue.py', 'role', 'r'): 'a plan row written by the planner',
         ('jobs/plan_queue.py', 'role', 'by_id[i]'): 'a plan row written by the planner',
     }
@@ -772,6 +773,8 @@ def test_package_hashes(monkeypatch):
         'sosfuse2/asset_tools/strato_states.py',
         'sosfuse2/backends/mlx_backend.py',
         'sosfuse2/backends/mlx_ops.py',
+        'sosfuse2/backends/mlx_query.py',
+        'sosfuse2/backends/mlx_query_kernel.py',
         'sosfuse2/backends/mlx_transport.py',
         'sosfuse2/backends/mlx_warm.py',
         'sosfuse2/backends/mlx_warm_kernels.py',

@@ -185,3 +185,25 @@ def test_worker_source_drift_keeps_parent_reason_and_serial_result(tmp_path, mon
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
+
+def test_strato_table_threads_keep_irregular_cell_ownership(monkeypatch):
+    from types import SimpleNamespace
+    from sosfuse2.atmosphere import stratosphere
+    from sosfuse2.rays import column_table, shell_segments
+
+    monkeypatch.setenv('SOSFUSE2_COLUMN_METHOD', 'table-v1')
+    monkeypatch.setattr(column_parallel, 'MIN_RAYS', 1)
+    monkeypatch.setattr(column_parallel, 'TASK_CHUNKS', 1)
+    monkeypatch.setattr(column_parallel, 'CHUNK', 4)
+    old = SimpleNamespace(probe=shell_segments)
+    starts = np.array([[0., 0., 6371. + h] for h in [0.2, 0.5, 7., 22., 50.]])
+    offsets = np.array([0, 0, 3, 12, 12, 17])
+    mu = np.linspace(-0.15, 0.7, offsets[-1])
+    dirs = np.column_stack((np.sqrt(1 - mu * mu), np.zeros_like(mu), mu))
+    profile = stratosphere.profile_config({})
+    serial = np.zeros(len(dirs), 'f4')
+    parallel = np.full_like(serial, np.nan)
+    column_table.fill(serial, 'strato', starts, offsets, dirs, old, profile)
+    column_parallel.parallel_columns(parallel, 'strato', starts, offsets, dirs, old, profile, count=3)
+    np.testing.assert_array_equal(parallel, serial)

@@ -68,25 +68,47 @@ def test_strato_compiled_layout():
         k = solver.Kernel(L=order, block_size=256, flags=('STRATO',))
         cfg = k.config(15)
         warm = FastTransport.select(order, cfg, False, 0)
+        first = FastTransport.select(order, cfg, True, 0, False, True)
         assert warm.role == 'warm' and warm.strato
-        common = (
-            STUB + SYNTAX_STUB_EXTRA + '\nvoid sincosf(float, float*, float*);\n'
-            + kernel_source(order, combine=True)
-        )
-        for spec in (warm, replace(warm, role='angular'), replace(warm, role='direct'),
+        assert first.role == 'first' and first.strato and first.hg
+        for spec in (first, warm, replace(warm, role='angular'), replace(warm, role='direct'),
                      replace(warm, role='direct', stage_plane=False)):
-            options = k.transport_options(spec, cfg.defines, (), False, 0, True)
-            checks = [f'K == {k.K}', 'TransportPolicy::fast_warm == 1', 'TransportPolicy::strato == 1',
-                      'TransportPolicy::combined_sh == 1']
+            first_light = spec == first
+            options = k.transport_options(spec, cfg.defines, (), first_light, 0, not first_light)
+            checks = [f'K == {k.K}', f'TransportPolicy::fast_first == {int(first_light)}',
+                      f'TransportPolicy::fast_warm == {int(not first_light)}', 'TransportPolicy::strato == 1']
+            if spec.role == 'first':
+                size = k.shared_bytes(15, 0, True, ray_limit=True)
+                checks += [f'HG_NODES == {spec.hg_nodes}',
+                           f'{size} == 8*FW+16+8*(FAST_BATCH*sizeof(FirstPoint)+(FAST_BATCH+1)*(NCOMP+2)*4+(168+RAY_CONST_F+12)*4)']
             if spec.role == 'warm':
                 size = k.shared_bytes(15, 0)
-                checks += [f'{size} == 8*FW+12*4+8*((YPAD+4*FW+66+(SH_L==32 ? 4*FW : 0)+RAY_CONST_F)*4'
+                checks += ['TransportPolicy::combined_sh == 1',
+                           f'{size} == 8*FW+12*4+8*((YPAD+4*FW+66+(SH_L==32 ? 4*FW : 0)+RAY_CONST_F)*4'
                            '+FAST_BATCH*sizeof(WarmPoint))+16+512']
             check = '\n'.join(f'static_assert({c});' for c in checks)
+            src = (STUB + SYNTAX_STUB_EXTRA + '\nvoid sincosf(float, float*, float*);\n'
+                   + kernel_source(order, combine=not first_light))
             result = subprocess.run([compiler, *options[:1], '-fsyntax-only', '-x', 'c++',
                                      *(o for o in options if o.startswith('-D')), '-'],
-                                    input=common + '\n' + check, text=True, capture_output=True)
+                                    input=src + '\n' + check, text=True, capture_output=True)
             assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('strato', [False, True])
+def test_query_kernel_variants(strato):
+    compiler = testkit.require_tool('clang++')
+    k = solver.Kernel(L=24, flags=('STRATO',) if strato else ())
+    cfg = k.config(15)
+    first = FastTransport.select(k.L, cfg, True, 2)
+    for spec in (first, replace(first, role='angular'), replace(first, role='direct'),
+                 replace(first, role='direct', stage_plane=False)):
+        is_first = spec.role == 'first'
+        options = k.transport_options(spec, cfg.defines, (), is_first, 2, False)
+        source = (STUB + SYNTAX_STUB_EXTRA + '\nvoid sincosf(float, float*, float*);'
+                  ' unsigned atomicOr(unsigned*, unsigned);\n' + kernel_source(k.L, combine=strato and not is_first))
+        subprocess.run([compiler, options[0], '-fsyntax-only', '-x', 'c++',
+                        *(o for o in options if o.startswith('-D')), '-'], input=source, text=True, check=True)
 
 
 def test_slim_device_approximations_require_fastmath():
@@ -115,7 +137,8 @@ def test_role_and_ground_exclusions():
     assert FastTransport.select(24, cfg_st, False, 1).role == 'warm'
     assert FastTransport.select(24, cfg_st, False, 2).role == 'none'
     assert FastTransport.select(24, cfg_st, False, 0, split=True).role == 'none'
-    assert FastTransport.select(24, cfg_st, True, 0, ray_limit=True).role == 'none'
+    assert FastTransport.select(24, cfg_st, True, 0, ray_limit=True).role == 'first'
+    assert FastTransport.select(24, cfg_st, True, 0, ray_limit=True, ground_sh_l=24).role == 'none'
     assert FastTransport.select(24, resolve_config(('STRATO',), W=1), False, 0).role == 'none'
     cfg = resolve_config(())
     for phase in (0, 1, 2):
@@ -127,6 +150,9 @@ def test_role_and_ground_exclusions():
     mie = FastTransport.select(32, resolve_config(['TROPO_MIE']), True, 0, ray_limit=True)
     assert mie.role == 'first' and not mie.hg
     first = FastTransport.select(32, cfg, True, 0, ray_limit=True)
+    assert FastTransport.select(32, cfg, True, 2) == first
+    assert FastTransport.select(32, cfg, True, 2, boundary=True).role == 'none'
+    assert FastTransport.select(24, cfg_st, True, 2).hg
     assert first.hg and solver._hg_fits(first, np.array([0, 512]), 1 << 30, 2.5)
     for counts, free, seconds in (([0], 1 << 30, 2.5), ([513], 1 << 30, 2.5),
                                   ([512], 128, 2.5), ([512], 1 << 30, 1e-8)):
@@ -163,28 +189,86 @@ def test_independent_buffer_maxima_and_probe_limits():
 
 
 @pytest.mark.parametrize('order', [16, 24, 32])
-def test_spline_poles_seams_and_modes(order):
-    layout = FastTransport(order, 1, 'angular')
-    polar, azimuth = solver.sh_spline_basis(layout)
+@pytest.mark.parametrize('taps', [3, 4])
+def test_spline_poles_seams_and_modes(order, taps):
+    layout = FastTransport(order, 15, 'angular', sh_taps=taps)
+    polar, azimuth = solver.Kernel(L=order).sh_table_basis(layout)
     n = layout.bins
-    # All knots and 15 interior samples per interval, including both end intervals.
-    axis = np.linspace(0, n, n * 16 + 1)
-    knot = np.minimum(axis.astype(int), n - 1)
-    t = axis - knot
-    weights = np.stack(((1-t)**3, 3*t**3-6*t**2+4, -3*t**3+3*t**2+3*t+1, t**3), axis=1)/6
+    # Include both adjacent FP32 values at every quadratic stencil switch.
+    half = np.arange(n, dtype='f4') + np.float32(.5)
+    axis = np.unique(np.r_[np.linspace(0, n, n*64 + 1), np.nextafter(half, np.float32(-np.inf)),
+                           np.nextafter(half, np.float32(np.inf))])
+    if taps == 3:
+        knot = np.minimum((axis.astype('f4') + np.float32(.5)).astype(int), n)
+        t = axis - knot
+        weights = np.stack((.5*(.5-t)**2, .75-t*t, .5*(.5+t)**2), axis=1)
+        polar_limit, azimuth_limit = .0057, .0088
+    else:
+        knot = np.minimum(axis.astype(int), n - 1)
+        t = axis - knot
+        weights = np.stack(((1-t)**3, 3*t**3-6*t**2+4, -3*t**3+3*t**2+3*t+1, t**3), axis=1)/6
+        polar_limit, azimuth_limit = .0017, .0026
+
     def sample(coeff):
-        return np.einsum('ij,ijk->ik', weights, coeff[knot[:, None] + np.arange(4)])
+        return np.einsum('ij,ijk->ik', weights, coeff[knot[:, None] + np.arange(taps)])
+
     direct = basis(np.cos(axis*np.pi/n), order)
     exact_phi = np.cos(np.outer(axis*np.pi/n, np.arange(order + 1)))
-    # Componentwise envelope of the original cubic grid. Relative error of
-    # a single basis function is unbounded at its zeros.
-    assert np.max(abs(sample(polar) - direct) / abs(direct).max(axis=0)) < 0.0017
-    assert np.max(abs(sample(azimuth) - exact_phi)) < 0.0026
-    np.testing.assert_allclose(sample(polar)[::16], direct[::16], atol=3e-7, rtol=1e-6)
+    sampled_polar, sampled_phi = sample(polar), sample(azimuth)
+    # Normalize each polar mode by its envelope so its zeros remain well conditioned.
+    assert np.max(abs(sampled_polar - direct) / abs(direct).max(axis=0)) < polar_limit
+    assert np.max(abs(sampled_phi - exact_phi)) < azimuth_limit
+    knots = axis == np.floor(axis)
+    np.testing.assert_allclose(sampled_polar[knots], direct[knots], atol=3e-7, rtol=1e-6)
+    np.testing.assert_allclose(sampled_phi[knots], exact_phi[knots], atol=3e-7, rtol=1e-6)
     m = np.concatenate([np.arange(l + 1) for l in range(order + 1)])
     sign = np.where(m % 2, -1, 1)
     np.testing.assert_allclose(polar[0], sign * polar[2], atol=1e-6)
     np.testing.assert_allclose(polar[-1], sign * polar[-3], atol=1e-6)
+    np.testing.assert_allclose(azimuth[[0, -1]], azimuth[[2, -3]], atol=1e-6)
+
+
+def test_angular_launch_order_and_basis_cache(monkeypatch):
+    from sosfuse2.tests.test_review_fixes import FakeRaw
+
+    class Raw(FakeRaw):
+        kernel = SimpleNamespace(ptr=1)
+
+        @property
+        def attributes(self):
+            regs = 33 if '-DSH_SPLINE_TAPS=3' in self.options else 44
+            return dict(shared_size_bytes=0, max_threads_per_block=256, num_regs=regs, local_size_bytes=0)
+
+    k = solver.Kernel(L=24, flags=())
+    props = dict(sharedMemPerBlock=1 << 16, regsPerBlock=65536, maxThreadsPerMultiProcessor=1536,
+                 multiProcessorCount=1)
+    cuda = SimpleNamespace(runtime=SimpleNamespace(getDevice=lambda: 0, getDeviceProperties=lambda _: props),
+                           driver=SimpleNamespace(occupancyMaxActiveBlocksPerMultiprocessor=lambda *_: 1))
+    k.xp = SimpleNamespace(RawKernel=Raw, cuda=cuda, asarray=np.asarray)
+    k.ksplit_memory = lambda: 1 << 30
+    monkeypatch.setattr(solver, '_transport_limits', lambda *args: ([], []))
+    k.source_is_zero = lambda src: False
+    k.device = lambda: ('test', dict(launch_target_seconds=2.5, launch_budget_seconds=30), '')
+    bundle = SimpleNamespace(nq=24, _fast_vprod_meta=(np.array([0, 10000]), np.array([0, 1000000])))
+    launch = SimpleNamespace(ks=False, mode='fixed', W=15, fast_vprod=True, nr=10000, flux_only=False,
+                             src=np.ones((1, 4, 15), 'f4'), c=dict(h=[0], chi=[0]))
+    bases = {}
+    programs = []
+    for phase, taps in ((1, 4), (0, 3), (2, 4)):
+        assert solver._prepare_fast_transport(k, launch, bundle, phase, True) and launch.angular
+        solver._select_transport_kernels(k, launch, bundle, False, phase, None, None)
+        layout = launch.fast_layout
+        raw = launch.fv_kernels['sos_fast_slim']
+        assert f'-DSH_SPLINE_TAPS={taps}' in raw.options
+        programs.append(raw)
+        actual = k.sh_table_basis(layout)
+        expected = (solver.sh_quad_spline_basis if taps == 3 else solver.sh_spline_basis)(layout)
+        for device, host in zip(actual, expected):
+            np.testing.assert_array_equal(device, host)
+        assert bases.setdefault(taps, actual) is actual
+    assert len(set(programs)) == 3
+    attrs = [v['num_regs'] for key, v in k.attributes.items() if key.startswith('sos_fast_slim:')]
+    assert sorted(attrs) == [33, 44, 44]
 
 
 def test_runtime_choices():
@@ -192,16 +276,24 @@ def test_runtime_choices():
     k.backend = 'cupy'
     k.device = lambda: ('test', dict(launch_target_seconds=2.5, launch_budget_seconds=30), '')
     k.ksplit_memory = lambda: 1 << 30
-    bins = FastTransport(32, 15, 'angular').bins
+    bins = FastTransport(32, 15, 'angular', sh_taps=3).bins
     co, pc = np.arange(5, dtype='i8') * bins, np.arange(5, dtype='i8') * 5000
-    bundle = SimpleNamespace(_fast_vprod_meta=(co, pc))
+    bundle = SimpleNamespace(_fast_vprod_meta=(co, pc), nq=24)
     launch = SimpleNamespace(c=dict(h=np.arange(2), chi=np.arange(2)), W=15, nr=int(co[-1]), mode='fixed',
                              step=1, flux_only=False, xp=np, src=np.ones((4, 4, 15), 'f4'))
     for w in (1, 15):
         assert solver._use_fast_vprod(k, False, 0, w, False)
-        assert not solver._use_fast_vprod(k, False, 2, w, False)
+        assert solver._use_fast_vprod(k, False, 2, w, False) == (w == 15)
         assert not solver._use_fast_vprod(k, True, 0, w, False)
         assert not solver._use_fast_vprod(k, False, 0, w, True)
+    assert solver._prepare_fast_transport(k, launch, bundle, 2, True) and not launch.angular
+    assert not solver._prepare_fast_transport(k, launch, bundle, 2, False)
+    single = SimpleNamespace(_fast_vprod_meta=(np.array([0, 1]), np.array([0, 48])), nq=bundle.nq)
+    one_ray = SimpleNamespace(**{**vars(launch), 'nr': 1})
+    assert solver._prepare_fast_transport(k, one_ray, single, 2, True) and not one_ray.angular
+    single.nq = bundle.nq = 6
+    assert not solver._prepare_fast_transport(k, one_ray, single, 2, True)
+    assert not solver._prepare_fast_transport(k, launch, bundle, 2, True)
     assert solver._prepare_fast_transport(k, launch, bundle, 0, True) and launch.angular and not launch.zero_volume
     nodes = bins + 3
     assert launch.fast_resident_bytes == 4 * nodes * (4 * nodes * 16 + k.K + k.L + 1) + 4 * (8 + 4 + 4 * 16 * 4)

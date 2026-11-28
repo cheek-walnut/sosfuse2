@@ -68,6 +68,27 @@ def test_checks():
     assert checks()['pass_']
 
 
+@pytest.mark.parametrize('waves', [1, 15])
+def test_device_source_metrics_match_masked_fp32_reduction(waves):
+    from sosfuse2.solve.source_iteration import _device_source_metrics, _SOURCE_METRICS
+
+    cp = pytest.importorskip('cupy')
+    if not cp.is_available():
+        pytest.skip('CUDA device unavailable')
+    rng = np.random.default_rng(17)
+    x = rng.normal(size=(137, 33, waves)).astype('f4')
+    g = rng.normal(size=x.shape).astype('f4')
+    done = np.zeros(waves, bool)
+    done[-1] = True
+    g[:2, 0, -1] = [np.nan, np.inf]
+    raw = cp.RawKernel(_SOURCE_METRICS, 'source_metrics')
+    invalid, actual = _device_source_metrics(cp, raw, cp.asarray(g), cp.asarray(x), done)
+    masked = np.where(done, x, g)
+    expected = np.max(abs(masked - x), axis=(0, 1)) / np.maximum(np.max(abs(masked), axis=(0, 1)), 1e-30)
+    assert invalid == 2
+    np.testing.assert_array_equal(actual, expected)
+
+
 def test_host_history_matches_device_with_mixed_convergence(monkeypatch):
     from sosfuse2.foundation.top import Domain
 

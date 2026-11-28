@@ -20,6 +20,7 @@ from sosfuse2.backends import vram_budget, vram_trace
 from ..atmosphere.components import NCOMP, STRATO_COLUMN_SLOT
 from ..backends.arithmetic import F, norm_constants
 from ..backends.sh_layout import (
+    live_sh_cells,
     count,
     padded,
     workspace,
@@ -165,6 +166,27 @@ def sh_spline_basis(layout):
     return np.ascontiguousarray(coeff[knots], 'f4'), np.ascontiguousarray(azimuth, 'f4')
 
 
+def sh_quad_spline_basis(layout):
+    """Centered quadratic cardinal B-spline coefficients on the two periodic angular axes.
+
+    At integer knots the centered quadratic B-spline has weights [1, 6, 1]/8, whose
+    periodic convolution is inverted once per basis function in Fourier space.
+    """
+    from ..backends.arithmetic import basis
+
+    order, bins = layout.L, layout.bins
+    a = np.arange(2 * bins) * (np.pi / bins)
+    m = np.array([m for l in range(order + 1) for m in range(l + 1)])
+    polar = basis(np.cos(a), order).astype('f8')
+    polar[bins + 1 :] *= np.where(m % 2, -1.0, 1.0)
+    response = (3.0 + np.cos(a[: bins + 1])) / 4.0
+    coeff = np.fft.irfft(np.fft.rfft(polar, axis=0) / response[:, None], axis=0)
+    knots = np.arange(-1, bins + 2)
+    orders = np.arange(order + 1)
+    azimuth = np.cos(knots[:, None] * (np.pi / bins) * orders) / response[orders]
+    return np.ascontiguousarray(coeff[knots], 'f4'), np.ascontiguousarray(azimuth, 'f4')
+
+
 def load_engine():
     """A fresh, private copy of the accepted engine module (callers patch its namespace; never the shared import).
     The module name keeps the package context so its relative imports resolve; the solver modules stay shared."""
@@ -215,6 +237,15 @@ def _transport_resource_error(exc):
 
 class _TransportLaunch:
     """Owns arguments and scratch arrays until Kernel.launch returns."""
+
+    def __init__(self):
+        # Retain completed table work if a resource fallback retries the same query.
+        self.table_seconds = 0.0
+        self.table_max_seconds = 0.0
+
+    def charge_table(self, seconds):
+        self.table_seconds += seconds
+        self.table_max_seconds = max(self.table_max_seconds, seconds)
 
 
 def _section_clock_directory(kernel):
@@ -357,26 +388,29 @@ def _assemble_transport_arguments(kernel, launch, bundle, s, first, phase, bound
     if launch.ks:
         launch.args += kernel.ksplit_pointer_args(launch.kb)
     launch.sh_index = len(launch.args)  # the SH sidecar appended below (VPROD reads the same combined plane)
-    with stage('sh_aux_build', device=True), vram_trace.item('sh.sidecar'):
-        cfg = kernel.config(launch.W)
-        layout = FastTransport.select(kernel.L, cfg, first, phase, split=launch.ks)
-        if 'strato_ext' in launch.c and cfg.strato:
-            if launch.src.shape != (len(s.geo.h) * len(s.geo.chi), 10 + 2 * kernel.K, launch.W):
-                raise ValueError(f'E_STRATO_SH_SOURCE: expected [nh*nc,{10 + 2 * kernel.K},W]')
-            if cfg.c3_fw15 and not first:
-                if layout.role == 'warm':
-                    launch.args.append(combined_aux_waves(launch.src, launch.c, layout, launch.xp, skip_thin=True))
+    if first:
+        launch.args.append(launch.xp.empty(1, 'f4'))
+    else:
+        with stage('sh_aux_build', device=True), vram_trace.item('sh.sidecar'):
+            cfg = kernel.config(launch.W)
+            layout = FastTransport.select(kernel.L, cfg, first, phase, split=launch.ks)
+            if 'strato_ext' in launch.c and cfg.strato:
+                if launch.src.shape != (len(s.geo.h) * len(s.geo.chi), 10 + 2 * kernel.K, launch.W):
+                    raise ValueError(f'E_STRATO_SH_SOURCE: expected [nh*nc,{10 + 2 * kernel.K},W]')
+                if cfg.c3_fw15:
+                    if layout.role == 'warm':
+                        launch.args.append(combined_aux_waves(launch.src, launch.c, layout, launch.xp, skip_thin=True))
+                    else:
+                        launch.args.append(combined_aux(launch.src, launch.c, kernel.L, launch.xp, skip_thin=True))
                 else:
-                    launch.args.append(combined_aux(launch.src, launch.c, kernel.L, launch.xp, skip_thin=True))
-            else:
-                from .strato_sh_aux import strato_sh_aux
+                    from .strato_sh_aux import strato_sh_aux
 
-                launch.args.append(strato_sh_aux(launch.src, launch.xp, pair=True, L=kernel.L))
-        else:
-            if layout.role == 'warm':
-                launch.args.append(sh_aux_waves(launch.src, layout, launch.xp))
+                    launch.args.append(strato_sh_aux(launch.src, launch.xp, pair=True, L=kernel.L))
             else:
-                launch.args.append(sh_aux_pair(launch.src, launch.xp, kernel.L))
+                if layout.role == 'warm':
+                    launch.args.append(sh_aux_waves(launch.src, layout, launch.xp))
+                else:
+                    launch.args.append(sh_aux_pair(launch.src, launch.xp, kernel.L))
     if 'strato_ext' in launch.c:
         # No optical sidecar is persisted in legacy/common endpoint files.
         launch.endst = kernel.strato_end_columns(bundle, launch.c)
@@ -391,16 +425,21 @@ def _assemble_transport_arguments(kernel, launch, bundle, s, first, phase, bound
             F(launch.profile['norm']),
         ]
     kernel.check_upload(launch.c, launch.dc, 'launch')  # N and upload identity (E_PROFILE_N_MISMATCH / E_PROFILE_STALE)
+    launch.moment_error_index = len(launch.args) + 3
     launch.args += [
         launch.dc.get('profile_table', np.uint64(0)),
         np.int32(launch.c.get('density_optics', {}).get('mask', 0)),
         F(launch.c.get('density_optics', {}).get('air_surface', 1.0)),
-        launch.xp.empty_like(launch.moments),  # reusable per-chunk Neumaier corrections
+        launch.xp.empty(1, 'f4'),  # allocated below only when the kernel uses global moment_error
         bundle.arrays['ray_geometry'],
     ]
 
 
 def _use_fast_vprod(kernel, first, phase, W, ks):
+    if phase == 2:
+        cfg = kernel.config(W)
+        return (kernel.backend == 'cupy' and not first and not ks and W == 15
+                and cfg.role == 'transport' and not cfg.split_warm)
     layout = FastTransport.select(kernel.L, kernel.config(W), first, phase, split=ks)
     return kernel.backend == 'cupy' and phase in (0, 1) and layout.role == 'warm'
 
@@ -422,8 +461,9 @@ def _hg_fits(layout, counts, free, seconds):
     owners = int(np.count_nonzero(counts))
     nodes = layout.hg_nodes
     peak = int(counts.max())
-    return (owners > 0 and peak <= 512 and peak * nodes**2 * layout.W <= TABLE_WORK_RATE * seconds
-            and owners * (nodes**2 * layout.stride * 4 + 4) + 8 * len(counts) + (256 << 20) <= free)
+    channels = 2 if layout.strato else 1
+    return (owners > 0 and peak <= 512 and peak * nodes**2 * layout.W * channels <= TABLE_WORK_RATE * seconds
+            and owners * (nodes**2 * layout.stride * 4 * channels + 4) + 8 * len(counts) + (256 << 20) <= free)
 
 
 def _transport_geometry(kernel, bundle):
@@ -444,25 +484,22 @@ def _transport_limits(kernel, launch, bundle, angular, resident):
     )
 
 
-def _live_sh_cells(c, strato, nh, nc, W):
-    cells = nh * nc
-    if W == 1 or nh > 128 or 'ha' not in c or 'hr' not in c:
-        return np.arange(cells, dtype='i4')
-    cutoff = np.float32(1e-7) * np.asarray(c['hr'], dtype='f4')
-    live = np.asarray(c['ha'], dtype='f4') > cutoff
-    if strato and 'strato_density' in c:
-        live = live | (np.asarray(c['strato_density'], dtype='f4') > cutoff)
-    return np.flatnonzero(np.repeat(live, nc)).astype('i4')
+_live_sh_cells = live_sh_cells  # moved to backends/sh_layout so that solve/source_iteration need not import this module
 
 
 def _prepare_fast_transport(kernel, launch, bundle, phase, allow_table):
     nh, nc = len(launch.c['h']), len(launch.c['chi'])
     cells = nh * nc
-    _, pcum = _transport_geometry(kernel, bundle)
-    profile = kernel.device()[1]
     cfg = kernel.config(launch.W)
     layout = FastTransport.select(kernel.L, cfg, False, phase)
     nodes = layout.sh_nodes
+    # Observer rays may be submitted alone or packed together. For sparse
+    # queries choose the arithmetic by the work on each ray: a shorter panel
+    # than one sample batch does not amortize staging its SH coefficients.
+    if phase == 2 and (not allow_table or kernel.deterministic or not launch.nr or bundle.nq < layout.BATCH):
+        return False
+    _, pcum = _transport_geometry(kernel, bundle)
+    profile = kernel.device()[1]
     owners = _live_sh_cells(launch.c, cfg.strato, nh, nc, launch.W)
     n_owners = len(owners)
     src_rm_bytes = launch.src.shape[0] * 4 * layout.stride * 4
@@ -470,7 +507,10 @@ def _prepare_fast_transport(kernel, launch, bundle, phase, allow_table):
         4 * nodes * (n_owners * nodes * layout.stride + kernel.K + kernel.L + 1)
         + 8 * cells + 4 * n_owners
     )
-    for angular in (True, False):
+    # Query cells partition the output rays. Use direct contraction for sparse
+    # directions and amortize a full angular grid only on the larger bundles.
+    modes = (launch.nr >= max(cells, nodes**2),) if phase == 2 else (True, False)
+    for angular in modes:
         zero = False
         resident = 0
         if angular:
@@ -480,12 +520,12 @@ def _prepare_fast_transport(kernel, launch, bundle, phase, allow_table):
             limits = _transport_limits(kernel, launch, bundle, True, 0)
             if limits is None:
                 continue
-            zero = kernel.source_is_zero(launch.src)
+            zero = phase != 2 and kernel.source_is_zero(launch.src)
             if not zero:
                 # Segments along one ray repeat its direction. With fewer rays per
                 # origin cell than bins on one angular axis, contract the sampled
                 # directions exactly instead of interpolating the whole sphere.
-                if launch.nr < (len(pcum) - 1) * layout.bins:
+                if phase != 2 and launch.nr < (len(pcum) - 1) * layout.bins:
                     continue
                 # A table covers every live cell, including cells the bundle never visits.
                 dots = nodes * (kernel.K + nodes * (layout.L + 1))
@@ -494,8 +534,9 @@ def _prepare_fast_transport(kernel, launch, bundle, phase, allow_table):
                     continue
                 resident = table_bytes
         if not zero:
-            # Both layouts retain the packed source across all chunks.
-            resident += src_rm_bytes
+            # The sparse query kernel reads the tensor rows in the original source.
+            if phase != 2 or angular:
+                resident += src_rm_bytes
             limits = _transport_limits(kernel, launch, bundle, angular, resident)
         if limits is not None:
             launch.fast_resident_bytes = resident
@@ -566,13 +607,32 @@ def _prepare_launch_order(kernel, launch, bundle, first, phase, allow_fast=True,
         launch.args.append(launch.section_buffer)
 
 
+FIRST_RAY_SPAN_CAP = 2_000_000
+
+
+def _first_ray_spans(cell_off, cap=FIRST_RAY_SPAN_CAP):
+    """Partition cells into contiguous spans of at most [cap] rays to bound ray_rads VRAM."""
+    ncell = len(cell_off) - 1
+    spans = []
+    c0 = 0
+    while c0 < ncell:
+        target = int(cell_off[c0]) + cap
+        c1 = int(np.searchsorted(cell_off, target, side='right')) - 1
+        c1 = min(ncell, max(c0 + 1, c1))
+        spans.append((c0, c1))
+        c0 = c1
+    return spans
+
+
 def _select_transport_kernels(kernel, launch, bundle, first, phase, boundary, _ksplit):
     if launch.ks and launch.mode == 'single':
         launch.mode, launch.step = 'fixed', launch.ncell  # KSPLIT always goes through the chunk loop
     launch.warm_work = None
+    launch.phase = phase
     launch.fast_first = False
     launch.ray_sync = None
     launch.ray_mode = False
+    launch.ray_spans = None
     if phase == 0 and ((kernel.config().split_first and first) or (kernel.config().split_warm and not first)):
         # FL_RAYSPLIT private scratch: per-ray rad rows and [ray queue, per-cell done] counters (zeroed).
         # Cell-subset launches (split profile): the kernel reads rays cell_off[0]..cell_off[cells] and indexes ray_rads
@@ -583,20 +643,46 @@ def _select_transport_kernels(kernel, launch, bundle, first, phase, boundary, _k
         # Split launches and, with SOSFUSE2_FL_PROJECT=1, single launches project first light after processing the
         # ray ranges.
         launch.ray_mode = launch.mode != 'single' or os.environ.get('SOSFUSE2_FL_PROJECT', '').strip() == '1'
+        ray_alloc = launch.nr
+        sync_cells = launch.ncell
+        if launch.ray_mode and first and bundle is not None and launch.nr > 0:
+            full_rads_bytes = launch.nr * 4 * launch.W * 4
+            if kernel.backend == 'cupy':
+                free_now = kernel.ksplit_memory()
+                table_reserve = (2500 << 20) if 'strato_ext' in launch.c else (1200 << 20)
+                rads_budget = max(512 << 20, free_now - table_reserve - (1 << 30))
+                if full_rads_bytes > rads_budget:
+                    co_h = np.asarray(kernel.host(bundle.arrays['cell_off']), 'i8')
+                    n_spans = -(-full_rads_bytes // rads_budget)
+                    cap = max(1, -(-launch.nr // n_spans))
+                    spans = _first_ray_spans(co_h, cap=cap)
+                    if len(spans) > 1:
+                        launch.ray_spans = spans
+                        launch.co_h = co_h
+                        ray_alloc = max(int(co_h[b] - co_h[a]) for a, b in spans)
+                        sync_cells = max(b - a for a, b in spans)
         launch.ray_sync = launch.xp.zeros(
-            launch.ncell + 2, 'i4'
+            sync_cells + 2, 'i4'
         )  # [queue head, cell counters, ray-range end (LAUNCH_RAY_LIMIT)]
         with vram_trace.item('transport.ray_radiance'):
-            launch.ray_rads = launch.xp.empty((max(launch.nr, 1), 4 * launch.W), 'f4')
+            launch.ray_rads = launch.xp.empty((max(ray_alloc, 1), 4 * launch.W), 'f4')
         launch.args += [launch.ray_rads, launch.ray_sync]
+    if phase == 0 and not launch.fast_vprod and not launch.ray_mode and hasattr(launch, 'moment_error_index'):
+        launch.args[launch.moment_error_index] = launch.xp.empty_like(launch.moments)
     launch.rs = bool(kernel.device()[1].get('requires_split'))
     if first and phase == 0 and (not launch.ray_mode):
         err = first_light_split_error(kernel.flags, 'strato_ext' in launch.c, kernel.device()[0], kernel.device()[1])
         if err:
             raise RuntimeError(err)
     launch.variant = _ksplit or ('prod' if launch.ks else None)
+    launch.kind = f'first{int(first)}_phase{int(phase)}_W{launch.W}' + (
+        '_record' if _ksplit else '_split' if launch.ks else ''
+    )
     if launch.fast_vprod:
-        launch.fv_kernels = kernel.fast_vprod_kernels(launch.fast_layout, boundary is not None)
+        if launch.angular:
+            taps = 3 if launch.kind == 'first0_phase0_W15' else 4
+            launch.fast_layout = replace(launch.fast_layout, sh_taps=taps)
+        launch.fv_kernels = kernel.fast_vprod_kernels(launch.fast_layout, boundary is not None, phase == 2)
         # Loading a module can change free memory. Recheck the selected layout
         # with the compiled per-thread local footprint before any fast allocation.
         limits = _transport_limits(kernel, launch, bundle, launch.angular,
@@ -630,16 +716,22 @@ def _select_transport_kernels(kernel, launch, bundle, first, phase, boundary, _k
     )
     launch.raw = launch.raws[0][1]
     cfg = kernel.config(launch.W)
-    layout = FastTransport.select(kernel.L, cfg, first, phase, boundary is not None, launch.ray_mode)
+    layout = FastTransport.select(
+        kernel.L, cfg, first, phase, boundary is not None, launch.ray_mode, ground_sh_l=launch.ground_sh_l
+    )
     launch.fast_first = layout.role == 'first'
     if layout.role == 'warm' and kernel.backend == 'cupy' and not launch.ks:
         co, pc = _transport_geometry(kernel, bundle)
         launch.warm_work = (pc - pc[0]).astype('f8') * (4 * kernel.K) + (co - co[0]) * float(kernel.K)
         if launch.mode == 'single':
             launch.mode, launch.step = 'fixed', launch.ncell
-    if layout.hg and not kernel.deterministic and abs(launch.c['g']) <= 0.8:
+    if (layout.hg and not kernel.deterministic and abs(launch.c['g']) <= 0.8
+            and (phase != 2 or (bundle.nq >= layout.BATCH and launch.nr >= len(launch.c['goff'])))):
         try:
-            kernel.prepare_hg_table(launch, layout)
+            if phase == 2:
+                kernel.prepare_hg_table(launch, layout, bundle)
+            else:
+                kernel.prepare_hg_table(launch, layout)
         except Exception as exc:
             if not _transport_resource_error(exc):
                 raise
@@ -669,24 +761,53 @@ def _bounded_end(work, a, end, cost, rate, profile, *, kernel=None, kind=None):
     return max(a + 1, int(np.searchsorted(work, work[a] + room, side='right')) - 1)
 
 
-def _launch_ray_ranges(kernel, launch, bundle):
-    launch.cum = kernel.ray_work(bundle)
-    nrays = len(launch.cum) - 1
-    launch.kind += '_rays'
+def _launch_ray_ranges(kernel, launch, bundle, *, cell_span=None):
+    if cell_span is None:
+        launch.cum = kernel.ray_work(bundle)
+        nrays = len(launch.cum) - 1
+        launch.kind += '_rays'
+        span_ncell = launch.ncell
+        span_args = tuple(launch.args)
+        ray_base = 0
+        cum = launch.cum
+        launch.report = dict(
+            chunks=0,
+            gpu_seconds=launch.table_seconds,
+            max_seconds=launch.table_max_seconds,
+            max_cells=launch.ncell,
+            max_rays=0,
+        )
+    else:
+        s0, s1 = cell_span
+        span_ncell = s1 - s0
+        r0 = int(launch.co_h[s0] - launch.co_h[0])
+        r1 = int(launch.co_h[s1] - launch.co_h[0])
+        nrays = r1 - r0
+        ray_base = r0
+        cum = launch.cum[r0 : r1 + 1] - launch.cum[r0]
+        part = list(launch.args)
+        part[0] = np.int32(span_ncell)
+        for name in ('cell_off', 'starts', 'targets'):
+            idx = 9 + launch.names.index(name)
+            part[idx] = launch.args[idx][s0:]
+        mi = next(i for i, a in enumerate(launch.args) if a is launch.moments)
+        fi = next(i for i, a in enumerate(launch.args) if a is launch.flux)
+        part[mi] = launch.moments[s0:s1]
+        part[fi] = launch.flux[s0:s1]
+        span_args = tuple(part)
     # Adaptive launches start with half the estimated rays in the initial cells.
     initial = max(
         1,
         (launch.step if launch.mode == 'fixed' else kernel.device()[1]['launch_cells_initial'] or 1)
-        * nrays
-        // max(launch.ncell, 1)
+        * max(nrays, 1)
+        // max(span_ncell, 1)
         // (1 if launch.mode == 'fixed' else 2),
     )
-    launch.report = dict(chunks=0, gpu_seconds=0.0, max_seconds=0.0, max_cells=launch.ncell, max_rays=0)
     profile = kernel.device()[1]
     ground_cost = None
     if launch.fast_first:
         owners = np.diff(launch.c['goff'])
-        samples = 36 if getattr(launch, 'hg_pages', None) else 2 * int(owners.max(initial=0))
+        samples = 16 if getattr(launch, 'hg_pages', None) else 2 * int(owners.max(initial=0))
         ground_cost = bundle.nq * (1 + 4 * samples)
         if launch.mode == 'fixed':
             cell_off = kernel.host(bundle.arrays['cell_off'])
@@ -698,27 +819,27 @@ def _launch_ray_ranges(kernel, launch, bundle):
             else min(nrays, q0 + initial)
             if (launch.mode == 'fixed' and not launch.rs)
             else kernel.next_chunk_end(
-                launch.kind, q0, nrays, initial if launch.mode == 'fixed' else None, launch.cum, initial
+                launch.kind, q0, nrays, initial if launch.mode == 'fixed' else None, cum, initial
             )
         )
         if ground_cost is not None:
             if launch.mode == 'fixed':
                 # A ray range starting inside a cell still touches at most step cells.
-                first_cell = np.searchsorted(cell_off, cell_off[0] + q0, side='right') - 1
-                q1 = min(q1, int(cell_off[min(launch.ncell, first_cell + launch.step)] - cell_off[0]))
-            q1 = _bounded_end(launch.cum, q0, q1, ground_cost, TABLE_WORK_RATE, profile,
+                first_cell = np.searchsorted(cell_off, cell_off[0] + ray_base + q0, side='right') - 1
+                q1 = min(q1, int(cell_off[min(launch.ncell, first_cell + launch.step)] - cell_off[0] - ray_base))
+            q1 = _bounded_end(cum, q0, q1, ground_cost, TABLE_WORK_RATE, profile,
                               kernel=kernel, kind=launch.kind)
         launch.ray_sync[0:1].fill(q0)
-        launch.ray_sync[launch.ncell + 1 : launch.ncell + 2].fill(q1)
+        launch.ray_sync[span_ncell + 1 : span_ncell + 2].fill(q1)
         seconds = kernel.timed_launch(
             launch.kind,
             launch.raw,
-            (launch.ncell, launch.grid_y),
+            (span_ncell, launch.grid_y),
             launch.block,
-            tuple(launch.args),
+            span_args,
             launch.shared,
             q1 - q0,
-            launch.cum,
+            cum,
             q0,
             q1,
         )
@@ -729,13 +850,15 @@ def _launch_ray_ranges(kernel, launch, bundle):
         q0 = q1
 
 
-def _project_ray_ranges(kernel, launch, bundle, boundary, first):
+def _project_ray_ranges(kernel, launch, bundle, boundary, first, *, cell_span=None):
     # With LAUNCH_RAY_LIMIT the ray launches only publish ray_rads; project the cells now (fl_project,
     # one block per cell, compensated FP32 ray batches).
     proj = kernel.fl_project_kernel(launch.W, boundary is not None, ground_sh_l=launch.ground_sh_l, first=first)
     pkind = launch.kind[:-5] + '_project'
-    launch.co_h = np.asarray(kernel.host(bundle.arrays['cell_off']), 'i8')
-    launch.pcum = (launch.co_h - launch.co_h[0]).astype('f8')
+    if not hasattr(launch, 'co_h'):
+        launch.co_h = np.asarray(kernel.host(bundle.arrays['cell_off']), 'i8')
+    if not hasattr(launch, 'pcum'):
+        launch.pcum = (launch.co_h - launch.co_h[0]).astype('f8')
     ci = 9 + launch.names.index('cell_off')
     ti = 9 + launch.names.index('targets')
     launch.fixed_args = (
@@ -747,15 +870,16 @@ def _project_ray_ranges(kernel, launch, bundle, boundary, first):
         launch.ray_rads,
         F(launch.c['albedo']),
     )
-    c0 = 0
-    while c0 < launch.ncell:
+    c0, c_end = (0, launch.ncell) if cell_span is None else cell_span
+    ray_lo = int(launch.co_h[c0])
+    while c0 < c_end:
         c1 = (
-            launch.ncell
+            c_end
             if launch.mode == 'single'
-            else min(launch.ncell, c0 + launch.step)
+            else min(c_end, c0 + launch.step)
             if (launch.mode == 'fixed' and not launch.rs)
             else kernel.next_chunk_end(
-                pkind, c0, launch.ncell, launch.step if launch.mode == 'fixed' else None, launch.pcum
+                pkind, c0, c_end, launch.step if launch.mode == 'fixed' else None, launch.pcum
             )
         )
         if launch.fast_first:
@@ -766,7 +890,7 @@ def _project_ray_ranges(kernel, launch, bundle, boundary, first):
             proj,
             (c1 - c0,),
             (256,),
-            (np.int32(c1 - c0), np.int64(launch.co_h[0]), launch.args[ci][c0:], launch.args[ti][c0:])
+            (np.int32(c1 - c0), np.int64(ray_lo), launch.args[ci][c0:], launch.args[ti][c0:])
             + launch.fixed_args
             + (launch.moments[c0:c1], launch.flux[c0:c1]),
             0,
@@ -902,10 +1026,8 @@ def _dispatch_transport(kernel, launch, bundle, s, first, phase, boundary, _kspl
         launch.grid_y = launch.W // kernel.tile_width(launch.W, first, phase)
         launch.block = (kernel.bs(first, launch.variant),)
         launch.shared = kernel.shared_bytes(launch.W, phase, first=first, variant=launch.variant,
-                                            boundary=boundary is not None, ray_limit=launch.ray_mode)
-        launch.kind = f'first{int(first)}_phase{int(phase)}_W{launch.W}' + (
-            '_record' if _ksplit else '_split' if launch.ks else ''
-        )
+                                            boundary=boundary is not None, ray_limit=launch.ray_mode,
+                                            ground_sh_l=launch.ground_sh_l)
         launch.report = None
         if launch.fast_vprod:
             kernel.fast_vprod_launch(launch, bundle, s, boundary is not None)
@@ -921,10 +1043,27 @@ def _dispatch_transport(kernel, launch, bundle, s, first, phase, boundary, _kspl
             )
             launch.report = dict(chunks=1, gpu_seconds=seconds, max_seconds=seconds, max_cells=launch.ncell)
         elif launch.ray_mode:
-            _launch_ray_ranges(kernel, launch, bundle)
-            _project_ray_ranges(kernel, launch, bundle, boundary, first)
+            if launch.ray_spans:
+                launch.cum = kernel.ray_work(bundle)
+                launch.kind += '_rays'
+                launch.report = dict(
+                    chunks=0,
+                    gpu_seconds=launch.table_seconds,
+                    max_seconds=launch.table_max_seconds,
+                    max_cells=launch.ncell,
+                    max_rays=0,
+                )
+                for span in launch.ray_spans:
+                    _launch_ray_ranges(kernel, launch, bundle, cell_span=span)
+                    _project_ray_ranges(kernel, launch, bundle, boundary, first, cell_span=span)
+            else:
+                _launch_ray_ranges(kernel, launch, bundle)
+                _project_ray_ranges(kernel, launch, bundle, boundary, first)
         else:
             _launch_cell_ranges(kernel, launch, bundle, s, phase, boundary, _ksplit)
+        if phase == 2 and launch.table_seconds:
+            launch.report['gpu_seconds'] += launch.table_seconds
+            launch.report['max_seconds'] = max(launch.report['max_seconds'], launch.table_max_seconds)
         if launch.report is not None:
             launch.report.update(
                 kind=launch.kind,
@@ -1024,6 +1163,7 @@ class Kernel(KsplitMixin):
         self.constants = {}
         self.device_constants = {}
         self.ground_sh_tables = {}
+        self._sh_spline_bases = {}
         self.metrics = dict(samples=0, angular_pairs=0, launches=0, query_launches=0)
         self.attributes = {}
         self.cuda_events = []
@@ -1046,7 +1186,18 @@ class Kernel(KsplitMixin):
             self.xp.cuda.get_current_stream().synchronize()
 
     def host(self, array):
-        return np.asarray(array) if self.xp is np else self.xp.asnumpy(array)
+        if self.xp is np:
+            return np.asarray(array)
+        if getattr(array, 'nbytes', 0) >= 8 << 20 and hasattr(array, 'get') and array.flags.c_contiguous:
+            # Copy into the final pageable array in bounded DMA windows.
+            out = np.empty(array.shape, array.dtype)
+            source = array.reshape(-1)
+            target = out.reshape(-1)
+            step = (8 << 20) // array.itemsize
+            for start in range(0, array.size, step):
+                source[start:start + step].get(out=target[start:start + step])
+            return out
+        return self.xp.asnumpy(array)
 
     def basis(self, dirs, L):
         count(L)
@@ -1375,11 +1526,13 @@ class Kernel(KsplitMixin):
             return KSPLIT_BLOCK
         return self.block_size
 
-    def shared_bytes(self, W, phase, first=False, variant=None, *, boundary=False, ray_limit=False):
+    def shared_bytes(self, W, phase, first=False, variant=None, *, boundary=False, ray_limit=False, ground_sh_l=0):
         W = self.tile_width(W, first, phase)
         warps = self.bs(first, variant) // 32
         cfg = self.config(W)
-        layout = FastTransport.select(self.L, cfg, first, phase, boundary, ray_limit, bool(variant))
+        layout = FastTransport.select(
+            self.L, cfg, first, phase, boundary, ray_limit, bool(variant), ground_sh_l=ground_sh_l
+        )
         if layout.role in ('warm', 'first'):
             return layout.shared_bytes(warps)
         # ACC_GLOBAL: the first-light phase-0 moment accumulator is the moments output (no shared rows).
@@ -1431,7 +1584,9 @@ class Kernel(KsplitMixin):
         key += (('PROFILE_N', self.profile_n), ('TOP_KM', self.domain.top_km), ('PROFILE_STEP', self.profile_step_km),
                 ('AIR_END_KM', self.domain.air_end), ('LOWER_END_KM', self.domain.lower_end))
         cfg = self.config(W)
-        layout = FastTransport.select(self.L, cfg, first, phase, boundary, ray_limit, 'SINV' in flags)
+        layout = FastTransport.select(
+            self.L, cfg, first, phase, boundary, ray_limit, 'SINV' in flags, ground_sh_l=ground_sh_l
+        )
         if layout.defines():
             key += (layout.defines(),)
         if self.deterministic:
@@ -1505,14 +1660,18 @@ class Kernel(KsplitMixin):
         programs = self.__dict__.setdefault('raw_options', {})
         if key not in programs:
             code = kernel_source(self.L, combine=(self.config(W).c3_fw15 and not first))
-            layout = FastTransport.select(self.L, self.config(W), first, phase, boundary, ray_limit, bool(variant))
+            layout = FastTransport.select(
+                self.L, self.config(W), first, phase, boundary, ray_limit, bool(variant), ground_sh_l=ground_sh_l
+            )
             options = self.transport_options(layout, flags, stage1, first, phase, boundary)
             if ray_limit:
                 options += ('-DLAUNCH_RAY_LIMIT',)
             if ground_sh_l:
                 options += (f'-DGROUND_SH_L={ground_sh_l}', f'-DGROUND_SH_GRID={GRID_INTERVALS}')
             programs[key] = (code, options)
-        required = self.shared_bytes(width, phase, first=first, variant=variant, boundary=boundary, ray_limit=ray_limit)
+        required = self.shared_bytes(
+            width, phase, first=first, variant=variant, boundary=boundary, ray_limit=ray_limit, ground_sh_l=ground_sh_l
+        )
         if key not in self.raw:
             code, options = programs[key]
             with stage('raw_compile'):
@@ -1610,71 +1769,139 @@ class Kernel(KsplitMixin):
             yield a, b
             a = b
 
-    def prepare_hg_table(self, launch, layout):
-        """Replace repeated first-light ground sums with the same quadrature sampled in angle."""
-        nodes = layout.hg_nodes
-        counts = np.diff(launch.c['goff'])
-        stride = nodes * nodes * layout.stride * 4
-        if not _hg_fits(layout, counts, self.ksplit_memory(), _work_seconds(self.device()[1])):
-            return
-        owners = np.flatnonzero(counts).astype('i4')
-        key = self.kernel_key(
-            self.config(layout.W).defines, layout.W, self.tile_width(layout.W, True, 0), 1, 0, False,
-            ray_limit=True, stage1=self.stage1_flags(),
-        )
-        name = 'hg_direction_table'
+    def query_owners(self, launch, bundle, raw, work):
+        """Return the cells that can supply an angular interpolation table for this query."""
+        nh, nc = len(launch.c['h']), len(launch.c['chi'])
+        words = (nh * nc + 31) // 32
+        if words * 4 > (32 << 10):
+            return np.ones(nh * nc, dtype=bool)
+        marks = self.xp.empty(words, 'u4')
+        arrays = bundle.arrays
+        fixed = tuple(arrays[k] for k in ('dirs', 'edge_off', 'edges', 'lower', 'ray_geometry'))
+        fixed += (np.int32(bundle.nq), launch.dc['u'], np.int32(nh), launch.dc['h'],
+                  np.int32(nc), launch.dc['chi'], marks)
+        work = work + np.arange(bundle.cells + 1) * words
+
+        def mark(grid, block, args, shared_mem):
+            start, = args
+            if start == 0:
+                marks.fill(0)
+            raw(grid, block, (arrays['cell_off'][start:], arrays['starts'][start:], *fixed), shared_mem=shared_mem)
+
+        name = 'query_owners'
+        for a, b in self.table_ranges(name, 0, bundle.cells, work):
+            seconds = self.timed_launch(
+                name, mark, (b - a,), (128,), (a,), words * 4, b - a, work, a, b,
+            )
+            launch.charge_table(seconds)
+        indices = np.arange(nh * nc)
+        return ((self.host(marks)[indices // 32] >> (indices % 32)) & 1).astype(bool)
+
+    def table_kernel(self, key, name):
         if key + (name,) not in self.raw:
             code, options = self.raw_options[key]
             self.raw[key + (name,)] = self.xp.RawKernel(code, name, options=options, backend='nvrtc')
-        generate = self.raw[key + (name,)]
+        return self.raw[key + (name,)]
+
+    def prepare_hg_table(self, launch, layout, bundle=None):
+        """Replace repeated first-light ground sums with a cubic B-spline angular table."""
+        nodes = layout.hg_nodes
+        counts = np.diff(launch.c['goff'])
+        domain = launch.c['domain']
+        if domain.top_km > domain.lower_end:
+            # Samples above lower_end have zero aerosol density and never query this table;
+            # a cell at altitude index r can only be a corner of a sample <= lower_end if r == 0 or h[r - 1] <= lower_end.
+            h = np.asarray(launch.c['h'], dtype='f4')
+            nc = len(launch.c['chi'])
+            live_h = np.ones(len(h), dtype=bool)
+            live_h[1:] = h[:-1] <= np.float32(domain.lower_end)
+            counts = np.where(np.repeat(live_h, nc), counts, 0)
+        channels = 2 if layout.strato else 1
+        stride = nodes * nodes * layout.stride * 4 * channels
+        key = self.kernel_key(
+            self.config(layout.W).defines, layout.W, self.tile_width(layout.W, True, launch.phase), 1, launch.phase, False,
+            ray_limit=launch.ray_mode, stage1=self.stage1_flags(),
+        )
+        if bundle is not None:
+            used = self.query_owners(launch, bundle, self.table_kernel(key, 'query_owners'),
+                                     self.cell_work(bundle) * bundle.nq)
+            counts = np.where(used, counts, 0)
+        if not _hg_fits(layout, counts, self.ksplit_memory(), _work_seconds(self.device()[1])):
+            return
+        owners = np.flatnonzero(counts).astype('i4')
+        name = 'hg_strato_direction_table' if layout.strato else 'hg_direction_table'
+        prefilter_name = 'hg_strato_bspline_prefilter' if layout.strato else 'hg_bspline_prefilter'
+        generate = self.table_kernel(key, name)
+        prefilter = self.table_kernel(key, prefilter_name)
         ids = self.xp.asarray(owners)
         pointers = np.zeros(len(counts), dtype='u8')
+        page_tail = (nodes, nodes, layout.stride, 2) if layout.strato else (nodes, nodes, layout.stride)
         launch.hg_pages = [
-            self.xp.empty((min(owners.size - start, layout.HG_PAGE_CELLS), nodes, nodes, layout.stride), 'f4')
+            self.xp.empty((min(owners.size - start, layout.HG_PAGE_CELLS), *page_tail), 'f4')
             for start in range(0, owners.size, layout.HG_PAGE_CELLS)
         ]
         dc = launch.dc
-        work = np.r_[0, np.cumsum(counts[owners], dtype='i8')] * nodes**2 * launch.W
+        work = np.r_[0, np.cumsum(counts[owners], dtype='i8')] * nodes**2 * launch.W * channels
+        pwork = np.arange(owners.size + 1, dtype='i8') * (2 * nodes * nodes * launch.W * channels)
         rows = layout.THREADS // layout.stride
         for i, page in enumerate(launch.hg_pages):
             start = i * layout.HG_PAGE_CELLS
             end = start + len(page)
             pointers[owners[start:end]] = page.data.ptr + np.arange(len(page), dtype='u8') * stride
             for a, b in self.table_ranges(name, start, end, work):
-                self.timed_launch(
-                    name, generate, (b - a, nodes, -(-nodes // rows)), (layout.THREADS,),
-                    (ids[a:], dc['goff'], dc['gdir'], dc['gval'], launch.c['g'], page[a - start:]),
-                    0, b - a, work, a, b,
+                kargs = (
+                    (ids[a:], dc['goff'], dc['gdir'], dc['gval'], dc['strato_chi'], launch.c['g'], page[a - start:])
+                    if layout.strato
+                    else (ids[a:], dc['goff'], dc['gdir'], dc['gval'], launch.c['g'], page[a - start:])
                 )
+                seconds = self.timed_launch(
+                    name, generate, (b - a, nodes, -(-nodes // rows)), (layout.THREADS,),
+                    kargs, 0, b - a, work, a, b,
+                )
+                if layout.strato or launch.phase == 2:
+                    launch.charge_table(seconds)
+            for a, b in self.table_ranges(prefilter_name, start, end, pwork):
+                seconds = self.timed_launch(
+                    prefilter_name, prefilter, (b - a,), (layout.THREADS,),
+                    (np.int32(b - a), page[a - start:]), 0, b - a, pwork, a, b,
+                )
+                if layout.strato or launch.phase == 2:
+                    launch.charge_table(seconds)
         # A null offset pointer selects the table in the first-light kernel.
         launch.args[launch.goff_index + 2] = self.xp.asarray(pointers)
         launch.args[launch.goff_index] = np.uint64(0)
 
-    def fast_vprod_kernels(self, layout, boundary):
+    def fast_vprod_kernels(self, layout, boundary, query=False):
         """Compile and check the actual functions before choosing coefficient staging."""
         W = layout.W
         flags = self.config(W).defines
         stage1 = self.stage1_flags()
-        base = self.kernel_key(flags, W, self.tile_width(W, False, 0), 0, 0, boundary, stage1=stage1)
-        names = ['sos_fast_slim', 'sos_slim_proj']
-        names += ['fl_project', 'sh_direction_table'] if layout.role == 'angular' else [
-            'sos_vprod_y', 'vp_c0cp_chunk', 'sos_vprod_direct'
-        ]
+        phase = 2 if query else 0
+        base = self.kernel_key(flags, W, self.tile_width(W, False, phase), 0, phase, boundary, stage1=stage1)
+        if query:
+            names = ['sos_fast_slim']
+            names += ['query_owners', 'sh_direction_table'] if layout.role == 'angular' else ['vp_c0cp_chunk', 'sh_query_ray']
+        else:
+            names = ['sos_fast_slim', 'sos_slim_proj']
+            names += ['sh_project', 'sh_direction_table'] if layout.role == 'angular' else [
+                'sos_vprod_y', 'vp_c0cp_chunk', 'sos_vprod_direct'
+            ]
         free = self.ksplit_memory()
         out = {'local_reserve_bytes': 0}
         for name in names:
-            threads = 256 if name == 'fl_project' else layout.THREADS
+            threads = 256 if name == 'sh_project' else layout.THREADS
             candidates = [layout]
             if name == 'sos_vprod_direct':
                 # The second variant reads the coefficient plane from global memory;
                 # it retains only the visitor tile in shared memory.
                 candidates.append(replace(layout, stage_plane=False))
             for candidate in candidates:
-                options = self.transport_options(candidate, flags, stage1, False, 0, boundary)
+                options = self.transport_options(candidate, flags, stage1, False, phase, boundary)
                 key = base + (candidate.defines(), name)
                 akey = (f'{name}:{W}_L{layout.L}_{candidate.role}_plane{int(candidate.stage_plane)}'
                         f'_boundary{int(boundary)}_det{int(self.deterministic)}'
-                        + ''.join('_' + f for f in (*flags, *stage1)) + self.attribute_suffix())
+                        + (f'_taps{candidate.sh_taps}' if candidate.role == 'angular' else '')
+                        + ('_query' if query else '') + ''.join('_' + f for f in (*flags, *stage1)) + self.attribute_suffix())
                 dynamic = candidate.direct_shared if name == 'sos_vprod_direct' else 0
                 if key not in self.raw:
                     with stage('raw_compile'):
@@ -1714,6 +1941,13 @@ class Kernel(KsplitMixin):
                 raise _FastResourceError(f'No resident block for {name} at L{layout.L}, FW{W}')
         return out
 
+    def sh_table_basis(self, layout):
+        taps = layout.sh_taps
+        if taps not in self._sh_spline_bases:
+            build = sh_quad_spline_basis if taps == 3 else sh_spline_basis
+            self._sh_spline_bases[taps] = tuple(self.xp.asarray(v) for v in build(layout))
+        return self._sh_spline_bases[taps]
+
     def fast_vprod_launch(self, launch, bundle, s, boundary):
         """Project each bounded cell span, evaluating aerosol from a table or direct SH contraction."""
         xp = self.xp
@@ -1723,8 +1957,9 @@ class Kernel(KsplitMixin):
         vkern = kmap.get('sos_vprod_direct')
         layout = launch.fast_layout
         skim = kmap['sos_fast_slim']
-        pkern = kmap['sos_slim_proj']
-        flpkern = kmap.get('fl_project')
+        pkern = kmap.get('sos_slim_proj')
+        angular_proj = kmap.get('sh_project')
+        query_ray = kmap.get('sh_query_ray')
         nh, nc = len(s.geo.h), len(s.geo.chi)
         dc = launch.dc
         src_sh = launch.args[launch.sh_index]
@@ -1777,21 +2012,24 @@ class Kernel(KsplitMixin):
                 c0cp = None
                 src_rm = np.uint64(0)
             else:
-                src_rm = xp.zeros((launch.src.shape[0], 4, layout.stride), 'f4')
-                src_rm[:, :, :launch.W] = launch.src[:, :4, :]
+                src_rm = (launch.src if query_ray is not None
+                          else xp.empty((launch.src.shape[0], layout.stride, 4), 'f4'))
                 if launch.angular:
                     nodes = layout.sh_nodes
                     cells = nh * nc
                     owners = getattr(launch, 'live_cells', None)
                     if owners is None:
                         owners = _live_sh_cells(launch.c, is_strato, nh, nc, launch.W)
+                    if launch.phase == 2:
+                        used = self.query_owners(launch, bundle, kmap['query_owners'], pcum - pcum[0])
+                        owners = owners[used[owners]]
+                    sh_pairs = (nodes + 1) // 2
                     stride = nodes * nodes * layout.stride * 4
                     pages = [xp.empty((min(len(owners) - i, layout.PAGE_CELLS), nodes, nodes, layout.stride), 'f4')
                              for i in range(0, len(owners), layout.PAGE_CELLS)]
                     pointers = np.zeros(cells, dtype='u8')
                     if len(owners):
-                        if not hasattr(self, '_sh_spline_basis'):
-                            self._sh_spline_basis = tuple(xp.asarray(v) for v in sh_spline_basis(layout))
+                        basis = self.sh_table_basis(layout)
                         owners_dev = xp.asarray(owners)
                         per_cell = nodes * layout.stride * (self.K + nodes * (self.L + 1))
                         work = np.arange(len(owners) + 1, dtype='i8') * per_cell
@@ -1801,18 +2039,21 @@ class Kernel(KsplitMixin):
                             pointers[owners[start:end]] = page.data.ptr + np.arange(len(page), dtype='u8') * stride
                             for a, b in self.table_ranges('sh_direction_table', start, end, work):
                                 elapsed = self.timed_launch(
-                                    'sh_direction_table', kmap['sh_direction_table'], (b - a, nodes), (layout.THREADS,),
-                                    (owners_dev[a:], src_sh, *self._sh_spline_basis, page[a - start:]), 0, b - a, work, a, b,
+                                    'sh_direction_table', kmap['sh_direction_table'], (b - a, sh_pairs), (layout.THREADS,),
+                                    (owners_dev[a:], src_sh, *basis, page[a - start:]), 0, b - a, work, a, b,
                                 )
-                                t_table += elapsed
-                                table_max = max(table_max, elapsed)
+                                if launch.phase == 2:
+                                    launch.charge_table(elapsed)
+                                else:
+                                    t_table += elapsed
+                                    table_max = max(table_max, elapsed)
                     aero = xp.asarray(pointers)
                     c0cp = None
                 else:
                     aero = xp.empty(max(max_npt, 1) * 4 * AW, 'f4')
                     c0cp = xp.empty(max(max_npt, 1) * 2, 'i4')
-            yb = np.uint64(0) if launch.angular else xp.empty((max(max_nray, 1), self.K), 'f4')
-            ray_rads = xp.empty(max(max_nray, 1) * 4 * launch.W, 'f4')
+            yb = (xp.empty((max(max_nray, 1), self.K), 'f4') if ykern is not None else np.uint64(0))
+            ray_rads = None if launch.phase == 2 else xp.empty(max(max_nray, 1) * 4 * launch.W, 'f4')
         report = dict(chunks=0, gpu_seconds=t_table, max_seconds=table_max, max_cells=0)
         kind = launch.kind
         tiles = 1 if launch.flux_only else -(-(5 + self.K) // layout.PROJ_MOMENTS)
@@ -1820,6 +2061,9 @@ class Kernel(KsplitMixin):
         warps = layout.THREADS // 32
 
         def run_chunk(c0, c1):
+            if c0 == 0 and not zero_volume and query_ray is None:
+                # Each consumer reads four adjacent tensor components for its wavelength.
+                src_rm[:, :launch.W, :] = launch.src[:, :4, :].transpose(0, 2, 1)
             base = int(pcum[c0])
             npt = int(pcum[c1]) - base
             r0, r1 = int(co[c0]), int(co[c1])
@@ -1855,12 +2099,17 @@ class Kernel(KsplitMixin):
                     ),
                 )
             plan = None
-            if not launch.angular:
+            if query_ray is not None and npt:
+                query_ray((nray, 4), (layout.THREADS,),
+                          (np.int64(r0), np.int64(base), np.int32(bundle.nq), np.int32(nc),
+                           bundle.arrays['edge_off'], bundle.arrays['dirs'], dc['aa'], dc['bb'], dc['dd'],
+                           c0cp_view, src_sh, aero))
+            elif vkern is not None:
                 # The enclosing timed launch includes the plan kernels and the CuPy scan/sort.
                 kb = dict(chunks=[(c0, c1)], pcum=pcum, co=co)
                 plan = self.vprod_build_plan(kb, 0, bundle, c0cp_view, nh, nc,
                                              count_blocks=vram_budget.PLAN_COUNT_BLOCKS, measure_blocks=False)
-            if nray and not launch.angular:
+            if nray and ykern is not None:
                 nb_y = -(-nray // warps)
                 ykern(
                     (nb_y,),
@@ -1933,10 +2182,12 @@ class Kernel(KsplitMixin):
                     profile_table,
                     profile_mask,
                     air_surface,
-                    ray_rads,
+                    launch.query[r0:r1] if launch.phase == 2 else ray_rads,
                     *st_slim,
                 )
                 skim((nb_s,), (layout.THREADS,), sargs)
+            if launch.phase == 2:
+                return
             if launch.angular and not launch.flux_only:
                 flpargs = (
                     np.int32(c1 - c0),
@@ -1953,7 +2204,8 @@ class Kernel(KsplitMixin):
                     launch.moments[c0:c1],
                     launch.flux[c0:c1],
                 )
-                flpkern((c1 - c0,), (256,), flpargs)
+                groups = (self.K + 127) // 128 + 1
+                angular_proj(((c1 - c0) * groups,), (256,), flpargs)
             else:
                 pargs = (
                     np.int32(c1 - c0),
@@ -2213,7 +2465,13 @@ class Kernel(KsplitMixin):
             else np.zeros((s.geo.ns, source_size(s), s.W), 'f4')
         )
         if self.xp is np:
-            value = numpy_reference.transport(geometry, c, packed, first, statistics=self.metrics)
+            from ..backends import mlx_backend
+
+            values = mlx_backend.query([geometry], [c], packed, first) if mlx_backend.enabled() else None
+            if values is not None:
+                value = np.asarray(values[0])
+            else:
+                value = numpy_reference.transport(geometry, c, packed, first, statistics=self.metrics)
         else:
             from .ray_geometry import Bundle
 

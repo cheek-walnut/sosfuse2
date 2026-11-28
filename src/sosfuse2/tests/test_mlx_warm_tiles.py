@@ -362,3 +362,139 @@ def test_product_tile_profile(monkeypatch):
         f'PROD_TILE samples={sum(packed.samples)} rays={int(packed.cell_off[-1])} '
         f'wall_ms={round(1000.0 * float(np.median(t_total)), 3)} stats={stats} kernels_ms={med}'
     )
+
+
+def test_albedo_first_ground_and_warm(tmp_path):
+    mx = pytest.importorskip('mlx.core', exc_type=ImportError)
+    if not mx.metal.is_available():
+        pytest.skip('Metal device unavailable')
+    import copy
+    from sosfuse2.backends import mlx_ops
+    from sosfuse2.solve.ray_geometry import TransientGeometry, create, normal_state
+
+    waves = np.linspace(380.0, 760.0, 15).tolist()
+    for albedo in (0.24, 0.36):
+        state = copy.deepcopy(normal_state())
+        state['parameters']['albedo'] = albedo
+        s, scope, _ = create(tmp_path / f'alb_{albedo}', 'selftest', waves, 'numpy', 128, state=state)
+        geo = TransientGeometry(s, scope)
+        cells = [geo.cell(i) for i in range(s.geo.ns)]
+        c = s.kernel.setup(s, cells[0]['nq'])
+        zero = np.zeros((s.geo.ns, 10 + count(c['L']), c['W']), 'f4')
+
+        # Phase 0 first scattering (moments + first_flux)
+        ref_m1 = np.zeros((s.geo.ns, 4 + count(c['L']), c['W']), 'f8')
+        ref_f1 = np.zeros((s.geo.ns, c['W']), 'f8')
+        for i, g in enumerate(cells):
+            val, y = ref.transport(g, c, zero, first=True, return_basis=True)
+            ref_m1[i], ref_f1[i] = ref.project(g, val, c, y)
+        got_m1, got_f1 = mlx_ops.evaluate(geo, s, zero, True, 0, False, None)
+        assert np.any(got_f1 > 0)
+        for got, exp, axes in ((got_m1, ref_m1, (0, 1)), (got_f1, ref_f1, (0,))):
+            sc = np.abs(exp).max(axis=axes)
+            err = np.abs(got - exp).max(axis=axes)
+            assert float((err / sc).max()) < 1e-3
+
+        # Build a realistic nonzero source field from first_moments
+        rng = np.random.default_rng(int(albedo * 100))
+        field = rng.uniform(0.0, 0.05, zero.shape).astype('f4')
+        field[:, 10:] *= 0.002
+
+        # Phase 1 ground_only
+        nchi = len(s.geo.chi)
+        ref_fg = np.zeros((nchi, c['W']), 'f8')
+        for i in range(nchi):
+            g = cells[i]
+            val, y = ref.transport(g, c, field, first=False, return_basis=True)
+            _, ref_fg[i] = ref.project(g, val, c, y, ground_only=True)
+        got_mg, got_fg = mlx_ops.evaluate(geo, s, field, False, 1, True, None)
+        assert not np.any(got_mg)
+        assert np.any(got_fg > 0)
+        assert float((np.abs(got_fg - ref_fg).max(axis=0) / np.abs(ref_fg).max(axis=0)).max()) < 1e-3
+
+        # Phase 0 warm with nonzero boundary
+        boundary = got_fg + got_f1[:nchi]
+        ref_mw = np.zeros_like(ref_m1)
+        ref_fw = np.zeros_like(ref_f1)
+        for i, g in enumerate(cells):
+            val, y = ref.transport(g, c, field, first=False, boundary=boundary, return_basis=True)
+            ref_mw[i], ref_fw[i] = ref.project(g, val, c, y)
+        got_mw, got_fw = mlx_ops.evaluate(geo, s, field, False, 0, False, boundary)
+        assert np.any(got_fw > 0)
+        for got, exp, axes in ((got_mw, ref_mw, (0, 1)), (got_fw, ref_fw, (0,))):
+            sc = np.abs(exp).max(axis=axes)
+            err = np.abs(got - exp).max(axis=axes)
+            assert float((err / sc).max()) < 1e-3
+
+
+def test_strato_albedo_first_ground_and_warm(tmp_path):
+    mx = pytest.importorskip('mlx.core', exc_type=ImportError)
+    if not mx.metal.is_available():
+        pytest.skip('Metal device unavailable')
+    import copy
+    from sosfuse2.backends import mlx_ops
+    from sosfuse2.solve.ray_geometry import TransientGeometry, create, normal_state
+
+    waves = np.linspace(380.0, 760.0, 15).tolist()
+    for albedo, tau in ((0.0, 0.03), (0.24, 0.03)):
+        state = copy.deepcopy(normal_state())
+        state['parameters']['albedo'] = albedo
+        state['parameters']['stratosphere_tau550'] = tau
+        state['stratosphere'] = {'status': 'enabled', 'profile': 'gaussian', 'center_km': 21.0, 'sigma_km': 3.0}
+        s, scope, _ = create(tmp_path / f'st_alb_{albedo}', 'selftest', waves, 'numpy', 128, state=state)
+        geo = TransientGeometry(s, scope)
+        cells = [geo.cell(i) for i in range(s.geo.ns)]
+        c = s.kernel.setup(s, cells[0]['nq'])
+        K = count(c['L'])
+        zero = np.zeros((s.geo.ns, 10 + 2 * K, c['W']), 'f4')
+
+        # Phase 0 first scattering
+        ref_m1 = np.zeros((s.geo.ns, 4 + K, c['W']), 'f8')
+        ref_f1 = np.zeros((s.geo.ns, c['W']), 'f8')
+        for i, g in enumerate(cells):
+            val, y = ref.transport(g, c, zero, first=True, return_basis=True)
+            ref_m1[i], ref_f1[i] = ref.project(g, val, c, y)
+        got_m1, got_f1 = mlx_ops.evaluate(geo, s, zero, True, 0, False, None)
+        assert got_m1 is not None
+        sc = np.abs(ref_m1).max(axis=(0, 1))
+        assert float((np.abs(got_m1 - ref_m1).max(axis=(0, 1)) / sc).max()) < 1e-3
+        if albedo > 0:
+            assert np.any(got_f1 > 0)
+            scf = np.abs(ref_f1).max(axis=0)
+            assert float((np.abs(got_f1 - ref_f1).max(axis=0) / scf).max()) < 1e-3
+        else:
+            assert not np.any(got_f1)
+
+        rng = np.random.default_rng(77 + int(albedo * 100))
+        field = rng.uniform(0.0, 0.05, zero.shape).astype('f4')
+        field[:, 10:, :] *= 0.003
+
+        # Phase 1 ground_only
+        nchi = len(s.geo.chi)
+        got_mg, got_fg = mlx_ops.evaluate(geo, s, field, False, 1, True, None)
+        assert not np.any(got_mg)
+        if albedo > 0:
+            ref_fg = np.zeros((nchi, c['W']), 'f8')
+            for i in range(nchi):
+                val, y = ref.transport(cells[i], c, field, first=False, return_basis=True)
+                _, ref_fg[i] = ref.project(cells[i], val, c, y, ground_only=True)
+            assert np.any(got_fg > 0)
+            assert float((np.abs(got_fg - ref_fg).max(axis=0) / np.abs(ref_fg).max(axis=0)).max()) < 1e-3
+            boundary = got_fg + got_f1[:nchi]
+        else:
+            assert not np.any(got_fg)
+            boundary = None
+
+        # Phase 0 warm (with strato boundary end columns when albedo > 0)
+        ref_mw = np.zeros_like(ref_m1)
+        ref_fw = np.zeros_like(ref_f1)
+        for i, g in enumerate(cells):
+            val, y = ref.transport(g, c, field, first=False, boundary=boundary, return_basis=True)
+            ref_mw[i], ref_fw[i] = ref.project(g, val, c, y)
+        got_mw, got_fw = mlx_ops.evaluate(geo, s, field, False, 0, False, boundary)
+        scw = np.abs(ref_mw).max(axis=(0, 1))
+        assert float((np.abs(got_mw - ref_mw).max(axis=(0, 1)) / scw).max()) < 1e-3
+        if albedo > 0:
+            assert np.any(got_fw > 0)
+            scfw = np.abs(ref_fw).max(axis=0)
+            assert float((np.abs(got_fw - ref_fw).max(axis=0) / scfw).max()) < 1e-3

@@ -1,5 +1,7 @@
 """Column integration and the sun-column table of the CPU reference engine; the aerosol profile is an argument."""
 
+from functools import lru_cache, partial
+from types import SimpleNamespace
 import json
 import time
 from pathlib import Path
@@ -13,9 +15,24 @@ R = 6371.0
 Z = TOP_KM
 
 
-def gl(n):
+_LEGENDRE = np.polynomial.legendre
+_LEGGAUSS = _LEGENDRE.leggauss if getattr(_LEGENDRE.leggauss, '__globals__', None) is vars(_LEGENDRE) else None
+
+
+@lru_cache(maxsize=32)
+def _gl(n):
     x, w = np.polynomial.legendre.leggauss(n)
-    return (x + 1) / 2, w / 2
+    u, w = (x + 1) / 2, w / 2
+    u.flags.writeable = w.flags.writeable = False
+    return u, w
+
+
+def gl(n):
+    if np.polynomial.legendre.leggauss is not _LEGGAUSS or not _standard_numpy(np):
+        x, w = np.polynomial.legendre.leggauss(n)
+        return (x + 1) / 2, w / 2
+    u, w = _gl(n)
+    return u.copy(), w.copy()
 
 
 def frame(r, chi):
@@ -131,6 +148,79 @@ def geometry_segments(aerosol, p, d, n, *, domain=None):
         yield active, q, r, ds, prefix
 
 
+# Native loops replace these numerical operations only for the ordinary NumPy backend.
+_NUMPY = np
+
+
+def _numpy_export(name):
+    """An override already installed during import is not a numerical primitive."""
+    fn = getattr(np, name)
+    namespace = getattr(fn, '__globals__', {})
+    if not isinstance(namespace, dict):
+        return None
+    owner = namespace.get('__name__', getattr(fn, '__module__', type(fn).__module__))
+    if (isinstance(owner, str) and owner.partition('.')[0] == 'numpy'
+            and getattr(fn, '__name__', None) == ('absolute' if name == 'abs' else name)):
+        return fn
+    return None
+
+
+_NUMPY_BINDINGS = tuple((name, _numpy_export(name)) for name in (
+    'abs', 'arange', 'arcsinh', 'array', 'asarray', 'broadcast_to', 'clip', 'column_stack', 'cumsum',
+    'all', 'ascontiguousarray', 'empty', 'require', 'float64', 'diff', 'exp', 'finfo', 'flatnonzero', 'full', 'hypot', 'interp', 'isfinite', 'linspace',
+    'max', 'maximum', 'minimum',
+    'any', 'ndim', 'shape', 'sort', 'sqrt', 'square', 'stack', 'sum', 'where', 'zeros', 'zeros_like',
+))
+_BOUNDARIES, _QUADRATURE, _PROFILES, _GEOMETRY = boundaries, gl, profiles, geometry_segments
+_DOMAIN = Domain
+_DOMAIN_PROPERTIES = (Domain.extra_shells, Domain.air_end, Domain.lower_end, Domain.identity)
+
+
+def _standard_numpy(module):
+    return (module is _NUMPY and np.inf == float('inf')
+            and all(fn is not None and getattr(module, name) is fn for name, fn in _NUMPY_BINDINGS))
+
+
+def _standard_domain(domain):
+    return (type(domain) is _DOMAIN and Domain is _DOMAIN
+            and all(a is b for a, b in zip((Domain.extra_shells, Domain.air_end, Domain.lower_end, Domain.identity),
+                                        _DOMAIN_PROPERTIES)))
+
+
+def _standard_probe(old):
+    if (Domain is not _DOMAIN or type(old) is not SimpleNamespace or type(getattr(old, 'probe', None)) is not SimpleNamespace
+            or getattr(old.probe, 'gl', None) is not _QUADRATURE or gl is not _QUADRATURE
+            or np.polynomial.legendre.leggauss is not _LEGGAUSS or boundaries is not _BOUNDARIES):
+        return False
+    bound = getattr(old.probe, 'boundaries', None)
+    return (bound is _BOUNDARIES or
+            (type(bound) is partial and bound.func is _BOUNDARIES and not bound.args
+             and bound.keywords.keys() <= {'domain'} and _standard_domain(bound.keywords.get('domain') or Domain())))
+
+
+def _standard_binding(bound, function):
+    from ..atmosphere import density, tropo_profile
+
+    return (Domain is _DOMAIN and type(bound) is partial and bound.func is function and len(bound.args) == 1
+            and bound.keywords.keys() <= {'domain'} and _standard_domain(bound.keywords.get('domain') or Domain())
+            and profiles is _PROFILES and density._standard_no2() and tropo_profile._standard_aerosol(bound.args[0])
+            and np is density.np is tropo_profile.np and _standard_numpy(np))
+
+
+def _plain_geometry(bound):
+    from ..atmosphere import density
+
+    if (geometry_segments is not _GEOMETRY or boundaries is not _BOUNDARIES or gl is not _QUADRATURE
+            or np.polynomial.legendre.leggauss is not _LEGGAUSS or not _standard_binding(bound, _GEOMETRY)):
+        return False
+    # The full geometry validates NO2 when it computes its first optical prefix.
+    # A cold asset, or support outside its validated grid, must still run that code.
+    if not density.no2_asset.cache_info().currsize:
+        return False
+    domain = bound.keywords.get('domain') or Domain()
+    return domain.lower_end <= density.no2_asset()[0][-1]
+
+
 def total_columns(aerosol, p, d, n, *, domain=None):
     out = np.zeros((len(d), 5))
     for active, q, r, ds, prefix in geometry_segments(aerosol, p, d, n, domain=domain):
@@ -153,9 +243,10 @@ class SunGeometry:
             *(
                 here / n
                 for n in ('foundation/top.py', 'atmosphere/density.py', 'atmosphere/tropo_profile.py', 'rays/ray_columns.py',
-                          'precompute/sun_parallel.py', 'precompute/column_parallel.py')
+                          'rays/column_table.py', 'precompute/sun_parallel.py', 'precompute/column_parallel.py')
             ),
         )
+        domain = domain or Domain()
         height = aerosol_height
         return json.dumps(
             dict(
@@ -163,12 +254,14 @@ class SunGeometry:
                 version=3,
                 components=list(components.COMPONENTS),
                 R=float(R),
-                Z=float((domain or Domain()).top_km),
-                domain=(domain or Domain()).identity(),
+                Z=float(domain.top_km),
+                domain=domain.identity(),
+                extra_shells_km=[float(h) for h in domain.extra_shells],
                 scale=int(scale),
                 aerosol_height=None if height is None else float(height),
                 aerosol=descriptor,
                 no2_asset_sha256=density.no2_asset()[2],
+                native=density.host_native_source_hash(),
                 sources={f.name: source_identity.file_sha(f) for f in files},
             ),
             sort_keys=True,

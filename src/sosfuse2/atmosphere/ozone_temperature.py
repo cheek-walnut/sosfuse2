@@ -117,10 +117,12 @@ class ProfileMean:
         )
         a = json.loads(raw_fine)
         t = json.loads(raw_temp)
-        if source_identity.asset_digest('spectra_fine.json', a['frozen_source_sha256']) != SP.asset()['sha']:
+        fine = SP.asset()
+        grid = fine['wl']
+        if source_identity.asset_digest('spectra_fine.json', a['frozen_source_sha256']) != fine['sha']:
             raise ValueError('E_OZONE_T_ASSET_SHA: frozen spectral source')
         if (
-            not np.array_equal(a['wavelength_nm'], SP.asset()['wl'])
+            not np.array_equal(a['wavelength_nm'], grid)
             or not np.array_equal(a['temperatures_K'], TEMPS)
             or t['units'] != dict(altitude='geometric km', temperature='K')
             or not np.array_equal(t['altitude_km'], Z)
@@ -136,8 +138,8 @@ class ProfileMean:
             or len(edges) < 2
             or not np.isfinite(edges).all()
             or np.any(np.diff(edges) <= 0)
-            or edges[0] < SP.asset()['wl'][0]
-            or edges[-1] > SP.asset()['wl'][-1]
+            or edges[0] < grid[0]
+            or edges[-1] > grid[-1]
         ):
             raise ValueError('E_SPECTRAL_EDGES')
         columns = np.asarray([a[f'ozone_{int(k)}K'] for k in TEMPS], float)
@@ -147,7 +149,7 @@ class ProfileMean:
             raise ValueError('E_OZONE_T_ASSET_GRID: sigma columns')
         if band_mean_of == 'band':
             self.sigmas = np.array(
-                [[SP.band_mean(column, lo, hi) for lo, hi in zip(edges[:-1], edges[1:])] for column in columns]
+                [[SP.band_mean(column, lo, hi, grid) for lo, hi in zip(edges[:-1], edges[1:])] for column in columns]
             )
         elif band_mean_of == 'point':
             wl = np.asarray(wavelengths, float)

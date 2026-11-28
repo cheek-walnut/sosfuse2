@@ -155,5 +155,12 @@
   "solve/ray_geometry.py": {
     "from ..foundation.top import NORMALIZATION_TOP_KM": 1,
     "shell_offset = (h0 - NORMALIZATION_TOP_KM) * (radius + R + NORMALIZATION_TOP_KM)": 1
+  },
+  "backends/mlx_warm.py": {
+    "tile_node_bytes = 0 if first else (108 + 16 * wp * (2 if (strat and not combine) else 1)) * max_nodes + (80 if extended else 36) * max_segments": 1
+  },
+  "rays/ray_columns.py": {
+    "extended = domain.top_km > shell_segments.TOP_KM": 1,
+    "extended = domain.top_km > density.top.NORMALIZATION_TOP_KM": 1
   }
 }

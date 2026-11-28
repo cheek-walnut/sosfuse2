@@ -271,7 +271,17 @@ def upload_geometry(bundle, host, xp, label):
     bundle.arrays = {}
     for name, value in arrays.items():
         with vram_trace.item(f'{label}.{name}'):
-            bundle.arrays[name] = xp.asarray(np.ascontiguousarray(value))
+            value = np.ascontiguousarray(value)
+            if xp is not np and value.nbytes >= 8 << 20:
+                # Upload from the contiguous host mapping. asarray otherwise
+                # stages the entire array in the process's pinned memory pool.
+                device = xp.empty(value.shape, value.dtype)
+                stream = xp.cuda.get_current_stream()
+                device.set(value, stream=stream)
+                stream.synchronize()
+                bundle.arrays[name] = device
+            else:
+                bundle.arrays[name] = xp.asarray(value)
     bundle.bytes = sum(v.nbytes for v in bundle.arrays.values())
 
 

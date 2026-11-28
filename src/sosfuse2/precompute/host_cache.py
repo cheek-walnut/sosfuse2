@@ -377,7 +377,7 @@ def aerosol_identity(s):
 
 
 def prepare_ground(s, scope, optics, method=None):
-    """Cache geometry, retaining full per-cell BLAS shapes and accumulation order.
+    """Cache geometry and evaluate the ground term for each wavelength.
 
     The geometric candidate mask only avoids columns for provably zero-weight
     rays. The accepted value>0 take mask is evaluated afresh for every state.
@@ -430,8 +430,7 @@ def prepare_ground(s, scope, optics, method=None):
 
         return dict(columns=aerosol(scope, g.sun, np.concatenate(ps), np.concatenate(ds)))
 
-    col1 = np.zeros(len(z['loc']))
-    col1[z['candidate']] = cached(folder, aerosol_key, build_aerosol)['columns']
+    aerosol = cached(folder, aerosol_key, build_aerosol)['columns']
     from .column_parallel import event_fields
 
     print(
@@ -447,19 +446,34 @@ def prepare_ground(s, scope, optics, method=None):
         ),
         flush=True,
     )
-    ds = []
-    vs = []
-    off = [0]
+    _ground_values(s, scope, z, aerosol)
+
+
+def _ground_values(s, scope, z, aerosol):
+    # The cache's candidate mask collects illuminated, positive-weight ground
+    # rays in cell order. Re-evaluate the wavelength-dependent take mask below.
+    g = s.geo
+    b = scope.b
+    ray = np.flatnonzero(z['candidate'])
+    cell_off = np.searchsorted(ray, z['off'])
+    directions = []
+    spectra = []
+    counts = np.zeros(g.ns, 'i8')
     s.gm = np.zeros((g.ns, 4, s.W), 'f4')
-    for cell in range(g.ns):
-        lo, hi = z['off'][cell : cell + 2]
-        loc = z['loc'][lo:hi]
-        w = z['w'][lo:hi]
-        q = z['q'][lo:hi]
-        r = z['r'][lo:hi]
-        col = np.empty((hi - lo, 5))
-        col[:, [0, 2, 3, 4]] = z['columns'][lo:hi]
-        col[:, 1] = col1[lo:hi]
+    for first in range(0, g.ns, 64):
+        last = min(first + 64, g.ns)
+        begin, end = cell_off[first], cell_off[last]
+        if end == begin:
+            continue
+        rows = ray[begin:end]
+        loc = z['loc'][rows]
+        w = z['w'][rows]
+        q = z['q'][rows]
+        r = z['r'][rows]
+        col = np.empty((len(rows), 5))
+        col[:, [0, 2, 3, 4]] = z['columns'][rows]
+        col[:, 1] = aerosol[begin:end]
+
         sc, lit = g.sun.lookup(q, np.maximum(b.R, r))
         ch = np.arccos(np.clip(q[:, 2] / r, -1, 1))
         value = (
@@ -472,14 +486,16 @@ def prepare_ground(s, scope, optics, method=None):
             * w[:, None]
         )
         take = np.any(value > 0, axis=1)
-        ds.append(loc[take])
-        vs.append(value[take])
-        off.append(off[-1] + take.sum())
+        directions.append(loc[take].astype('f4'))
+        spectra.append(value[take].astype('f4'))
         factor = np.stack(
             [(1 - loc[:, 0] ** 2) / 2, (1 - loc[:, 1] ** 2) / 2, (1 - loc[:, 2] ** 2) / 2, -loc[:, 0] * loc[:, 2] / 2],
             -1,
         )
-        s.gm[cell] = (factor.T @ value) * (2 * scope.C * s.ext[0])[None, :]
-    s.goff = np.array(off, 'i8')
-    s.gdir = np.ascontiguousarray(np.concatenate(ds), 'f4')
-    s.gval = np.ascontiguousarray(np.concatenate(vs), 'f4')
+        for cell in range(first, last):
+            lo, hi = cell_off[cell : cell + 2] - begin
+            counts[cell] = np.count_nonzero(take[lo:hi])
+            s.gm[cell] = (factor[lo:hi].T @ value[lo:hi]) * (2 * scope.C * s.ext[0])[None, :]
+    s.goff = np.r_[0, np.cumsum(counts)]
+    s.gdir = np.concatenate(directions) if directions else np.empty((0, 3), 'f4')
+    s.gval = np.concatenate(spectra) if spectra else np.empty((0, s.W), 'f4')

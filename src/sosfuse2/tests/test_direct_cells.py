@@ -33,7 +33,7 @@ extern "C" { float4 shared_vectors[25000]; float2 staged_plane[1]; }
 '''
     probe = r'''
 extern "C" void direct_cells(const float *p, const float *chi, int nc, int *result) {
-    const float d[3] = {0.f, 1.f, 0.f}, frame[9] = {}, dl[3] = {};
+    const float d[3] = {0.f, 1.f, 0.f}, projected[9] = {};
     const float h[] = {0.f, 80.f}, density[] = {1.f, 1.f}, u = 0.f;
     const int64_t cells[] = {0, 1};
     const uint32_t offsets[] = {0, 2};
@@ -45,7 +45,7 @@ extern "C" void direct_cells(const float *p, const float *chi, int nc, int *resu
                   &u, h, chi, density, density, &record, density);
     SlimPoint sample{};
     float height;
-    point_slim(sample, p, d, frame, dl, path_segment(p, ray, edges, true), u, 1.f,
+    point_slim(sample, p, d, projected, path_segment(p, ray, edges, true), u, 1.f,
                h, 2, chi, nc, 0.f, 1.f, true, nullptr, 0, height);
     result[0] = record.x;
     result[1] = sample.cell[0];

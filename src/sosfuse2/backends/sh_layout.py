@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
+
 from sosfuse2.backends import vram_trace
 
 
@@ -30,6 +33,7 @@ class FastTransport:
     hg: bool = False
     stage_plane: bool = True
     strato: bool = False
+    sh_taps: int = 4
 
     BATCH = 12
     PAGE_CELLS = 128
@@ -44,12 +48,14 @@ class FastTransport:
         return self.THREADS // self.PAIR_LANES // (1 if self.stage_plane else 2)
 
     @classmethod
-    def select(cls, L, cfg, first, phase, boundary=False, ray_limit=False, split=False):
+    def select(cls, L, cfg, first, phase, boundary=False, ray_limit=False, split=False, ground_sh_l=0):
         role = 'none'
         if cfg.role == 'transport' and not split:
             if not first and not cfg.split_warm and (not cfg.strato or (cfg.c3_fw15 and phase in (0, 1))):
                 role = 'warm'
-            elif not cfg.strato and first and phase == 0 and ray_limit and not boundary:
+            elif first and not boundary and not ground_sh_l and (
+                (phase == 0 and ray_limit) or (phase == 2 and cfg.W == 15 and not ray_limit)
+            ):
                 role = 'first'
         return cls(L, cfg.W, role, hg=role == 'first' and 'TROPO_MIE' not in cfg.flags, strato=cfg.strato)
 
@@ -65,7 +71,7 @@ class FastTransport:
 
     @property
     def sh_nodes(self):
-        return self.bins + 3  # cubic basis support at the end knots
+        return self.bins + 3  # both spline stencils use one ghost knot at each end
 
     @property
     def hg_nodes(self):
@@ -91,7 +97,8 @@ class FastTransport:
                 options += [f'-DVP_STAGE_PLANE={int(self.stage_plane)}', f'-DVP_VISITOR_TILE={self.visitor_tile}',
                             f'-DVP_PAIR_LANES={self.PAIR_LANES}']
             if self.role == 'angular':
-                options += [f'-DSH_ANGLE_BINS={self.bins}', f'-DSH_PAGE_CELLS={self.PAGE_CELLS}']
+                options += [f'-DSH_ANGLE_BINS={self.bins}', f'-DSH_PAGE_CELLS={self.PAGE_CELLS}',
+                            f'-DSH_SPLINE_TAPS={self.sh_taps}']
         return tuple(options)
 
     def shared_bytes(self, warps):
@@ -102,8 +109,10 @@ class FastTransport:
             pt_bytes = 160 if self.strato else 144
             return self.W * 8 + 12 * 4 + warps * (floats * 4 + self.BATCH * pt_bytes) + 16 + 512
         if self.role == 'first':
-            # FirstPoint, midpoint profiles and panel widths, phase, ray constants, frame.
-            per_warp = self.BATCH * 176 + (self.BATCH + 1) * 24 + (32 + 15 + 12) * 4
+            # FirstPoint, midpoint profiles and panel widths, ground scratch, ray constants, frame.
+            fmp_floats = 7 if self.strato else 6
+            ground_floats = 168 if self.strato else 32
+            per_warp = self.BATCH * 176 + (self.BATCH + 1) * fmp_floats * 4 + (ground_floats + 15 + 12) * 4
             return self.W * 8 + 16 + warps * per_warp
         return 0
 
@@ -170,3 +179,15 @@ def combined_aux_waves(src, c, layout, xp=None, skip_thin=False):
     if not out.flags.c_contiguous:
         raise RuntimeError('E_SH_AUX_WAVE_LAYOUT')
     return out
+
+
+def live_sh_cells(c, strato, nh, nc, W):
+    """Cells whose aerosol (or stratospheric) density can carry a source; all cells for W = 1 or tall grids."""
+    cells = nh * nc
+    if W == 1 or nh > 128 or 'ha' not in c or 'hr' not in c:
+        return np.arange(cells, dtype='i4')
+    cutoff = np.float32(1e-7) * np.asarray(c['hr'], dtype='f4')
+    live = np.asarray(c['ha'], dtype='f4') > cutoff
+    if strato and 'strato_density' in c:
+        live = live | (np.asarray(c['strato_density'], dtype='f4') > cutoff)
+    return np.flatnonzero(np.repeat(live, nc)).astype('i4')

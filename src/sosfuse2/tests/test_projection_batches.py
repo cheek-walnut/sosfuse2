@@ -22,6 +22,8 @@ def function(source, name):
         start = source.index('__device__ void ' + name)
     elif name == 'sh_basis_fast':
         start = source.index('__device__ __forceinline__ void ' + name)
+    elif name == 'sh_project':
+        start = source.rindex('extern "C" __global__', 0, source.index('    sh_project('))
     elif name == 'projection_radiance':
         declaration = source.index('projection_radiance(')
         start = source.rindex('template <int Threads, int Rays>', 0, declaration)
@@ -65,6 +67,7 @@ __device__ float clip(float x,float a,float b){{return fminf(b,fmaxf(a,x));}}
         + function(source, 'projection_radiance')
         + source[fl_start : source.index('extern "C"', fl_start)]
         + function(source, 'FLP_THREADS')
+        + function(source, 'sh_project')
         + source[sp_start : source.index('extern "C"', sp_start)]
         + function(source, 'SP_THREADS')
     )
@@ -113,6 +116,12 @@ __device__ float clip(float x,float a,float b){{return fminf(b,fmaxf(a,x));}}
             (np.int32(len(lengths)), np.int64(base), *dev, *coeff, rr, np.float32(0.2)),
         ),
         (
+            'sh_project',
+            256,
+            (((K + 127) // 128 + 1) * len(lengths),),
+            (np.int32(len(lengths)), np.int64(base), *dev, *coeff, rr, np.float32(0.2)),
+        ),
+        (
             'sos_slim_proj',
             128,
             (len(lengths), (5 + K + 63) // 64),
@@ -152,7 +161,7 @@ class ProjectionBatches(unittest.TestCase):
             raise
 
     def test_contract(self):
-        for L, W in ((16, 1), (16, 15), (32, 1), (32, 15)):
+        for L, W in ((16, 1), (16, 15), (24, 15), (32, 1), (32, 15)):
             for deterministic in (0, 1):
                 with self.subTest(L=L, W=W, deterministic=deterministic):
                     check_projection_batches(L, W, deterministic)

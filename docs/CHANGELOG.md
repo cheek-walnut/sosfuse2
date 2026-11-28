@@ -3,6 +3,22 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`. From 1.6.0, full-grid runs can extend above the default 80 km boundary. The main change to default output came in 1.5.0: a state without a `density` block, run without density options, now uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (README, *Limitations*). In 1.2.3 the bundled `states_v2.json` states began including the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option.
 
+## 1.10.0
+
+- **CUDA transport.** Stratospheric first scattering and Anderson history can remain on the GPU. Warm phase 0 requires
+  fewer passes per transport point and uses a centred quadratic angular lookup, while ground and table queries retain
+  the cubic lookup. Phase 2 accelerates table queries on the GPU and uses two-sample transport for table first
+  scattering.
+- **Host preparation.** Workers share read-only geometry by file offset and reuse wavelength-independent ray paths.
+  Stratospheric table columns can be prepared in parallel, and the next wavelength group prepares while the current
+  group solves. A C99 library accelerates column integrals when a C compiler is available.
+- **Apple silicon.** Experimental MLX transport now supports observer and table queries, a reflecting ground, the
+  stratospheric aerosol layer and extended domains up to 200 km.
+- **Timings.** On a 10 GB NVIDIA GPU with cache hits, the whole state process on the full `state200` grid took about 58–66 s
+  for `clear_33` (about 310 s with 1.9.2) and about 53 s for `clear_02` (130–144 s). The reference-table comparison is
+  unchanged: 2.57e-6 for `clear_33` and 7.53e-6 for `clear_02`. On an Apple silicon GPU, the small-grid FX-C3 case ran
+  end to end in about 6.7 s instead of about 29 s.
+
 ## 1.9.3
 
 - **Checks that passed without comparing.** `gate --stage` stops with `E_GATE_SOLVE` when both solves fail or a sample

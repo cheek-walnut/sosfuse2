@@ -42,7 +42,11 @@ def source_hash():
 
 
 def identity():
-    return dict(method=method(), mapping=MAPPING, boundary=BOUNDARY, na=NA, nx=NX, source=source_hash())
+    from ..atmosphere.density import host_native_source_hash
+
+    sources = bytes.fromhex(source_hash()) + bytes.fromhex(host_native_source_hash())
+    return dict(method=method(), mapping=MAPPING, boundary=BOUNDARY, na=NA, nx=NX,
+                source=hashlib.sha256(sources).hexdigest())
 
 
 def descriptor(kind, **parameters):
@@ -145,6 +149,27 @@ def _values(h, spec):
     raise ValueError('E_COLUMN_PROFILE: ' + kind)
 
 
+def _plain_profile(spec):
+    """Array and scalar providers can have observable per-row conversion semantics."""
+    if type(spec) is not dict:
+        return False
+    scalars = (float, int, np.float64, np.float32, np.int64, np.int32)
+    if any(type(spec[k]) not in scalars for k in ('end_km', 'height', 'center', 'sigma', 'norm') if k in spec):
+        return False
+    for key in ('grid', 'domain'):
+        if key in spec and type(spec[key]) is not dict:
+            return False
+    for key in ('values', 'vector'):
+        if key not in spec:
+            continue
+        value = spec[key]
+        if type(value) is np.ndarray and value.ndim == 1 and value.dtype.kind in 'fiu':
+            continue
+        if type(value) not in (list, tuple) or any(type(x) not in scalars for x in value):
+            return False
+    return True
+
+
 def build_table(spec, ground):
     ztop = spec.get('domain', {}).get('top_km', Z)
     a = np.linspace(0, 1, NA)
@@ -155,6 +180,22 @@ def build_table(spec, ground):
     rho = R * np.sqrt(1 - a**4) if ground else R + ztop * a * a
     hlo = np.zeros(NA) if ground else rho - R
     G = np.zeros((NA, NX), 'f8')
+    from . import shell_segments
+    from ..atmosphere import density, tropo_profile
+
+    # A callback can consume rows in sequence, or depend on the 2-D node array it receives.
+    blocked = (values is _DEFAULT_VALUES and _values is _DEFAULT_PROFILE_VALUES
+               and density._standard_grid() and tropo_profile.profile is tropo_profile._TWO_LAYER_PROFILE
+               and shell_segments._standard_numpy(np) and np is density.np is tropo_profile.np
+               and np.polynomial.legendre.leggauss is shell_segments._LEGGAUSS and _plain_profile(spec))
+    if (values is _DEFAULT_VALUES and _values is _DEFAULT_PROFILE_VALUES and density._standard_grid()
+            and type(spec) is dict and spec.get('kind') in ('usstd76', 'air_squared')):
+        data, grid = spec['values'], spec.get('grid', {})
+        if type(grid) is dict and type(data) in (np.ndarray, tuple, list):
+            if type(data) is np.ndarray and data.ndim != 1 or grid.get('n', len(data)) != len(data):
+                raise ValueError('E_PROFILE_GRID: expected one value per profile node')
+    if blocked and _fill_table(G, spec, ground, a, x, u, w, rho, hlo, ztop):
+        return G
     for i in range(NA):
         vmax = np.sqrt(max(ztop - hlo[i], 0))
         dv = vmax / (NX - 1)
@@ -174,6 +215,57 @@ def build_table(spec, ground):
             dtdv = 2 * r / np.sqrt(r + rho[i])
         G[i, 1:] = np.cumsum(np.sum(values(h, spec) * dtdv * (w * widths), axis=1))
     return G
+
+
+def _fill_table(out, spec, ground, a, x, u, w, rho, hlo, ztop):
+    """Integrate plain profiles, using the same grid and GL8 rule as the row loop."""
+    from ..atmosphere import density
+    from .ray_columns import _host_loops
+
+    end = spec.get('end_km', np.inf)
+    if (len(a) < 2 or len(x) < 2 or u.shape != (8,) or w.shape != (8,)
+            or not np.isfinite(ztop) or ztop <= 0 or not np.isfinite(R) or R <= 0
+            or np.isnan(end) or end <= 0):
+        return False
+    loops = _host_loops()
+    if loops is None:
+        return False
+    kinds = ('exp', 'triangle', 'usstd76', 'air_squared', 'gaussian', 'two_layer')
+    name = spec['kind']
+    if name not in kinds:
+        return False
+    params = vals = np.empty(0)
+    step = 1.
+    if name == 'exp':
+        params = np.array([spec['height']], 'f8')
+        if params[0] <= 0:
+            return False
+    elif name == 'gaussian':
+        params = np.array([spec[k] for k in ('center', 'sigma', 'norm')], 'f8')
+        if params[1] <= 0 or params[2] <= 0:
+            return False
+    elif name == 'two_layer':
+        params = np.require(spec['vector'], dtype='f8', requirements=['C', 'A'])
+    elif name in ('usstd76', 'air_squared'):
+        vals = np.require(spec['values'], dtype='f8', requirements=['C', 'A'])
+        grid = spec.get('grid', {})
+        z = density.grid(len(vals), step=grid.get('step_km'), top_km=grid.get('top_km'))
+        step = z[1]
+    kind = kinds.index(name)
+    density._host_buffer(vals, (len(vals),))
+    density._host_buffer(params, ((1, 0, 0, 0, 3, 7)[kind],))
+    impact2 = np.array([R * R * angle**4 for angle in a])
+    density._host_buffer(x, (len(x),))
+    for array in (u, w):
+        density._host_buffer(array, (8,))
+    for array in (impact2, rho, hlo):
+        density._host_buffer(array, (len(a),))
+    density._host_buffer(out, (len(a), len(x)), writable=True)
+    workspace_shape = (2, len(x) - 1, 8) if ground else (0,)
+    workspace = density._host_buffer(np.empty(workspace_shape), workspace_shape, writable=True)
+    loops.build_table_c(len(a), len(x), ground, R, ztop, end, kind, params, vals, len(vals), step,
+                        x, u, w, impact2, rho, hlo, workspace, out)
+    return True
 
 
 def table_key(spec):
@@ -258,6 +350,12 @@ def coordinates(p, d, end, top_km=Z):
     return dict(sa=sa, sb=sb, rho=rho, ground=ground, a=a, xa=xa, xb=xb, direct=direct & ~short, short=short)
 
 
+def _linear_knots(col, spec, step):
+    if 'end_km' in spec:
+        return col[:round(spec['end_km'] / step) + 1]
+    return col
+
+
 def pieces(spec):
     if spec['kind'] == 'triangle':
         return [(R + 10, R + 25, -(R + 10) / 15, 1 / 15), (R + 25, R + 40, (R + 40) / 15, -1 / 15)]
@@ -265,15 +363,36 @@ def pieces(spec):
 
     col = np.asarray(spec['values'])
     step = spec['grid']['step_km'] if 'grid' in spec else STEP_OF_N[len(col)]
-    if 'end_km' in spec:
-        col = col[:round(spec['end_km'] / step) + 1]
+    col = _linear_knots(col, spec, step)
     slope = np.diff(col) / step
     lo = R + np.arange(len(col) - 1) * step
     return zip(lo, lo + step, col[:-1] - slope * lo, slope)
 
 
+_DEFAULT_PIECES = pieces
+_DEFAULT_VALUES = values
+_DEFAULT_PROFILE_VALUES = _values
+
+
 def linear_columns(spec, rho, sa, sb):
     """Closed shell integrals, including both sides of the tangent."""
+
+    from . import ray_columns, shell_segments
+    from ..atmosphere.density import _host_buffer
+
+    if (pieces is _DEFAULT_PIECES and _plain_profile(spec) and shell_segments._standard_numpy(np)
+            and _ray_vectors(rho, sa, sb)):
+        lib = ray_columns._host_loops()
+        if lib is not None:
+            coeff = np.asarray(list(pieces(spec)), 'f8').reshape(-1, 4)
+            if not np.isfinite(coeff).all():
+                lib = None
+        if lib is not None:
+            out = np.zeros(len(rho))
+            arrays = [_host_buffer(v, rho.shape) for v in _buffers(rho, sa, sb)]
+            lib.linear_columns_c(len(rho), len(coeff), _host_buffer(coeff, (len(coeff), 4)), *arrays,
+                                 _host_buffer(out, rho.shape, writable=True))
+            return out
 
     def primitive(s, r):
         return 0.5 * (s * np.hypot(r, s) + r * r * np.arcsinh(s / np.maximum(r, 1e-100)))
@@ -291,6 +410,64 @@ def linear_columns(spec, rho, sa, sb):
     return np.maximum(out, 0)
 
 
+def _buffers(*arrays):
+    return [np.require(v, dtype='f8', requirements=['C', 'A']) for v in arrays]
+
+
+def _ray_vectors(rho, sa, sb):
+    return (type(rho) is np.ndarray and rho.ndim == 1
+            and all(type(v) is np.ndarray and v.shape == rho.shape and v.dtype == np.float64
+                    and np.isfinite(v).all() for v in (rho, sa, sb)))
+
+
+@lru_cache(maxsize=1)
+def _default_gl8():
+    return np.polynomial.legendre.leggauss(8)
+
+
+def _shell_rule():
+    from . import shell_segments as shell
+
+    if np.polynomial.legendre.leggauss is shell._LEGGAUSS and shell._standard_numpy(np):
+        return _default_gl8()
+    return np.polynomial.legendre.leggauss(8)
+
+
+def _squared_walk(loops, spec, z, u, w, rho, sa, sb, linear=None):
+    from ..atmosphere.density import _host_buffer
+
+    col = np.asarray(spec['values'])
+    if (z.ndim != 1 or rho.ndim != 1 or col.ndim != 1 or col.dtype != np.float64 or len(z) > len(col) or not np.isfinite(col).all()
+            or u.shape != (8,) or w.shape != (8,)
+            or (len(z) > 1 and (z[0] != 0 or z[1] <= 0 or not np.all(np.diff(z) == z[1])))):
+        return None
+    out = np.zeros(len(rho))
+    aux = np.zeros_like(out) if linear is not None else np.empty(0)
+    alpha = beta = np.empty(0)
+    if linear is not None:
+        if (linear['kind'] != 'usstd76' or linear.get('grid') != spec.get('grid')
+                or linear.get('end_km') != spec.get('end_km') or len(linear['values']) != len(col)):
+            return None
+        step = linear['grid']['step_km']
+        vals = _linear_knots(np.asarray(linear['values'], 'f8'), linear, step)
+        # The rounded linear endpoint can include a shell beyond the last O4 knot.
+        if len(vals) != len(z) or not np.isfinite(vals).all():
+            return None
+        beta = np.diff(vals) / step
+        alpha = vals[:-1] - beta * (R + z[:-1])
+    arrays = _buffers(z, col, u, w, rho, sa, sb)
+    for array, shape in zip(arrays, ((len(z),), (len(col),), (8,), (8,), (len(rho),), (len(rho),), (len(rho),))):
+        _host_buffer(array, shape)
+    coefficients = (len(z) - 1,) if linear is not None else (0,)
+    _host_buffer(alpha, coefficients)
+    _host_buffer(beta, coefficients)
+    _host_buffer(out, rho.shape, writable=True)
+    _host_buffer(aux, rho.shape if linear is not None else (0,), writable=True)
+    loops.squared_columns(len(rho), len(z), len(col), *arrays, R, spec.get('end_km', np.inf),
+                          out, linear is not None, alpha, beta, aux)
+    return out, aux
+
+
 def direct_columns(spec, p, d, end, n=24):
     """Boundary fallback: exact US1976/triangle; split GL for smooth profiles."""
     p = np.broadcast_to(p, d.shape)
@@ -301,14 +478,24 @@ def direct_columns(spec, p, d, end, n=24):
         # Split at every air knot before quadrature: integrate the square of the
         # interpolant, never the interpolant of squared knots. Using local h in
         # the integrand avoids cancellation of Earth-radius-sized primitives.
-        from ..atmosphere.density import grid
+        from ..atmosphere import density
+        from . import ray_columns, shell_segments
 
         out = np.zeros(len(d))
-        u, w = np.polynomial.legendre.leggauss(8)
+        u, w = _shell_rule()
         g = spec.get('grid', {})
-        z = grid(len(spec['values']), step=g.get('step_km'), top_km=g.get('top_km'))
+        z = density.grid(len(spec['values']), step=g.get('step_km'), top_km=g.get('top_km'))
         if 'end_km' in spec:
             z = z[z <= spec['end_km']]
+        if (values is _DEFAULT_VALUES and _values is _DEFAULT_PROFILE_VALUES and density._standard_grid()
+                and density.np is np and shell_segments._standard_numpy(np)
+                and np.polynomial.legendre.leggauss is shell_segments._LEGGAUSS
+                and _plain_profile(spec) and _ray_vectors(c['rho'], c['sa'], c['sb'])):
+            loops = ray_columns._host_loops()
+            if loops is not None:
+                result = _squared_walk(loops, spec, z, u, w, c['rho'], c['sa'], c['sb'])
+                if result is not None:
+                    return result[0]
         for lo, hi in zip(z[:-1], z[1:]):
             ca = np.sqrt(np.maximum((R + lo - c['rho']) * (R + lo + c['rho']), 0))
             cb = np.sqrt(np.maximum((R + hi - c['rho']) * (R + hi + c['rho']), 0))
@@ -365,6 +552,48 @@ def exact_columns(spec, p, d, end):
     if not np.isfinite(out).all():
         raise ValueError('E_COLUMN_TABLE_NONFINITE')
     return np.maximum(out, 0)
+
+
+# The paired walk specializes only this chain of ordinary component calls.
+# A replacement may carry state, so the caller keeps the original per-component loop.
+_EXACT_BINDINGS = tuple((name, globals()[name]) for name in (
+    'molecular', '_molecular', 'descriptor', 'exact_columns', 'linear_columns', 'pieces', '_linear_knots',
+    'direct_columns', 'coordinates', 'values', '_values',
+))
+
+
+def _standard_minor_optics(optics):
+    from ..atmosphere import density
+    from . import shell_segments as shell
+
+    return (type(optics) is dict and type(optics.get('table')) is np.ndarray
+            and type(optics.get('meta')) is dict and type(optics['meta'].get('no2')) is dict
+            and all(globals()[name] is fn for name, fn in _EXACT_BINDINGS)
+            and density._standard_descriptors() and shell._standard_numpy(np) and np is density.np
+            and np.polynomial.legendre.leggauss is shell._LEGGAUSS
+            and shell._standard_domain(density.domain_of(optics)))
+
+
+def _minor_pair(optics, rho, sa, sb, describe, integrate):
+    from ..atmosphere import density
+    from . import ray_columns
+
+    if (describe is not molecular or integrate is not exact_columns
+            or not _standard_minor_optics(optics) or not _ray_vectors(rho, sa, sb)):
+        return None
+    loops = ray_columns._host_loops()
+    if loops is None:
+        return None
+    linear = describe(optics, 2)
+    square = describe(optics, 3)
+    if square['kind'] != 'air_squared':
+        return None
+    g = square['grid']
+    u, w = _shell_rule()
+    z = density.grid(len(square['values']), step=g['step_km'], top_km=g['top_km'])
+    if 'end_km' in square:
+        z = z[z <= square['end_km']]
+    return _squared_walk(loops, square, z, u, w, rho, sa, sb, linear)
 
 
 def column(spec, p, d, end, coords=None):

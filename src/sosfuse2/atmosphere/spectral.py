@@ -294,15 +294,18 @@ def asset_hashes(b):
     }
 
 
-def _fine_grid(lo, hi):
+def _fine_grid(lo, hi, g=None):
     """Fine nodes inside [lo, hi] plus the two ends (trapezoid of the linear interpolant, exact for non-grid edges)."""
-    g = asset()['wl']
+    if g is None:
+        g = asset()['wl']
     return np.unique(np.r_[lo, g[(g > lo) & (g < hi)], hi])
 
 
-def band_mean(y, lo, hi):
-    x = _fine_grid(lo, hi)
-    return np.trapezoid(np.interp(x, asset()['wl'], y), x) / (hi - lo)
+def band_mean(y, lo, hi, grid=None):
+    if grid is None:
+        grid = asset()['wl']
+    x = _fine_grid(lo, hi, grid)
+    return np.trapezoid(np.interp(x, grid, y), x) / (hi - lo)
 
 
 def representative(b, wavelengths, *, band_mean_of='band'):
@@ -319,14 +322,14 @@ def representative(b, wavelengths, *, band_mean_of='band'):
         if not OT.identity_matches(b, {k: meta[k] for k in OT.identity(b['ozone_profile']['name'])}):
             raise ValueError('E_OZONE_T_ASSET_SHA: profile_mean assets read differ from the block')
         e = b['bin_edges_nm']
-        return sigma, np.array([band_mean(A['solar'], lo, hi) for lo, hi in zip(e[:-1], e[1:])])
+        return sigma, np.array([band_mean(A['solar'], lo, hi, A['wl']) for lo, hi in zip(e[:-1], e[1:])])
     oz = A[b['ozone_column']]
     if b['mode'] == 'point':
         return np.interp(wl, A['wl'], oz), np.interp(wl, A['wl'], A['solar'])
     e = b['bin_edges_nm']
     return (
-        np.array([band_mean(oz, lo, hi) for lo, hi in zip(e[:-1], e[1:])]),
-        np.array([band_mean(A['solar'], lo, hi) for lo, hi in zip(e[:-1], e[1:])]),
+        np.array([band_mean(oz, lo, hi, A['wl']) for lo, hi in zip(e[:-1], e[1:])]),
+        np.array([band_mean(A['solar'], lo, hi, A['wl']) for lo, hi in zip(e[:-1], e[1:])]),
     )
 
 

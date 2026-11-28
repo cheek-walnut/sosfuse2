@@ -37,8 +37,8 @@ Python 3.11 is untested. The NumPy reference uses FP32 flush-to-zero mode, suppo
 Linux x86_64; other platforms such as macOS x86_64 stop with `E_FTZ_UNSUPPORTED`. A C++ compiler is needed only by
 checks and tests (`docs/CHECKS.md`). On CUDA machines, NVRTC compiles kernels on first use; `docs/ENVIRONMENT.md`
 describes where the compiled kernels are kept and how to fill that cache before a queue starts (*Kernel compilation
-cache*). With `SOSFUSE2_MLX=1` and `pip install mlx`, an experimental MLX transport covers one configuration on Apple
-silicon, which none of the bundled states uses (*Experimental MLX transport (Apple silicon)* in `docs/ENVIRONMENT.md`).
+cache*). With `SOSFUSE2_MLX=1` and `pip install mlx`, Apple silicon users can enable an experimental MLX transport and
+table queries (*Experimental MLX transport (Apple silicon)* in `docs/ENVIRONMENT.md`).
 
 sosfuse2 is not on PyPI. Install it in a virtual environment from a checkout of the tagged commit:
 
@@ -148,7 +148,7 @@ hardware; they do not measure physical accuracy.
 - A stored source does not record the content of an optics table outside the package (`stratosphere.optics_table` or
   `troposphere_phase.optics_table`), only its path. Give a changed table a new path, or solve the source again (*Optics
   tables outside the package* in `docs/PROVENANCE_V3.md`).
-- The MLX transport is experimental and covers one configuration; its tables are checked against the NumPy reference,
+- The MLX transport is experimental; its tables are checked against the NumPy reference,
   not separately validated against measurements or other codes.
 - On CUDA, a warm launch that cannot use the angular direction table (for example with `SOSFUSE2_DETERMINISTIC=1`)
   contracts the coefficients directly or uses the fused kernel, and a solve that falls back to the fused kernel can take

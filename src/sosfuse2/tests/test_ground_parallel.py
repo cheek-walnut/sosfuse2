@@ -167,3 +167,32 @@ class GroundTests(unittest.TestCase):
         for value in ('0', '-1', 'invalid'):
             with mock.patch.dict(os.environ, {gp.ENV: value}), self.assertRaisesRegex(ValueError, 'E_GROUND_WORKERS'):
                 gp.workers()
+
+
+def test_ground_values_keep_dark_cells_and_spectral_underflow():
+    from types import SimpleNamespace
+
+    n = 67
+    # One empty block, a partly visible cell, and a lane below the FP32 range.
+    chi = np.array([np.pi, np.pi, 0.])
+    loc = np.tile(np.eye(3), (n, 1))
+    q = 6371. * np.column_stack((np.sin(chi), np.zeros(3), np.cos(chi)))
+    q = np.tile(q, (n, 1))
+    q[:64*3, 2] = -6371.
+    r = np.full(3*n, 6371.)
+    w = np.tile([0.2, 0.3, 0.5], n)
+    columns = np.full((n*3, 4), 2.)
+    z = dict(q=q, r=r, loc=loc, w=w, off=np.arange(0, 3*n+1, 3),
+             columns=columns, candidate=q[:, 2] > 0)
+    def lookup(points, radius):
+        return np.ones((len(points), 5)), np.ones(len(points), bool)
+    s = SimpleNamespace(geo=SimpleNamespace(ns=n, sun=SimpleNamespace(lookup=lookup)),
+                        W=2, ext=np.tile([0.1, 1000.], (5, 1)))
+    scope = SimpleNamespace(C=0.25, b=SimpleNamespace(R=6371., sh=SimpleNamespace(NORMAL={'albedo': 0.2})))
+    host_cache._ground_values(s, scope, z, np.full(3, 2.))
+    np.testing.assert_array_equal(s.goff, np.r_[np.zeros(65, int), 1, 2, 3])
+    np.testing.assert_array_equal(s.gdir, loc[z['candidate']].astype('f4'))
+    value = (0.2 / np.pi * np.exp(-15. * np.array([0.1, 1000.])) * 0.5)
+    np.testing.assert_allclose(s.gval, np.tile(value, (3, 1)), rtol=1e-6)
+    np.testing.assert_array_equal(s.gm[:64], 0.)
+    np.testing.assert_allclose(s.gm[64:, 0], np.tile(0.5 * value * (2 * scope.C * s.ext[0]), (3, 1)), rtol=1e-6)
