@@ -3,6 +3,13 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`. From 1.6.0, full-grid runs can extend above the default 80 km boundary. The main change to default output came in 1.5.0: a state without a `density` block, run without density options, now uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (README, *Limitations*). In 1.2.3 the bundled `states_v2.json` states began including the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option.
 
+## 1.10.2
+
+- **Tests on Linux x86-64.** The numerical equivalence check used by the tests now allows rounding noise down to
+  1e-12 of each array's largest value. Entries that cancel to nearly zero (about 1e-20 beside 2e-4) are rounded
+  differently by the compiled host library and the NumPy path on x86-64, which made three host-cache and sun-method
+  tests fail there. Results and tolerances of the engine are unchanged.
+
 ## 1.10.1
 
 - **Upgrading an output folder.** Although the NumPy reference run produced identical table arrays and convergence
