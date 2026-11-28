@@ -3,18 +3,20 @@
 Comparison runs come from the upstream research repository. The first radiance comparison with MYSTIC (Figure 1)—originally
 run with 1.0.0 physics, repeated with 1.7.0, and solved again on the engine side with 1.9.0—uses one atmospheric state
 (state A) at one sunward pixel (20.25° elevation, 0.5° relative azimuth) viewed from 0.1 km above the ground at solar
-zenith angles (SZA) of 93°, 96° and 99° (solar elevations −3°, −6° and −9°), and from 1.9.3 also at 102° (−12°) with
-separate MYSTIC runs. State A combines tropospheric aerosol (aod550 0.0551, Ångström exponent 1.889, single-scattering
+zenith angles (SZA) of 93°, 96° and 99° (solar elevations −3°, −6° and −9°), from 1.9.3 also at 102° (−12°) and from
+1.10.3 at 105° (−15°), each with separate MYSTIC runs. State A combines tropospheric aerosol (aod550 0.0551, Ångström exponent 1.889, single-scattering
 albedo 0.898, Henyey–Greenstein asymmetry parameter 0.683, scale height 1.0 km) with a 224.75 DU ozone column, a
 Gaussian stratospheric sulfate layer (centre 19 km, σ 3 km, τ550 0.0037) and a Lambert surface of albedo 0.376.
 
-![Engine and MYSTIC radiance spectra and their ratio at SZA 93°, 96°, 99° and 102°](validation/mystic_vs_engine.png)
+![Engine and MYSTIC radiance spectra at SZA 93°, 96°, 99°, 102° and 105°, each divided by the engine's mean, and the mean MYSTIC / engine ratio at each angle](validation/mystic_vs_engine.png)
 
-Figure 1. State A at the sunward pixel (20.25° elevation, 0.5° relative azimuth). Top: radiance over solar irradiance,
-L/E₀, from the engine (lines) and MYSTIC (open markers), omitting MYSTIC
-relative standard errors (0.52 % to 2.46 % up to SZA 99°, 4.2 % to 6.2 % at SZA 102°). Bottom: MYSTIC / engine ratio with
-MYSTIC standard-error bars, offset by up to ±4.5 nm across the four angles to prevent overlap. Data:
-`docs/validation/mystic_compare.csv` (SZA 93° to 99°) and `docs/validation/mystic_compare_102.csv`. Script:
+Figure 1. State A at the sunward pixel (20.25° elevation, 0.5° relative azimuth). First five panels: radiance over solar
+irradiance, L/E₀, from the engine (lines) and MYSTIC (open markers with standard-error bars) at one SZA each, both divided
+by the engine's mean over the 30 wavelengths, which each panel prints. The means span a factor of about 3 × 10⁵, so the
+division lets one linear axis compare spectral shape at every angle. MYSTIC relative standard errors are 0.52 % to 2.46 %
+up to SZA 99°, 4.2 % to 6.2 % at SZA 102° and 3.4 % to 4.4 % at SZA 105°. Last panel: inverse-variance mean of the
+MYSTIC / engine ratio over the 30 wavelengths, with its standard error. Data: `docs/validation/mystic_compare.csv` (SZA
+93° to 99°), `docs/validation/mystic_compare_102.csv` and `docs/validation/mystic_compare_105.csv`. Script:
 `docs/validation/plot_validation.py`.
 
 Later sections extend beyond that pixel. *Stratospheric aerosol input and zenith polarisation (Ugolnikov et al.)* checks
@@ -27,7 +29,8 @@ state belongs to the 64 bundled states in `states_v2.json`, and both place the s
 pixels for SZA 93° and 96°.
 
 Two numerical sections follow, covering convergence of two settings and IPRT test case E1. We make no comparison with
-MYSTIC below a solar elevation of −12°, where single MYSTIC runs carry little signal (Figure 2), and instead test parts
+MYSTIC below a solar elevation of −15°, where single MYSTIC runs carry little signal (Figure 2) and −15° alone took 6,360
+runs, and instead test parts
 of the deep-twilight problem down to −18° by comparing second-order scattering against direct quadrature and a Rayleigh
 atmosphere against SASKTRAN2. Two further sections compare with measured twilight-sky brightness and purple-light timing.
 Before the open checks, two final numerical sections examine the SZA and height grids and measure band-approximation
@@ -86,6 +89,14 @@ runs of 5,000,000 photons (1,380 runs, 6.9 × 10⁹ photons, 19.3 CPU-hours of `
 this solar elevation often collects only a few photon paths (Figure 2), each cell's SE is the larger of the combined
 `mc_std` and the scatter across its 46 runs. We set no SE target for it.
 
+For 1.10.3 we added SZA 105° (solar elevation −15°) in the same way, with the engine value from the −15° row of the same
+table. Each of its 30 cells combines 212 differently seeded runs of 25,000,000 photons (6,360 runs, 1.59 × 10¹¹ photons,
+808 CPU-hours of `uvspec` time), with SE defined as at SZA 102° and no SE target. Nineteen runs found no contributing
+photon path and count as zero in the mean of their cell. Small samples gave low means, because they had not yet caught
+the rare large contributions: the inverse-variance mean ratio was 0.9253 ± 0.0259 after 13 runs per wavelength and
+0.9641 ± 0.0195 after 26, and stayed within 0.7 SE of 1 from 53 runs on, while the per-cell SE fell as one over the
+square root of the number of runs.
+
 Table 1 lists the MYSTIC / engine ratios, with blue and red denoting mean ratios below 450 nm and above 600 nm. The
 final column counts cells meeting the SE target, measuring MYSTIC precision rather than code agreement.
 
@@ -95,8 +106,9 @@ final column counts cells meeting the SE target, measuring MYSTIC precision rath
 | 96° | 0.9836 / 0.9998 / 1.0126 | 0.9992 / 1.0005 | 0.68–0.99 % | 30 of 30 (1 %) |
 | 99° | 0.9657 / 1.0009 / 1.0678 | 0.9990 / 1.0091 | 2.02–2.46 % | 30 of 30 (2.5 %) |
 | 102° | 0.8843 / 1.0155 / 1.0979 | 1.0003 / 1.0235 | 4.16–6.17 % | no target |
+| 105° | 0.9556 / 1.0061 / 1.0999 | 0.9904 / 1.0049 | 3.37–4.42 % | no target |
 
-Table 1. Radiance ratio MYSTIC / engine at the four solar zenith angles.
+Table 1. Radiance ratio MYSTIC / engine at the five solar zenith angles.
 
 For colour, we compute CIE 1976 u′ and v′ from the 30-wavelength spectrum using the point set-up's colour weights, which
 combine solar irradiance with CIE 1931 colour-matching functions over each bin. Defining Δ as MYSTIC minus engine, we
@@ -109,6 +121,7 @@ treating wavelengths as independent because each cell uses its own seeds.
 | 96° | 0.184588, 0.442920 | 0.184600, 0.442590 | +0.000013 ± 0.000313 | −0.000331 ± 0.000485 |
 | 99° | 0.184929, 0.442375 | 0.186189, 0.441450 | +0.001261 ± 0.000742 | −0.000925 ± 0.001195 |
 | 102° | 0.180683, 0.431971 | 0.181640, 0.431693 | +0.000957 ± 0.001436 | −0.000278 ± 0.002758 |
+| 105° | 0.178416, 0.429220 | 0.177982, 0.430276 | −0.000433 ± 0.001181 | +0.001056 ± 0.002308 |
 
 Table 2. Chromaticity of the sunward pixel in both codes.
 
@@ -121,17 +134,20 @@ expected for independent normal deviates.
 
 At SZA 102° the ratios span 0.884–1.098 with 4.2–6.2 % SE, and their inverse-variance mean is 1.0085 ± 0.0088. Two of
 the 30 cells exceed 2 SE (largest 2.37 at 571.50 nm) and none exceeds 3, and both colour differences lie within 1 SE.
-Over all 120 cells, six exceed 2 and none exceeds 3, against 5.5 and 0.32 expected.
+At SZA 105° the ratios span 0.956–1.100 with 3.4–4.4 % SE, and their inverse-variance mean is 1.0022 ± 0.0073. One cell
+exceeds 2 SE (2.42 at 743.83 nm), none exceeds 3, and both colour differences lie within 1 SE. Over all 150 cells, seven
+exceed 2 and none exceeds 3, against 6.8 and 0.41 expected.
 
 The 2.5 % target at SZA 99° comes from the 1.0.0 comparison, where reaching 2 % was estimated at 6.05 extra CPU-hours
 against 3.64 for 2.5 %. With those photon counts, no SZA 99° cell meets 2 % and all 30 meet 2.5 %.
 
 These SEs reflect only MYSTIC Monte Carlo noise and exclude engine, layering and input uncertainty. Any error in shared
 inputs, such as the ozone cross section, Mie table, solar spectrum, colour-matching functions or Rayleigh optical-depth
-law, cancels in the ratio and goes undetected. This comparison covers one state and one pixel at four solar zenith angles, down to a
-solar elevation of −12°.
+law, cancels in the ratio and goes undetected. This comparison covers one state and one pixel at five solar zenith angles, down to a
+solar elevation of −15°.
 
-Below −12° we use other references because the signal of a single MYSTIC run fades. We ran two bundled states
+Below −15° we use other references, because the signal of a single MYSTIC run fades and SZA 105° already took 6,360
+runs. We ran two bundled states
 (`clear_43`, `clear_80`) at two pixels with 250,000 photons per run and the set-up of *Bundled states against MYSTIC
 (1.9.0)*. The median relative SE of one run grows from 6.7 % in the sunward direction and 10.5 % in the antisolar direction at SZA 96°
 to 31–32 % at SZA 99° and 82–99 % at SZA 102°. At SZA 105°, 82 % of the runs in the sunward direction and 88 % in the antisolar direction return no radiance (Figure 2). For
@@ -1029,11 +1045,12 @@ For 1.9.1 we solved the engine side of Figures 1 and 3 again with the installed 
 `clear_34` command of `docs/PERFORMANCE.md` with its 1.6.1 table. We did not repeat the MYSTIC runs, because the
 1.9.0 optical export gives the same MYSTIC input files. For 1.9.3 we added the MYSTIC runs at SZA 102° to Figure 1, with
 the engine value from the same 1.9.0 table, and solved the second-order comparison again with the installed 1.9.2
-package, whose engine is that of 1.9.0. The remaining sections report earlier versions.
+package, whose engine is that of 1.9.0. For 1.10.3 we added the MYSTIC runs at SZA 105° to Figure 1 in the same way.
+The remaining sections report earlier versions.
 
 | section | engine of the record | rerun for 1.9.0 or 1.9.3 | relation to the previous record |
 |---|---|---|---|
-| *Same-input comparison with MYSTIC (1.9.0)*, Figure 1 | 1.9.0 | engine | The MYSTIC runs are those of 1.7.0, and their 126 input files written from the 1.9.0 export are the same byte for byte. The 1.9.0 engine values differ from the 1.7.0 ones by at most 5.6e-7 relative, with the same numbers of source evaluations (7 and 5), all converged. The SZA 102° runs are new in 1.9.3 and read the same 1.9.0 table. |
+| *Same-input comparison with MYSTIC (1.9.0)*, Figure 1 | 1.9.0 | engine | The MYSTIC runs are those of 1.7.0, and their 126 input files written from the 1.9.0 export are the same byte for byte. The 1.9.0 engine values differ from the 1.7.0 ones by at most 5.6e-7 relative, with the same numbers of source evaluations (7 and 5), all converged. The SZA 102° runs are new in 1.9.3 and the SZA 105° runs in 1.10.3; both read the same 1.9.0 table. |
 | `clear_34` command of `docs/PERFORMANCE.md` | 1.6.1 | engine | Both runs started from an empty work root on one GPU with the same NumPy and CuPy versions. The 1.9.0 table equals the 1.6.1 table in every element within a relative tolerance of 1e-3, with a largest difference of 6.3e-6, and has the same axes, KSPLIT factor and numbers of source evaluations (8, 6 and 6), all converged. Of the recorded settings, only the memory figures recorded with the KSPLIT choice differ. |
 | *NO₂ and O₄ in 1.1.0: engine against MYSTIC on the same input* | 1.1.0 development build | no | The MYSTIC input written with 1.7.0 differs from the recorded one in at most four absorption optical depths per file, by at most 4.4e-16 relative, and the files of state A with both absorbers written from the 1.9.0 export equal the 1.7.0 ones. At the sunward pixel of that state, the engine values of Figure 1 match the 1.1.0 values to 5.6e-7 relative at SZA 93°, 96° and 99°. We compared no other variant, state or pixel. |
 | *Bundled states against MYSTIC (1.9.0)*, Figure 3 | 1.9.0 | engine, three settings | The MYSTIC runs are those of 1.2.3, and the sha256 hashes of the 1,976 MYSTIC input files written from the 1.9.0 export match those recorded with the runs. Over the 96 cases the 1.9.0 engine radiance equals the 1.2.3 radiance within 2.0e-6 relative with 12 source nodes and order 16, 1.8e-6 with 24 source nodes or order 24. |
@@ -1140,7 +1157,8 @@ Rebuild Figure 1 from the CSVs with
 uv run --no-project --with matplotlib --with numpy python docs/validation/plot_validation.py
 ```
 
-This script reads `docs/validation/mystic_compare.csv` and `docs/validation/mystic_compare_102.csv` and writes `docs/validation/mystic_vs_engine.png` beside it. The
+This script reads `docs/validation/mystic_compare.csv`, `docs/validation/mystic_compare_102.csv` and
+`docs/validation/mystic_compare_105.csv` and writes `docs/validation/mystic_vs_engine.png` beside it. The
 PNG omits dates and software versions, so repeated runs with one matplotlib version give identical bytes. The CSV header
 defines the columns and ratio, lists the MYSTIC settings and gives the sha256 of the source records.
 
@@ -1174,8 +1192,8 @@ The script imports `figure_style.py` and reads `mystic_noise.csv`, `second_order
 `scattering_orders.csv` and `light_height.csv` next to it; each CSV header defines its columns and names the runs it
 records. These CSVs cannot be regenerated from this repository: the MYSTIC runs need the libRadtran build above, and the
 engine values come from the 1.9.2 package on a CUDA machine through research scripts not in this repository, which
-also hold the direct-quadrature code. `mystic_compare_102.csv` (Figure 1) records 1,380 MYSTIC runs on input written
-in the same way as that of `mystic_compare.csv`.
+also hold the direct-quadrature code. `mystic_compare_102.csv` and `mystic_compare_105.csv` (Figure 1) record
+1,380 and 6,360 MYSTIC runs on input written in the same way as that of `mystic_compare.csv`.
 
 The scripts in `docs/validation/mystic` produce `mystic_states.csv` with the installed package, and its `README.md`
 gives the commands, requirements and a small configuration. They export the shared optical input, build libRadtran

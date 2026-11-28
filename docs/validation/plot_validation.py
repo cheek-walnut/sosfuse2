@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Draw Figure 1 of docs/VALIDATION.md from docs/validation/mystic_compare.csv and mystic_compare_102.csv.
+"""Draw Figure 1 of docs/VALIDATION.md from docs/validation/mystic_compare.csv, mystic_compare_102.csv and
+mystic_compare_105.csv.
 
     uv run --no-project --with matplotlib --with numpy python docs/validation/plot_validation.py
 
 Reads the CSVs next to this file and writes mystic_vs_engine.png into the same folder. The output carries no
 date or software version, so repeated runs with one matplotlib version give identical bytes.
+
+One panel per solar zenith angle on a linear axis: both spectra are divided by the engine's 30-wavelength mean, so the
+panels compare spectral shape at radiance levels six orders of magnitude apart; the mean level is printed in each panel.
+The sixth panel gives the inverse-variance weighted mean of the MYSTIC / engine ratio over the 30 wavelengths.
 """
 import csv
 from pathlib import Path
@@ -14,16 +19,16 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-CSV = HERE / "mystic_compare.csv"
-CSV_102 = HERE / "mystic_compare_102.csv"  # solar zenith angle 102, from separate MYSTIC runs
+CSVS = [HERE / "mystic_compare.csv",       # solar zenith angles 93, 96 and 99
+        HERE / "mystic_compare_102.csv",   # 102, from separate MYSTIC runs
+        HERE / "mystic_compare_105.csv"]   # 105, from separate MYSTIC runs
 OUT = HERE / "mystic_vs_engine.png"
 
 # Okabe-Ito colours (distinguishable under the common colour-vision deficiencies); markers differ as well.
-STYLE = {93.0: ("#0072B2", "o", -4.5), 96.0: ("#D55E00", "s", -1.5), 99.0: ("#009E73", "^", 1.5),
-         102.0: ("#CC79A7", "D", 4.5)}
+STYLE = {93.0: ("#0072B2", "o"), 96.0: ("#D55E00", "s"), 99.0: ("#009E73", "^"), 102.0: ("#CC79A7", "D"),
+         105.0: ("#E69F00", "v")}
 
 
 def load(path):
@@ -38,8 +43,9 @@ def load(path):
 
 
 def main():
-    d, d102 = load(CSV), load(CSV_102)
-    d = {k: np.concatenate([d[k], d102[k]]) for k in d}
+    parts = [load(p) for p in CSVS]
+    keys = ["sza_deg", "wavelength_nm", "engine_I", "mystic_I", "ratio", "ratio_se"]
+    d = {k: np.concatenate([p[k] for p in parts]) for k in keys}
     plt.rcParams.update({
         "font.size": 10,
         "axes.spines.top": False,
@@ -48,36 +54,44 @@ def main():
         "axes.facecolor": "white",
         "savefig.facecolor": "white",
     })
-    fig, (ax1, ax2) = plt.subplots(
-        2, 1, sharex=True, figsize=(7.2, 6.4), gridspec_kw={"height_ratios": [3, 2], "hspace": 0.07})
+    fig, axs = plt.subplots(2, 3, figsize=(10.0, 6.4), gridspec_kw={"wspace": 0.28, "hspace": 0.42})
+    flat = axs.ravel()
 
-    for sza, (colour, marker, shift) in STYLE.items():
+    for ax, (sza, (colour, marker)) in zip(flat, STYLE.items()):
         m = d["sza_deg"] == sza
-        wl = d["wavelength_nm"][m]
-        ax1.plot(wl, d["engine_I"][m], "-", color=colour, lw=1.4)
-        ax1.plot(wl, d["mystic_I"][m], linestyle="none", marker=marker, ms=4.5, mfc="white", mec=colour, mew=1.1)
-        # Wavelength offsets keep the three sets of error bars from lying on top of each other.
-        ax2.errorbar(wl + shift, d["ratio"][m], yerr=d["ratio_se"][m], linestyle="none", marker=marker, ms=3.8,
-                     color=colour, elinewidth=0.9, capsize=0)
+        wl, eng, mys, rse = d["wavelength_nm"][m], d["engine_I"][m], d["mystic_I"][m], d["ratio_se"][m]
+        level = eng.mean()
+        ax.plot(wl, eng / level, "-", color=colour, lw=1.6)
+        # ratio_se * engine_I is the standard error of mystic_I.
+        ax.errorbar(wl, mys / level, yerr=rse * eng / level, linestyle="none", marker=marker, ms=3.6, mfc="white",
+                    mec=colour, mew=1.0, color=colour, elinewidth=0.8, capsize=0)
+        ax.set_title(f"SZA {int(sza)}°  (sun −{int(sza) - 90}°)", fontsize=10, loc="left")
+        ax.text(0.03, 0.97, f"mean {level:.1e} sr$^{{-1}}$", transform=ax.transAxes, ha="left", va="top", fontsize=8,
+                color="0.3")
+        ax.set_xlim(350, 840)
+        ax.set_xticks([400, 500, 600, 700, 800])
+        ax.set_ylim(0.3, 1.6)
+    for ax in axs[:, 0]:
+        ax.set_ylabel("radiance / engine mean")
+    for ax in list(axs[1, :2]) + [axs[0, 2]]:
+        ax.set_xlabel("wavelength (nm)")
 
-    ax1.set_yscale("log")
-    ax1.set_ylim(2e-8, 6e-2)
-    ax1.set_ylabel(r"radiance $L/E_0$ (sr$^{-1}$)")
-    handles = [Line2D([], [], color=c, marker=mk, mfc="white", mec=c, mew=1.1, ms=4.5, lw=1.4, label=f"SZA {int(s)}°")
-               for s, (c, mk, _) in STYLE.items()]
-    handles += [Line2D([], [], color="0.3", lw=1.4, label="engine"),
-                Line2D([], [], color="0.3", linestyle="none", marker="o", mfc="white", mec="0.3", mew=1.1, ms=4.5,
-                       label="MYSTIC")]
-    ax1.legend(handles=handles, loc="upper center", ncol=3, frameon=False, handlelength=2.2, columnspacing=1.6)
+    summary = flat[5]
+    for sza, (colour, marker) in STYLE.items():
+        m = d["sza_deg"] == sza
+        w = 1.0 / d["ratio_se"][m] ** 2
+        mean, err = np.sum(w * d["ratio"][m]) / np.sum(w), 1.0 / np.sqrt(np.sum(w))
+        summary.errorbar([sza], [mean], yerr=[err], marker=marker, ms=6, color=colour, mfc="white", mec=colour, mew=1.2,
+                         elinewidth=1.1, capsize=2)
+    summary.axhline(1.0, color="0.15", lw=0.8)
+    summary.set_xticks(list(STYLE))
+    summary.set_xlim(91, 107)
+    summary.set_ylim(0.97, 1.03)
+    summary.set_title("30 wavelengths, weighted", fontsize=10, loc="left")
+    summary.set_xlabel("solar zenith angle (°)")
+    summary.set_ylabel("MYSTIC / engine")
+    fig.text(0.5, 0.955, "lines: engine   markers: MYSTIC (±1 standard error)", ha="center", fontsize=9.5, color="0.3")
 
-    ax2.axhline(1.0, color="0.15", lw=0.8)
-    ax2.set_ylim(0.82, 1.18)
-    ax2.set_ylabel("MYSTIC / engine")
-    ax2.set_xlabel("wavelength (nm)")
-    ax2.set_xlim(350, 840)
-    ax1.tick_params(labelbottom=False)
-
-    fig.align_ylabels([ax1, ax2])
     fig.savefig(OUT, dpi=150, metadata={"Software": None}, facecolor="white", transparent=False,
                 bbox_inches="tight", pad_inches=0.15)
     plt.close(fig)

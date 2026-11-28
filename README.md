@@ -24,19 +24,21 @@ For a first contribution, follow [Your first change](CONTRIBUTING.md).
 For production runs, `src/sosfuse2/jobs/run_storage.py` checks existing output, takes locks and writes the arrays. The
 [task table](AGENTS.md) pairs each area with the test to run after editing it.
 
-![Engine and MYSTIC radiance spectra and their ratio at solar zenith angles 93°, 96°, 99° and 102°](docs/validation/mystic_vs_engine.png)
+![Engine and MYSTIC radiance spectra at solar zenith angles 93°, 96°, 99°, 102° and 105°, each divided by the engine's mean, and the mean MYSTIC / engine ratio at each angle](docs/validation/mystic_vs_engine.png)
 
-The top panel compares 1.9.0 engine radiance with MYSTIC Monte Carlo radiance for the same optical input at the sunward
-pixel (20.25° view elevation, 0.5° relative azimuth). Solar zenith angles (SZA) of 93°, 96°, 99° and 102° correspond to
-solar elevations of −3°, −6°, −9° and −12°, and radiance is divided by solar irradiance (L/E₀) at 30 wavelengths. The
-bottom panel shows the MYSTIC / engine ratio with MYSTIC standard errors: ratios span 0.966–1.068 up to SZA 99° and
-0.884–1.098 at 102°, where each wavelength carries a 4–6 % MYSTIC standard error (inverse-variance mean at 102°:
-1.0085 ± 0.0088).
+The figure compares 1.9.0 engine radiance with MYSTIC Monte Carlo radiance for the same optical input at the sunward
+pixel (20.25° view elevation, 0.5° relative azimuth). Solar zenith angles (SZA) of 93°, 96°, 99°, 102° and 105°
+correspond to solar elevations of −3°, −6°, −9°, −12° and −15°, and radiance is divided by solar irradiance (L/E₀) at 30
+wavelengths. Over that range the mean radiance falls by a factor of about 3 × 10⁵, so each panel divides both spectra by
+the engine's 30-wavelength mean and compares their shape on a linear axis. Ratios span 0.966–1.068 up to SZA 99°, where
+each wavelength carries a MYSTIC standard error of at most 2.5 %. They span 0.884–1.098 at 102° and 0.956–1.100 at 105°,
+where the standard errors are 4–6 % and 3–4 %. The last panel gives the inverse-variance mean ratio at each angle: 1.0085 ±
+0.0088 at 102° and 1.0022 ± 0.0073 at 105°.
 
-Beyond 102°, single MYSTIC runs return little or no signal, so `docs/VALIDATION.md` turns to a direct quadrature of
-second-order scattering and to SASKTRAN2. The eight-state comparison at 93° and 96° (mean ratio minus 1 of +0.10 %, root
-mean square 0.63 % over 96 cases) appears as Figure 3 of `docs/VALIDATION.md`, and scripts in `docs/validation/mystic`
-repeat it.
+At 105°, MYSTIC needed 212 runs of 25 million photons at each wavelength to reach that standard error. For deeper
+twilight, `docs/VALIDATION.md` turns to a direct quadrature of second-order scattering and to SASKTRAN2. The eight-state
+comparison at 93° and 96° (mean ratio minus 1 of +0.10 %, root mean square 0.63 % over 96 cases) appears as Figure 3 of
+`docs/VALIDATION.md`, and scripts in `docs/validation/mystic` repeat it.
 
 ## Install
 

@@ -3,6 +3,18 @@
 Release changes from 1.2.0 on, newest first. Versions 1.0.0 to 1.2.3 were published together, and earlier entries are
 not reconstructed here. The 1.1.0 absorber changes (NO₂ and O₄) are described in `docs/VALIDATION.md`. From 1.6.0, full-grid runs can extend above the default 80 km boundary. The main change to default output came in 1.5.0: a state without a `density` block, run without density options, now uses `usstd76`/`usstd76`/`usstd` instead of `exp8`/`triangle`/`keep` (README, *Limitations*). In 1.2.3 the bundled `states_v2.json` states began including the stratospheric sulfate layer, and the CLI has no `--stratosphere off` option.
 
+## 1.10.3
+
+- **Figure 1 reaches solar zenith angle 105°.** MYSTIC runs at SZA 105° (solar elevation −15°) join the same-input
+  comparison: 6,360 runs on the input of the other angles, compared with the −15° row of the same 1.9.0 engine table.
+  The inverse-variance mean MYSTIC / engine ratio over 30 wavelengths is 1.0022 ± 0.0073, with per-wavelength standard
+  errors of 3.4–4.4 %. Tables 1 and 2 of `docs/VALIDATION.md` gain a 105° row, and the data are in
+  `docs/validation/mystic_compare_105.csv`.
+- **Figure 1 layout.** The figure, also the README figure, no longer overlays the spectra on a logarithmic axis, where
+  differences of a few per cent were too small to see. Each solar zenith angle has its own panel on a linear axis, with
+  both spectra divided by the engine's 30-wavelength mean, and a sixth panel gives the mean ratio at each angle.
+  The package code is unchanged.
+
 ## 1.10.2
 
 - **Tests on Linux x86-64.** The numerical equivalence check used by the tests now allows rounding noise down to
